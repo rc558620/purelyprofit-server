@@ -117,6 +117,34 @@ export default () => ({
       process.env.APP_CLIENT_ERROR_DETAILS_MAX_LENGTH ?? '2000',
       10,
     ),
+    /**
+     * 前端 bundle 所在的可信域名（逗号分隔）。
+     * 用于判定堆栈是否来自本站代码：bundle 部署在独立 CDN 域名时，
+     * 仅靠 app.url 的 host 会误判成第三方脚本错误。
+     * 对应环境变量：APP_CLIENT_ERROR_APP_HOSTS
+     * 示例：profit.example.com,static.example.com
+     */
+    clientErrorAppHosts: parseStringList(
+      process.env.APP_CLIENT_ERROR_APP_HOSTS,
+    ),
+    /**
+     * 采样降噪窗口（秒）：同一 aggregateKey 在该窗口内最多记录
+     * clientErrorSampleMaxPerWindow 条，超出部分只计数不落日志。
+     * 对应环境变量：APP_CLIENT_ERROR_SAMPLE_WINDOW_SECONDS
+     */
+    clientErrorSampleWindowSeconds: parseInt(
+      process.env.APP_CLIENT_ERROR_SAMPLE_WINDOW_SECONDS ?? '60',
+      10,
+    ),
+    /**
+     * 采样降噪窗口内同一 aggregateKey 的最大落日志条数。
+     * 0 表示不做降噪（每条都记）。
+     * 对应环境变量：APP_CLIENT_ERROR_SAMPLE_MAX_PER_WINDOW
+     */
+    clientErrorSampleMaxPerWindow: parseInt(
+      process.env.APP_CLIENT_ERROR_SAMPLE_MAX_PER_WINDOW ?? '5',
+      10,
+    ),
     throttleTtlSeconds: parseInt(
       process.env.APP_THROTTLE_TTL_SECONDS ?? '60',
       10,

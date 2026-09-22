@@ -257,10 +257,6 @@ describe('PulseDashboardHomeService', () => {
   });
 
   it('getHome 带 region 时会把 region 传给 partnerTop SQL 查询', async () => {
-    const queryPartnerTopSpy = jest.spyOn(
-      service as never,
-      'queryPartnerTop' as never,
-    );
     prismaService.storePartner.count
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
@@ -277,12 +273,11 @@ describe('PulseDashboardHomeService', () => {
 
     await service.getHome(user, { revenuePeriod: 'month', region: '深圳' });
 
-    expect(queryPartnerTopSpy).toHaveBeenCalledWith('深圳', undefined);
+    expect(serializeQueryRawCall(0)).toContain('%深圳%');
     expect(prismaService.$queryRaw).toHaveBeenCalled();
   });
 
   it('getHome 同时带 region 与 regionCode 时，SQL 按「名称 OR 编码」匹配整条 region', async () => {
-    jest.spyOn(service as never, 'queryPartnerTop' as never);
     prismaService.storePartner.count
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
@@ -314,7 +309,6 @@ describe('PulseDashboardHomeService', () => {
   });
 
   it('getHome 不带地区筛选时不拼接地区条件', async () => {
-    jest.spyOn(service as never, 'queryPartnerTop' as never);
     prismaService.storePartner.count
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)

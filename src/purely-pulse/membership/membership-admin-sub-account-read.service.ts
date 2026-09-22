@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PlatformMembershipAccessService } from '../../purely-profit/member/platform-membership/platform-membership-access.service';
 import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseAdminSubAccountDetail } from './membership.types';
 
 @Injectable()

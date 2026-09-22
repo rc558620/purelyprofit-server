@@ -32,6 +32,30 @@ export interface OrderAmountBreakdown {
   payableAmount: number;
 }
 
+/** 订单项创建数据，含行级优惠分摊结果。 */
+export interface ScanOrderingOrderItemCreateData {
+  storeId: number;
+  menuProductId: number;
+  productNameSnapshot: string;
+  productImageUrlSnapshot: string | null;
+  categoryNameSnapshot: string;
+  specSignature: string;
+  quantity: number;
+  basePriceSnapshot: number;
+  unitPriceAmount: number;
+  lineTotalAmount: number;
+  discountAmount: number;
+  payableLineAmount: number;
+  sortOrder: number;
+  specs: {
+    create: Array<{
+      specOptionId: number;
+      specOptionNameSnapshot: string;
+      extraPriceSnapshot: number;
+    }>;
+  };
+}
+
 export interface PreviewResult {
   sessionId: number;
   guestCount: number;

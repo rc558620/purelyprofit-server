@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { isSpaceSessionDeductionProductId } from './space-session-settlement.shared';
+import { isSpaceSessionDeductionProductId } from './space-session-settlement-system-item.shared';
 import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,

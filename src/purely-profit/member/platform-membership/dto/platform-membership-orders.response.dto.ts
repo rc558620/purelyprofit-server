@@ -8,11 +8,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
+import { PLATFORM_MEMBERSHIP_ORDER_STATUS } from './platform-membership-enums.dto';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from './platform-membership-query.dto';
-import {
-  PLATFORM_MEMBERSHIP_ORDER_STATUS,
-  PlatformMembershipProfileResponseDto,
-} from './platform-membership-shared.response.dto';
+import { PlatformMembershipProfileResponseDto } from './platform-membership-shared.response.dto';
 
 export class PlatformMembershipOrderResponseDto {
   @ApiProperty({ example: '21', description: '订单 ID' })

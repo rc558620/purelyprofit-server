@@ -18,11 +18,9 @@ import type {
   PulseAdminMemberPointsLogsResponseDto,
 } from './dto/pulse-membership-admin-logs.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
-import type {
-  PulseAdminEmployeeCandidateDto,
-  PulseAdminMembersResponseDto,
-  PulseMemberDetailDto,
-} from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
+import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
+import type { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
 import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
 import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import type { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';

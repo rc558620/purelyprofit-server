@@ -1,18 +1,197 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { resolveStoredMembershipLevel } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
+import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { DAY_MS } from './membership.constants';
 import type {
   PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
   PulseAdminMembershipProfileRecord,
+  PulseMembershipPlanId,
 } from './membership.types';
 
 @Injectable()
 export class PulseMembershipAdminMembershipMutationService {
+  private readonly logger = new Logger(
+    PulseMembershipAdminMembershipMutationService.name,
+  );
+
   constructor(
     private readonly platformMembershipService: PlatformMembershipService,
+    private readonly prisma: PrismaService,
+    private readonly lockedPriceService: StoreMembershipLockedPriceService,
+    private readonly mutationStateService: PulseMembershipAdminMutationStateService,
   ) {}
+
+  /**
+   * 落盘管理员设置的会员档位：解析目标档位 → 校验降级确认 → 写 profile
+   * → 失效派生缓存 → 首次设置该档位时写入首购锁定价。
+   *
+   * 只负责「档案怎么写」，鉴权与详情重建由上层编排服务负责。
+   */
+  async applyAdminMembershipLevel(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminMembershipMutationInput,
+  ): Promise<void> {
+    const nextLevel = this.resolveAdminMemberLevel(dto);
+    const current =
+      await this.mutationStateService.loadAdminMemberStateOrThrow(memberId);
+    this.assertFreeDowngradeConfirmed(current.profile, dto, nextLevel);
+    const nextExpiry = await this.resolveAdminMembershipExpiry(dto, nextLevel);
+    const nextPlanId = this.toMembershipPlanId(nextLevel);
+    const nextPreviousPlanId = this.resolveNextPreviousPlanId({
+      profile: current.profile,
+      nextPlanId,
+    });
+    const now = new Date();
+
+    this.logMembershipLevelMutation({
+      user,
+      memberId,
+      previousPlanId: current.profile.currentPlanId,
+      previousExpiresAt: current.profile.expiresAt,
+      nextLevel,
+      nextPlanId,
+      nextExpiry,
+      dto,
+    });
+
+    await this.prisma.storeMembershipProfile.upsert({
+      where: { storeId: memberId },
+      create: {
+        storeId: memberId,
+        currentPlanId: nextPlanId,
+        // 降级为免费时转存原档位：currentPlanId 被清空后，续费页只能靠它
+        // 判断「原本买的是哪一档」，否则永久会员会丢掉 AGES 续费入口
+        previousPlanId: nextPreviousPlanId,
+        // startsAt 始终落盘：即使降级为免费也保留，表示档案已被显式管理，
+        // 避免 /center 的订单重建逻辑（normalizeMembershipProfileFromPaidOrders）
+        // 把「管理员设置的免费」误判为「档案缺失」而用历史付费订单恢复会员
+        startsAt: now,
+        expiresAt: nextExpiry,
+        totalPoints: current.profile.totalPoints,
+        availablePoints: current.profile.availablePoints,
+      },
+      update: {
+        currentPlanId: nextPlanId,
+        previousPlanId: nextPreviousPlanId,
+        startsAt: now,
+        expiresAt: nextExpiry,
+      },
+    });
+
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
+
+    // 首次设置该档位时把成交价写入「首购锁定价」；已存在则不覆盖（锁定语义）
+    await this.lockFirstDealPrice({
+      storeId: memberId,
+      nextPlanId: nextLevel,
+      priceDisplay: dto.priceDisplay,
+    });
+  }
+
+  /** 重置门店的首购锁定价，让运营可以在下一次成交时重新锁价。返回清除条数。 */
+  async resetAdminMemberLockedPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<number> {
+    const clearedCount =
+      await this.lockedPriceService.resetLockedPrices(memberId);
+    this.logger.warn(
+      JSON.stringify({
+        event: 'pulse_admin_membership_locked_price_reset',
+        memberId,
+        operatorUserId: user.id,
+        operatorEmail: user.email,
+        clearedCount,
+      }),
+    );
+
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
+
+    return clearedCount;
+  }
+
+  private logMembershipLevelMutation(params: {
+    user: AuthenticatedUser;
+    memberId: number;
+    previousPlanId: PulseMembershipPlanId | null;
+    previousExpiresAt: Date | null;
+    nextLevel: PulseAdminMemberLevel;
+    nextPlanId: PulseMembershipPlanId | null;
+    nextExpiry: Date | null;
+    dto: PulseAdminMembershipMutationInput;
+  }): void {
+    const {
+      user,
+      memberId,
+      previousPlanId,
+      previousExpiresAt,
+      nextLevel,
+      nextPlanId,
+      nextExpiry,
+      dto,
+    } = params;
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'pulse_admin_membership_level_mutation',
+        memberId,
+        operatorUserId: user.id,
+        operatorEmail: user.email,
+        previousPlanId,
+        previousExpiresAt: previousExpiresAt?.toISOString() ?? null,
+        nextLevel,
+        nextPlanId,
+        nextExpiry: nextExpiry?.toISOString() ?? null,
+        confirmDowngradeToFree: dto.confirmDowngradeToFree ?? false,
+        actionSource: dto.actionSource ?? 'unknown',
+        requestId: dto.auditContext?.requestId ?? null,
+        ip: dto.auditContext?.ip ?? null,
+        userAgent: dto.auditContext?.userAgent ?? null,
+      }),
+    );
+  }
+
+  /** 首次成交价快照：仅在带成交价且档位可购买时写入，已存在不覆盖 */
+  private async lockFirstDealPrice(params: {
+    storeId: number;
+    nextPlanId: PulseAdminMemberLevel | null;
+    priceDisplay?: string;
+  }): Promise<void> {
+    const { storeId, nextPlanId, priceDisplay } = params;
+    const planId = nextPlanId ? this.toMembershipPlanId(nextPlanId) : null;
+    const price = this.resolvePriceFen(priceDisplay);
+
+    if (!planId || price === null) {
+      return;
+    }
+
+    await this.lockedPriceService.lockPriceOnFirstDeal({
+      storeId,
+      planId,
+      price,
+      source: 'admin',
+    });
+  }
+
+  /** 元字符串成交价 → 分；缺失或非法时返回 null（不写入锁定价） */
+  private resolvePriceFen(priceDisplay?: string): number | null {
+    if (typeof priceDisplay !== 'string') {
+      return null;
+    }
+
+    const parsedValue = Number.parseFloat(priceDisplay.trim());
+    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+      return null;
+    }
+
+    return Math.round(parsedValue * 100);
+  }
 
   resolveAdminMemberLevel(
     dto: PulseAdminMembershipMutationInput,

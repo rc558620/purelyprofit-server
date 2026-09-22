@@ -1,5 +1,5 @@
 import { Money, toTimestampMs } from '../../commerce/commerce.utils';
-import { sumSelfOrderDeductionMoney } from './space-session-settlement.shared';
+import { sumSelfOrderDeductionMoney } from './space-session-settlement-system-item.shared';
 import { parseAssignmentsJson } from '../commission/commission.utils';
 import type {
   SpaceSessionItemResponseDto,

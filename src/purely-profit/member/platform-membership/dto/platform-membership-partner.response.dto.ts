@@ -15,8 +15,8 @@ import {
 import {
   PLATFORM_PARTNER_LEVEL_VALUES,
   PLATFORM_PARTNER_STATUS,
-  PlatformMembershipApprovedPartnerDto,
-} from './platform-membership-shared.response.dto';
+} from './platform-membership-enums.dto';
+import { PlatformMembershipApprovedPartnerDto } from './platform-membership-shared.response.dto';
 
 export class PlatformMembershipPartnerFollowUpNoteDto {
   @ApiProperty({ example: 'note_1', description: '备注 ID' })

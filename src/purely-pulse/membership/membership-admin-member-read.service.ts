@@ -2,10 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
-import type {
-  PulseMemberDetailDto,
-  PulseMemberListItemDto,
-} from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
+import type { PulseMemberListItemDto } from './dto/pulse-membership-admin-members.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
 import {
   buildPulseAdminMemberDetail,

@@ -1,6 +1,5 @@
 import cluster from 'node:cluster';
 import { PassThrough } from 'node:stream';
-import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -25,6 +24,7 @@ import {
 import { validateProductionConfiguration } from './production-config.utils';
 import { createRequestIdGenerator } from './request-id.utils';
 import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
+import { TelemetryValidationPipe } from '../shared/telemetry-validation.pipe';
 import { registerScanOrderingNativeWebsocket } from './scan-ordering-native-websocket';
 import { registerPrintAgentNativeWebsocket } from './print-agent-native-websocket';
 
@@ -108,16 +108,9 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
 async function registerGlobalPlugins(
   app: NestFastifyApplication,
 ): Promise<void> {
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
+  // 业务接口严格校验；标记为 telemetryReport 的遥测上报 DTO 走宽松分支。
+  // 细节见 TelemetryValidationPipe。
+  app.useGlobalPipes(new TelemetryValidationPipe());
 
   // HTTP 安全头：X-Content-Type-Options、X-Frame-Options、Strict-Transport-Security 等
   // 必须在 CORS 和 compress 之前注册，确保所有响应都携带安全头

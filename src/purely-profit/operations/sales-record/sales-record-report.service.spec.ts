@@ -5,8 +5,8 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { buildCsvRowFromOrder } from './sales-record-report-csv';
 import { SalesRecordReportService } from './sales-record-report.service';
-import { buildCsvRowFromOrder } from './sales-record-report.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
 
 describe('SalesRecordReportService', () => {

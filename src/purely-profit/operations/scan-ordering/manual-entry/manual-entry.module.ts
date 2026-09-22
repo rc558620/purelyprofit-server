@@ -8,6 +8,9 @@ import { RedisModule } from '../../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { ManualEntryController } from './manual-entry.controller';
 import { PlatformMembershipAccessModule } from '../../../member/platform-membership/platform-membership-access.module';
+import { ManualEntryIdempotencyService } from './manual-entry-idempotency.service';
+import { ManualEntryOrderValidator } from './manual-entry-order-validator.service';
+import { ManualEntryScanOrderWriter } from './manual-entry-scan-order-writer.service';
 import { ManualEntryMenuService } from './manual-entry-menu.service';
 import { ManualEntryOrderDetailService } from './manual-entry-order-detail.service';
 import { ManualEntryOrderService } from './manual-entry-order.service';
@@ -32,6 +35,10 @@ import { ManualEntryStockService } from './manual-entry-stock.service';
     ManualEntryOrderDetailService,
     ManualEntryPricingService,
     ManualEntryStockService,
+    // 建单编排的下游协作服务：幂等、表单校验与 ScanOrders 落库
+    ManualEntryIdempotencyService,
+    ManualEntryOrderValidator,
+    ManualEntryScanOrderWriter,
   ],
   exports: [ManualEntryOrderDetailService],
 })

@@ -7,12 +7,12 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import { PLATFORM_MEMBERSHIP_PLAN_IDS } from './platform-membership-query.dto';
 import {
   PLATFORM_BEAN_RECORD_SOURCES,
   PLATFORM_BEAN_RECORD_TYPES,
-  PlatformMembershipApprovedPartnerDto,
-} from './platform-membership-shared.response.dto';
+} from './platform-membership-enums.dto';
+import { PLATFORM_MEMBERSHIP_PLAN_IDS } from './platform-membership-query.dto';
+import { PlatformMembershipApprovedPartnerDto } from './platform-membership-shared.response.dto';
 
 export class PlatformMembershipBeanOverviewDto {
   @ApiProperty({ example: 114, description: '当前纯利豆余额' })

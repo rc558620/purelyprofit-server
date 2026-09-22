@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { ScanOrderingPromotionAdapter } from './scan-ordering-promotion.adapter';
@@ -6,10 +7,19 @@ import type {
   PromotionAdapterInput,
   PromotionAdapterResult,
 } from './scan-ordering-promotion.adapter';
+import {
+  allocateLineDiscounts,
+  buildPreviewBreakdownItems,
+  computeCartVersion,
+  priceLineItem,
+  requireSellableProduct,
+  resolveCartItemSpecs,
+} from './club-scan-ordering-cart-pricing.utils';
 import type {
   OrderAmountBreakdown,
   PricedCartItem,
   PreviewResult,
+  ScanOrderingOrderItemCreateData,
 } from './club-scan-ordering-order.types';
 import type { PreviewClubScanOrderDto } from './dto/club-scan-ordering.dto';
 
@@ -57,86 +67,34 @@ export class ClubScanOrderingCartPricingService {
       );
     }
     return cartItems.map((cartItem) => {
-      const product = products.find(
-        (item) => item.id === cartItem.menuProductId,
+      const product = requireSellableProduct(
+        products.find((item) => item.id === cartItem.menuProductId),
+        cartItem.quantity,
       );
-      const inventoryProduct = product?.product;
-      // 可用库存 = 总库存 - 已下单未接单的预留量（接单后才真正扣减）
-      const baseStock = inventoryProduct
-        ? inventoryProduct.stock
-        : (product?.stockQuantity ?? 0);
-      const availableStock = baseStock - (product?.reservedQuantity ?? 0);
-      if (
-        !product ||
-        !product.isActive ||
-        product.deletedAt ||
-        (inventoryProduct &&
-          (!inventoryProduct.isActive || inventoryProduct.deletedAt)) ||
-        product.stockMode === 'sold_out' ||
-        (product.stockMode === 'finite' &&
-          (availableStock ?? 0) < cartItem.quantity)
-      ) {
-        throw new ConflictException('商品已售罄或库存不足');
-      }
-      const selectedIds = new Set(
+      const specs = resolveCartItemSpecs(
+        product.specGroups,
         cartItem.specs.map((spec) => spec.specOptionId),
       );
-      const specs = product.specGroups.flatMap((group) =>
-        group.options
-          .filter((option) => selectedIds.has(option.id) && option.isActive)
-          .map((option) => ({
-            specOptionId: option.id,
-            name: option.name,
-            extraPrice: option.extraPrice,
-          })),
+      const { unitPriceAmount, lineTotalAmount } = priceLineItem(
+        product.basePrice,
+        specs,
+        cartItem.quantity,
       );
-      if (specs.length !== selectedIds.size) {
-        throw new ConflictException('商品规格已更新，请重新选择');
-      }
-      this.ensureValidSpecificationSelection(product.specGroups, specs);
-      const basePriceMoney = Money.fromDbCents(product.basePrice);
-      const specExtraMoney = specs.reduce<Money>(
-        (sum, spec) => sum.add(Money.fromDbCents(spec.extraPrice)),
-        Money.zero(),
-      );
-      const unitPriceMoney = basePriceMoney.add(specExtraMoney);
-      const lineTotalMoney = unitPriceMoney.multiply(cartItem.quantity);
       return {
         cartItemId: cartItem.id,
         productId: product.id,
         inventoryProductId: product.productId,
         productName: product.name,
-        productImageUrl: inventoryProduct?.image ?? product.imageUrl,
+        productImageUrl: product.product?.image ?? product.imageUrl,
         categoryName: product.category.name,
         quantity: cartItem.quantity,
         specSignature: cartItem.specSignature,
         basePrice: product.basePrice,
-        unitPriceAmount: unitPriceMoney.toDbCents(),
-        lineTotalAmount: lineTotalMoney.toDbCents(),
+        unitPriceAmount,
+        lineTotalAmount,
         specs,
       };
     });
-  }
-
-  private ensureValidSpecificationSelection(
-    groups: Array<{
-      minSelections: number;
-      maxSelections: number | null;
-      options: Array<{ id: number }>;
-    }>,
-    selectedSpecs: Array<{ specOptionId: number }>,
-  ): void {
-    for (const group of groups) {
-      const selectedCount = selectedSpecs.filter((spec) =>
-        group.options.some((option) => option.id === spec.specOptionId),
-      ).length;
-      if (
-        selectedCount < group.minSelections ||
-        (group.maxSelections !== null && selectedCount > group.maxSelections)
-      ) {
-        throw new ConflictException('商品规格已更新，请重新选择');
-      }
-    }
   }
 
   async resolvePromotions(
@@ -227,55 +185,19 @@ export class ClubScanOrderingCartPricingService {
     amounts: OrderAmountBreakdown,
     promotion: PromotionAdapterResult,
   ): PreviewResult {
-    const breakdownItems: Array<{
-      type: string;
-      label: string;
-      amount: number;
-      isStrikethrough?: boolean;
-    }> = [
-      { type: 'item', label: '商品原价', amount: amounts.itemOriginalAmount },
-    ];
-    for (const item of promotion.breakdownItems) {
-      breakdownItems.push(item);
-    }
-    if (amounts.serviceFeeAmount > 0) {
-      breakdownItems.push({
-        type: 'service_fee',
-        label: '服务费',
-        amount: amounts.serviceFeeAmount,
-      });
-    }
-    if (amounts.taxAmount > 0) {
-      breakdownItems.push({
-        type: 'tax',
-        label: '税费',
-        amount: amounts.taxAmount,
-      });
-    }
+    // 原价（分）= 商品原价 + 规格加价；总优惠由后端计算，前端只读展示
+    const originalAmount =
+      amounts.itemOriginalAmount + amounts.specificationExtraAmount;
     return {
       sessionId,
       guestCount: dto.guestCount,
       remark: dto.remark ?? null,
       cartVersion,
       pricingVersion,
-      itemOriginalAmount: amounts.itemOriginalAmount,
-      specificationExtraAmount: amounts.specificationExtraAmount,
-      productDiscountAmount: amounts.productDiscountAmount,
-      orderDiscountAmount: amounts.orderDiscountAmount,
-      serviceFeeAmount: amounts.serviceFeeAmount,
-      taxAmount: amounts.taxAmount,
-      payableAmount: amounts.payableAmount,
-      // 总优惠（分）：原价 = 商品原价 + 规格加价；后端计算，前端只读展示
-      totalSavingAmount: Math.max(
-        amounts.itemOriginalAmount +
-          amounts.specificationExtraAmount -
-          amounts.payableAmount,
-        0,
-      ),
+      ...amounts,
+      totalSavingAmount: Math.max(originalAmount - amounts.payableAmount, 0),
       totalSavingWithPoints: Math.max(
-        amounts.itemOriginalAmount +
-          amounts.specificationExtraAmount -
-          promotion.afterPointsPayableAmount,
+        originalAmount - promotion.afterPointsPayableAmount,
         0,
       ),
       pointsDeductAmount: promotion.pointsDeductAmount,
@@ -283,7 +205,7 @@ export class ClubScanOrderingCartPricingService {
       afterPointsPayableAmount: promotion.afterPointsPayableAmount,
       redeemRatioPoints: promotion.redeemRatioPoints,
       availablePoints: promotion.availablePoints,
-      breakdownItems,
+      breakdownItems: buildPreviewBreakdownItems(amounts, promotion),
       availableCoupons: promotion.availableCoupons,
       appliedPromotions: promotion.appliedPromotions,
       items,
@@ -291,7 +213,7 @@ export class ClubScanOrderingCartPricingService {
   }
 
   async reserveFiniteSpecStock(
-    tx: import('@prisma/client').Prisma.TransactionClient,
+    tx: Prisma.TransactionClient,
     items: PricedCartItem[],
   ): Promise<void> {
     const quantities = new Map<number, number>();
@@ -339,66 +261,19 @@ export class ClubScanOrderingCartPricingService {
     }
   }
 
-  /**
-   * 构建订单项创建数据，包含优惠分摊。
-   *
-   * 优惠按行金额比例分摊，余数分配到最后一个订单项，
-   * 确保各订单项 discountAmount 之和精确等于总商品级优惠。
-   */
+  /** 构建订单项创建数据，优惠分摊见 {@link allocateLineDiscounts}。 */
   buildOrderItemCreateData(
     items: PricedCartItem[],
     productDiscountAmount: number,
     storeId: number,
-  ): Array<{
-    storeId: number;
-    menuProductId: number;
-    productNameSnapshot: string;
-    productImageUrlSnapshot: string | null;
-    categoryNameSnapshot: string;
-    specSignature: string;
-    quantity: number;
-    basePriceSnapshot: number;
-    unitPriceAmount: number;
-    lineTotalAmount: number;
-    discountAmount: number;
-    payableLineAmount: number;
-    sortOrder: number;
-    specs: {
-      create: Array<{
-        specOptionId: number;
-        specOptionNameSnapshot: string;
-        extraPriceSnapshot: number;
-      }>;
-    };
-  }> {
-    const totalDiscount = Money.fromDbCents(productDiscountAmount);
-    const totalLineAmount = Money.sum(
-      items.map((item) => Money.fromDbCents(item.lineTotalAmount)),
-    );
-
-    let allocatedDiscount = Money.zero();
+  ): ScanOrderingOrderItemCreateData[] {
+    const discountAmounts = allocateLineDiscounts(items, productDiscountAmount);
 
     return items.map((item, index) => {
-      const lineAmount = Money.fromDbCents(item.lineTotalAmount);
-      let itemDiscount: Money;
-
-      if (index === items.length - 1) {
-        // 最后一个订单项承担余数，确保总额精确
-        itemDiscount = totalDiscount.subtract(allocatedDiscount);
-      } else if (totalLineAmount.toDbCents() > 0) {
-        // 按行金额比例分摊
-        itemDiscount = Money.fromDbCents(
-          Math.floor(
-            (lineAmount.toDbCents() * totalDiscount.toDbCents()) /
-              totalLineAmount.toDbCents(),
-          ),
-        );
-        allocatedDiscount = allocatedDiscount.add(itemDiscount);
-      } else {
-        itemDiscount = Money.zero();
-      }
-
-      const payableLineAmount = lineAmount.subtractClampedToZero(itemDiscount);
+      const discountAmount = discountAmounts[index];
+      const payableLineAmount = Money.fromDbCents(
+        item.lineTotalAmount,
+      ).subtractClampedToZero(Money.fromDbCents(discountAmount));
 
       return {
         storeId,
@@ -411,7 +286,7 @@ export class ClubScanOrderingCartPricingService {
         basePriceSnapshot: item.basePrice,
         unitPriceAmount: item.unitPriceAmount,
         lineTotalAmount: item.lineTotalAmount,
-        discountAmount: itemDiscount.toDbCents(),
+        discountAmount,
         payableLineAmount: payableLineAmount.toDbCents(),
         sortOrder: index,
         specs: {
@@ -426,9 +301,6 @@ export class ClubScanOrderingCartPricingService {
   }
 
   cartVersion(items: PricedCartItem[]): number {
-    return items.reduce(
-      (sum, item) => sum + item.quantity + item.unitPriceAmount,
-      0,
-    );
+    return computeCartVersion(items);
   }
 }

@@ -10,8 +10,8 @@ import {
 import {
   PLATFORM_POINTS_RECORD_SOURCES,
   PLATFORM_POINTS_RECORD_TYPES,
-  PlatformMembershipInfoDto,
-} from './platform-membership-shared.response.dto';
+} from './platform-membership-enums.dto';
+import { PlatformMembershipInfoDto } from './platform-membership-shared.response.dto';
 
 export class PlatformMembershipPointsOverviewDto {
   @ApiProperty({ example: 1280, description: '可用积分' })

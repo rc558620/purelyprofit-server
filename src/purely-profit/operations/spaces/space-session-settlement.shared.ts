@@ -1,13 +1,24 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import {
-  SELF_ORDER_DEDUCTION_PRODUCT_ID,
-  SELF_ORDER_DEDUCTION_PRODUCT_NAME,
-} from '../../commerce/commerce.utils';
-import {
   sumLineTotalMoney,
   sumLineProfitMoney,
 } from './space-session-items.shared';
+import {
+  buildSelfOrderDeductionOrderItems,
+  resolvePrepaidDeductionOrderItem,
+  resolveRenewDeductionOrderItem,
+  resolveSpaceTimeBillingOrderItem,
+} from './space-session-settlement-lines.shared';
+import {
+  calcDurationMinutes,
+  formatDurationLabel,
+} from './space-session-settlement-time.shared';
+import {
+  buildEmptySettlementOrderItem,
+  isNonQuantitySystemItem,
+  sumSelfOrderDeductionMoney,
+} from './space-session-settlement-system-item.shared';
 import type {
   CheckoutPreviewFeeMode,
   SpaceSessionItemRecord,
@@ -103,141 +114,39 @@ const buildSpaceSessionSettlementCore = (params: {
     checkoutAt,
   );
   const durationLabel = formatDurationLabel(durationMinutes);
-  const resolvedFeeMode = resolveSpaceSessionFeeMode(
+  const { timeFeeMode, countdownFeeMode } = resolveSpaceSessionFeeMode(
     session,
     renewRecords,
     payload,
   );
-  const { timeFeeMode, countdownFeeMode } = resolvedFeeMode;
-  let timeCostMoney = Money.zero();
 
-  if (
-    session.billingMode !== PrismaSpaceBillingMode.items &&
-    session.hourlyRate !== null
-  ) {
-    const hourlyRateMoney = Money.fromDbCents(session.hourlyRate);
-    const useUnitPrice = timeFeeMode === 'unit_price';
-    timeCostMoney = useUnitPrice
-      ? hourlyRateMoney
-      : calcTimeCostMoney(
-          session.startTime.getTime(),
-          checkoutAt,
-          hourlyRateMoney,
-        );
-    const timeCostYuan = timeCostMoney.toOutputYuan();
-    orderItems.unshift({
-      productId: 'SYS_TIME_BILLING',
-      productName: useUnitPrice
-        ? '台位费（固定）'
-        : `台位费 ${durationLabel}`,
-      categoryName: '场地费',
-      salePrice: timeCostYuan,
-      profit: timeCostYuan,
-      quantity: 1,
-      lineTotal: timeCostYuan,
-    });
+  const timeBilling = resolveSpaceTimeBillingOrderItem({
+    session,
+    checkoutAt,
+    timeFeeMode,
+    durationLabel,
+  });
+  if (timeBilling) {
+    orderItems.unshift(timeBilling.orderItem);
   }
 
-  // Bug 4 fix: 续费抵扣取 amount 与 voucherFaceAmount 的较大值
-  // 与 renew.service 中 addedMinutes 计算口径一致（"花 80 享 100"按 100 元抵扣）
-  const renewDeductionMoney = renewRecords.reduce((sum, record) => {
-    const amountMoney = Money.fromInputYuan(record.amount);
-    const effectiveMoney =
-      record.voucherFaceAmount !== undefined
-        ? Money.max(amountMoney, Money.fromInputYuan(record.voucherFaceAmount))
-        : amountMoney;
-    return sum.add(effectiveMoney);
-  }, Money.zero());
-  if (renewDeductionMoney.isPositive()) {
-    const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
-    orderItems.push({
-      productId: 'SYS_RENEW_DEDUCTION',
-      productName: '续费抵扣',
-      categoryName: '场地费',
-      salePrice: -renewDeductionYuan,
-      profit: -renewDeductionYuan,
-      quantity: 1,
-      lineTotal: -renewDeductionYuan,
-    });
+  const { renewDeductionMoney, orderItem: renewDeductionItem } =
+    resolveRenewDeductionOrderItem(renewRecords);
+  if (renewDeductionItem) {
+    orderItems.push(renewDeductionItem);
   }
 
-  const prepaidDeductionMoney =
-    resolveSpaceSessionPrepaidDeductionMoney(session);
-  if (prepaidDeductionMoney.isPositive()) {
-    const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
-    orderItems.push({
-      productId: 'SYS_PREPAID_DEDUCTION',
-      productName: '预付款',
-      categoryName: '场地费',
-      salePrice: -prepaidDeductionYuan,
-      profit: -prepaidDeductionYuan,
-      quantity: 1,
-      lineTotal: -prepaidDeductionYuan,
-    });
+  const { prepaidDeductionMoney, orderItem: prepaidDeductionItem } =
+    resolvePrepaidDeductionOrderItem(session);
+  if (prepaidDeductionItem) {
+    orderItems.push(prepaidDeductionItem);
   }
 
-  // 自助下单抵扣：商品行来源为 member_self_order 时顾客已在小程序侧在线支付
-  // （余额/微信），结算时按每个已支付商品生成一条独立负向抵扣明细行
-  // （productName =「商品名 · 自助下单抵扣」，交班/销售记录展示为
-  // 「A04 · 橙汁 · 自助下单抵扣」），把该商品行的金额与利润一并冲减为 0，
-  // 防止空间账单重复收费。productId 统一为 SYS_SELF_ORDER_DEDUCTION，
-  // isDeductionItem 识别逻辑不变；历史单据仍是一条总和行，由
-  // isDeductionProductName 兼容识别。
   const selfOrderDeductionMoney = sumSelfOrderDeductionMoney(items);
-  if (selfOrderDeductionMoney.isPositive()) {
-    items
-      .filter((item) => item.sourceType === SELF_ORDER_ITEM_SOURCE_TYPE)
-      .forEach((item) => {
-        const deductionYuan = Money.fromInputYuan(
-          item.lineTotal,
-        ).toOutputYuan();
-        const itemProfitYuan = Money.fromInputYuan(item.profit)
-          .multiply(item.quantity)
-          .toOutputYuan();
-
-        // 抵扣行商品名去掉规格后缀：规格由 specNames 单独承载（与商品行展示口径一致），
-        // 否则销售记录会出现「深层清洁护理（60分钟）· 自助下单抵扣」与上方商品行
-        // 「深层清洁护理 [规格] 60分钟」的规格重复展示。
-        const specNames =
-          Array.isArray(item.specNames) && item.specNames.length > 0
-            ? item.specNames.filter(
-                (name): name is string => typeof name === 'string',
-              )
-            : [];
-        // 仅在确认有规格时才剥末尾的「（…）」，避免误删商品名自带的括号
-        const baseName =
-          specNames.length > 0
-            ? item.productName.replace(/（[^）]*）$/, '')
-            : item.productName;
-
-        orderItems.push({
-          productId: SELF_ORDER_DEDUCTION_PRODUCT_ID,
-          productName: `${baseName} · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`,
-          categoryName: '自助下单',
-          salePrice: -deductionYuan,
-          profit: -itemProfitYuan,
-          quantity: 1,
-          lineTotal: -deductionYuan,
-          ...(specNames.length > 0
-            ? {
-                specSignature: item.specSignature ?? null,
-                specNames,
-              }
-            : {}),
-        });
-      });
-  }
+  orderItems.push(...buildSelfOrderDeductionOrderItems(items));
 
   if (orderItems.length === 0) {
-    orderItems.push({
-      productId: 'SYS_EMPTY_SETTLEMENT',
-      productName: '场地结账',
-      categoryName: '场地费',
-      salePrice: 0,
-      profit: 0,
-      quantity: 1,
-      lineTotal: 0,
-    });
+    orderItems.push(buildEmptySettlementOrderItem());
   }
 
   return {
@@ -247,7 +156,7 @@ const buildSpaceSessionSettlementCore = (params: {
     durationLabel,
     timeFeeMode,
     countdownFeeMode,
-    timeCostMoney,
+    timeCostMoney: timeBilling?.timeCostMoney ?? Money.zero(),
     renewDeductionMoney,
     prepaidDeductionMoney,
     selfOrderDeductionMoney,
@@ -302,73 +211,6 @@ const resolveSpaceSessionFeeMode = (
 };
 
 /**
- * G1/G2 fix: 预付抵扣取 prepaidAmount 与 prepaidVoucherFaceAmount 的较大值。
- * 与续费链路 renewDeduction 的 max(amount, voucherFaceAmount) 口径一致。
- * 场景：开台预付团购"花 80 享 100"→ 按 100 元抵扣；
- *       结账时团购券面金额同样纳入抵扣，避免"已计费但无人支付"的缺口。
- */
-const resolveSpaceSessionPrepaidDeductionMoney = (
-  session: Pick<
-    SpaceSessionRecord,
-    'prepaidAmount' | 'prepaidVoucherFaceAmount'
-  >,
-): Money => {
-  const prepaidMoney =
-    session.prepaidAmount !== null
-      ? Money.fromDbCents(session.prepaidAmount)
-      : Money.zero();
-  const voucherMoney =
-    session.prepaidVoucherFaceAmount !== null
-      ? Money.fromDbCents(session.prepaidVoucherFaceAmount)
-      : Money.zero();
-  const effective = Money.max(prepaidMoney, voucherMoney);
-  return effective.isPositive() ? effective : Money.zero();
-};
-
-const isSpaceSessionDeductionItem = (productId: string): boolean =>
-  productId === 'SYS_RENEW_DEDUCTION' ||
-  productId === 'SYS_PREPAID_DEDUCTION' ||
-  productId === SELF_ORDER_DEDUCTION_PRODUCT_ID;
-
-/**
- * SpaceSessionItem.sourceType 标记：会员自助下单且已在线支付。
- * 与 purely-club/self-ordering 写入端保持一致（跨模块不复用其常量，避免反向依赖）。
- */
-const SELF_ORDER_ITEM_SOURCE_TYPE = 'member_self_order';
-
-/**
- * 自助下单已支付商品抵扣合计（Money，全程分单位运算）。
- * 结账预览与会话详情接口共用此函数，保证两处口径完全一致，
- * 前端只读展示，不参与任何金额计算。
- */
-export const sumSelfOrderDeductionMoney = (
-  items: SpaceSessionItemRecord[],
-): Money =>
-  items.reduce(
-    (sum, item) =>
-      item.sourceType === SELF_ORDER_ITEM_SOURCE_TYPE
-        ? sum.add(Money.fromInputYuan(item.lineTotal))
-        : sum,
-    Money.zero(),
-  );
-
-/**
- * B5 fix: 判断是否为不计入销售件数的系统虚拟行。
- * 包含抵扣项（负值行）和台位费/空结算等系统占位行，
- * 避免 totalQuantity 虚高污染销量统计。
- */
-const isNonQuantitySystemItem = (productId: string): boolean =>
-  isSpaceSessionDeductionItem(productId) ||
-  productId === 'SYS_TIME_BILLING' ||
-  productId === 'SYS_EMPTY_SETTLEMENT';
-
-/**
- * BUG-7 fix: 导出基于 productId 的抵扣项判定函数，
- * 供 settlement.service 及下游统一使用，避免 productName 文案变更后判定静默失效。
- */
-export const isSpaceSessionDeductionProductId = isSpaceSessionDeductionItem;
-
-/**
  * Bug 1 & 8 fix + R2 fix + B4 fix: 从续费记录中提取最新的团购元数据，
  * 作为结算时团购字段的回退默认值（checkout payload / session.prepaid* 优先）。
  *
@@ -397,33 +239,4 @@ export const resolveRenewRecordsGrouponFallback = (
     }
   }
   return {};
-};
-
-const calcDurationMinutes = (startTime: number, endTime: number): number => {
-  const rawMinutes = (endTime - startTime) / (1000 * 60);
-  return Math.max(1, Math.ceil(rawMinutes));
-};
-
-const formatDurationLabel = (durationMinutes: number): string => {
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
-  return hours > 0
-    ? `${hours}小时${minutes > 0 ? `${minutes}分钟` : ''}`
-    : `${minutes}分钟`;
-};
-
-/**
- * 计时费用计算（全程 Money 运算，金额向上取整到分）。
- * 规则：不足 1 分钟按 1 分钟计，分钟数向上取整，
- *       金额 = (分钟数 / 60) × 时薪，向上取整到分。
- */
-const calcTimeCostMoney = (
-  startTime: number,
-  endTime: number,
-  hourlyRateMoney: Money,
-): Money => {
-  const minutes = calcDurationMinutes(startTime, endTime);
-  // minutes / 60 是乘数（如 90分钟 = 1.5 小时）
-  // 用 multiplyCeilToCent 保证结果向上取整到分
-  return hourlyRateMoney.multiplyCeilToCent(minutes / 60);
 };

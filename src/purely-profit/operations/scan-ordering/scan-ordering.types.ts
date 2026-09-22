@@ -1,5 +1,26 @@
-import type { ScanOrderStatus } from '@prisma/client';
+import type { Prisma, ScanOrderStatus } from '@prisma/client';
 import type { OrderDiscountItem } from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
+
+/** 状态流转后用于实时推送的订单快照查询字段（含取餐号与叫号/取餐时间）。 */
+export const ORDER_TRANSITION_SELECT = {
+  id: true,
+  version: true,
+  storeId: true,
+  sessionId: true,
+  status: true,
+  paymentStatus: true,
+  fulfillmentStatus: true,
+  pickupNumber: true,
+  pickupBusinessDate: true,
+  pickupNumberStatus: true,
+  pickupCalledAt: true,
+  pickupCompletedAt: true,
+} as const;
+
+/** 状态流转后的订单推送快照。 */
+export type TransitionedOrderSnapshot = Prisma.ScanOrdersGetPayload<{
+  select: typeof ORDER_TRANSITION_SELECT;
+}>;
 
 /** 扫码点餐金额汇总，所有字段均由后端计算并以元输出。 */
 export interface ScanOrderingAmountSummary {

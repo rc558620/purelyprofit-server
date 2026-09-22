@@ -3,7 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import type { ScanOrderingTableResponse } from './scan-ordering-table.service';
+import type { ScanOrderingTableResponse } from './scan-ordering-table.types';
 
 @Injectable()
 export class ScanOrderingTableQueryService {

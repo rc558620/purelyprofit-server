@@ -3,8 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
-  Prisma,
   ScanOrderFulfillmentStatus,
   ScanOrderPickupNumberStatus,
   ScanOrderStatus,
@@ -15,14 +15,33 @@ import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingSaleOrderBridgeService } from '../../../purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ScanOrderingOrderStockService } from './scan-ordering-order-stock.service';
+import { ORDER_TRANSITION_SELECT } from './scan-ordering.types';
+import type { TransitionedOrderSnapshot } from './scan-ordering.types';
+
+/** 一次订单状态流转的输入（乐观锁 + 目标状态 + 附加字段 + 事务内副作用）。 */
+interface OrderTransitionInput {
+  storeId: number;
+  orderId: number;
+  version: number;
+  fromStatus: ScanOrderStatus;
+  toStatus: ScanOrderStatus;
+  fulfillmentStatus: ScanOrderFulfillmentStatus;
+  /** 除状态/版本外的附加写入字段（如时间、取消原因、取餐号状态）。 */
+  data?: Prisma.ScanOrdersUpdateManyMutationInput;
+  /** 写入状态历史的原因（拒单/取消原因）。 */
+  reason?: string;
+  /** 事务内副作用：接单扣库存、出餐建销售记录等，仅在流转成功时执行。 */
+  sideEffect?: (tx: Prisma.TransactionClient) => Promise<void>;
+}
 
 /**
  * 商家扫码点餐订单状态转换核心引擎。
  *
  * 职责：
- * - 提供统一的 transitionOrder 方法处理状态流转
+ * - 提供统一的 transition 方法处理状态流转（乐观锁 + 历史 + 实时推送）
  * - 实现接单、出餐、取消、完成等基础状态变更
- * - 维护状态历史、实时更新、版本控制
+ * - 接单库存扣减委托 ScanOrderingOrderStockService
  */
 @Injectable()
 export class ScanOrderingOrderTransitionEngineService {
@@ -32,116 +51,38 @@ export class ScanOrderingOrderTransitionEngineService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
+    private readonly orderStockService: ScanOrderingOrderStockService,
   ) {}
 
   /**
    * 接单：pending_acceptance → preparing。
    *
    * 事务内完成状态流转并确认扣减预留库存：
-   * - 菜单商品：reservedQuantity 转扣减，salesCount 累计；
-   * - 关联共用商品（productId 非空）：此时才扣减 product.stock；
-   * - 规格选项：reservedQuantity 转扣减。
-   * 退款/出餐不做任何库存操作，取消/拒单时释放预留。
+   * 库存只在接单时扣减，退款/出餐不做库存操作，取消/拒单时释放预留。
    */
   async acceptOrder(
     user: AuthenticatedUser,
     orderId: number,
     version: number,
   ): Promise<void> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      undefined,
-      'scan-ordering:order-process',
-      '无权处理扫码点餐订单',
-    );
-
-    // 读取门店语音播报开关，作为实时事件只读快照下发，避免 C 端额外请求或猜测商家开关状态
-    const pickupStore = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { pickupVoiceEnabled: true },
-    });
-    const pickupVoiceEnabled = pickupStore?.pickupVoiceEnabled ?? false;
-
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.scanOrders.updateMany({
-        where: {
-          id: orderId,
+    const { storeId, pickupVoiceEnabled } =
+      await this.resolveMerchantStore(user);
+    const updatedOrder = await this.transition({
+      storeId,
+      orderId,
+      version,
+      fromStatus: ScanOrderStatus.pending_acceptance,
+      toStatus: ScanOrderStatus.preparing,
+      fulfillmentStatus: ScanOrderFulfillmentStatus.preparing,
+      data: { acceptedAt: new Date() },
+      sideEffect: (tx) =>
+        this.orderStockService.confirmDeductionInTransaction(
+          tx,
           storeId,
-          status: ScanOrderStatus.pending_acceptance,
-          version,
-        },
-        data: {
-          status: ScanOrderStatus.preparing,
-          fulfillmentStatus: ScanOrderFulfillmentStatus.preparing,
-          version: { increment: 1 },
-          acceptedAt: new Date(),
-        },
-      });
-      if (result.count === 0) {
-        return null;
-      }
-
-      // 接单确认：将预留库存转为实际扣减（库存只在接单时扣减）
-      await this.confirmStockDeductionInTransaction(tx, storeId, orderId);
-
-      await tx.scanOrderStatusHistory.create({
-        data: {
           orderId,
-          storeId,
-          fromStatus: ScanOrderStatus.pending_acceptance,
-          toStatus: ScanOrderStatus.preparing,
-          operatorType: 'merchant',
-          reason: '',
-        },
-      });
-
-      return tx.scanOrders.findUnique({
-        where: { id: orderId },
-        select: {
-          id: true,
-          version: true,
-          storeId: true,
-          sessionId: true,
-          status: true,
-          paymentStatus: true,
-          fulfillmentStatus: true,
-          pickupNumber: true,
-          pickupBusinessDate: true,
-          pickupNumberStatus: true,
-          pickupCalledAt: true,
-          pickupCompletedAt: true,
-        },
-      });
+        ),
     });
-
-    if (!updatedOrder) {
-      const order = await this.prisma.scanOrders.findFirst({
-        where: { id: orderId, storeId },
-        select: { id: true },
-      });
-      if (!order) {
-        throw new NotFoundException('扫码点餐订单不存在');
-      }
-      throw new ConflictException('订单状态已变化，请刷新后重试');
-    }
-
-    this.realtimeService.publishOrderStatusChanged({
-      orderId: updatedOrder.id,
-      storeId: updatedOrder.storeId,
-      sessionId: updatedOrder.sessionId,
-      version: updatedOrder.version,
-      status: updatedOrder.status,
-      paymentStatus: updatedOrder.paymentStatus,
-      fulfillmentStatus: updatedOrder.fulfillmentStatus,
-      pickupNumber: updatedOrder.pickupNumber,
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        updatedOrder.pickupNumber,
-      ),
-      pickupNumberStatus: updatedOrder.pickupNumberStatus,
-      pickupCalledAt: updatedOrder.pickupCalledAt?.toISOString() ?? null,
-      pickupCompletedAt: updatedOrder.pickupCompletedAt?.toISOString() ?? null,
-      pickupVoiceEnabled,
-    });
+    this.publishStatusChanged(updatedOrder, pickupVoiceEnabled);
   }
 
   /**
@@ -156,12 +97,8 @@ export class ScanOrderingOrderTransitionEngineService {
     orderId: number,
     version: number,
   ): Promise<void> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      undefined,
-      'scan-ordering:order-process',
-      '无权处理扫码点餐订单',
-    );
+    const { storeId, pickupVoiceEnabled } =
+      await this.resolveMerchantStore(user);
 
     // 读取订单取餐号与支付渠道：出餐时据此创建销售记录
     const pickupOrder = await this.prisma.scanOrders.findUnique({
@@ -176,113 +113,40 @@ export class ScanOrderingOrderTransitionEngineService {
       },
     });
     if (!pickupOrder) throw new NotFoundException('扫码点餐订单不存在');
+
     const servedAt = new Date();
-
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.scanOrders.updateMany({
-        where: {
-          id: orderId,
-          storeId,
-          status: ScanOrderStatus.preparing,
-          version,
-        },
-        data: {
-          status: ScanOrderStatus.served,
-          fulfillmentStatus: ScanOrderFulfillmentStatus.served,
-          version: { increment: 1 },
-          servedAt,
-          // 仅当订单已分配取餐号时写入叫号时间与状态，避免对无取餐号订单播报 undefined
-          ...(pickupOrder.pickupNumber != null
-            ? {
-                pickupCalledAt: servedAt,
-                pickupNumberStatus: ScanOrderPickupNumberStatus.called,
-              }
-            : undefined),
-        },
-      });
-      if (result.count === 0) {
-        return null;
-      }
-
-      await tx.scanOrderStatusHistory.create({
-        data: {
+    // 微信渠道落库 wechat，其余（储值余额/开发态等）落库 other
+    // 传入实际操作员：交班页操作员列展示主账号/店长/收银员
+    const paymentMethod =
+      pickupOrder.paymentAttempts[0]?.paymentChannel === 'wechat'
+        ? 'wechat'
+        : 'other';
+    const updatedOrder = await this.transition({
+      storeId,
+      orderId,
+      version,
+      fromStatus: ScanOrderStatus.preparing,
+      toStatus: ScanOrderStatus.served,
+      fulfillmentStatus: ScanOrderFulfillmentStatus.served,
+      data: {
+        servedAt,
+        // 仅当订单已分配取餐号时写入叫号时间与状态，避免对无取餐号订单播报 undefined
+        ...(pickupOrder.pickupNumber != null
+          ? {
+              pickupCalledAt: servedAt,
+              pickupNumberStatus: ScanOrderPickupNumberStatus.called,
+            }
+          : {}),
+      },
+      sideEffect: (tx) =>
+        this.saleOrderBridgeService.createForPaidOrder(
+          tx,
           orderId,
-          storeId,
-          fromStatus: ScanOrderStatus.preparing,
-          toStatus: ScanOrderStatus.served,
-          operatorType: 'merchant',
-          reason: '',
-        },
-      });
-
-      // 出餐确认后创建销售记录（幂等）：交班页在出餐后展示订单
-      // 微信渠道落库 wechat，其余（储值余额/开发态等）落库 other
-      // 传入实际操作员：交班页操作员列展示主账号/店长/收银员
-      const paymentMethod =
-        pickupOrder.paymentAttempts[0]?.paymentChannel === 'wechat'
-          ? 'wechat'
-          : 'other';
-      await this.saleOrderBridgeService.createForPaidOrder(
-        tx,
-        orderId,
-        paymentMethod,
-        user,
-      );
-
-      return tx.scanOrders.findUnique({
-        where: { id: orderId },
-        select: {
-          id: true,
-          version: true,
-          storeId: true,
-          sessionId: true,
-          status: true,
-          paymentStatus: true,
-          fulfillmentStatus: true,
-          pickupNumber: true,
-          pickupBusinessDate: true,
-          pickupNumberStatus: true,
-          pickupCalledAt: true,
-          pickupCompletedAt: true,
-        },
-      });
+          paymentMethod,
+          user,
+        ),
     });
-
-    if (!updatedOrder) {
-      const order = await this.prisma.scanOrders.findFirst({
-        where: { id: orderId, storeId },
-        select: { id: true },
-      });
-      if (!order) {
-        throw new NotFoundException('扫码点餐订单不存在');
-      }
-      throw new ConflictException('订单状态已变化，请刷新后重试');
-    }
-
-    // 读取门店语音播报开关，作为实时事件只读快照下发，避免 C 端额外请求或猜测商家开关状态
-    const pickupStore = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { pickupVoiceEnabled: true },
-    });
-    const pickupVoiceEnabled = pickupStore?.pickupVoiceEnabled ?? false;
-
-    this.realtimeService.publishOrderStatusChanged({
-      orderId: updatedOrder.id,
-      storeId: updatedOrder.storeId,
-      sessionId: updatedOrder.sessionId,
-      version: updatedOrder.version,
-      status: updatedOrder.status,
-      paymentStatus: updatedOrder.paymentStatus,
-      fulfillmentStatus: updatedOrder.fulfillmentStatus,
-      pickupNumber: updatedOrder.pickupNumber,
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        updatedOrder.pickupNumber,
-      ),
-      pickupNumberStatus: updatedOrder.pickupNumberStatus,
-      pickupCalledAt: updatedOrder.pickupCalledAt?.toISOString() ?? null,
-      pickupCompletedAt: updatedOrder.pickupCompletedAt?.toISOString() ?? null,
-      pickupVoiceEnabled,
-    });
+    this.publishStatusChanged(updatedOrder, pickupVoiceEnabled);
   }
 
   /** 取消：pending_payment → cancelled */
@@ -292,15 +156,19 @@ export class ScanOrderingOrderTransitionEngineService {
     version: number,
     reason: string,
   ): Promise<void> {
-    await this.transitionOrder(
-      user,
+    const { storeId, pickupVoiceEnabled } =
+      await this.resolveMerchantStore(user);
+    const updatedOrder = await this.transition({
+      storeId,
       orderId,
       version,
-      ScanOrderStatus.pending_payment,
-      ScanOrderStatus.cancelled,
-      ScanOrderFulfillmentStatus.closed,
-      { cancelReason: reason },
-    );
+      fromStatus: ScanOrderStatus.pending_payment,
+      toStatus: ScanOrderStatus.cancelled,
+      fulfillmentStatus: ScanOrderFulfillmentStatus.closed,
+      data: { cancelReason: reason },
+      reason,
+    });
+    this.publishStatusChanged(updatedOrder, pickupVoiceEnabled);
   }
 
   /** 完成：served → completed */
@@ -309,227 +177,137 @@ export class ScanOrderingOrderTransitionEngineService {
     orderId: number,
     version: number,
   ): Promise<void> {
+    const { storeId, pickupVoiceEnabled } =
+      await this.resolveMerchantStore(user);
     const pickupOrder = await this.prisma.scanOrders.findUnique({
       where: { id: orderId },
       select: { pickupNumber: true, pickupCalledAt: true },
     });
     if (!pickupOrder) throw new NotFoundException('扫码点餐订单不存在');
+
     const completedAt = new Date();
-    await this.transitionOrder(
-      user,
+    const updatedOrder = await this.transition({
+      storeId,
       orderId,
       version,
-      ScanOrderStatus.served,
-      ScanOrderStatus.completed,
-      ScanOrderFulfillmentStatus.closed,
-      { completedAt },
-      pickupOrder.pickupNumber != null && pickupOrder.pickupCalledAt != null
-        ? {
-            pickupCompletedAt: completedAt,
-            pickupNumberStatus: ScanOrderPickupNumberStatus.completed,
-          }
-        : undefined,
-    );
+      fromStatus: ScanOrderStatus.served,
+      toStatus: ScanOrderStatus.completed,
+      fulfillmentStatus: ScanOrderFulfillmentStatus.closed,
+      data: {
+        completedAt,
+        // 已叫号订单才标记取餐完成，未叫号订单保持原取餐号状态
+        ...(pickupOrder.pickupNumber != null &&
+        pickupOrder.pickupCalledAt != null
+          ? {
+              pickupCompletedAt: completedAt,
+              pickupNumberStatus: ScanOrderPickupNumberStatus.completed,
+            }
+          : {}),
+      },
+    });
+    this.publishStatusChanged(updatedOrder, pickupVoiceEnabled);
   }
 
   /**
-   * 事务内确认扣减预留库存（接单专用）：
-   * - 菜单商品：reservedQuantity 扣减、stockQuantity 扣减、salesCount 累计；
-   * - 关联共用商品（productId 非空）：此时才扣减 product.stock；
-   * - 规格选项：reservedQuantity 转扣减、stockQuantity 扣减。
-   * 历史订单（无预留记录）跳过扣减，避免重复扣库存。
+   * 统一状态流转：事务内乐观锁更新 → 执行副作用 → 写状态历史 → 返回推送快照。
+   * 更新命中 0 行时区分「订单不存在」与「状态/版本已变化」并抛出对应异常。
    */
-  private async confirmStockDeductionInTransaction(
-    tx: Prisma.TransactionClient,
-    storeId: number,
-    orderId: number,
-  ): Promise<void> {
-    const items = await tx.scanOrderItem.findMany({
-      where: { orderId },
-      select: {
-        menuProductId: true,
-        quantity: true,
-        menuProduct: {
-          select: { productId: true, stockMode: true },
+  private async transition(
+    input: OrderTransitionInput,
+  ): Promise<TransitionedOrderSnapshot> {
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.scanOrders.updateMany({
+        where: {
+          id: input.orderId,
+          storeId: input.storeId,
+          status: input.fromStatus,
+          version: input.version,
         },
-        specs: { select: { specOptionId: true } },
-      },
+        data: {
+          status: input.toStatus,
+          fulfillmentStatus: input.fulfillmentStatus,
+          version: { increment: 1 },
+          ...input.data,
+        },
+      });
+      if (result.count === 0) return null;
+
+      if (input.sideEffect) await input.sideEffect(tx);
+
+      await tx.scanOrderStatusHistory.create({
+        data: {
+          orderId: input.orderId,
+          storeId: input.storeId,
+          fromStatus: input.fromStatus,
+          toStatus: input.toStatus,
+          operatorType: 'merchant',
+          reason: input.reason ?? '',
+        },
+      });
+
+      return tx.scanOrders.findUnique({
+        where: { id: input.orderId },
+        select: ORDER_TRANSITION_SELECT,
+      });
     });
 
-    await Promise.all(
-      items.map(async (item) => {
-        // 菜单商品：仅当存在预留时才扣减（新订单），历史订单（reserved=0）跳过
-        const menuUpdated = await tx.scanOrderingMenuProduct.updateMany({
-          where: {
-            id: item.menuProductId,
-            storeId,
-            reservedQuantity: { gte: item.quantity },
-          },
-          data: {
-            reservedQuantity: { decrement: item.quantity },
-            ...(item.menuProduct.stockMode === 'finite'
-              ? { stockQuantity: { decrement: item.quantity } }
-              : {}),
-            salesCount: { increment: item.quantity },
-            version: { increment: 1 },
-          },
-        });
-        if (menuUpdated.count === 0) return;
-
-        // 共用商品库存：仅在接单时扣减（Q1 决策），不足时阻止接单
-        if (item.menuProduct.productId !== null) {
-          const productUpdated = await tx.product.updateMany({
-            where: {
-              id: item.menuProduct.productId,
-              storeId,
-              deletedAt: null,
-              stock: { gte: item.quantity },
-            },
-            data: { stock: { decrement: item.quantity } },
-          });
-          if (productUpdated.count === 0) {
-            throw new ConflictException('商品库存不足，无法接单');
-          }
-        }
-      }),
-    );
-
-    // 规格预留转扣减（仅当存在预留时）
-    const specQuantities = new Map<number, number>();
-    for (const item of items) {
-      for (const spec of item.specs) {
-        specQuantities.set(
-          spec.specOptionId,
-          (specQuantities.get(spec.specOptionId) ?? 0) + item.quantity,
-        );
-      }
-    }
-    await Promise.all(
-      Array.from(specQuantities.entries()).map(
-        async ([specOptionId, quantity]) => {
-          await tx.scanOrderingSpecOption.updateMany({
-            where: {
-              id: specOptionId,
-              reservedQuantity: { gte: quantity },
-            },
-            data: {
-              reservedQuantity: { decrement: quantity },
-              stockQuantity: { decrement: quantity },
-              version: { increment: 1 },
-            },
-          });
-        },
-      ),
-    );
+    if (updatedOrder) return updatedOrder;
+    await this.assertOrderExists(input.storeId, input.orderId);
+    throw new ConflictException('订单状态已变化，请刷新后重试');
   }
 
-  private async transitionOrder(
-    user: AuthenticatedUser,
-    orderId: number,
-    version: number,
-    expectedStatus: ScanOrderStatus,
-    nextStatus: ScanOrderStatus,
-    fulfillmentStatus: ScanOrderFulfillmentStatus,
-    extraData: {
-      rejectReason?: string;
-      cancelReason?: string;
-      acceptedAt?: Date;
-      servedAt?: Date;
-      completedAt?: Date;
-    } = {},
-    pickupData?: {
-      pickupCalledAt?: Date;
-      pickupCompletedAt?: Date;
-      pickupNumberStatus?: ScanOrderPickupNumberStatus;
-    },
-  ): Promise<void> {
+  /** 解析商家可操作的门店，并读取语音播报开关（作为实时事件只读快照下发，
+   * 避免 C 端额外请求或猜测商家开关状态）。 */
+  private async resolveMerchantStore(user: AuthenticatedUser): Promise<{
+    storeId: number;
+    pickupVoiceEnabled: boolean;
+  }> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
       'scan-ordering:order-process',
       '无权处理扫码点餐订单',
     );
-
-    // 读取门店语音播报开关，作为实时事件只读快照下发，避免 C 端额外请求或猜测商家开关状态
-    const pickupStore = await this.prisma.store.findUnique({
+    const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: { pickupVoiceEnabled: true },
     });
-    const pickupVoiceEnabled = pickupStore?.pickupVoiceEnabled ?? false;
+    return { storeId, pickupVoiceEnabled: store?.pickupVoiceEnabled ?? false };
+  }
 
-    const result = await this.prisma.scanOrders.updateMany({
-      where: { id: orderId, storeId, status: expectedStatus, version },
-      data: {
-        status: nextStatus,
-        fulfillmentStatus,
-        version: { increment: 1 },
-        ...extraData,
-        ...pickupData,
-      },
-    });
-
-    if (result.count > 0) {
-      await this.prisma.scanOrderStatusHistory.create({
-        data: {
-          orderId,
-          storeId,
-          fromStatus: expectedStatus,
-          toStatus: nextStatus,
-          operatorType: 'merchant',
-          reason: extraData.rejectReason ?? extraData.cancelReason ?? '',
-        },
-      });
-
-      const updatedOrder = await this.prisma.scanOrders.findUnique({
-        where: { id: orderId },
-        select: {
-          id: true,
-          version: true,
-          storeId: true,
-          sessionId: true,
-          status: true,
-          paymentStatus: true,
-          fulfillmentStatus: true,
-          pickupNumber: true,
-          pickupBusinessDate: true,
-          pickupNumberStatus: true,
-          pickupCalledAt: true,
-          pickupCompletedAt: true,
-        },
-      });
-
-      if (updatedOrder) {
-        this.realtimeService.publishOrderStatusChanged({
-          orderId: updatedOrder.id,
-          storeId: updatedOrder.storeId,
-          sessionId: updatedOrder.sessionId,
-          version: updatedOrder.version,
-          status: updatedOrder.status,
-          paymentStatus: updatedOrder.paymentStatus,
-          fulfillmentStatus: updatedOrder.fulfillmentStatus,
-          pickupNumber: updatedOrder.pickupNumber,
-          pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-            updatedOrder.pickupNumber,
-          ),
-          pickupNumberStatus: updatedOrder.pickupNumberStatus,
-          pickupCalledAt: updatedOrder.pickupCalledAt?.toISOString() ?? null,
-          pickupCompletedAt:
-            updatedOrder.pickupCompletedAt?.toISOString() ?? null,
-          pickupVoiceEnabled,
-        });
-      }
-      return;
-    }
-
+  /** 订单不存在时抛 NotFoundException，供「更新未命中」场景区分原因。 */
+  private async assertOrderExists(
+    storeId: number,
+    orderId: number,
+  ): Promise<void> {
     const order = await this.prisma.scanOrders.findFirst({
       where: { id: orderId, storeId },
       select: { id: true },
     });
+    if (!order) throw new NotFoundException('扫码点餐订单不存在');
+  }
 
-    if (!order) {
-      throw new NotFoundException('扫码点餐订单不存在');
-    }
-
-    throw new ConflictException('订单状态已变化，请刷新后重试');
+  /** 推送订单状态变更事件（含取餐号与门店语音播报开关快照）。 */
+  private publishStatusChanged(
+    order: TransitionedOrderSnapshot,
+    pickupVoiceEnabled: boolean,
+  ): void {
+    this.realtimeService.publishOrderStatusChanged({
+      orderId: order.id,
+      storeId: order.storeId,
+      sessionId: order.sessionId,
+      version: order.version,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      pickupNumber: order.pickupNumber,
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        order.pickupNumber,
+      ),
+      pickupNumberStatus: order.pickupNumberStatus,
+      pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+      pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
+      pickupVoiceEnabled,
+    });
   }
 }

@@ -113,6 +113,121 @@ export const SALE_ORDER_ITEM_SELECT = {
   },
 } satisfies Prisma.SaleOrderItemSelect;
 
+/**
+ * 已结账空间会话查询字段（客人应付 / 退款展示项的数据源）。
+ *
+ * ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
+ * 历史背景：BUG-1/5/7 修复前，续费会回写 session.prepaidAmount，
+ * 导致"开台预付"和"续费"两个资金池混在一起，产生重复抵扣。
+ * 修复后 space-session-renew.service.ts 彻底移除了 prepaid* 回写，
+ * 因此 session.prepaidAmount **仅包含开台预付款，不含续费金额**。
+ * 退款 / 客人应付必须从 sessionRenewRecords 独立累加续费金额。
+ */
+export const SETTLED_SPACE_SESSION_SELECT = {
+  id: true,
+  timeCost: true,
+  itemsCost: true,
+  prepaidAmount: true,
+  prepaidGrouponCode: true,
+  prepaidCustomerPaymentMethod: true,
+  prepaidGrouponPlatform: true,
+  endTime: true,
+  space: {
+    select: {
+      name: true,
+    },
+  },
+  saleOrder: {
+    select: {
+      paymentMethod: true,
+      date: true,
+      operatorNameSnapshot: true,
+      operatorStaff: {
+        select: {
+          name: true,
+          role: true,
+          userId: true,
+          employeeProfile: {
+            select: {
+              subAccounts: {
+                select: { role: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  // ─── ⚠️ DO NOT REMOVE：退款/应付计算依赖续费记录 ────────
+  // prepaidAmount 不含续费金额，必须独立查询 sessionRenewRecords
+  sessionRenewRecords: {
+    select: {
+      amount: true,
+      paymentMethod: true,
+    },
+    orderBy: { id: 'asc' },
+  },
+} satisfies Prisma.SpaceSessionSelect;
+
+/**
+ * 扫码点餐退款明细（SaleOrderRefund）查询字段：
+ * 交班明细中展示为负数退款行，items 取首条用于展示原商品名与实时库存。
+ */
+export const SALE_ORDER_REFUND_SELECT = {
+  id: true,
+  amount: true,
+  paymentMethod: true,
+  refundedAt: true,
+  saleOrder: {
+    select: {
+      id: true,
+      date: true,
+      manualEntry: true,
+      // 手工补录单就餐方式：退款行商品名前缀区分堂食/外卖
+      diningMode: true,
+      sourceChannel: true,
+      operatorNameSnapshot: true,
+      operatorStaff: {
+        select: {
+          name: true,
+          role: true,
+          userId: true,
+          employeeProfile: {
+            select: {
+              subAccounts: {
+                select: { role: true },
+              },
+            },
+          },
+        },
+      },
+      scanOrder: {
+        select: {
+          table: {
+            select: {
+              tableCode: true,
+            },
+          },
+        },
+      },
+      items: {
+        select: {
+          productName: true,
+          // 退款行需要展示退款后恢复的库存：关联商品实时库存
+          product: {
+            select: {
+              stock: true,
+              unit: true,
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+        take: 1,
+      },
+    },
+  },
+} satisfies Prisma.SaleOrderRefundSelect;
+
 export type ShiftRangeLike = {
   startAt: Date;
   endAt: Date;

@@ -790,7 +790,7 @@ describe('PulseMembershipService admin', () => {
 
   it('setAdminMemberMembership 支持显式确认后设置为免费会员', async () => {
     const loggerWarnSpy = jest
-      .spyOn(context.mutationService['logger'], 'warn')
+      .spyOn(context.membershipMutationService['logger'], 'warn')
       .mockImplementation(() => undefined);
     jest
       .spyOn(
@@ -1233,7 +1233,7 @@ describe('PulseMembershipService admin', () => {
 
   it('resetAdminMemberLockedPrices 清空门店锁定价并写审计日志', async () => {
     const loggerWarnSpy = jest
-      .spyOn(context.mutationService['logger'], 'warn')
+      .spyOn(context.membershipMutationService['logger'], 'warn')
       .mockImplementation(() => undefined);
     jest
       .spyOn(
@@ -1490,7 +1490,7 @@ describe('PulseMembershipService admin', () => {
 
   it('cancelAdminMember 注销时软删除并立即踢下线门店所有用户', async () => {
     const loggerWarnSpy = jest
-      .spyOn(context.mutationService['logger'], 'warn')
+      .spyOn(context.statusMutationService['logger'], 'warn')
       .mockImplementation(() => undefined);
     jest
       .spyOn(

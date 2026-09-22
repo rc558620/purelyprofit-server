@@ -1,4 +1,6 @@
+export * from './platform-membership-enums.dto';
 export * from './platform-membership-shared.response.dto';
+export * from './platform-membership-plan.response.dto';
 export * from './platform-membership-partner.response.dto';
 export * from './platform-membership-center.response.dto';
 export * from './platform-membership-orders.response.dto';

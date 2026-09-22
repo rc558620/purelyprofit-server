@@ -29,7 +29,7 @@ import type {
 import { ScanOrderingTypeService } from './scan-ordering-type.service';
 import { ScanOrderingAreaService } from './scan-ordering-area.service';
 import { ScanOrderingTableService } from './scan-ordering-table.service';
-import type { ScanOrderingTableResponse } from './scan-ordering-table.service';
+import type { ScanOrderingTableResponse } from './scan-ordering-table.types';
 import { ScanOrderingQrService } from './scan-ordering-qr.service';
 import type { ScanOrderingQrCodeResponse } from './scan-ordering-qr.service';
 import type {

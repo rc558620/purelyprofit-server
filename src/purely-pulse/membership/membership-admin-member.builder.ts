@@ -2,10 +2,8 @@ import type {
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
 } from './dto/pulse-membership-admin-logs.response.dto';
-import type {
-  PulseMemberDetailDto,
-  PulseMemberListItemDto,
-} from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
+import type { PulseMemberListItemDto } from './dto/pulse-membership-admin-members.response.dto';
 import {
   MEMBER_ONLINE_WINDOW_MS,
   PURCHASE_BONUS_POINTS,

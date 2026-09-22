@@ -10,6 +10,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingSaleOrderBridgeService } from '../../../purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
+import { ScanOrderingOrderStockService } from './scan-ordering-order-stock.service';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
@@ -42,6 +43,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
 
   const saleOrderBridgeService = {
     createForPaidOrder: jest.fn(),
+  };
+
+  const orderStockService = {
+    confirmDeductionInTransaction: jest.fn(),
   };
 
   const txMock = {
@@ -86,6 +91,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
         {
           provide: ScanOrderingSaleOrderBridgeService,
           useValue: saleOrderBridgeService,
+        },
+        {
+          provide: ScanOrderingOrderStockService,
+          useValue: orderStockService,
         },
       ],
     }).compile();

@@ -8,10 +8,8 @@ import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
-import {
-  buildSpaceSessionSettlement,
-  isSpaceSessionDeductionProductId,
-} from './space-session-settlement.shared';
+import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
+import { isSpaceSessionDeductionProductId } from './space-session-settlement-system-item.shared';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';

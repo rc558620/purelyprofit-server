@@ -21,7 +21,8 @@ import {
   parseShanghaiDateText,
 } from '../../shared/shanghai-time.utils';
 
-export const DAY_MS = 86_400_000;
+export const HOUR_MS = 3_600_000;
+export const DAY_MS = 24 * HOUR_MS;
 
 export interface TimeRange {
   start: number;

@@ -99,6 +99,12 @@ export class ClientErrorStoreDto {
 }
 
 export class ClientErrorReportDto {
+  /**
+   * 遥测上报标记：全局 TelemetryValidationPipe 对该 DTO 走宽松校验 ——
+   * 未知字段只剥离不拒绝，校验失败也降级接收而不是 400 丢弃。
+   */
+  static readonly telemetryReport = true;
+
   @ApiProperty({
     example: 'err_1234567890_abcd1234',
     description: '前端生成的错误上报唯一 ID',

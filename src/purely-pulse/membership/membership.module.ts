@@ -9,6 +9,7 @@ import { PulseMembershipAdminMembershipMutationService } from './membership-admi
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
+import { PulseMembershipAdminStatusMutationService } from './membership-admin-status-mutation.service';
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
 import { PulseMembershipAdminClubStatsService } from './membership-admin-club-stats.service';
@@ -40,6 +41,7 @@ import { PulseMembershipService } from './membership.service';
     PulseMembershipAdminMembershipMutationService,
     PulseMembershipAdminPointsMutationService,
     PulseMembershipAdminBeansMutationService,
+    PulseMembershipAdminStatusMutationService,
     PulseMembershipAdminSubAccountMutationService,
     PulseMembershipAdminMutationService,
     PulseMembershipAdminService,

@@ -71,7 +71,7 @@ describe('ClientErrorsService', () => {
     jest.clearAllMocks();
   });
 
-  it('error 级别会走 logger.error 并附带 stackTrace', () => {
+  it('error 级别会走 logger.error，且堆栈内联在单行 JSON 内', () => {
     const { service, logger } = createService();
 
     service.report(createPayload(), {
@@ -81,14 +81,18 @@ describe('ClientErrorsService', () => {
     });
 
     expect(logger.error).toHaveBeenCalledTimes(1);
-    const [logMessage, stackTrace] = logger.error.mock.calls[0] ?? [];
+    // 必须是单参数：多传一个含 \n 的 stack 会让一条记录跨多行，
+    // 破坏「一行一 JSON」的日志采集结构
+    expect(logger.error.mock.calls[0]).toHaveLength(1);
+    const [logMessage] = logger.error.mock.calls[0] ?? [];
     expect(typeof logMessage).toBe('string');
+    expect(logMessage).not.toContain('\n');
     expect(JSON.parse(logMessage as string)).toMatchObject({
       event: 'client_error_reported',
       severity: 'error',
       source: 'window-error',
+      stack: 'Error: boom error\n    at App.tsx:1:1',
     });
-    expect(stackTrace).toBe('Error: boom error\n    at App.tsx:1:1');
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -128,6 +132,18 @@ describe('ClientErrorsService', () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]).toHaveLength(1);
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('窗口内超出配额的重复上报会被采样抑制', () => {
+    const { service, logger } = createService();
+
+    // 同一条错误反复上报（典型：渲染死循环 / 轮询接口持续失败）
+    for (let index = 0; index < 20; index += 1) {
+      service.report(createPayload(), {});
+    }
+
+    // 默认窗口配额 5 条，其余只计数不落日志
+    expect(logger.error).toHaveBeenCalledTimes(5);
   });
 
   it('关闭开关后不会落任何日志', () => {

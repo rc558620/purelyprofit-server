@@ -20,6 +20,7 @@ import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
 import { ScanOrderingQrService } from './scan-ordering-qr.service';
 import { ScanOrderingTableService } from './scan-ordering-table.service';
 import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
+import { ScanOrderingTableClearService } from './scan-ordering-table-clear.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
 import { ScanOrderingOrderRejectService } from './scan-ordering-order-reject.service';
@@ -30,6 +31,7 @@ import { ScanOrderingAcceptanceExpirationService } from './scan-ordering-accepta
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
+import { ScanOrderingOrderStockService } from './scan-ordering-order-stock.service';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import { ScanOrderingServiceCallService } from './scan-ordering-service-call.service';
 import { ScanOrderingMenuService } from './scan-ordering-menu.service';
@@ -78,6 +80,7 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingQrService,
     ScanOrderingTableService,
     ScanOrderingTableQueryService,
+    ScanOrderingTableClearService,
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
     ScanOrderingOrderRejectService,
@@ -88,6 +91,7 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingOrderRefundBalanceService,
     ScanOrderingRefundStockRestoreService,
     ScanOrderingOrderTransitionEngineService,
+    ScanOrderingOrderStockService,
     ScanOrderingOrderStateMachineService,
     ScanOrderingServiceCallService,
     // Menu services

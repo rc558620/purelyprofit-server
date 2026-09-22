@@ -38,11 +38,9 @@ import {
   PulseAdminMemberSubAccountQuotaDto,
   PulseAdminMemberSubAccountSlotDto,
 } from './dto/pulse-membership-admin-members.request.dto';
-import {
-  PulseAdminEmployeeCandidatesResponseDto,
-  PulseAdminMembersResponseDto,
-  PulseMemberDetailDto,
-} from './dto/pulse-membership-admin-members.response.dto';
+import { PulseAdminEmployeeCandidatesResponseDto } from './dto/pulse-membership-admin-employee.response.dto';
+import { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
+import { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
 import { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
 import { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import { PulseMembershipService } from './membership.service';
