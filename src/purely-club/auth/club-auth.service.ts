@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotImplementedException,
@@ -11,7 +12,14 @@ import {
   isMainlandMobilePhone,
   normalizePhone,
 } from '../../purely-profit/auth/auth.utils';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import {
+  NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
+  NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+} from '../../purely-profit/member/new-customer-quota/new-customer-quota.constants';
+import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubPhoneBindService } from './club-phone-bind.service';
 import { ClubPhoneRebindService } from './club-phone-rebind.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
@@ -44,6 +52,8 @@ export class ClubAuthService {
     private readonly clubPhoneBindService: ClubPhoneBindService,
     private readonly clubPhoneRebindService: ClubPhoneRebindService,
     private readonly configService: ConfigService,
+    private readonly quotaService: NewCustomerQuotaService,
+    private readonly clubCurrentStoreContextService: ClubCurrentStoreContextService,
   ) {}
 
   /**
@@ -175,7 +185,10 @@ export class ClubAuthService {
   async bindPhoneByWechatCode(
     userId: number,
     dto: BindPhoneByWechatCodeDto,
+    /** 当前登录用户：用于解析额度归属门店，缺省时不触发额度校验（历史/测试调用路径） */
+    currentUser?: AuthenticatedUser,
   ): Promise<AuthTokenResponseDto> {
+
     // 该能力要求小程序已通过微信认证（个人主体不可用），默认关闭。
     // 认证通过后只需打开 auth.wechatPhoneBindEnabled，无需改代码。
     const enabled = this.configService.get<boolean>(
@@ -185,6 +198,22 @@ export class ClubAuthService {
       throw new NotImplementedException(
         '该入口暂未开放，请使用短信验证码绑定手机号',
       );
+    }
+
+    // 新用户额度预检：必须在调用微信 getPhoneNumber 之前完成。
+    // 微信按次计费（0.03 元/次），先扣量再调接口才能避免无意义的成本支出。
+    const storeId =
+      currentUser === undefined
+        ? null
+        : await this.resolveQuotaStoreId(currentUser);
+    if (storeId !== null) {
+      const hasRemaining = await this.quotaService.hasRemaining(storeId);
+      if (!hasRemaining) {
+        throw new ForbiddenException({
+          message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+          code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
+        });
+      }
     }
 
     const phoneResult = await this.clubWechatAuthService.getPhoneNumber(
@@ -202,7 +231,64 @@ export class ClubAuthService {
       );
     }
 
-    return this.clubPhoneBindService.bindVerifiedPhone(userId, phone);
+    const result = await this.clubPhoneBindService.bindVerifiedPhone(
+      userId,
+      phone,
+    );
+
+    // 绑定成功后扣减：同一手机号在同一门店只扣一次，老顾客重复绑定不扣。
+    if (storeId !== null) {
+      await this.consumeQuotaForNewCustomer(storeId, phone, userId);
+    }
+
+    return result;
+  }
+
+  /** C 端新用户额度预检：返回当前门店额度是否可用（用于前端禁用绑定按钮） */
+  async getNewCustomerQuotaStatus(
+    user: AuthenticatedUser,
+  ): Promise<{ blocked: boolean; remaining: number }> {
+    const storeId = await this.resolveQuotaStoreId(user);
+    if (storeId === null) {
+      return { blocked: false, remaining: 0 };
+    }
+
+    const overview = await this.quotaService.getOverview(storeId);
+    return { blocked: overview.remaining <= 0, remaining: overview.remaining };
+  }
+
+  /**
+   * 解析额度归属门店。
+   * 绑定是账号级操作，跨门店批量更新，必须显式取「当前选中门店」；
+   * 暂无可访问门店（未加入任何门店）时不拦截也不扣减，返回 null。
+   */
+  private async resolveQuotaStoreId(
+    user: AuthenticatedUser,
+  ): Promise<number | null> {
+    try {
+      const store = await this.clubCurrentStoreContextService.getCurrentStore(user);
+      return store.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 新客扣减：非新客（本店已有该手机号档案）不扣；额度意外耗尽时只记日志不阻断绑定 */
+  private async consumeQuotaForNewCustomer(
+    storeId: number,
+    phone: string,
+    userId: number,
+  ): Promise<void> {
+    try {
+      const isNewCustomer = await this.quotaService.isNewCustomer(storeId, phone);
+      if (!isNewCustomer) return;
+
+      await this.quotaService.consumeForNewCustomer(storeId, phone);
+    } catch (error) {
+      this.logger.warn(
+        `新用户额度扣减失败，store ${storeId} user ${userId}：${String(error)}`,
+      );
+    }
   }
 
   /** 换绑手机号：完整语义见 ClubPhoneRebindService */

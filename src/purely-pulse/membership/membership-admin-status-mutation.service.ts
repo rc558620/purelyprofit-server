@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PulseMembershipAccessService } from './membership-access.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
@@ -21,6 +22,7 @@ export class PulseMembershipAdminStatusMutationService {
     private readonly prisma: PrismaService,
     private readonly accessService: PulseMembershipAccessService,
     private readonly mutationStateService: PulseMembershipAdminMutationStateService,
+    private readonly quotaService: NewCustomerQuotaService,
   ) {}
 
   async banAdminMember(
@@ -68,6 +70,9 @@ export class PulseMembershipAdminStatusMutationService {
 
     // 释放登录身份：注销后该手机号视同从未注册，允许重新完整注册
     await this.releaseOwnerLoginIdentity(memberId);
+
+    // 新用户额度：注销账号即清零
+    await this.quotaService.clear(memberId, '注销账号，新用户额度清零');
 
     // 清除封禁原因（注销后封禁信息不再有意义）
     await this.accessService.clearAdminMemberBanReason(memberId);

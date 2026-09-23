@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { STORE_SUB_ACCOUNT_ROLE_LABELS } from '../../access-control/access-control.constants';
 import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { NewCustomerQuotaService } from '../../member/new-customer-quota/new-customer-quota.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -17,6 +18,7 @@ import { RedisService } from '../../../redis/redis.service';
 import type { GetDashboardHomeOverviewQueryDto } from './dto/dashboard-home-query.dto';
 import type {
   DashboardHomeOverviewResponseDto,
+  DashboardHomeQuotaDto,
   DashboardHomeSalesTrendDto,
 } from './dto/dashboard-home-response.dto';
 import {
@@ -57,6 +59,7 @@ export class DashboardHomeService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly subjectCapabilityService: SubjectCapabilityService,
     private readonly storeSubAccountService: StoreSubAccountService,
+    private readonly quotaService: NewCustomerQuotaService,
   ) {}
 
   async getOverview(
@@ -81,11 +84,13 @@ export class DashboardHomeService {
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
     const now = Date.now();
-    const [statsData, salesTrend, activitiesData] = await Promise.all([
-      this.loadStatsCache(storeId, period, currentRange, compareRange),
-      this.loadTrendCache(storeId, period, currentRange),
-      this.loadActivitiesCache(storeId, period, now),
-    ]);
+    const [statsData, salesTrend, activitiesData, quotaOverview] =
+      await Promise.all([
+        this.loadStatsCache(storeId, period, currentRange, compareRange),
+        this.loadTrendCache(storeId, period, currentRange),
+        this.loadActivitiesCache(storeId, period, now),
+        this.quotaService.getOverview(storeId),
+      ]);
 
     return {
       ...this.buildOverviewResponse(
@@ -97,6 +102,10 @@ export class DashboardHomeService {
         statsData,
         salesTrend,
         activitiesData,
+        {
+          remaining: quotaOverview.remaining,
+          warningThreshold: quotaOverview.warningThreshold,
+        },
       ),
       capability: capabilitySnapshot,
     };
@@ -110,11 +119,13 @@ export class DashboardHomeService {
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
     const now = Date.now();
-    const [statsData, salesTrend, activitiesData] = await Promise.all([
-      this.refreshStatsCache(storeId, period, currentRange, compareRange),
-      this.refreshTrendCache(storeId, period, currentRange),
-      this.refreshActivitiesCache(storeId, period, now),
-    ]);
+    const [statsData, salesTrend, activitiesData, quotaOverview] =
+      await Promise.all([
+        this.refreshStatsCache(storeId, period, currentRange, compareRange),
+        this.refreshTrendCache(storeId, period, currentRange),
+        this.refreshActivitiesCache(storeId, period, now),
+        this.quotaService.getOverview(storeId),
+      ]);
     const response = this.buildOverviewResponse(
       period,
       storeId,
@@ -124,6 +135,10 @@ export class DashboardHomeService {
       statsData,
       salesTrend,
       activitiesData,
+      {
+        remaining: quotaOverview.remaining,
+        warningThreshold: quotaOverview.warningThreshold,
+      },
     );
 
     await this.redisService.setJson(
@@ -270,6 +285,7 @@ export class DashboardHomeService {
     statsData: DashboardHomeStatsData,
     salesTrend: DashboardHomeSalesTrendDto,
     activitiesData: DashboardHomeActivitiesData,
+    quota: DashboardHomeQuotaDto,
   ): DashboardHomeOverviewWithoutCapability {
     return buildDashboardHomeOverviewResponse({
       period,
@@ -280,6 +296,7 @@ export class DashboardHomeService {
       statsData,
       salesTrend,
       activitiesData,
+      quota,
     });
   }
 

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubAccountMergeService } from './club-account-merge.service';
@@ -11,7 +12,7 @@ import { ClubWechatAuthService } from './club-wechat-auth.service';
 @Module({
   // ClubStoresModule 提供 ClubStoreAccessService：换绑手机号后需要清
   // 「可访问门店」缓存。该模块不反向依赖本模块，无循环依赖。
-  imports: [AuthModule, ClubStoresModule],
+  imports: [AuthModule, ClubStoresModule, NewCustomerQuotaModule],
   controllers: [ClubAuthController],
   providers: [
     ClubAuthService,

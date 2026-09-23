@@ -242,7 +242,25 @@ export class ClubAuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BindPhoneByWechatCodeDto,
   ): Promise<AuthTokenResponseDto> {
-    return this.clubAuthService.bindPhoneByWechatCode(user.id, dto);
+    return this.clubAuthService.bindPhoneByWechatCode(user.id, dto, user);
+  }
+
+  @Get('new-customer-quota/check')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @ApiOperation({
+    summary: '新用户额度预检',
+    description:
+      '返回当前门店的新用户额度状态：blocked=true 表示额度已用完，' +
+      '此时点击 getPhoneNumber 会被后端拦截（返回业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED），' +
+      '前端应直接提示「新用户额度已用完，当前无法下单，请联系商家」，不要调起微信授权。',
+  })
+  getNewCustomerQuotaStatus(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ blocked: boolean; remaining: number }> {
+    return this.clubAuthService.getNewCustomerQuotaStatus(user);
   }
 
   @Post('refresh')

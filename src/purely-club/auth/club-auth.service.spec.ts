@@ -11,6 +11,8 @@ import { AuthCodeVerifyService } from '../../purely-profit/auth/auth-code-verify
 import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { ClubAccountMergeService } from './club-account-merge.service';
 import { ClubAuthService } from './club-auth.service';
@@ -117,6 +119,21 @@ describe('ClubAuthService', () => {
           useValue: clubStoreAccessServiceMock,
         },
         { provide: ConfigService, useValue: configServiceMock },
+        // 新用户额度：预检与扣减在未传 currentUser 的历史调用路径下不生效，
+        // 这里给一份「额度充足」的桩，保证既有用例不受额度逻辑影响
+        {
+          provide: NewCustomerQuotaService,
+          useValue: {
+            hasRemaining: jest.fn().mockResolvedValue(true),
+            isNewCustomer: jest.fn().mockResolvedValue(false),
+            consumeForNewCustomer: jest.fn().mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest.fn().mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+          },
+        },
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: { getCurrentStore: jest.fn().mockResolvedValue({ id: 1 }) },
+        },
       ],
     }).compile();
 

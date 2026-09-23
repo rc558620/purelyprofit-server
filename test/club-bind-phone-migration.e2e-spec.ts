@@ -14,6 +14,8 @@ import { ClubStoreAccessService } from '../src/purely-club/stores/club-store-acc
 import { ClubPhoneBindService } from '../src/purely-club/auth/club-phone-bind.service';
 import { ClubPhoneRebindService } from '../src/purely-club/auth/club-phone-rebind.service';
 import { ClubAccountMergeService } from '../src/purely-club/auth/club-account-merge.service';
+import { NewCustomerQuotaService } from '../src/purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../src/purely-club/stores/club-current-store-context.service';
 
 /**
  * 真实数据库 E2E：微信无手机号用户绑定手机号后的占位值迁移。
@@ -116,6 +118,21 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
         {
           provide: ClubStoreAccessService,
           useValue: clubStoreAccessService,
+        },
+        // 新用户额度依赖：本用例走 (userId, dto) 两参调用，不带 currentUser，
+        // 额度校验不生效；这里补齐依赖避免 compile() 阶段失败
+        {
+          provide: NewCustomerQuotaService,
+          useValue: {
+            hasRemaining: jest.fn().mockResolvedValue(true),
+            isNewCustomer: jest.fn().mockResolvedValue(false),
+            consumeForNewCustomer: jest.fn().mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest.fn().mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+          },
+        },
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: { getCurrentStore: jest.fn().mockResolvedValue({ id: 1 }) },
         },
       ],
     }).compile();

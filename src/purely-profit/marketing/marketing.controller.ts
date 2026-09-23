@@ -1,6 +1,7 @@
 export { MarketingCustomersController } from './marketing-customers.controller';
 export { MarketingInviteCodeController } from './marketing-invite-code.controller';
 export { MarketingInviteQrIssueController } from './marketing-invite-qr-issue.controller';
+export { MarketingNewCustomerQuotaController } from './marketing-new-customer-quota.controller';
 export { MarketingOverviewController } from './marketing-overview.controller';
 export { MarketingProductCategoriesController } from './marketing-product-categories.controller';
 export { MarketingProductsController } from './marketing-products.controller';

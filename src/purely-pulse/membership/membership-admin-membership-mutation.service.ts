@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { resolveStoredMembershipLevel } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
 import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
+import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { DAY_MS } from './membership.constants';
@@ -24,6 +25,7 @@ export class PulseMembershipAdminMembershipMutationService {
     private readonly prisma: PrismaService,
     private readonly lockedPriceService: StoreMembershipLockedPriceService,
     private readonly mutationStateService: PulseMembershipAdminMutationStateService,
+    private readonly quotaService: NewCustomerQuotaService,
   ) {}
 
   /**
@@ -85,6 +87,13 @@ export class PulseMembershipAdminMembershipMutationService {
     });
 
     await this.mutationStateService.invalidateAdminMemberDerived(memberId);
+
+    // 新用户额度：设置档位即按档位赠送（叠加）；降级为免费会员则清零
+    if (nextLevel === 'free') {
+      await this.quotaService.clear(memberId, '设置为免费会员，新用户额度清零');
+    } else {
+      await this.quotaService.grantByPlan(memberId, nextPlanId);
+    }
 
     // 首次设置该档位时把成交价写入「首购锁定价」；已存在则不覆盖（锁定语义）
     await this.lockFirstDealPrice({

@@ -5,12 +5,15 @@ import { AccessControlModule } from '../access-control/access-control.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { StoresModule } from '../stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { CommerceModule } from '../commerce/commerce.module';
+import { NewCustomerQuotaModule } from '../member/new-customer-quota/new-customer-quota.module';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 import { MarketingAccessService } from './marketing-access.service';
 import {
   MarketingCustomersController,
   MarketingInviteCodeController,
   MarketingInviteQrIssueController,
+  MarketingNewCustomerQuotaController,
   MarketingOverviewController,
   MarketingProductCategoriesController,
   MarketingProductsController,
@@ -48,9 +51,12 @@ import { MarketingSharedService } from './marketing-shared.service';
     AccessControlModule,
     PlatformMembershipModule,
     StoresModule,
+    CommerceModule,
+    NewCustomerQuotaModule,
   ],
   controllers: [
     MarketingOverviewController,
+    MarketingNewCustomerQuotaController,
     MarketingCustomersController,
     MarketingInviteCodeController,
     MarketingInviteQrIssueController,

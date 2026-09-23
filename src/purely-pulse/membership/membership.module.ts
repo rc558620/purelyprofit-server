@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
+import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
 import { PlatformMembershipModule } from '../../purely-profit/member/platform-membership/platform-membership.module';
 import { PulseStoreContextModule } from '../pulse-store-context.module';
 import { PulseMembershipAccessService } from './membership-access.service';
@@ -24,7 +25,12 @@ import { PulseMembershipOrdersService } from './membership-orders.service';
 import { PulseMembershipService } from './membership.service';
 
 @Module({
-  imports: [AuthModule, PlatformMembershipModule, PulseStoreContextModule],
+  imports: [
+    AuthModule,
+    PlatformMembershipModule,
+    PulseStoreContextModule,
+    NewCustomerQuotaModule,
+  ],
   controllers: [PulseMembershipController, PulseMembershipAdminController],
   providers: [
     PulseMembershipService,

@@ -25,6 +25,10 @@ model StoreMembershipProfile {
   availablePoints      Int                        @default(0) @map("available_points")
   subAccountQuota      Int                        @default(0) @map("sub_account_quota")
   pulseSubAccountQuota Int?                       @map("pulse_sub_account_quota")
+  /// 新用户额度余额：还能服务多少位新客（微信 getPhoneNumber 调用次数）
+  newCustomerQuota         Int                    @default(0) @map("new_customer_quota")
+  /// 累计已服务的新客数（只增不减，用于统计展示）
+  newCustomerQuotaConsumed Int                    @default(0) @map("new_customer_quota_consumed")
   createdAt            DateTime                   @default(now()) @map("created_at")
   updatedAt            DateTime                   @updatedAt @map("updated_at")
   orders               StoreMembershipOrder[]

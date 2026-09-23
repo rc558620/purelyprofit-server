@@ -337,6 +337,17 @@ export class DashboardHomeCapabilityDto {
   canAccessDashboardOverview: boolean;
 }
 
+/** 首页新用户额度摘要：用于首页「最新动态」额度预警 */
+export class DashboardHomeQuotaDto {
+  @ApiProperty({ description: '剩余新用户额度（位新客）' })
+  @IsInt()
+  remaining!: number;
+
+  @ApiProperty({ description: '预警阈值（位新客），低于该值时提醒' })
+  @IsInt()
+  warningThreshold!: number;
+}
+
 export class DashboardHomeOverviewResponseDto {
   @ApiProperty({ type: DashboardHomeStatsDto, description: '首页统计卡摘要' })
   @ValidateNested()
@@ -364,6 +375,14 @@ export class DashboardHomeOverviewResponseDto {
   @ValidateNested()
   @Type(() => DashboardHomeMetaDto)
   meta: DashboardHomeMetaDto;
+
+  @ApiProperty({
+    type: DashboardHomeQuotaDto,
+    description: '新用户额度摘要，用于额度预警展示',
+  })
+  @ValidateNested()
+  @Type(() => DashboardHomeQuotaDto)
+  quota: DashboardHomeQuotaDto;
 
   @ApiProperty({
     type: DashboardHomeCapabilityDto,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
+import { NewCustomerQuotaModule } from '../new-customer-quota/new-customer-quota.module';
 import { PlatformMembershipAccessModule } from './platform-membership-access.module';
 import { PartnerReviewController } from './partner-review.controller';
 import { PlatformMembershipController } from './platform-membership.controller';
@@ -20,7 +21,7 @@ import { StoreSubAccountService } from './store-sub-account.service';
 import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
 
 @Module({
-  imports: [AuthModule, PlatformMembershipAccessModule],
+  imports: [AuthModule, PlatformMembershipAccessModule, NewCustomerQuotaModule],
   controllers: [
     PlatformMembershipController,
     PromotionDetailCompatController,

@@ -42,6 +42,7 @@ import {
   requirePlan,
 } from './platform-membership.query';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
+import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
 
 @Injectable()
 export class PlatformMembershipOrderService implements OnApplicationBootstrap {
@@ -52,6 +53,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly promoService: PlatformMembershipPromoService,
     private readonly lockedPriceService: StoreMembershipLockedPriceService,
+    private readonly quotaService: NewCustomerQuotaService,
   ) {}
 
   /** 服务启动后自动修复历史未充值推广记录（在 Redis 就绪后执行） */
@@ -347,6 +349,17 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
 
     // 提取内部字段，返回干净的响应
     const { _planId, _amount, ...cleanResponse } = response;
+
+    // 新用户额度：购买 / 续费成功后按档位一次性叠加（失败只告警，不影响订单结果）
+    void this.quotaService
+      .grantByPlan(storeId, _planId)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `新用户额度赠送失败（不影响订单）: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
 
     // 首次充值推广奖励（异步，不阻塞订单响应）
     void this.promoService

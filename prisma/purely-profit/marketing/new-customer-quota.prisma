@@ -1,0 +1,49 @@
+// ═══════════════════════════════════════════════════════════════════
+// 新用户额度：门店维度的「微信 getPhoneNumber 调用次数」余额
+//
+// 计量单位：位新客（1 位新客 = 1 次 getPhoneNumber 调用 = 0.03 元）
+// 余额本体挂在 StoreMembershipProfile 上（见 member/platform-membership.prisma），
+// 本文件只承载流水与「新客消耗幂等」两张表。
+// ═══════════════════════════════════════════════════════════════════
+
+/// 额度流水：充值 / 会员赠送 / 新客消耗 / 清零
+model StoreNewCustomerQuotaLog {
+  id           Int                          @id @default(autoincrement())
+  storeId      Int                          @map("store_id")
+  /// 变动类型：recharge=充值 grant=会员赠送 consume=新客消耗 clear=清零
+  type         StoreNewCustomerQuotaLogType
+  /// 变动数量：正数为增加，负数为消耗（单位：位新客）
+  changeAmount Int                          @map("change_amount")
+  /// 变动后的余额
+  balanceAfter Int                          @map("balance_after")
+  /// 充值金额（分），仅 recharge 有值
+  amountFen    Int?                         @map("amount_fen")
+  /// 关联订单号，仅 recharge 有值
+  orderId      String?                      @map("order_id")
+  /// 流水说明
+  description  String
+  createdAt    DateTime                     @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([storeId, type, createdAt])
+  @@map("store_new_customer_quota_logs")
+}
+
+/// 新客消耗记录：保证同一手机号在同一门店只扣一次额度
+model StoreNewCustomerQuotaConsume {
+  id        Int      @id @default(autoincrement())
+  storeId   Int      @map("store_id")
+  /// 新客手机号（已归一化的大陆手机号）
+  phone     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([storeId, phone])
+  @@map("store_new_customer_quota_consumes")
+}
+
+enum StoreNewCustomerQuotaLogType {
+  recharge
+  grant
+  consume
+  clear
+}

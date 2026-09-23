@@ -1,6 +1,7 @@
 import type {
   DashboardHomeMetaDto,
   DashboardHomeOverviewResponseDto,
+  DashboardHomeQuotaDto,
   DashboardHomeSalesTrendDto,
 } from './dto/dashboard-home-response.dto';
 import type {
@@ -28,6 +29,8 @@ export function buildDashboardHomeOverviewResponse(params: {
   statsData: DashboardHomeStatsData;
   salesTrend: DashboardHomeSalesTrendDto;
   activitiesData: DashboardHomeActivitiesData;
+  /** 新用户额度摘要（剩余额度与预警阈值） */
+  quota: DashboardHomeQuotaDto;
 }): DashboardHomeOverviewWithoutCapability {
   const {
     period,
@@ -38,6 +41,7 @@ export function buildDashboardHomeOverviewResponse(params: {
     statsData,
     salesTrend,
     activitiesData,
+    quota,
   } = params;
 
   return {
@@ -75,6 +79,7 @@ export function buildDashboardHomeOverviewResponse(params: {
       now,
       statsData,
     ),
+    quota,
   };
 }
 
