@@ -4,6 +4,8 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
+import { NewCustomerQuotaService } from '../../member/new-customer-quota/new-customer-quota.service';
+import { createNewCustomerQuotaServiceMock } from '../../member/new-customer-quota/new-customer-quota.spec-helpers';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
@@ -263,6 +265,10 @@ describe('DashboardHomeService', () => {
           useValue: subjectCapabilityService,
         },
         { provide: StoreSubAccountService, useValue: storeSubAccountService },
+        {
+          provide: NewCustomerQuotaService,
+          useValue: createNewCustomerQuotaServiceMock(),
+        },
       ],
     }).compile();
 

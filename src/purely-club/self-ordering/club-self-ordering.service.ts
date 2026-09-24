@@ -9,6 +9,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ResolveSpaceDto } from './dto/resolve-space.dto';
 import { assertGeneralStoreForSelfOrdering } from './club-self-ordering.utils';
+import { extractSpaceQrToken } from '../shared/space-qr-token.utils';
+import { hashSpaceQrToken } from '../../shared/space-qr-token-codec.utils';
 
 /** 自助下单空间解析结果：菜单查询与下单均以此会话为归属基准 */
 export interface ResolvedSpace {
@@ -78,13 +80,16 @@ export class ClubSelfOrderingService {
       zone: { name: string } | null;
     };
   }> {
-    const token = spaceToken.trim();
+    // 兼容「路径式 / query 式 / 历史自定义协议 / 裸 token」：
+    // 任何入口漏掉提取时，服务端仍能解出 token，不会让已印刷物料凭空失效。
+    const token = extractSpaceQrToken(spaceToken);
     if (!token) {
       throw new BadRequestException('二维码无效，请扫描空间二维码');
     }
 
-    const qrCode = await this.prisma.spaceQrCode.findUnique({
-      where: { token },
+    // 只按摘要查表：明文列已删除，库里没有可直接伪造的凭证
+    const qrCode = await this.prisma.spaceQrCode.findFirst({
+      where: { tokenHash: hashSpaceQrToken(token) },
       select: {
         storeId: true,
         revokedAt: true,

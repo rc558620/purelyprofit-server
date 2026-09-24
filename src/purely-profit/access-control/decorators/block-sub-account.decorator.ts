@@ -12,3 +12,9 @@ export const BlockSubAccount = (message?: string) =>
     SetMetadata(BLOCK_SUB_ACCOUNT_KEY, true),
     ...(message ? [SetMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, message)] : []),
   );
+
+/**
+ * 装饰器：显式允许子账号访问（覆盖类级 BlockSubAccount）。
+ * 用于门店共享只读资源（如门店 Logo 代理），这类接口子账号同样需要。
+ */
+export const AllowSubAccount = () => SetMetadata(BLOCK_SUB_ACCOUNT_KEY, false);

@@ -1,4 +1,7 @@
-import { ForbiddenException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import {
   createMarketingServiceTestingContext,
   type MarketingServiceTestingContext,
@@ -184,5 +187,40 @@ describe('MarketingService overview', () => {
     const result = await context.service.getOverview(context.user, 18);
 
     expect(result.wechatPayConfig).toEqual({ configured: false });
+  });
+
+  it('getOverview 在邀请码形态非法（载荷为空）时拒绝出图', async () => {
+    // qrcode 在 marketing.service.test-setup.ts 里被 mock；测试文件自身的 import 会
+    // 早于该 mock 注册，因此用 requireMock 取「service 正在用的那个」mock 实例
+    const qrcodeMock = jest.requireMock('qrcode') as { toDataURL: jest.Mock };
+    qrcodeMock.toDataURL.mockClear();
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+    context.prismaService.marketingCustomer.count.mockResolvedValueOnce(0);
+    context.prismaService.marketingCustomer.aggregate.mockResolvedValue({
+      _sum: { balance: 0 },
+    });
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
+    context.prismaService.marketingRecharge.count.mockResolvedValue(0);
+    context.prismaService.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    context.prismaService.marketingRecharge.findMany.mockResolvedValue([]);
+    context.prismaService.store.findUnique.mockResolvedValue(null);
+    // 非法邀请码：buildStoreInviteQrPayload 返回空串
+    context.prismaService.storeInviteCode.findFirst.mockResolvedValue({
+      code: 'bad-code!',
+    });
+
+    await expect(
+      context.service.getOverview(context.user, 18),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    // 空载荷绝不能进 qrcode，否则抛 No input text → 概览接口整体 500
+    expect(qrcodeMock.toDataURL).not.toHaveBeenCalled();
   });
 });

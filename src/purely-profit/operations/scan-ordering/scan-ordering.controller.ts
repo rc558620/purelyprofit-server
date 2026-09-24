@@ -18,6 +18,12 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ScanOrderingDashboardResponse } from './scan-ordering.types';
+import { UpdateTableQrPosterConfigDto } from './dto/scan-ordering-table-qr-poster.dto';
+import type {
+  TableQrPosterConfig,
+  TableQrPosterConfigUpdate,
+} from './scan-ordering-table-qr-poster.service';
+import { ScanOrderingTableQrPosterService } from './scan-ordering-table-qr-poster.service';
 import { ScanOrderingDashboardService } from './scan-ordering-dashboard.service';
 import type { ScanOrderingPickupSettings } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
 import { ScanOrderingPickupSettingsService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
@@ -44,6 +50,7 @@ export class ScanOrderingMainController {
     private readonly dashboardService: ScanOrderingDashboardService,
     private readonly pickupSettingsService: ScanOrderingPickupSettingsService,
     private readonly menuService: ScanOrderingMenuService,
+    private readonly tableQrPosterService: ScanOrderingTableQrPosterService,
   ) {}
 
   @Get('dashboard')
@@ -74,6 +81,35 @@ export class ScanOrderingMainController {
     @Body() dto: UpdateScanOrderingPickupSettingsDto,
   ): Promise<ScanOrderingPickupSettings> {
     return this.pickupSettingsService.updateForMerchant(user, dto);
+  }
+
+  @Get('table-qr-poster-config')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '获取门店扫码点餐桌码海报配置（主题色 / 标语 / 门店 Logo）' })
+  getTableQrPosterConfig(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<TableQrPosterConfig> {
+    return this.tableQrPosterService.getForMerchant(user);
+  }
+
+  @Patch('table-qr-poster-config')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '更新门店扫码点餐桌码海报配置（支持部分更新）' })
+  updateTableQrPosterConfig(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateTableQrPosterConfigDto,
+  ): Promise<TableQrPosterConfig> {
+    const updates: TableQrPosterConfigUpdate = {};
+    if (dto.theme !== undefined) {
+      updates.theme = dto.theme as TableQrPosterConfigUpdate['theme'];
+    }
+    if (dto.slogan !== undefined) {
+      updates.slogan = dto.slogan;
+    }
+    if (dto.showStoreLogo !== undefined) {
+      updates.showStoreLogo = dto.showStoreLogo;
+    }
+    return this.tableQrPosterService.updateForMerchant(user, updates);
   }
 
   // Menu Management Routes

@@ -10,6 +10,7 @@ import { NewCustomerQuotaModule } from '../member/new-customer-quota/new-custome
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 import { MarketingAccessService } from './marketing-access.service';
 import {
+  EntryQrPosterController,
   MarketingCustomersController,
   MarketingInviteCodeController,
   MarketingInviteQrIssueController,
@@ -20,6 +21,7 @@ import {
   MarketingPromotionsController,
   MarketingTransactionsController,
 } from './marketing.controller';
+import { EntryQrPosterService } from './entry-qr-poster.service';
 import { MarketingInviteCodeService } from './marketing-invite-code.service';
 import { MarketingInviteQrIssueService } from './marketing-invite-qr-issue.service';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
@@ -55,6 +57,7 @@ import { MarketingSharedService } from './marketing-shared.service';
     NewCustomerQuotaModule,
   ],
   controllers: [
+    EntryQrPosterController,
     MarketingOverviewController,
     MarketingNewCustomerQuotaController,
     MarketingCustomersController,
@@ -67,6 +70,7 @@ import { MarketingSharedService } from './marketing-shared.service';
   ],
   providers: [
     MarketingService,
+    EntryQrPosterService,
     StoreInviteCodeService,
     MarketingInviteCodeService,
     MarketingInviteQrIssueService,

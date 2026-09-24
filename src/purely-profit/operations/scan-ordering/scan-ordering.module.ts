@@ -43,6 +43,7 @@ import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service
 import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archive.service';
 import { ConfigService } from '@nestjs/config';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { ScanOrderingTableQrPosterService } from './scan-ordering-table-qr-poster.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { FeiePrintService } from './feie-print.service';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
@@ -103,6 +104,7 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingMenuService,
     ScanOrderingSessionArchiveService,
     ScanOrderingPrintSettingsService,
+    ScanOrderingTableQrPosterService,
     ScanOrderingPrintDataService,
     FeiePrintService,
     ScanOrderingCloudPrintService,

@@ -126,8 +126,12 @@ describe('ClubAuthService', () => {
           useValue: {
             hasRemaining: jest.fn().mockResolvedValue(true),
             isNewCustomer: jest.fn().mockResolvedValue(false),
-            consumeForNewCustomer: jest.fn().mockResolvedValue({ consumed: false, remaining: 0 }),
-            getOverview: jest.fn().mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+            consumeForNewCustomer: jest
+              .fn()
+              .mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest
+              .fn()
+              .mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
           },
         },
         {
@@ -275,7 +279,9 @@ describe('ClubAuthService', () => {
       });
       prismaService.member.updateMany.mockResolvedValue({ count: 0 });
       prismaService.marketingCustomer.findMany.mockResolvedValue([]);
-      prismaService.marketingCustomer.updateMany.mockResolvedValue({ count: 0 });
+      prismaService.marketingCustomer.updateMany.mockResolvedValue({
+        count: 0,
+      });
 
       const result = await service.bindPhone(42, {
         phone: '13800138000',
@@ -316,7 +322,9 @@ describe('ClubAuthService', () => {
       prismaService.marketingCustomer.findMany.mockResolvedValue([
         { storeId: 18 },
       ]);
-      prismaService.marketingCustomer.updateMany.mockResolvedValue({ count: 1 });
+      prismaService.marketingCustomer.updateMany.mockResolvedValue({
+        count: 1,
+      });
 
       await service.bindPhone(42, { phone: '13800138000', code: '123456' });
 
@@ -509,7 +517,9 @@ describe('ClubAuthService', () => {
     // 手机号 B 触发合并。旧实现只按占位值查 Member → 一条都查不到 →
     // openid 合过去了、会员档案与资产全留在源账号上。
     it('P0：源用户 Member 已迁到真实手机号（先绑号后合并）时仍被定位并迁移', async () => {
-      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(undefined);
+      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
+        undefined,
+      );
       authCodeVerifyService.clearRegisterCode.mockResolvedValue(undefined);
       prismaService.user.findUnique
         .mockResolvedValueOnce({
@@ -532,7 +542,16 @@ describe('ClubAuthService', () => {
       prismaService.marketingCustomer.findMany.mockImplementation(
         async (args: { where?: { clubUserId?: number } }) =>
           args?.where?.clubUserId === 42
-            ? [{ id: 10, storeId: 5, balance: 0, points: 0, totalSpent: 0, visitCount: 0 }]
+            ? [
+                {
+                  id: 10,
+                  storeId: 5,
+                  balance: 0,
+                  points: 0,
+                  totalSpent: 0,
+                  visitCount: 0,
+                },
+              ]
             : [],
       );
 
@@ -570,7 +589,9 @@ describe('ClubAuthService', () => {
     });
 
     it('P0：营销顾客档案也要跟着改绑 clubUserId 并同步手机号', async () => {
-      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(undefined);
+      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
+        undefined,
+      );
       authCodeVerifyService.clearRegisterCode.mockResolvedValue(undefined);
       prismaService.user.findUnique
         .mockResolvedValueOnce(currentUserBase)
@@ -589,7 +610,16 @@ describe('ClubAuthService', () => {
       prismaService.marketingCustomer.findMany.mockImplementation(
         async (args: { where?: { clubUserId?: number } }) =>
           args?.where?.clubUserId === 42
-            ? [{ id: 10, storeId: 5, balance: 645070, points: 0, totalSpent: 0, visitCount: 0 }]
+            ? [
+                {
+                  id: 10,
+                  storeId: 5,
+                  balance: 645070,
+                  points: 0,
+                  totalSpent: 0,
+                  visitCount: 0,
+                },
+              ]
             : [], // 目标在该门店无档案 → 走改绑
       );
       prismaService.member.findMany.mockResolvedValue([]);
@@ -609,7 +639,9 @@ describe('ClubAuthService', () => {
     });
 
     it('P0：同门店双方都有档案时资产并入目标，源档案软删除且清空 phone（不硬删）', async () => {
-      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(undefined);
+      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
+        undefined,
+      );
       authCodeVerifyService.clearRegisterCode.mockResolvedValue(undefined);
       prismaService.user.findUnique
         .mockResolvedValueOnce(currentUserBase)
@@ -728,7 +760,9 @@ describe('ClubAuthService', () => {
       });
       prismaService.member.updateMany.mockResolvedValue({ count: 0 });
       prismaService.marketingCustomer.findMany.mockResolvedValue([]);
-      prismaService.marketingCustomer.updateMany.mockResolvedValue({ count: 0 });
+      prismaService.marketingCustomer.updateMany.mockResolvedValue({
+        count: 0,
+      });
       authSessionService.signToken.mockResolvedValue({
         access_token: 'new_token',
         userId: 42,
@@ -768,7 +802,9 @@ describe('ClubAuthService', () => {
       });
       prismaService.member.updateMany.mockResolvedValue({ count: 0 });
       prismaService.marketingCustomer.findMany.mockResolvedValue([]);
-      prismaService.marketingCustomer.updateMany.mockResolvedValue({ count: 0 });
+      prismaService.marketingCustomer.updateMany.mockResolvedValue({
+        count: 0,
+      });
       authSessionService.signToken.mockResolvedValue({
         access_token: 'new_token',
         userId: 42,
@@ -891,9 +927,7 @@ describe('ClubAuthService', () => {
       phoneRebindAt?: Date | null;
     }
 
-    const prepareCurrentUser = (
-      overrides: CurrentUserOverrides = {},
-    ): void => {
+    const prepareCurrentUser = (overrides: CurrentUserOverrides = {}): void => {
       prismaService.user.findUnique.mockResolvedValue({
         email: CURRENT_EMAIL,
         wechatPhone: PREVIOUS_PHONE,
@@ -1052,7 +1086,8 @@ describe('ClubAuthService', () => {
         data: { phone: dto.phone },
       });
       // 每一处档案更新都必须带门店限定，否则会串改「恰好拥有该旧号」的其他用户档案
-      for (const call of prismaService.marketingCustomer.updateMany.mock.calls) {
+      for (const call of prismaService.marketingCustomer.updateMany.mock
+        .calls) {
         const where = (call[0] as { where: Record<string, unknown> }).where;
         expect(
           where.clubUserId !== undefined || where.storeId !== undefined,
@@ -1133,9 +1168,13 @@ describe('ClubAuthService', () => {
       // 线上事故形态：早期「邀请码入店」生成的顧客档案没写 club_user_id，
       // 只按 clubUserId 定位会把门店 55 整家漏掉 —— members.phone 停在旧号，
       // 用户当场失去该门店，商家端营销档案也仍旧号，再消费还会分裂出第二条档案。
-      prepareHappyPath([37], {}, {
-        unboundCustomers: [{ id: 901, storeId: 55 }],
-      });
+      prepareHappyPath(
+        [37],
+        {},
+        {
+          unboundCustomers: [{ id: 901, storeId: 55 }],
+        },
+      );
 
       await service.rebindPhone(42, dto);
 
@@ -1173,7 +1212,9 @@ describe('ClubAuthService', () => {
     it('确定性失败（冷静期 / 他人占用 / 同号）不消费验证码', async () => {
       // 验证码是一次性资源：被这些与验证码无关的失败白白消费掉，
       // 用户必须重新获取短信才能再试一次。
-      prepareHappyPath([], { phoneRebindAt: new Date(Date.now() - 5 * DAY_MS) });
+      prepareHappyPath([], {
+        phoneRebindAt: new Date(Date.now() - 5 * DAY_MS),
+      });
 
       await expect(service.rebindPhone(42, dto)).rejects.toThrow(
         /手机号换绑过于频繁/,

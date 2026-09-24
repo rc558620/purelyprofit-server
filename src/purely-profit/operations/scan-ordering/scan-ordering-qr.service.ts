@@ -1,7 +1,9 @@
 import {
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -13,6 +15,8 @@ import {
 import QRCode from 'qrcode';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
+import { isProductionEnvironment } from '../../../shared/qr-public-url.utils';
+import { reportScanQrBaseUrlStatus } from '../../../shared/scan-qr-base-url-status.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildScanOrderingTableQrPayload } from '../scan-qr-payload.utils';
@@ -36,13 +40,69 @@ const SCAN_ORDERING_QR_CODE_SIZE = 240;
 
 /** 扫码点餐桌码管理服务。 */
 @Injectable()
-export class ScanOrderingQrService {
+export class ScanOrderingQrService implements OnModuleInit {
+  private readonly logger = new Logger(ScanOrderingQrService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * 启动期把「二维码长期有效性」相关的配置风险显式暴露出来。
+   *
+   * 只告警不阻断启动：这些配置目前允许缺省（缺省即回退历史行为），
+   * 但它们一旦出错，后果是**已印刷物料不可逆失效**，必须能被看见。
+   */
+  onModuleInit(): void {
+    this.reportQrBaseUrlStatus();
+    this.reportEncryptionKeyStatus();
+  }
+
+  /**
+   * 桌码 / 空间码共用的扫码域名状态。
+   *
+   * ⚠️ 域名一旦写进已印刷物料就是永久资产：换域名 / 备案注销 / 微信
+   * 「扫普通链接二维码」规则被删，都会让全部已印桌码与空间码同时失效，且服务端
+   * 无法补救（改不了纸上印的内容；微信按 URL 文本前缀匹配规则，也不会去
+   * fetch 旧域名做跳转）。因此「配了但被判定非法」这种静默回退要显式告警。
+   *
+   * 逻辑抽到 `reportScanQrBaseUrlStatus`：空间码（`SpaceQrCodeService`）复用
+   * 同一份实现，且按域名取值去重，两个 service 只播报一次。
+   */
+  private reportQrBaseUrlStatus(): void {
+    reportScanQrBaseUrlStatus(
+      this.logger,
+      this.configService.get<string>('club.scanQrBaseUrl'),
+    );
+  }
+
+  /**
+   * 加密密钥状态。
+   *
+   * 未显式配置 `SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY` 时密钥由 JWT_SECRET 派生，
+   * JWT_SECRET 轮换会让历史桌码的 tokenCiphertext 全部解不开（扫码不受影响，
+   * 走 tokenHash；但「重新下载 / 批量导出」会 500）。
+   */
+  private reportEncryptionKeyStatus(): void {
+    if (this.configService.get<string>('scanOrdering.qrTokenEncryptionKey')) {
+      return;
+    }
+
+    const message =
+      '未配置 SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY，桌码加密密钥由 JWT_SECRET 派生：' +
+      'JWT_SECRET 轮换后历史桌码将无法解密，商家端重新下载 / 导出会失败。' +
+      '请显式配置 32 字节 Base64 密钥（轮换期间可用 ' +
+      'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS 保留旧密钥）';
+
+    if (isProductionEnvironment()) {
+      this.logger.error(message);
+      return;
+    }
+    this.logger.warn(message);
+  }
 
   async rotateQrCode(
     user: AuthenticatedUser,
@@ -297,6 +357,14 @@ export class ScanOrderingQrService {
     const payload = buildScanOrderingTableQrPayload(token, {
       baseUrl: this.configService.get<string>('club.scanQrBaseUrl'),
     });
+    // 空载荷说明 token 形态非法（正常由本服务生成，出现即内部错误）。
+    // 必须在这里拦住：否则会出一张内容为空/无效的二维码图片，商家端显示
+    // 「成功」，打印后才发现扫不出来——失效在纸面上是不可逆的。
+    if (!payload) {
+      throw new InternalServerErrorException(
+        '桌码内容生成失败，请重新轮换桌码',
+      );
+    }
     const qrCodeImageUrl = await QRCode.toDataURL(payload, {
       width: SCAN_ORDERING_QR_CODE_SIZE,
       margin: 0,
@@ -306,7 +374,7 @@ export class ScanOrderingQrService {
   }
 
   private encryptToken(token: string): string {
-    const key = this.getEncryptionKey();
+    const key = this.getPrimaryEncryptionKey();
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const ciphertext = Buffer.concat([
@@ -319,6 +387,12 @@ export class ScanOrderingQrService {
       .join('.');
   }
 
+  /**
+   * 解密桌码 token。
+   *
+   * 依次尝试当前密钥 → 上一代密钥 → JWT_SECRET 派生密钥：
+   * 密钥轮换后，轮换前生成的历史桌码仍能被重新下载 / 导出。
+   */
   private decryptToken(ciphertext: string): string {
     const [encodedIv, encodedAuthTag, encodedToken, ...extraParts] =
       ciphertext.split('.');
@@ -331,39 +405,87 @@ export class ScanOrderingQrService {
       throw new InternalServerErrorException('桌码加密数据无效');
     }
 
-    try {
-      const decipher = createDecipheriv(
-        'aes-256-gcm',
-        this.getEncryptionKey(),
-        Buffer.from(encodedIv, 'base64url'),
-      );
-      decipher.setAuthTag(Buffer.from(encodedAuthTag, 'base64url'));
-      return Buffer.concat([
-        decipher.update(Buffer.from(encodedToken, 'base64url')),
-        decipher.final(),
-      ]).toString('utf8');
-    } catch {
-      throw new InternalServerErrorException('桌码加密数据无法解密');
+    const iv = Buffer.from(encodedIv, 'base64url');
+    const authTag = Buffer.from(encodedAuthTag, 'base64url');
+    const encrypted = Buffer.from(encodedToken, 'base64url');
+
+    for (const key of this.resolveEncryptionKeys()) {
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(authTag);
+        return Buffer.concat([
+          decipher.update(encrypted),
+          decipher.final(),
+        ]).toString('utf8');
+      } catch {
+        // 该候选密钥解不开（GCM 校验失败），继续尝试下一个
+      }
     }
+
+    throw new InternalServerErrorException(
+      '桌码加密数据无法解密：密钥可能已轮换，请检查 ' +
+        'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY / ' +
+        'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS 配置，' +
+        '或轮换桌码后重新下载',
+    );
   }
 
-  private getEncryptionKey(): Buffer {
-    const encodedKey = this.configService.get<string>(
-      'scanOrdering.qrTokenEncryptionKey',
+  /** 加密用的主密钥：优先显式配置的当前密钥，缺失时回退派生密钥。 */
+  private getPrimaryEncryptionKey(): Buffer {
+    const [primary] = this.resolveEncryptionKeys();
+    return primary;
+  }
+
+  /**
+   * 解密候选密钥（按优先级，已去重）：
+   * 当前显式密钥 → 上一代显式密钥 → JWT_SECRET 派生密钥。
+   */
+  private resolveEncryptionKeys(): Buffer[] {
+    const current = this.readExplicitKey('scanOrdering.qrTokenEncryptionKey');
+    const previous = this.readExplicitKey(
+      'scanOrdering.qrTokenEncryptionKeyPrevious',
     );
-    if (encodedKey) {
-      const key = Buffer.from(encodedKey, 'base64');
-      if (key.length !== 32) {
-        throw new InternalServerErrorException(
-          '桌码加密密钥必须为 32 字节 Base64 值',
-        );
-      }
-      return key;
+    const derived = this.deriveKeyFromJwtSecret();
+
+    const candidates = [current, previous, derived].filter(
+      (key): key is Buffer => key !== null,
+    );
+    if (candidates.length === 0) {
+      throw new InternalServerErrorException('未配置桌码加密密钥');
     }
 
+    const unique = new Map<string, Buffer>();
+    for (const key of candidates) {
+      unique.set(key.toString('hex'), key);
+    }
+    return [...unique.values()];
+  }
+
+  /** 读取显式配置的密钥；未配置返回 null，长度非法直接抛错。 */
+  private readExplicitKey(configPath: string): Buffer | null {
+    const encodedKey = this.configService.get<string>(configPath);
+    if (!encodedKey) {
+      return null;
+    }
+    const key = Buffer.from(encodedKey, 'base64');
+    if (key.length !== 32) {
+      throw new InternalServerErrorException(
+        '桌码加密密钥必须为 32 字节 Base64 值',
+      );
+    }
+    return key;
+  }
+
+  /**
+   * 由 JWT_SECRET 派生的兜底密钥。
+   *
+   * 仅为兼容「从未显式配置过密钥」的历史部署保留：JWT_SECRET 一旦轮换，
+   * 这些密文就再也解不开，因此生产环境必须显式配置独立密钥。
+   */
+  private deriveKeyFromJwtSecret(): Buffer | null {
     const jwtSecret = this.configService.get<string>('jwt.secret');
     if (!jwtSecret) {
-      throw new InternalServerErrorException('未配置桌码加密密钥');
+      return null;
     }
     return createHash('sha256')
       .update(`scan-ordering-qr-token:${jwtSecret}`)

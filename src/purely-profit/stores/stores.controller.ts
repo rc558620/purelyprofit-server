@@ -6,8 +6,10 @@ import {
   Patch,
   Post,
   Put,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -15,7 +17,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BlockSubAccount } from '../access-control/decorators/block-sub-account.decorator';
+import {
+  AllowSubAccount,
+  BlockSubAccount,
+} from '../access-control/decorators/block-sub-account.decorator';
 import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block.guard';
@@ -28,6 +33,10 @@ import {
   UpdateWechatPayConfigDto,
   WechatPayConfigResponseDto,
 } from './dto/wechat-pay-config.dto';
+import {
+  STORE_LOGO_CACHE_MAX_AGE_SECONDS,
+  StoreLogoProxyService,
+} from './store-logo-proxy.service';
 import { StoresService } from './stores.service';
 import { StoresWechatPayService } from './stores-wechat-pay.service';
 
@@ -40,6 +49,7 @@ export class StoresController {
   constructor(
     private readonly storesService: StoresService,
     private readonly storesWechatPayService: StoresWechatPayService,
+    private readonly storeLogoProxyService: StoreLogoProxyService,
   ) {}
 
   @Post()
@@ -81,6 +91,25 @@ export class StoresController {
     @Body() dto: UpdateStoreDto,
   ): Promise<StoreResponseDto> {
     return this.storesService.updateCurrent(user, dto);
+  }
+
+  @Get('current/logo')
+  @RequirePermissions('store:view')
+  @AllowSubAccount()
+  @ApiOperation({
+    summary: '获取当前门店 Logo（同源代理）',
+    description:
+      '对象存储未配置 CORS 时前端无法把 Logo 画进 Canvas，经本接口代理为同源资源后即可参与桌码海报合成。',
+  })
+  async getStoreLogo(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const logo = await this.storeLogoProxyService.getStoreLogo(user);
+    void reply
+      .type(logo.contentType)
+      .header('Cache-Control', `private, max-age=${STORE_LOGO_CACHE_MAX_AGE_SECONDS}`)
+      .send(logo.buffer);
   }
 
   @Get('current/wechat-pay-config')

@@ -34,6 +34,8 @@
     "rules:check": "node scripts/check-f0rest-rules.mjs",
     "sql:tz:check": "node scripts/check-sql-timezone.mjs",
     "membership:contract:check": "node scripts/check-membership-contract.mjs",
+    "scan:qr:contract:check": "node scripts/check-scan-qr-path-contract.mjs",
+    "space:qr:backfill": "node scripts/backfill-space-qr-token-hash.mjs",
     "rules:check:strict": "node scripts/check-f0rest-rules.mjs --enforce-length",
     "test": "jest",
     "test:watch": "jest --watch",

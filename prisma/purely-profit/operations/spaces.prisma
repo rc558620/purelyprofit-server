@@ -56,19 +56,32 @@ model Space {
   @@map("spaces")
 }
 
+/// 空间二维码。
+///
+/// 库里**不存明文 token**（见 docs/club-scan-ordering/03-scan-first-login-plan.md §7）：
+/// - `tokenHash`：解析查表用的 sha256 摘要，DB 泄漏也拿不到可用凭证；
+/// - `tokenCiphertext`：加密留存的明文，供商家端「预览 / 下载」重新出图
+///   （只存摘要就无法重建二维码内容，而每次预览都换新 token 等于让已印物料作废）；
+/// - `tokenPrefix`：明文前 8 位，仅供工单排查对码，不可用于还原。
+///
+/// ⚠️ 历史明文列 `token` 已于 `20260928093000_drop_space_qr_token_plaintext` 删除：
+/// 从此**轮换是唯一能改 token 的手段，且不可回滚**（旧物料立即作废）。
 model SpaceQrCode {
-  id        Int      @id @default(autoincrement())
-  spaceId   Int      @unique @map("space_id")
-  storeId   Int      @map("store_id")
-  token     String   @unique @db.VarChar(64)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  revokedAt DateTime? @map("revoked_at")
-  rotatedAt DateTime? @map("rotated_at")
-  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  store     Store    @relation(fields: [storeId], references: [id])
+  id              Int      @id @default(autoincrement())
+  spaceId         Int      @unique @map("space_id")
+  storeId         Int      @map("store_id")
+  tokenHash       String?  @map("token_hash") @db.VarChar(128)
+  tokenCiphertext String?  @map("token_ciphertext") @db.Text
+  tokenPrefix     String?  @map("token_prefix") @db.VarChar(16)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  revokedAt       DateTime? @map("revoked_at")
+  rotatedAt       DateTime? @map("rotated_at")
+  space           Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  store           Store    @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
+  @@index([tokenHash])
   @@map("space_qr_codes")
 }
 

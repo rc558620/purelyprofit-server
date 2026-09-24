@@ -38,8 +38,15 @@ const SPACE_LEGACY_SCHEME = 'purelyclub://space-scan';
 /** 桌码 token 形态：base64url，至少 16 位（服务端为 32 字节 base64url，共 43 位）。 */
 const TABLE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,}$/;
 
-/** 空间码 token 形态：UUID，允许字母数字与连字符。 */
-const SPACE_TOKEN_PATTERN = /^[A-Za-z0-9-]{16,64}$/;
+/**
+ * 空间码 token 形态：UUID（服务端为 randomUUID，36 位），允许字母数字与连字符。
+ *
+ * ⚠️ 与前端 `purelyClub/src/utils/scanPayload.ts` 的 `SPACE_TOKEN_PATTERN`
+ * 保持一致（跨仓契约由 `scripts/check-scan-qr-path-contract.mjs` 兜底），
+ * 同时被服务端解析层 `extractSpaceQrToken` 复用：放宽/收紧任一侧，
+ * 都会让合法空间码被判成非法，已印刷物料直接扫不出来。
+ */
+export const SPACE_TOKEN_PATTERN = /^[A-Za-z0-9-]{16,64}$/;
 
 export interface BuildScanQrPayloadOptions {
   /** 扫码公共域名，如 https://scan.purelyprofit.com；空值时回退 legacy 格式。 */

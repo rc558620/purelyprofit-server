@@ -4,6 +4,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PlatformMembershipAccessService } from '../../purely-profit/member/platform-membership/platform-membership-access.service';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
+import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { createNewCustomerQuotaServiceMock } from '../../purely-profit/member/new-customer-quota/new-customer-quota.spec-helpers';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -135,6 +137,10 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
         useValue: platformMembershipService,
       },
       { provide: PrismaService, useValue: prismaService },
+      {
+        provide: NewCustomerQuotaService,
+        useValue: createNewCustomerQuotaServiceMock(),
+      },
       { provide: RedisService, useValue: redisService },
       {
         provide: CacheInvalidatorService,

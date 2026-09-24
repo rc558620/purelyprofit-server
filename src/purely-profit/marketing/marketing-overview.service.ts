@@ -8,6 +8,7 @@ import {
 } from '../../redis/keys';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
+  assertUsableStoreInviteQrPayload,
   buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
   STORE_INVITE_QR_PROTOCOL_LEGACY,
@@ -215,11 +216,16 @@ export class MarketingOverviewService {
     );
 
     // 本地生成二维码载荷与图片：配置了公共域名时产出 v1 稳定 URL，否则回退 legacy 裸码
+    // 空载荷（邀请码形态非法）必须拦成显式异常，否则 qrcode 抛 No input text → 500
     const inviteCodeQrPayload = inviteCode
-      ? buildStoreInviteQrPayload(inviteCode, {
-          baseUrl: this.configService.get<string>('club.publicBaseUrl'),
-          entryPath: this.configService.get<string>('club.storeInviteQrEntryPath'),
-        })
+      ? assertUsableStoreInviteQrPayload(
+          buildStoreInviteQrPayload(inviteCode, {
+            baseUrl: this.configService.get<string>('club.publicBaseUrl'),
+            entryPath: this.configService.get<string>(
+              'club.storeInviteQrEntryPath',
+            ),
+          }),
+        )
       : null;
     const isInviteCodeV1Url =
       inviteCodeQrPayload !== null && inviteCodeQrPayload !== inviteCode;

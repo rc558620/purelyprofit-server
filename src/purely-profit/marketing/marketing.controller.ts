@@ -1,3 +1,4 @@
+export { EntryQrPosterController } from './entry-qr-poster.controller';
 export { MarketingCustomersController } from './marketing-customers.controller';
 export { MarketingInviteCodeController } from './marketing-invite-code.controller';
 export { MarketingInviteQrIssueController } from './marketing-invite-qr-issue.controller';

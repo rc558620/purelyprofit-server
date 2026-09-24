@@ -83,6 +83,12 @@ model Store {
   printAgentToken             String?                       @map("print_agent_token")
   /// 扫码点餐打印代理最后在线时间（用于商家端展示代理状态）
   printAgentLastSeenAt        DateTime?                     @map("print_agent_last_seen_at")
+  /// 扫码点餐桌码海报配置 JSON（theme/slogan/showStoreLogo），商家端桌码弹窗读写，缺省走默认主题
+  tableQrPosterConfig         Json?                         @map("table_qr_poster_config")
+  /// 空间二维码海报配置 JSON（theme/slogan/showStoreLogo），空间二维码弹窗读写，缺省走空间码默认标语
+  spaceQrPosterConfig         Json?                         @map("space_qr_poster_config")
+  /// 进店二维码海报配置 JSON（theme/slogan/showStoreLogo），营销中心进店码弹窗读写，缺省走进店码默认标语
+  entryQrPosterConfig         Json?                         @map("entry_qr_poster_config")
   costRecords                 CostRecord[]
   commissionRecords           CommissionRecord[]
   commissionServices          CommissionService[]

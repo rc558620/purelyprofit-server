@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 // SpaceStatus 已移除，状态由运行态推导
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -231,6 +232,14 @@ describe('SpacesWriteService', () => {
         {
           provide: SpacesStatusService,
           useValue: spacesStatusService,
+        },
+        {
+          provide: ConfigService,
+          // 只提供 JWT_SECRET：空间码未显式配置密钥时走派生分支（与线上默认一致）
+          useValue: {
+            get: (key: string) =>
+              key === 'jwt.secret' ? 'test-jwt-secret' : undefined,
+          },
         },
       ],
     }).compile();

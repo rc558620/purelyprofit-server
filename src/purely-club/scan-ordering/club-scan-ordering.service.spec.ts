@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { createHash } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -192,6 +193,66 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
       await expect(service.resolveQrToken('valid-qr-token')).rejects.toThrow(
         ConflictException,
       );
+    });
+  });
+
+  describe('扫码内容形态兼容（已印刷物料不能因解析失败而失效）', () => {
+    /** 服务端生成的桌码 token 形态：32 字节 base64url，43 位 */
+    const TOKEN = 'NuSUjOX2ZBWZrLNx4C-nU-lCVKTAsL3xzLJNOkLlZvM';
+
+    /** 断言 findFirst 实际用于匹配的 tokenHash */
+    const expectMatchedToken = (token: string): void => {
+      const expectedHash = createHash('sha256').update(token).digest('hex');
+      expect(
+        prismaService.scanOrderingTableQrCode.findFirst,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tokenHash: expectedHash }),
+        }),
+      );
+    };
+
+    const mockResolvedQr = (): void => {
+      prismaService.scanOrderingTableQrCode.findFirst.mockResolvedValue(
+        buildQrCodeResult(),
+      );
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'catering',
+      });
+    };
+
+    it('路径式 URL（{base}/t/{token}）能解出 token', async () => {
+      mockResolvedQr();
+
+      await service.resolveQrToken(`https://scan.purelyprofit.com/t/${TOKEN}`);
+
+      expectMatchedToken(TOKEN);
+    });
+
+    it('query 式 URL（{base}/t?token=xxx）能解出 token', async () => {
+      mockResolvedQr();
+
+      await service.resolveQrToken(
+        `https://scan.purelyprofit.com/t?token=${TOKEN}`,
+      );
+
+      expectMatchedToken(TOKEN);
+    });
+
+    it('历史裸 token 原样参与匹配', async () => {
+      mockResolvedQr();
+
+      await service.resolveQrToken(TOKEN);
+
+      expectMatchedToken(TOKEN);
+    });
+
+    it('前端已提取过的裸 token 不会被重复处理（提取幂等）', async () => {
+      mockResolvedQr();
+
+      await service.resolveQrToken(`  ${TOKEN}  `);
+
+      expectMatchedToken(TOKEN);
     });
   });
 

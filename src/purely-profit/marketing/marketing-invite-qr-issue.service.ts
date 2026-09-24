@@ -1,14 +1,22 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  assertUsableStoreInviteQrPayload,
   buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
 } from '../stores/store-invite-code-qr.utils';
 import { MarketingSharedService } from './marketing-shared.service';
-import type { CreateMarketingInviteQrIssueDto, MarketingInviteQrIssueDto } from './dto/marketing-invite-code-issue.dto';
+import type {
+  CreateMarketingInviteQrIssueDto,
+  MarketingInviteQrIssueDto,
+} from './dto/marketing-invite-code-issue.dto';
 
 /** 渠道二维码发行记录服务：创建 / 列表 / 单张撤销。 */
 @Injectable()
@@ -62,7 +70,12 @@ export class MarketingInviteQrIssueService {
   async listIssues(
     user: AuthenticatedUser,
     storeId: number | undefined,
-    query: { channel?: string; status?: string; page?: number; pageSize?: number },
+    query: {
+      channel?: string;
+      status?: string;
+      page?: number;
+      pageSize?: number;
+    },
   ): Promise<{ items: MarketingInviteQrIssueDto[]; total: number }> {
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(
@@ -94,7 +107,9 @@ export class MarketingInviteQrIssueService {
     ]);
 
     const items = await Promise.all(
-      records.map((record) => this.buildIssueDto(record, record.inviteCode.code)),
+      records.map((record) =>
+        this.buildIssueDto(record, record.inviteCode.code),
+      ),
     );
 
     return { items, total };
@@ -181,11 +196,17 @@ export class MarketingInviteQrIssueService {
     },
     inviteCode: string,
   ): Promise<MarketingInviteQrIssueDto> {
-    const payload = buildStoreInviteQrPayload(inviteCode, {
-      baseUrl: this.configService.get<string>('club.publicBaseUrl'),
-      entryPath: this.configService.get<string>('club.storeInviteQrEntryPath'),
-      issueToken: issue.publicToken,
-    });
+    // 空载荷（邀请码形态非法）必须在这里就拦住：否则下面 isV1Url 判 false，
+    // 会返回「创建成功但 entryUrl / qrCodeImageUrl 都是 null」的半成品。
+    const payload = assertUsableStoreInviteQrPayload(
+      buildStoreInviteQrPayload(inviteCode, {
+        baseUrl: this.configService.get<string>('club.publicBaseUrl'),
+        entryPath: this.configService.get<string>(
+          'club.storeInviteQrEntryPath',
+        ),
+        issueToken: issue.publicToken,
+      }),
+    );
     const isV1Url = /^https?:\/\//i.test(payload) && payload.includes('/v1/');
 
     return {

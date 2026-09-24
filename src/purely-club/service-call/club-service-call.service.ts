@@ -12,6 +12,8 @@ import { ServiceCall, ServiceCallType } from '@prisma/client';
 import { CreateClubServiceCallDto } from './dto/create-club-service-call.dto';
 import { CreateClubSpaceServiceCallDto } from './dto/create-club-space-service-call.dto';
 import { ServiceCallRealtimeService } from './service-call-realtime.service';
+import { extractSpaceQrToken } from '../shared/space-qr-token.utils';
+import { hashSpaceQrToken } from '../../shared/space-qr-token-codec.utils';
 
 const OPEN_SERVICE_CALL_STATUSES = ['pending', 'processing'] as const;
 const SERVICE_CALL_COOLDOWN_MS = 60_000;
@@ -110,13 +112,16 @@ export class ClubServiceCallService {
       type: { name: string };
     };
   }> {
-    const token = spaceToken.trim();
+    // 兼容「路径式 / query 式 / 历史自定义协议 / 裸 token」：
+    // 任何入口漏掉提取时，服务端仍能解出 token，不会让已印刷物料凭空失效。
+    const token = extractSpaceQrToken(spaceToken);
     if (!token) {
       throw new BadRequestException('二维码无效，请扫描空间二维码');
     }
 
-    const qrCode = await this.prisma.spaceQrCode.findUnique({
-      where: { token },
+    // 只按摘要查表：明文列已删除，库里没有可直接伪造的凭证
+    const qrCode = await this.prisma.spaceQrCode.findFirst({
+      where: { tokenHash: hashSpaceQrToken(token) },
       select: {
         storeId: true,
         revokedAt: true,

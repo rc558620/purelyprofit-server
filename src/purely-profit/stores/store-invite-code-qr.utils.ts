@@ -1,3 +1,4 @@
+import { InternalServerErrorException, Logger } from '@nestjs/common';
 import QRCode from 'qrcode';
 import {
   resolveAllowPrivateNetwork,
@@ -22,8 +23,8 @@ import {
  * - 渠道二维码因依赖稳定入口做归因，创建接口会直接拒绝；
  * - 上线前务必把 CLUB_PUBLIC_BASE_URL 换成真实公网域名，否则已印刷物料无法扫码落地。
  *
- * 本模块为纯函数，不依赖 Nest DI；公共域名由调用方（service 层）从
- * ConfigService 读取后传入，未配置时回退为 legacy 裸邀请码。
+ * 本模块不依赖 Nest DI（只用 Logger 打点、抛标准 HttpException）；公共域名由调用方
+ * （service 层）从 ConfigService 读取后传入，未配置时回退为 legacy 裸邀请码。
  */
 
 /** 邀请码二维码图片尺寸。 */
@@ -43,11 +44,50 @@ const INVITE_CODE_PATTERN = /^[A-Z0-9]{6,32}$/;
 /** 历史 URL query 中可识别邀请码的参数名。 */
 const LEGACY_INVITE_CODE_QUERY_KEYS = ['inviteCode', 'code', 'invite_code'];
 
+/**
+ * 进店码入口路径段白名单（`{base}/{entrySegment}/v1/{code}` 中的 `{entrySegment}`）。
+ *
+ * ⚠️ 必须与前端 `purelyClub/src/utils/scanPayload.ts` 的 `SCAN_PATH_KINDS.storeInvite`
+ * 与 `STORE_INVITE_SEGMENTS` 保持一致，跨仓由 `npm run scan:qr:contract:check` 守住。
+ *
+ * 为什么必须收成具名常量 + 白名单：入口段是 env 可配项
+ * （`club.storeInviteQrEntryPath` / `CLUB_STORE_INVITE_QR_ENTRY_PATH`，默认 `/i`），
+ * 改动不需要过 review。运维随手填 `/join` 时，生成侧会产出 `/join/v1/CODE`，
+ * 而服务端 `V1_PATH_PATTERN` 与前端分类只认白名单内的段 —— 已印刷物料会
+ * **静默失效且无任何报错**，只能等顾客扫不出来才发现。桌码 / 空间码的路径段是
+ * 代码常量，这里是配置，因此必须显式拒绝白名单外的取值。
+ */
+export const STORE_INVITE_QR_ENTRY_SEGMENTS = ['i', 'invite'] as const;
+
+/** 入口段取值类型。 */
+export type StoreInviteQrEntrySegment =
+  (typeof STORE_INVITE_QR_ENTRY_SEGMENTS)[number];
+
+/** 默认入口段：未配置或配置非法时使用（与历史已印刷物料一致）。 */
+export const STORE_INVITE_QR_DEFAULT_ENTRY_SEGMENT: StoreInviteQrEntrySegment =
+  'i';
+
+/** 由白名单派生的正则片段，保证生成侧与解析侧永远同源。 */
+const ENTRY_SEGMENTS_PATTERN_SOURCE = STORE_INVITE_QR_ENTRY_SEGMENTS.join('|');
+
 /** v1 路径式 URL 匹配：{domain}/i/v1/{code} 或 {domain}/invite/v1/{code}。 */
-const V1_PATH_PATTERN = /^\/(?:invite|i)\/v1\/([A-Z0-9]{6,32})\/?$/i;
+const V1_PATH_PATTERN = new RegExp(
+  `^/(?:${ENTRY_SEGMENTS_PATTERN_SOURCE})/v1/([A-Z0-9]{6,32})/?$`,
+  'i',
+);
 
 /** 邀请入口路径中的版本段（如 v999），用于识别「版本不支持」。 */
-const ENTRY_VERSION_SEGMENT_PATTERN = /^\/(?:invite|i)\/(v\d+)\/(.+?)\/?$/i;
+const ENTRY_VERSION_SEGMENT_PATTERN = new RegExp(
+  `^/(?:${ENTRY_SEGMENTS_PATTERN_SOURCE})/(v\\d+)/(.+?)/?$`,
+  'i',
+);
+
+/**
+ * 入口段非法告警按「取值」去重：非法配置会在每次出图时命中，
+ * 不去重会把启动后的日志刷满（与 `reportScanQrBaseUrlStatus` 同一套思路）。
+ */
+const reportedInvalidEntryPaths = new Set<string>();
+const entryPathLogger = new Logger('StoreInviteQrPayload');
 
 /** 解析结果：识别成功。 */
 export type StoreInviteQrRecognizedResult = {
@@ -96,7 +136,9 @@ export interface BuildStoreInviteQrPayloadOptions {
  *
  * - 未配置公共域名（或域名非法）时回退为裸邀请码（legacy），
  *   保证不会把 localhost / 内网地址写入已发行二维码；
- * - 配置公共域名后生成 v1 稳定 URL；传入 issueToken 时追加 ?t={token}。
+ * - 配置公共域名后生成 v1 稳定 URL；传入 issueToken 时追加 ?t={token}；
+ * - 入口路径段必须是 `STORE_INVITE_QR_ENTRY_SEGMENTS` 白名单内的取值，
+ *   否则回退默认段并记 error（理由见该常量注释）。
  */
 export function buildStoreInviteQrPayload(
   inviteCode: string,
@@ -118,10 +160,30 @@ export function buildStoreInviteQrPayload(
   const entryPath = sanitizeEntryPath(options.entryPath);
   const base = `${baseUrl}/${entryPath}/v1/${normalizedCode}`;
   const token =
-    typeof options.issueToken === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(options.issueToken)
+    typeof options.issueToken === 'string' &&
+    /^[A-Za-z0-9-]{8,64}$/.test(options.issueToken)
       ? options.issueToken.trim()
       : '';
   return token ? `${base}?t=${token}` : base;
+}
+
+/**
+ * 出图前置校验：空载荷必须拦住，不能交给 qrcode。
+ *
+ * `buildStoreInviteQrPayload` 在邀请码形态非法（如历史脏数据、大小写与长度异常）
+ * 时返回空串；直接出图会让 `qrcode.toDataURL('')` 抛 `No input text` → 接口 500，
+ * 商家端只看到「服务器错误」而不知道要重新轮换。更要紧的是：调用方常用
+ * `payload !== inviteCode` 判断协议版本，空载荷会被先误判成 v1。
+ *
+ * 因此统一在这里拦成显式异常（照搬空间码 `buildQrContent()` 的处理）。
+ */
+export function assertUsableStoreInviteQrPayload(payload: string): string {
+  if (!payload) {
+    throw new InternalServerErrorException(
+      '进店码内容生成失败，请重新轮换邀请码',
+    );
+  }
+  return payload;
 }
 
 /** 生成二维码 PNG Data URL。 */
@@ -248,9 +310,43 @@ function tryParseScanCodeUrl(scanCode: string): URL | null {
   }
 }
 
+/**
+ * 归一化入口路径段：只接受白名单取值，其余一律回退默认段。
+ *
+ * 历史实现是「原样接受任意值」，于是 env 填 `/join` 会静默产出解析侧不认的 URL；
+ * 这里改为显式拒绝 + error 告警，保证「已印刷物料的入口段」永远落在生成侧与
+ * 解析侧都认的那几个值上。
+ */
 function sanitizeEntryPath(entryPath: string | undefined): string {
-  const trimmed = (typeof entryPath === 'string' ? entryPath : '/i')
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return trimmed || 'i';
+  if (typeof entryPath !== 'string') {
+    return STORE_INVITE_QR_DEFAULT_ENTRY_SEGMENT;
+  }
+
+  const trimmed = entryPath.trim().replace(/^\/+|\/+$/g, '');
+  if (!trimmed) {
+    return STORE_INVITE_QR_DEFAULT_ENTRY_SEGMENT;
+  }
+
+  const matchedSegment = STORE_INVITE_QR_ENTRY_SEGMENTS.find(
+    (segment) => segment.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (!matchedSegment) {
+    reportInvalidEntryPath(trimmed);
+    return STORE_INVITE_QR_DEFAULT_ENTRY_SEGMENT;
+  }
+  return matchedSegment;
+}
+
+/** 入口段不在白名单内：记 error（按取值去重），避免运维以为配置已生效。 */
+function reportInvalidEntryPath(rawEntryPath: string): void {
+  if (reportedInvalidEntryPaths.has(rawEntryPath)) {
+    return;
+  }
+  reportedInvalidEntryPaths.add(rawEntryPath);
+  entryPathLogger.error(
+    `club.storeInviteQrEntryPath="${rawEntryPath}" 不在白名单 ` +
+      `（${STORE_INVITE_QR_ENTRY_SEGMENTS.join(' / ')}）内，已回退为 ` +
+      `"${STORE_INVITE_QR_DEFAULT_ENTRY_SEGMENT}"。` +
+      '生成侧与解析侧只认白名单入口段，该配置改坏会让已印刷物料静默失效',
+  );
 }

@@ -892,7 +892,26 @@ const sourceMembers = await tx.member.findMany({
 域名可达性校验抽到共享层 `src/shared/qr-public-url.utils.ts`（与邀请码共用同一套 IP 段规则，避免策略漂移）。
 
 路径段常量前后端各持一份，必须保持一致：后端 `SCAN_QR_TABLE_PATH` / `SCAN_QR_SPACE_PATH`
-↔ 前端 `purelyClub/src/utils/scanPayload.ts` 的 `SCAN_PATH_KINDS`（已有单测锁住）。
+↔ 前端 `purelyClub/src/utils/scanPayload.ts` 的 `SCAN_PATH_KINDS`。
+
+⚠️ 两侧没有任何编译期联系，只改一侧会让已印桌码被判成 `unknown` 而静默走「门店入店」
+分支——不报错、只在店里扫不出来才被发现。因此用跨仓脚本守住：
+
+```
+npm run scan:qr:contract:check   # scripts/check-scan-qr-path-contract.mjs
+```
+
+比对四组契约（桌码段 `t`、空间码段 `p`、桌码 token 最小长度、空间码 token 形态 `{16,64}`），
+不一致退出码 1，应接进 CI。
+
+### 服务端也解析路径式 URL（双保险）
+
+后端 `ClubScanOrderingService.extractQrToken` 原先只识别 `?token=`，路径式 URL 必须由前端
+`extractTableToken` 提取后才能匹配。现已同时兼容「query 式 / 路径式 / 裸 token」，且对前端
+已提取的裸 token 幂等——任何新入口（H5、新增客户端、第三方对接）漏掉提取时服务端仍能解出，
+不会让已印刷物料凭空失效。
+
+空间码同款兜底见下节（`extractSpaceQrToken`）。
 
 ### 为什么桌码域名与邀请码域名分开
 
@@ -914,6 +933,159 @@ const sourceMembers = await tx.member.findMany({
 > **因此本次改造在不配置任何环境变量时，行为与改造前完全一致**——可以先把代码合入，
 > 等域名与备案就绪后只改环境变量即可切换，无需再动代码。
 
+### ⚠️ 域名是永久资产（换域名 = 全部物料重印）
+
+一旦启用 `SCAN_QR_BASE_URL`，域名就被烧进每一张已印刷的桌码：
+
+| 变更 | 后果 | 可否补救 |
+|---|---|---|
+| 换域名 | 全部已印桌码指向旧域名 | ❌ 服务端改不了纸上的内容 |
+| 域名到期 / 备案注销 | 微信规则失效 | ❌ |
+| 公众平台规则被删 / 前缀写错 | 扫码不再唤起小程序 | ❌（微信按 URL 文本前缀匹配，不会 fetch 旧域名，301 跳转无效） |
+
+因此约定：**只增不换**。确实要换时，必须保留旧域名解析 + 旧规则同时生效，直到确认
+全部旧物料淘汰。
+
+⚠️ 桌码与空间码**共用这一个域名**：切换域名会同时作废桌贴与空间二维码两类物料，
+排期时必须一起算进去。
+
+启动期告警由共享函数 `reportScanQrBaseUrlStatus`（`src/shared/scan-qr-base-url-status.utils.ts`）
+发出，`ScanOrderingQrService` 与 `SpaceQrCodeService` 的 `onModuleInit` 都会调用；
+它按**域名取值**去重，两个 service 只播报一次，不会在启动日志里刷两遍。
+「配置了但被判定非法」会记 error，避免运维以为生效、实际静默回退历史格式。
+
+### 空间码（呼叫服务 / 自助下单）
+
+空间码与桌码共用同一套协议，但有两个入口、一份历史格式，单独说明：
+
+**载荷三种形态（服务端 `buildSpaceQrPayload` 生成）**
+
+| 形态 | 内容 | 出现条件 |
+|---|---|---|
+| 路径式 URL | `{base}/p/{token}` | 配置了 `SCAN_QR_BASE_URL`（现行格式） |
+| query 式 URL | `{base}/p?token={token}` | 历史过渡格式 |
+| 历史自定义协议 | `purelyclub://space-scan?token={token}` | 未配置域名 / 域名被 sanitize 拒绝时的回退 |
+
+token 形态为 UUID（`randomUUID()`，36 位），前后端共用同一条形态正则
+`SPACE_TOKEN_PATTERN = /^[A-Za-z0-9-]{16,64}$/`（跨仓由 `scan:qr:contract:check` 守着）。
+
+**解析方（两级，互为双保险）**
+
+1. **前端提取**：`purelyClub/src/utils/scanPayload.ts` 的 `extractSpaceToken`
+   把扫码内容还原成裸 token 再上报；首段必须是 `p`，避免与桌码 `/t/`、邀请码 `/i/` 混淆。
+2. **服务端兜底**：`src/purely-club/shared/space-qr-token.utils.ts` 的 `extractSpaceQrToken`
+   被两处入口共用 —— `ClubServiceCallService`（扫码呼叫服务）与
+   `ClubSelfOrderingService`（自助下单解析空间）。同样兼容上面三种形态，且对前端
+   已提取的裸 token 幂等（裸 UUID 不含 `/`，不会命中 URL 分支）。
+
+   兜底的意义：只要有**一个**入口（未来 H5、新版客户端、第三方对接，或前端某次改版）
+   漏掉提取，整条 URL 就会被当成 token 去做 `spaceQrCode.token` 的等值匹配，
+   顾客看到「二维码无效，请扫描空间二维码」，而纸上的码其实没坏。
+
+**DTO 长度**：`ResolveSpaceDto` / `CreateClubSpaceServiceCallDto` 原先是
+`@MaxLength(64)`，整条 URL（`https://scan.purelyprofit.com/p/` + 36 位 token ≈ 68 字符）
+会先被拦成 400。现在改成 **在校验前用 `@Transform` 提取 token**，并把上限放宽到 512：
+既不会误杀整条 URL，也不会放行无界字符串。
+
+**轮换 = 已印刷空间码立即作废（不可逆）**
+
+`SpaceQrCodeService.rotate()` 用 `upsert` **覆盖** `space_qr_codes.token` 及派生列，
+不像桌码有 `version` 历史表：
+
+- 旧 token 被覆盖后**不可恢复**，无法「回滚到上一张」；
+- 已张贴 / 已印刷的空间码立即失效，顾客扫码得到「二维码无效」；
+- 因此正确顺序是：**先把新物料印好并到位，再点轮换**；商家端轮换按钮已有
+  二次确认弹窗（`spaceManagement.tsx` 的 `ConfirmModal`，danger 变体），
+  文案为「轮换后，{空间} 内已张贴的旧二维码会立即失效。请下载并替换新二维码。」；
+- 不要为了「刷新一下」而轮换 —— 空间码没有 `revokedAt` 之外的软失效手段。
+
+> 注：`getPreview` / `download` **不会**轮换。它们走 `upsert` 的 `update: {}` 分支，
+> 已存在的行不动，只有在「该空间还没有码」时才 create。
+
+### 空间码 token 改为哈希查表（P2-7）
+
+**问题**：`space_qr_codes.token` 是明文 UUID。DB / 备份 / 日志泄漏后，攻击者拿着任意
+空间的 token 就能直接调 C 端「扫码呼叫服务 / 自助下单解析空间」，与桌码 `tokenHash`
+的口径也不一致。
+
+**为什么不能只存哈希**：商家端「预览 / 下载」要拿**原始 token** 重建二维码内容。
+只存摘要重建不出来，而每次预览重新生成 token 等于让已印刷物料作废 —— 正是要防的事故。
+所以额外用 AES-256-GCM 把明文加密留存。
+
+**已落地的字段**（迁移 `20260927093000_add_space_qr_token_hash`，**只做加法**）
+
+| 列 | 作用 |
+|---|---|
+| `token` | 历史明文。**保留但不再参与解析比对**，作为回滚缓冲 |
+| `token_hash` | 解析查表用的 sha256 摘要 |
+| `token_ciphertext` | 加密留存的明文，供重新出图 |
+| `token_prefix` | 明文前 8 位，仅供工单排查 |
+
+**解析侧双读**（`ClubServiceCallService` / `ClubSelfOrderingService`）
+
+```ts
+where: { OR: [{ tokenHash: hash(token) }, { token, tokenHash: null }] }
+```
+
+第二个分支只为「迁移窗口内还没回填摘要」的历史行保留。**回填完成后不再有
+`token_hash` 为空的行，该分支自然失效** —— 即使整库泄漏，拿到的明文 token 也匹配不上，
+安全性当场生效，不必等删除列。
+
+**执行顺序（不可颠倒）**
+
+1. 部署迁移（三列可空，功能不受影响）；
+2. 部署后端（写入侧同时写摘要 + 密文，解析侧双读）；
+3. **先配 `SPACE_QR_TOKEN_ENCRYPTION_KEY` 再回填**（否则密文由 `JWT_SECRET` 派生，
+   轮换后历史密文解不开；启动期会 warn/error 提示）；
+4. `pnpm space:qr:backfill`（默认 dry-run）核对数量 → `--apply`；
+5. 复跑 dry-run 确认待回填为 0；
+6. 真机验证：扫历史空间码仍能进呼叫服务 / 自助下单；商家端预览下载仍能出图。
+
+> **本地环境已走完整流程（2026-09-25）**：迁移 apply → 回填 15/15 →
+> 复跑 dry-run 待回填 0 → 数据校验「摘要 15/15 正确、密文 15/15 可还原、
+> 双读按摘要命中、明文单独匹配返回空」→ 真机扫历史空间码（呼叫服务 / 自助下单
+> 两条入口）与商家端「预览 / 下载」均通过。
+> 其它环境仍需各自重跑 1~5 步（**密钥另行生成，不要复用本地值**）。
+
+**已完成：删除明文列（`20260928093000_drop_space_qr_token_plaintext`）**
+
+删列前的前置条件全部满足后才执行，之后库里只剩：
+
+```
+created_at, id, revoked_at, rotated_at, space_id, store_id,
+token_ciphertext, token_hash, token_prefix, updated_at
+```
+
+- 解析只走 `tokenHash`；重新出图只走 `tokenCiphertext`，解不开**显式报错**
+  （提示密钥配置 / 轮换），不再静默回退；
+- **后果**：轮换成了唯一能改 token 的手段，且不可回滚 —— 已印刷物料立即作废。
+  轮换前必须确认新物料到位；
+- 明文一旦删除就拿不回来，回滚只能靠备份。
+
+> **本地已验证（2026-09-25）**：删列后 15/15 行「sha256(密文还原的 token) ==
+> 库中 token_hash」成立、还原出的 token 均为合法 UUID、按摘要查表命中 ——
+> 即已印刷的历史空间码仍可正常扫码。
+
+### 非微信扫码兜底（待办）
+
+微信原生扫一扫由公众平台规则承接；但**系统相机 / 支付宝 / 浏览器**打开
+`{base}/t/{token}`、 `{base}/p/{token}` 会 404——Taro H5 的真实路由是
+`/pages/scanEntry/index`，仓库内没有 `/t/:token`、`/p/:token` 的转发配置
+（以下步骤仅为示例，**仓库里不要新建部署文件**，落到实际 nginx / 网关配置里）。
+需要两条 rewrite（示例）：
+
+```nginx
+location ~ ^/t/([A-Za-z0-9_-]{16,})$ {
+  rewrite ^ /pages/scanEntry/index?payload=$request_uri break;
+}
+
+location ~ ^/p/([A-Za-z0-9-]{16,64})$ {
+  rewrite ^ /pages/scanEntry/index?payload=$request_uri break;
+}
+```
+
+未做之前，桌码的可用范围应表述为「微信扫一扫 / 小程序内扫码」。
+
 ---
 
 ## 8. 环境依赖清单
@@ -924,6 +1096,7 @@ const sourceMembers = await tx.member.findMany({
 | 微信认证 | ✅ 已认证（认证日期 2026-06-22） | — |
 | 小程序备案 | 🔄 审核中 | 普通链接二维码规则配置（微信原生扫一扫直达菜单） |
 | `SCAN_QR_BASE_URL` | ❌ 未配置（未配置则回退历史格式） | 仅影响「微信原生扫一扫」，不影响小程序内扫码 |
+| `SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY` | ❌ 未配置（回退为 JWT_SECRET 派生） | JWT_SECRET 轮换后历史桌码无法重新下载 / 导出（扫码不受影响） |
 | `AUTH_WECHAT_PHONE_BIND_ENABLED` | ❌ 未配置（默认 false → 接口 501） | 批次 3：置 true 后一键绑定才生效 |
 | 腾讯云短信凭证 | ❌ 未配置 | 批次 2 短信兜底（本地可用降级方式） |
 | 微信支付商户号 | ❌ 未开放 | 真实支付（当前走 `confirm-paid` 开发态兜底） |
@@ -937,6 +1110,79 @@ const sourceMembers = await tx.member.findMany({
 >    ⚠️ 与第 2 项配套：一键绑定为主路径，若它失败而短信又发不出码，用户就没有出口
 > 4. **申请微信支付商户号** → 真实支付（个体工商户 + 已认证，具备申请资格）
 > 5. **真机点一次「允许」** → 端到端确认（落库 / 计费 / 商家端可见手机号）
+
+### 8.1 上线检查清单（Go-live Checklist）
+
+上线动作分两类：**A 类可随时做、可回滚；B 类一旦印刷即不可逆**。务必按 A → B 顺序执行。
+
+#### A. 上线前必做（无风险，先做完）
+
+1. **显式配置桌码加密密钥**（当前生产为空，等于把密钥挂在 `JWT_SECRET` 上）
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+   ```
+   → 填入 `SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY`。
+   - 留空的后果：密钥由 `JWT_SECRET` 派生，`JWT_SECRET` 一旦轮换，历史桌码的密文再也解不开，
+     商家端「重新下载 / 批量导出」集体 500（扫码不受影响，走 `tokenHash`）。
+   - 轮换玩法：新值填主变量，旧值填 `SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS`，
+     确认无历史密文后再移除 `PREVIOUS`。
+2. **契约检查进 CI**：`npm run scan:qr:contract:check`
+   （前端仓库不在同级目录时设 `PURELY_CLUB_ROOT`）。它守的是「前后端各持一份路径段常量」
+   这个隐式契约——只改一侧会让已印桌码静默失效且不报错。
+3. **盘点历史桌码**：无 `tokenCiphertext` 的老桌码无法重新下载，只能明确轮换
+   （界面会提示「当前桌码为历史版本，无法重新下载」）。需要批量重印的门店提前排期。
+
+#### B. 域名切换（不可逆，最后做）
+
+前置条件（缺一不可）：
+- 小程序备案已通过、域名可公网访问；
+- 微信公众平台「扫普通链接二维码打开小程序」规则已发布：`{SCAN_QR_BASE_URL}/` → `pages/scanEntry/index`
+  （规则发布有 **500 次/月** 限额，别反复改前缀）；
+- 域名解析与微信规则**长期保留**（见 7.「域名是永久资产」）。
+
+执行顺序：
+1. 配 `SCAN_QR_BASE_URL` 并重启 → 核对启动日志（见 D）；
+2. **先印 1~2 张实测**，确认微信扫一扫直达菜单；
+3. 通过后再批量印刷 / 导出海报。
+
+> 已印的裸 token 桌码**不需要**因为这次切换而重印（小程序内扫码仍可用）。
+> 但反过来：一旦印了 URL 版，域名就不能再变。
+
+#### C. 上线后验收（必须真机，不能只看屏幕）
+
+- 微信原生扫一扫 → 直达菜单，不经过登录页；
+- 小程序内 `Taro.scanCode` 扫同一张码 → 同样直达；
+- 建会话 → 加购 → 下单全流程通；
+- 商家端「重新下载桌码」「批量导出」可用；
+- **打印出来的纸实测可扫**（屏幕上的图与打印稿不是一个校验强度）。
+
+可用脚本：`node scripts/seed-scan-test-qr.mjs`（造测试桌码）、
+`npm run test:e2e:scan`（purelyClub，需 `SCAN_QR_BASE_URL` + token）。
+
+#### D. 重启后核对启动日志
+
+`ScanOrderingQrService.onModuleInit` 会明确打印当前处于哪种状态：
+
+| 日志 | 含义 | 处置 |
+|---|---|---|
+| `扫码点餐桌码域名已生效：{base}/t/{token}` | 稳定 URL 已生效 | 期望状态 |
+| `未配置 SCAN_QR_BASE_URL…`（warn） | 仍在历史格式（裸 token） | 仅小程序内扫码可用 |
+| `SCAN_QR_BASE_URL="…" 非法或在当前环境被拒绝`（error） | **静默回退成裸 token**，运维容易误以为已生效 | 立即修：检查协议、是否带路径、生产是否填了内网地址 |
+| `未配置 SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY…`（生产 error） | 密钥挂在 `JWT_SECRET` 上 | 立即补 A-1 |
+
+#### E. 上线后盯这几条
+
+- `桌码加密数据无法解密` → 密钥错配，核对主变量 / `PREVIOUS` 变量；
+- `桌码内容生成失败` → token 形态异常，轮换该桌桌码后重新下载；
+- 顾客侧「桌码无效 / 当前桌台暂不可点餐」变多 → 先查门店业态是否为 `catering`、
+  桌台是否停用 / 清台中（`clearing` 是短暂态），**不要先怀疑二维码**。
+
+#### F. 回滚认知（别抱有错误的预期）
+
+- 撤掉 `SCAN_QR_BASE_URL` 只对**之后新下载**的码生效；
+- **已印的 URL 版桌码不会因为服务端改配置而恢复**——域名失效 / 规则被删只能重印物料；
+- 系统相机 / 支付宝 / 浏览器扫 URL 版桌码目前会 404（缺 `/t/:token` 转发），
+  对外话术应限定为「微信扫一扫 / 小程序内扫码」。
 
 ---
 

@@ -20,6 +20,14 @@ const SCAN_TOKEN_PREFIX = 'club:scan-ordering:token:';
 const SCAN_TOKEN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 
+/**
+ * 桌码 token 形态：base64url，至少 16 位（服务端为 32 字节 base64url，43 位）。
+ *
+ * 必须与前端 `purelyClub/src/utils/scanPayload.ts` 的 `TABLE_TOKEN_PATTERN`
+ * 保持一致（跨仓契约由 `scripts/check-scan-qr-path-contract.mjs` 兜底）。
+ */
+const TABLE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,}$/;
+
 interface ResolvedScanToken {
   /** 门店 ID。 */
   storeId: number;
@@ -361,18 +369,58 @@ export class ClubScanOrderingService {
     }
   }
 
+  /**
+   * 从扫码内容中取桌码 token。
+   *
+   * 兼容三种形态，且对「前端已提取的裸 token」是幂等的（裸 token 不含 `/`）：
+   *   1. query 式 URL：`{base}/t?token=xxx`
+   *   2. 路径式 URL：`{base}/t/xxx`
+   *   3. 历史裸 token：`xxx`
+   *
+   * ⚠️ 形态 2 必须在这里兜住：前端 `extractTableToken` 负责提取，但任何新入口
+   * （H5、新增客户端、第三方对接）漏掉提取时，整条 URL 会被拿去 sha256 匹配，
+   * 必然查不到并表现为「桌码无效，请重新扫码」——已印刷物料等于凭空失效。
+   * 服务端与前端各提取一次，互为双保险。
+   */
   private extractQrToken(rawValue: string): string {
     const value = rawValue.trim();
     if (!value) {
       return value;
     }
 
-    try {
-      const url = new URL(value);
-      return url.searchParams.get('token')?.trim() || value;
-    } catch {
-      return value;
+    // 形态 1：query 式 URL
+    const fromQuery = this.readTokenQueryParam(value);
+    if (fromQuery) {
+      return fromQuery;
     }
+
+    // 形态 2：路径式 URL（取末段，命中 token 形态才采用，避免把 `t` 当 token）
+    const lastSegment = this.readLastPathSegment(value);
+    if (TABLE_TOKEN_PATTERN.test(lastSegment)) {
+      return lastSegment;
+    }
+
+    // 形态 3：历史裸 token
+    return value;
+  }
+
+  /** 从 `?token=xxx` 中取值；非 URL 或无该参数时返回 null */
+  private readTokenQueryParam(value: string): string | null {
+    try {
+      const token = new URL(value).searchParams.get('token')?.trim();
+      return token || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 取路径末段：先剥离 scheme + host，再取最后一个非空分段 */
+  private readLastPathSegment(value: string): string {
+    const path = value.split(/[?#]/, 1)[0] ?? '';
+    const withoutOrigin = path.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+    const withoutScheme = withoutOrigin.replace(/^[a-z][a-z0-9+.-]*:/i, '');
+    const segments = withoutScheme.split('/').filter(Boolean);
+    return (segments[segments.length - 1] ?? '').trim();
   }
 
   private hash(value: string): string {

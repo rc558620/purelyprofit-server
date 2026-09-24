@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { StoresController } from './stores.controller';
 import { StoresProfileService } from './stores-profile.service';
+import { StoreLogoProxyService } from './store-logo-proxy.service';
 import { StoresReadService } from './stores-read.service';
 import { StoresService } from './stores.service';
 import { StoreBusinessCapabilityModule } from './store-business-capability.module';
@@ -19,6 +20,7 @@ import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
     StoresReadService,
     StoresWriteService,
     StoresWechatPayService,
+    StoreLogoProxyService,
     WechatPayEncryptionService,
   ],
   exports: [

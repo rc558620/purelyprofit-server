@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
@@ -37,6 +38,10 @@ import {
 } from './spaces.query';
 import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
 import { getReservationStatusRange } from './space-reservations.shared';
+import {
+  buildSpaceQrTokenSecrets,
+  type SpaceQrTokenKeyConfig,
+} from '../../../shared/space-qr-token-codec.utils';
 
 @Injectable()
 export class SpacesWriteService {
@@ -47,7 +52,18 @@ export class SpacesWriteService {
     private readonly spaceReservationsService: SpaceReservationsService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly spacesStatusService: SpacesStatusService,
+    private readonly configService: ConfigService,
   ) {}
+
+  private readTokenKeyConfig(): SpaceQrTokenKeyConfig {
+    return {
+      current: this.configService.get<string>('space.qrTokenEncryptionKey'),
+      previous: this.configService.get<string>(
+        'space.qrTokenEncryptionKeyPrevious',
+      ),
+      jwtSecret: this.configService.get<string>('jwt.secret'),
+    };
+  }
 
   async createSpace(
     user: AuthenticatedUser,
@@ -110,8 +126,14 @@ export class SpacesWriteService {
             include: SPACE_WITH_RELATIONS_INCLUDE,
           });
 
+          // 空间码只落摘要 + 密文：明文列已删除，库里不再存可伪造的凭证
+          const qrToken = randomUUID();
           await transaction.spaceQrCode.create({
-            data: { spaceId: space.id, storeId, token: randomUUID() },
+            data: {
+              spaceId: space.id,
+              storeId,
+              ...buildSpaceQrTokenSecrets(qrToken, this.readTokenKeyConfig()),
+            },
           });
 
           return space;

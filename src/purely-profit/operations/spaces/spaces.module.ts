@@ -39,6 +39,8 @@ import { SpaceZonesController } from './space-zones.controller';
 import { SpaceZonesService } from './space-zones.service';
 import { SpacesController } from './spaces.controller';
 import { SpaceManagementVoiceSettingsService } from './space-management-voice-settings.service';
+import { SpaceQrPosterController } from './space-qr-poster.controller';
+import { SpaceQrPosterService } from './space-qr-poster.service';
 import { SpacePrintController } from './space-print.controller';
 import { SpacePrintService } from './space-print.service';
 import { SpacePrintDataService } from './space-print-data.service';
@@ -69,6 +71,8 @@ import { SpacesWriteService } from './spaces-write.service';
   controllers: [
     SpaceTypesController,
     SpaceZonesController,
+    // 静态配置路由必须先于 /spaces/:id 注册，避免 qr-poster 被解析为空间 ID。
+    SpaceQrPosterController,
     SpacesController,
     SpaceReservationsController,
     SpaceSessionsController,
@@ -104,6 +108,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceDashboardService,
     SpaceAutoCheckoutSchedulerService,
     SpaceQrCodeService,
+    SpaceQrPosterService,
     SpacePrintSettingsService,
     SpacePrintDataService,
     SpacePrintService,

@@ -1,6 +1,11 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import QRCode from 'qrcode';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MarketingSharedService } from './marketing-shared.service';
@@ -9,6 +14,9 @@ import { MarketingInviteQrIssueService } from './marketing-invite-qr-issue.servi
 jest.mock('qrcode', () => ({
   toDataURL: jest.fn(async () => 'data:image/png;base64,QR_IMAGE'),
 }));
+
+/** 取被 mock 的 qrcode.toDataURL，用于断言「空载荷时根本没出图」。 */
+const toDataUrlMock = QRCode.toDataURL as unknown as jest.Mock;
 
 describe('MarketingInviteQrIssueService', () => {
   let service: MarketingInviteQrIssueService;
@@ -69,9 +77,11 @@ describe('MarketingInviteQrIssueService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
-      $transaction: jest.fn().mockImplementation(async (arr: Promise<unknown>[]) =>
-        Promise.all(arr),
-      ),
+      $transaction: jest
+        .fn()
+        .mockImplementation(async (arr: Promise<unknown>[]) =>
+          Promise.all(arr),
+        ),
     };
     marketingSharedService = {
       resolveMembershipManagedStoreId: jest.fn().mockResolvedValue(18),
@@ -143,6 +153,33 @@ describe('MarketingInviteQrIssueService', () => {
         'https://club.purelyprofit.com/i/v1/AB23CD45?t=abc12345-6789-4def-0123-456789abcdef',
       );
       expect(result.qrCodeImageUrl).toBe('data:image/png;base64,QR_IMAGE');
+    });
+
+    it('邀请码形态非法（载荷为空）时拒绝出图，不留半成品记录语义', async () => {
+      configService.get.mockImplementation((key: string) =>
+        key === 'club.publicBaseUrl' ? 'https://club.purelyprofit.com' : '/i',
+      );
+      prisma.storeInviteCode.findFirst.mockResolvedValue({
+        id: 5,
+        code: 'bad-code!',
+      });
+      prisma.storeInviteQrIssue.create.mockResolvedValue({
+        id: 1,
+        publicToken: 'abc12345-6789-4def-0123-456789abcdef',
+        channel: 'poster',
+        name: '开业海报',
+        status: 'active',
+        scanCount: 0,
+        joinedCount: 0,
+        issuedAt: new Date('2026-08-04T00:00:00.000Z'),
+        revokedAt: null,
+      });
+
+      await expect(
+        service.createIssue(user, 18, { channel: 'poster', name: '开业海报' }),
+      ).rejects.toBeInstanceOf(InternalServerErrorException);
+      // 空载荷若放行，会得到「创建成功但 entryUrl / qrCodeImageUrl 都是 null」的半成品
+      expect(toDataUrlMock).not.toHaveBeenCalled();
     });
   });
 

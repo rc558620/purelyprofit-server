@@ -1,4 +1,6 @@
+import { InternalServerErrorException, Logger } from '@nestjs/common';
 import {
+  assertUsableStoreInviteQrPayload,
   buildStoreInviteQrPayload,
   resolveStoreInviteQrPayload,
   STORE_INVITE_QR_PROTOCOL_LEGACY,
@@ -26,9 +28,9 @@ describe('store-invite-code-qr.utils', () => {
 
     it('未配置公共域名时回退为裸邀请码（legacy）', () => {
       expect(buildStoreInviteQrPayload('AB23CD45', {})).toBe('AB23CD45');
-      expect(
-        buildStoreInviteQrPayload('AB23CD45', { baseUrl: '' }),
-      ).toBe('AB23CD45');
+      expect(buildStoreInviteQrPayload('AB23CD45', { baseUrl: '' })).toBe(
+        'AB23CD45',
+      );
     });
 
     it('禁止私有网络地址时回退 legacy（生产环境安全策略）', () => {
@@ -70,6 +72,56 @@ describe('store-invite-code-qr.utils', () => {
           baseUrl: 'https://club.purelyprofit.com',
         }),
       ).toBe('');
+    });
+
+    it('入口段不在白名单时回退默认段并记 error（防止改 env 让已印物料静默失效）', () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        expect(
+          buildStoreInviteQrPayload('AB23CD45', {
+            baseUrl: 'https://club.purelyprofit.com',
+            entryPath: '/join',
+          }),
+        ).toBe('https://club.purelyprofit.com/i/v1/AB23CD45');
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy.mock.calls[0][0]).toContain('join');
+
+        // 按取值去重：非法配置不会在每次出图时刷满日志
+        buildStoreInviteQrPayload('AB23CD45', {
+          baseUrl: 'https://club.purelyprofit.com',
+          entryPath: '/join',
+        });
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it('白名单入口段大小写不敏感，统一归一化为白名单取值', () => {
+      expect(
+        buildStoreInviteQrPayload('AB23CD45', {
+          baseUrl: 'https://club.purelyprofit.com',
+          entryPath: '/INVITE',
+        }),
+      ).toBe('https://club.purelyprofit.com/invite/v1/AB23CD45');
+    });
+  });
+
+  describe('assertUsableStoreInviteQrPayload', () => {
+    it('空载荷抛 InternalServerErrorException 并提示重新轮换', () => {
+      expect(() => assertUsableStoreInviteQrPayload('')).toThrow(
+        InternalServerErrorException,
+      );
+      expect(() => assertUsableStoreInviteQrPayload('')).toThrow(
+        '进店码内容生成失败，请重新轮换邀请码',
+      );
+    });
+
+    it('非空载荷原样返回', () => {
+      expect(assertUsableStoreInviteQrPayload('AB23CD45')).toBe('AB23CD45');
     });
   });
 
@@ -190,9 +242,9 @@ describe('store-invite-code-qr.utils', () => {
     });
 
     it('超长伪邀请码不识别', () => {
-      expect(
-        resolveStoreInviteQrPayload('A'.repeat(33)).kind,
-      ).toBe('unrecognized');
+      expect(resolveStoreInviteQrPayload('A'.repeat(33)).kind).toBe(
+        'unrecognized',
+      );
     });
   });
 });

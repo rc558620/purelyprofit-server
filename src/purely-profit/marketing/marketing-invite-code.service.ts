@@ -1,8 +1,15 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { reportStoreInviteQrBaseUrlStatus } from '../../shared/store-invite-qr-base-url-status.utils';
 import {
+  assertUsableStoreInviteQrPayload,
   buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
   STORE_INVITE_QR_PROTOCOL_LEGACY,
@@ -22,15 +29,33 @@ import type { MarketingInviteCodeDto } from './dto/marketing-invite-code.dto';
  *
  * 邀请码的持久化与缓存失效逻辑收敛在 StoreInviteCodeService，
  * 本服务只负责营销域的权限校验与门店解析。
+ *
+ * 启动期额外播报进店码域名（`CLUB_PUBLIC_BASE_URL`）状态：该域名写进已印刷物料后
+ * 就是永久资产，配错 / 不配都会静默回退裸码，运维看不到任何提示。
  */
 @Injectable()
-export class MarketingInviteCodeService {
+export class MarketingInviteCodeService implements OnModuleInit {
+  private readonly logger = new Logger(MarketingInviteCodeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly marketingSharedService: MarketingSharedService,
     private readonly inviteCodeService: StoreInviteCodeService,
     private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * 启动期播报进店码域名状态。
+   *
+   * 播报函数按域名取值去重，后续若 MarketingOverviewService /
+   * MarketingInviteQrIssueService 也接入，不会重复刷日志。
+   */
+  onModuleInit(): void {
+    reportStoreInviteQrBaseUrlStatus(
+      this.logger,
+      this.configService.get<string>('club.publicBaseUrl'),
+    );
+  }
 
   /** 查询门店当前有效邀请码二维码。 */
   async getInviteCode(
@@ -60,9 +85,8 @@ export class MarketingInviteCodeService {
     storeId?: number,
   ): Promise<MarketingInviteCodeDto> {
     const resolvedStoreId = await this.resolveManageableStoreId(user, storeId);
-    const newCode = await this.inviteCodeService.regenerateForStore(
-      resolvedStoreId,
-    );
+    const newCode =
+      await this.inviteCodeService.regenerateForStore(resolvedStoreId);
 
     return this.buildActiveInviteCodeDto(newCode);
   }
@@ -103,10 +127,14 @@ export class MarketingInviteCodeService {
   private async buildActiveInviteCodeDto(
     inviteCode: string,
   ): Promise<MarketingInviteCodeDto> {
-    const payload = buildStoreInviteQrPayload(inviteCode, {
-      baseUrl: this.configService.get<string>('club.publicBaseUrl'),
-      entryPath: this.configService.get<string>('club.storeInviteQrEntryPath'),
-    });
+    const payload = assertUsableStoreInviteQrPayload(
+      buildStoreInviteQrPayload(inviteCode, {
+        baseUrl: this.configService.get<string>('club.publicBaseUrl'),
+        entryPath: this.configService.get<string>(
+          'club.storeInviteQrEntryPath',
+        ),
+      }),
+    );
     const isV1Url = payload !== inviteCode;
 
     return {

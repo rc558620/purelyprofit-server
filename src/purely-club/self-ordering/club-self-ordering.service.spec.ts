@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
+import { hashSpaceQrToken } from '../../shared/space-qr-token-codec.utils';
 import { ClubSelfOrderingService } from './club-self-ordering.service';
 
 /**
@@ -13,7 +14,7 @@ describe('ClubSelfOrderingService', () => {
   let service: ClubSelfOrderingService;
 
   const prisma = {
-    spaceQrCode: { findUnique: jest.fn() },
+    spaceQrCode: { findFirst: jest.fn() },
     spaceSession: { findFirst: jest.fn() },
   };
 
@@ -40,7 +41,7 @@ describe('ClubSelfOrderingService', () => {
     deletedAt?: Date | null;
     zoneName?: string | null;
   }): void => {
-    prisma.spaceQrCode.findUnique.mockResolvedValue({
+    prisma.spaceQrCode.findFirst.mockResolvedValue({
       storeId: overrides.storeId,
       revokedAt: overrides.revokedAt ?? null,
       space: {
@@ -107,11 +108,11 @@ describe('ClubSelfOrderingService', () => {
     await expect(
       service.resolveSpace(user, { spaceToken: '   ' }),
     ).rejects.toThrow('二维码无效，请扫描空间二维码');
-    expect(prisma.spaceQrCode.findUnique).not.toHaveBeenCalled();
+    expect(prisma.spaceQrCode.findFirst).not.toHaveBeenCalled();
   });
 
   it('二维码不存在时拒绝', async () => {
-    prisma.spaceQrCode.findUnique.mockResolvedValue(null);
+    prisma.spaceQrCode.findFirst.mockResolvedValue(null);
 
     await expect(
       service.resolveSpace(user, { spaceToken: 'missing' }),
@@ -148,5 +149,48 @@ describe('ClubSelfOrderingService', () => {
     await expect(
       service.resolveSpace(user, { spaceToken: 'tok-1' }),
     ).rejects.toThrow('该二维码不属于当前门店');
+  });
+
+  // 服务端兜底：前端 extractSpaceToken 本应先把 URL 还原成裸 token，
+  // 但只要有入口漏掉提取（H5 / 新客户端 / 第三方），整条 URL 就会被当成 token
+  // 去做等值匹配 —— 顾客看到「二维码无效」，而纸上的码其实没坏。
+  describe('空间码 token 提取（服务端兜底）', () => {
+    const SPACE_TOKEN = '7f1c2f52-7a1f-4a1e-9f2a-3f0a1b2c3d4e';
+
+    const cases: Array<[string, string]> = [
+      ['路径式 URL', `https://scan.purelyprofit.com/p/${SPACE_TOKEN}`],
+      ['query 式 URL', `https://scan.purelyprofit.com/p?token=${SPACE_TOKEN}`],
+      ['历史自定义协议', `purelyclub://space-scan?token=${SPACE_TOKEN}`],
+      ['前端已提取的裸 token', SPACE_TOKEN],
+    ];
+
+    it.each(cases)('%s 都解析出同一个 token', async (_label, raw) => {
+      await service.resolveSpace(user, { spaceToken: raw });
+
+      // 只按摘要查表：库里没有明文列，也没有明文比对分支
+      expect(prisma.spaceQrCode.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tokenHash: hashSpaceQrToken(SPACE_TOKEN) },
+        }),
+      );
+    });
+
+    it('提取结果再次传入仍幂等（前端已提取过不会被改坏）', async () => {
+      await service.resolveSpace(user, {
+        spaceToken: `https://scan.purelyprofit.com/p/${SPACE_TOKEN}`,
+      });
+      const [firstCall] = prisma.spaceQrCode.findFirst.mock.calls[0] as [
+        { where: { tokenHash: string } },
+      ];
+      expect(firstCall.where.tokenHash).toBe(hashSpaceQrToken(SPACE_TOKEN));
+
+      prisma.spaceQrCode.findFirst.mockClear();
+      await service.resolveSpace(user, { spaceToken: SPACE_TOKEN });
+
+      const [secondCall] = prisma.spaceQrCode.findFirst.mock.calls[0] as [
+        { where: { tokenHash: string } },
+      ];
+      expect(secondCall.where.tokenHash).toBe(hashSpaceQrToken(SPACE_TOKEN));
+    });
   });
 });

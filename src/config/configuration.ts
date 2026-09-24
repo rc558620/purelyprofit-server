@@ -240,6 +240,13 @@ export default () => ({
   scanOrdering: {
     qrTokenEncryptionKey:
       process.env.SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY ?? '',
+    /**
+     * 上一代桌码加密密钥（可选）。
+     * 用于密钥轮换 / JWT_SECRET 轮换后仍能解密历史桌码的 tokenCiphertext，
+     * 否则商家端「重新下载桌码 / 批量导出」会对全部历史桌码抛 500。
+     */
+    qrTokenEncryptionKeyPrevious:
+      process.env.SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS ?? '',
     /** 待接单超时阈值（毫秒）：支付后超过该时长未接单，系统自动退款 */
     acceptanceTimeoutMs: parseInt(
       process.env.SCAN_ORDERING_ACCEPTANCE_TIMEOUT_MS ?? '1800000',
@@ -271,6 +278,24 @@ export default () => ({
       process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_MAX_RETRIES ?? '3',
       10,
     ),
+  },
+
+  /**
+   * 空间码（呼叫服务 / 自助下单）二维码 token 加密密钥。
+   *
+   * 空间码改为「哈希查表」后，商家端「预览 / 下载」要用原始 token 重建二维码内容，
+   * 因此明文以密文形式留存（`space_qr_codes.token_ciphertext`），本密钥即用于该密文。
+   * 解析查表走 sha256 摘要，不需要本密钥 —— 未配置只影响重新出图，不影响扫码。
+   */
+  space: {
+    qrTokenEncryptionKey: process.env.SPACE_QR_TOKEN_ENCRYPTION_KEY ?? '',
+    /**
+     * 上一代空间码加密密钥（可选）。
+     * 用于密钥轮换 / JWT_SECRET 轮换后仍能解密历史空间码的密文，
+     * 否则商家端「预览 / 下载」会对全部历史空间码抛错。
+     */
+    qrTokenEncryptionKeyPrevious:
+      process.env.SPACE_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS ?? '',
   },
 
   /**
@@ -403,12 +428,25 @@ export default () => ({
      * - localhost / 内网 IP / 私有网段会被 sanitize 拒绝，二维码自动回退 legacy 裸码格式；
      * - 渠道二维码创建接口（POST /marketing/invite-code/issues）会直接报错拒绝创建；
      * - 严禁将 localhost、内网地址、临时 preview URL 写进已发行二维码（会导致已印刷物料失效）。
+     *
+     * ⚠️ 该域名一经印刷即视为永久资产（只增不换）：换域名、备案注销、微信规则被删
+     * 都会让全部已印进店码同时失效，且服务端无法补救。启动期由
+     * `reportStoreInviteQrBaseUrlStatus` 播报状态（未配置 warn、被 sanitize 拒绝 error）。
      */
     publicBaseUrl: process.env.CLUB_PUBLIC_BASE_URL ?? '',
     /**
      * 邀请二维码稳定入口路径前缀，默认 /i，最终二维码形如
      * {publicBaseUrl}/i/v1/{inviteCode}。
      * 对应环境变量：CLUB_STORE_INVITE_QR_ENTRY_PATH
+     *
+     * ⚠️ 与 publicBaseUrl 一样是**永久资产**：入口段被烧进每一张已印刷的进店码，
+     * 改动后旧物料指向的路径不再被生成侧 / 解析侧任何一方承认（服务端
+     * `V1_PATH_PATTERN` 与前端 `SCAN_PATH_KINDS.storeInvite` 都只认 `i` / `invite`），
+     * 且**不会报错**——只能等顾客扫不出来才发现。
+     *
+     * 因此只接受 `STORE_INVITE_QR_ENTRY_SEGMENTS`（`i` / `invite`）白名单内的取值，
+     * 其它取值会被拒绝并回退 `i`、同时记 error；新增入口段必须前后端与微信
+     * 公众平台规则一起改，并由 `npm run scan:qr:contract:check` 对齐两侧常量。
      */
     storeInviteQrEntryPath: process.env.CLUB_STORE_INVITE_QR_ENTRY_PATH ?? '/i',
     /**
@@ -427,6 +465,10 @@ export default () => ({
      *
      * 生产环境（NODE_ENV=production）下 localhost / 内网 IP / 私有网段会被 sanitize
      * 拒绝并自动回退，避免把不可达地址写进物料。
+     *
+     * ⚠️ 该域名一经印刷即视为永久资产（只增不换）：换域名、备案注销、微信规则被删
+     * 都会让全部已印物料同时失效，且服务端无法补救（微信按 URL 文本前缀匹配规则，
+     * 不会 fetch 旧域名做跳转）。换域名时必须保留旧域名解析与旧规则。
      */
     scanQrBaseUrl: process.env.SCAN_QR_BASE_URL ?? '',
   },

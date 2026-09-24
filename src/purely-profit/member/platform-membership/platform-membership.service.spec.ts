@@ -17,6 +17,8 @@ import { buildMembershipCapabilities } from './platform-membership-access.shared
 import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
+import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
+import { createNewCustomerQuotaServiceMock } from '../new-customer-quota/new-customer-quota.spec-helpers';
 import { SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE } from './membership-renewal-policy.shared';
 
 describe('PlatformMembershipService', () => {
@@ -330,6 +332,10 @@ describe('PlatformMembershipService', () => {
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
+        },
+        {
+          provide: NewCustomerQuotaService,
+          useValue: createNewCustomerQuotaServiceMock(),
         },
       ],
     }).compile();
