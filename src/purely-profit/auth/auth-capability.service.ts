@@ -63,6 +63,18 @@ export class AuthCapabilityService {
         effectivePermissions,
         'scan-ordering:menu-manage',
       );
+    // 自助下单：与 /scan-ordering 网关的订阅口径保持一致
+    // （self-ordering:view 或 self-ordering:order-process 任一即可）
+    const hasSelfOrderingViewPermission =
+      this.accessControlService.hasPermission(
+        effectivePermissions,
+        'self-ordering:view',
+      );
+    const hasSelfOrderingProcessPermission =
+      this.accessControlService.hasPermission(
+        effectivePermissions,
+        'self-ordering:order-process',
+      );
 
     return {
       identityType: snapshot.identityType,
@@ -107,6 +119,9 @@ export class AuthCapabilityService {
       canUseScanOrdering:
         hasScanOrderingViewPermission &&
         businessCapabilities.canUseScanOrdering,
+      canUseSelfOrdering:
+        (hasSelfOrderingViewPermission || hasSelfOrderingProcessPermission) &&
+        businessCapabilities.canUseSelfOrdering,
       canManageScanOrderingMenu:
         hasScanOrderingMenuManagePermission &&
         businessCapabilities.canManageScanOrderingMenu,

@@ -143,6 +143,68 @@ describe('AuthCapabilityService', () => {
     );
   });
 
+  /** 以指定权限构造用户：自助下单最终可用性 = 账号权限 && 门店业态 */
+  const withPermissions = (permissions: string[]): AuthenticatedUser => ({
+    ...user,
+    currentMembership: user.currentMembership
+      ? { ...user.currentMembership, permissions }
+      : null,
+  });
+
+  it('非餐饮门店 + 具备自助下单查看权限时可自助下单', async () => {
+    const result = await service.getCapability(
+      withPermissions(['self-ordering:view']),
+    );
+
+    expect(result.isGeneralStore).toBe(true);
+    expect(result.canUseSelfOrdering).toBe(true);
+  });
+
+  it('非餐饮门店但账号无自助下单权限时不可自助下单', async () => {
+    // 显式去掉子账号角色（角色默认会带 self-ordering:view），只留无关权限
+    const result = await service.getCapability({
+      ...user,
+      currentMembership: user.currentMembership
+        ? {
+            ...user.currentMembership,
+            subAccountRole: null,
+            permissions: ['goods:view'],
+          }
+        : null,
+    });
+
+    expect(result.isGeneralStore).toBe(true);
+    expect(result.canUseSelfOrdering).toBe(false);
+  });
+
+  it('非餐饮门店的收银员（角色默认带权限）可自助下单', async () => {
+    const result = await service.getCapability(user);
+
+    expect(result.isGeneralStore).toBe(true);
+    expect(result.canUseSelfOrdering).toBe(true);
+  });
+
+  it('餐饮门店即使有自助下单权限也不可用（业态不满足）', async () => {
+    storeBusinessCapabilityService.getCapabilities.mockResolvedValue(
+      cateringStoreCapabilities,
+    );
+
+    const result = await service.getCapability(
+      withPermissions(['self-ordering:view']),
+    );
+
+    expect(result.canUseSelfOrdering).toBe(false);
+  });
+
+  // 与 /scan-ordering 网关订阅口径一致：order-process 同样可接收自助下单实时事件
+  it('仅具备 self-ordering:order-process 时也可使用自助下单', async () => {
+    const result = await service.getCapability(
+      withPermissions(['self-ordering:order-process']),
+    );
+
+    expect(result.canUseSelfOrdering).toBe(true);
+  });
+
   it('餐饮门店返回正确的业态能力快照', async () => {
     storeBusinessCapabilityService.getCapabilities.mockResolvedValue(
       cateringStoreCapabilities,

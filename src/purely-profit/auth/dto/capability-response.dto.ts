@@ -117,6 +117,13 @@ export class AuthCapabilityResponseDto {
   @IsBoolean()
   canUseSpaceManagement: boolean;
 
+  @ApiProperty({
+    example: false,
+    description: '是否可使用自助下单（仅非餐饮门店，且具备自助下单查看/处理权限）',
+  })
+  @IsBoolean()
+  canUseSelfOrdering: boolean;
+
   @ApiProperty({ example: false, description: '是否可以访问门店设置' })
   @IsBoolean()
   canAccessStoreSettings: boolean;
