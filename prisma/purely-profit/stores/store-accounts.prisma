@@ -59,6 +59,10 @@ model Store {
   spaceManagementVoiceEnabled Boolean                       @default(false) @map("space_management_voice_enabled")
   /// 扫码点餐出餐自动打印开关（默认关闭，商家端修改，开启后点击出餐自动唤起小票打印）
   serveAutoPrintEnabled       Boolean                       @default(false) @map("serve_auto_print_enabled")
+  /// 扫码点餐新订单语音播报开关（默认关闭，商家端修改，收到顾客下单时播报「您有新的订单，请注意查收」）
+  orderNoticeVoiceEnabled     Boolean                       @default(false) @map("order_notice_voice_enabled")
+  /// 扫码点餐新订单弹窗通知开关（默认关闭，商家端修改，收到顾客下单时弹出左下角通知卡片）
+  orderNoticeEnabled          Boolean                       @default(false) @map("order_notice_enabled")
   /// 收银台顾客票打印通道（browser=浏览器系统打印 / cloud=飞鹅云打印 / usb=服务器本地 USB 打印 / off=关闭），默认浏览器打印
   cashierPrintChannel         String                        @default("browser") @map("cashier_print_channel")
   /// 后厨制作单打印通道（browser=浏览器系统打印 / cloud=飞鹅云打印 / usb=服务器本地 USB 打印 / off=关闭），默认关闭

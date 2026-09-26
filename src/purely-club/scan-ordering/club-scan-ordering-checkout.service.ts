@@ -295,6 +295,9 @@ export class ClubScanOrderingCheckoutService {
       storeId: result.storeId,
       orderId: result.id,
       sessionId: result.sessionId,
+      // 支付成功会推进乐观锁版本：不带 version 时商家端列表项版本会一直是旧的，
+      // 接单/拒单首次请求必然 409（表现为「要点两次才能接单」）
+      version: result.version,
       status: result.status,
       paymentStatus: result.paymentStatus,
       fulfillmentStatus: result.fulfillmentStatus,
@@ -378,6 +381,7 @@ export class ClubScanOrderingCheckoutService {
       storeId: updated.storeId,
       orderId: updated.id,
       sessionId: updated.sessionId,
+      version: updated.version,
       status: updated.status,
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,

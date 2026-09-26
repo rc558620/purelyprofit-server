@@ -63,6 +63,21 @@ export interface OrderCreatedPayload extends RealtimePickupFields {
   status: string;
   paymentStatus: string;
   fulfillmentStatus: string;
+  // ── 以下为商家端「新订单通知」展示用的可选快照字段（旧客户端无感，向后兼容） ──
+  /** 业务订单号（商家端通知展示 / 去处理定位） */
+  orderNo?: string;
+  /** 桌位名称（商家端通知展示；未指定桌台时为 null） */
+  tableName?: string | null;
+  /** 位置展示串（楼层 · 区域 · 桌位，与服务呼叫通知口径一致；未指定桌台时为 null） */
+  locationLabel?: string | null;
+  /** 商品行摘要（商家端通知展示） */
+  items?: Array<{ productName: string; quantity: number }>;
+  /** 应付金额（分，商家端通知展示「金额：¥xx」） */
+  amountFen?: number;
+  /** 订单备注（商家端通知展示） */
+  remark?: string | null;
+  /** 下单时间 ISO（商家端通知展示） */
+  createdAt?: string;
 }
 
 /** 团购券新订单创建（purelyClub 支付成功后广播，商家端全局通知）。 */

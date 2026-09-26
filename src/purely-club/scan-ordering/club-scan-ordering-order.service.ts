@@ -222,13 +222,49 @@ export class ClubScanOrderingOrderService {
       this.logger.log(
         `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
       );
+      // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置单独查一次并静默降级，
+      // 查询失败不阻塞下单主流程与实时通知（通知退化为仅展示商品摘要与金额）
+      let tableName: string | null = null;
+      let locationLabel: string | null = null;
+      if (session.tableId) {
+        try {
+          const table = await this.prisma.scanOrderingTable.findUnique({
+            where: { id: session.tableId },
+            select: {
+              name: true,
+              area: { select: { name: true } },
+              type: { select: { name: true } },
+            },
+          });
+          tableName = table?.name ?? null;
+          // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
+          locationLabel = [table?.area?.name, table?.type?.name, table?.name]
+            .filter((value): value is string => Boolean(value?.trim()))
+            .join(' · ') || null;
+        } catch {
+          tableName = null;
+          locationLabel = null;
+        }
+      }
       this.realtimeService.publishOrderCreated({
         storeId: session.storeId,
         orderId: result.id,
         sessionId: session.id,
+        // 带上创建时的乐观锁版本：商家端可据此直接接单（缺失时首次接单必然 409）
+        version: result.version,
         status: 'pending_payment',
         paymentStatus: 'unpaid',
         fulfillmentStatus: 'preparing',
+        orderNo: result.orderNo,
+        tableName,
+        locationLabel,
+        items: pricedItems.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+        })),
+        amountFen: promotionResult.afterPointsPayableAmount,
+        remark: dto.remark?.trim() || null,
+        createdAt: now.toISOString(),
       });
       return result;
     } catch (error) {

@@ -9,6 +9,10 @@ export interface ScanOrderingPickupSettings {
   pickupVoiceEnabled: boolean;
   /** 出餐自动打印开关（商家端控制，开启后点击出餐自动唤起小票打印）。 */
   serveAutoPrintEnabled: boolean;
+  /** 新订单语音播报开关（商家端控制，收到顾客下单时播报「您有新的订单，请注意查收」）。 */
+  orderNoticeVoiceEnabled: boolean;
+  /** 新订单弹窗通知开关（商家端控制，收到顾客下单时弹出左下角通知卡片）。 */
+  orderNoticeEnabled: boolean;
 }
 
 /**
@@ -28,12 +32,19 @@ export class ScanOrderingPickupSettingsService {
   async getByStoreId(storeId: number): Promise<ScanOrderingPickupSettings> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
-      select: { pickupVoiceEnabled: true, serveAutoPrintEnabled: true },
+      select: {
+        pickupVoiceEnabled: true,
+        serveAutoPrintEnabled: true,
+        orderNoticeVoiceEnabled: true,
+        orderNoticeEnabled: true,
+      },
     });
     if (!store) throw new NotFoundException('门店不存在');
     return {
       pickupVoiceEnabled: store.pickupVoiceEnabled,
       serveAutoPrintEnabled: store.serveAutoPrintEnabled,
+      orderNoticeVoiceEnabled: store.orderNoticeVoiceEnabled,
+      orderNoticeEnabled: store.orderNoticeEnabled,
     };
   }
 
@@ -70,7 +81,10 @@ export class ScanOrderingPickupSettingsService {
     );
   }
 
-  private logUpdate(storeId: number, updates: Partial<ScanOrderingPickupSettings>): void {
+  private logUpdate(
+    storeId: number,
+    updates: Partial<ScanOrderingPickupSettings>,
+  ): void {
     // 配置变更日志；不依赖额外 logger，避免新增基础设施
     console.info(
       `[pickup-settings] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,

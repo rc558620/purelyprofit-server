@@ -117,16 +117,51 @@ export class ManualEntryOrderService {
         `录入订单已落库（ScanOrders）：orderId=${result.id}, orderNo=${result.orderNo}, storeId=${storeId}`,
       );
       await this.incrementQuota(storeId, result.orderNo);
-      // 推送实时事件：商家端订单页自动刷新（订单接收区 + dashboard + 桌台）
+      // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置单独查一次并静默降级
+      let tableName: string | null = null;
+      let locationLabel: string | null = null;
+      if (dto.tableId) {
+        try {
+          const table = await this.prisma.scanOrderingTable.findUnique({
+            where: { id: dto.tableId },
+            select: {
+              name: true,
+              area: { select: { name: true } },
+              type: { select: { name: true } },
+            },
+          });
+          tableName = table?.name ?? null;
+          // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
+          locationLabel =
+            [table?.area?.name, table?.type?.name, table?.name]
+              .filter((value): value is string => Boolean(value?.trim()))
+              .join(' · ') || null;
+        } catch {
+          tableName = null;
+          locationLabel = null;
+        }
+      }
+      // 推送实时事件：商家端订单页自动刷新（订单接收区 + dashboard + 桌台）+ 新订单通知
       this.realtimeService.publishOrderCreated({
         storeId,
         orderId: result.id,
         sessionId: null,
+        version: result.version,
         status: 'pending_acceptance',
         paymentStatus: 'paid',
         fulfillmentStatus: 'preparing',
         pickupNumber: result.pickupNumber,
         pickupNumberLabel: result.pickupNumberLabel,
+        orderNo: result.orderNo,
+        tableName,
+        locationLabel,
+        items: pricedItems.map((item) => ({
+          productName: item.displayName,
+          quantity: item.quantity,
+        })),
+        amountFen: result.payableAmount,
+        remark: dto.remark?.trim() || null,
+        createdAt: result.createdAt.toISOString(),
       });
       return {
         orderId: result.id,

@@ -67,9 +67,14 @@ export class ClubScanOrderingController {
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
   @Get('sessions/current')
-  @ApiOperation({ summary: '获取当前用户有效桌台会话' })
-  getCurrentSession(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
-    return this.service.getCurrentSession(user);
+  @ApiOperation({
+    summary: '获取当前用户有效桌台会话（可选按桌台过滤，避免多桌台会话互相判失效）',
+  })
+  getCurrentSession(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('tableId', new ParseIntPipe({ optional: true })) tableId?: number,
+  ): Promise<unknown> {
+    return this.service.getCurrentSession(user, tableId);
   }
 
   @UseGuards(ClubJwtAuthGuard)

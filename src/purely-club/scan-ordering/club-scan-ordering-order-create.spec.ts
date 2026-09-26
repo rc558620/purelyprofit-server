@@ -30,6 +30,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   const prisma = {
     idempotencyRecord: { findUnique: jest.fn(), create: jest.fn() },
     scanOrderingSession: { findFirst: jest.fn() },
+    scanOrderingTable: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -204,6 +205,13 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     prisma.$transaction = jest.fn((fn: (client: unknown) => unknown) => fn(tx));
     prisma.scanOrderingSession.findFirst = jest.fn().mockResolvedValue(session);
     prisma.idempotencyRecord.findUnique = jest.fn().mockResolvedValue(null);
+    prisma.scanOrderingTable.findUnique = jest
+      .fn()
+      .mockResolvedValue({
+        name: 'A01',
+        area: { name: '1楼' },
+        type: { name: '大厅' },
+      });
 
     cartPricing.priceCart.mockResolvedValue([pricedItem]);
     cartPricing.cartVersion.mockReturnValue(dto.cartVersion);
@@ -439,17 +447,25 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     );
   });
 
-  it('order.created payload 携带 storeId/orderId/sessionId/status/paymentStatus/fulfillmentStatus', async () => {
+  it('order.created payload 携带门店/订单/状态与通知展示快照（订单号/桌位/商品摘要/金额）', async () => {
     await service.create(user, IDEMPOTENCY_KEY, dto);
 
-    expect(realtime.publishOrderCreated).toHaveBeenCalledWith({
-      storeId: 1,
-      orderId: 100,
-      sessionId: 10,
-      status: 'pending_payment',
-      paymentStatus: 'unpaid',
-      fulfillmentStatus: 'preparing',
-    });
+    expect(realtime.publishOrderCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 1,
+        orderId: 100,
+        sessionId: 10,
+        status: 'pending_payment',
+        paymentStatus: 'unpaid',
+        fulfillmentStatus: 'preparing',
+        orderNo: 'SO100',
+        tableName: 'A01',
+        locationLabel: '1楼 · 大厅 · A01',
+        items: [{ productName: '蒜蓉粉丝蒸虾', quantity: 1 }],
+        amountFen: 4800,
+        remark: null,
+      }),
+    );
   });
 
   // ─── 事务提交后才发布 order.created（防 Profit 读到未提交订单）────

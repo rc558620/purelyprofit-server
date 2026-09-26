@@ -179,12 +179,18 @@ export class ClubScanOrderingService {
     return this.toSessionResponse(session, table);
   }
 
-  async getCurrentSession(user: AuthenticatedUser): Promise<unknown> {
+  async getCurrentSession(
+    user: AuthenticatedUser,
+    tableId?: number,
+  ): Promise<unknown> {
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
         clubUserId: user.id,
         status: 'active',
         deletedAt: null,
+        // 指定桌台时只看该桌台的会话：默认口径（用户最近活跃的会话）在用户同时开着
+        // 多桌台会话时（例如先在 A01 下单，再回到 A02）会把 A02 的有效会话判成失效。
+        ...(tableId ? { tableId } : {}),
         OR: [
           { expiresAt: { gt: new Date() } },
           {

@@ -12,4 +12,14 @@ export class UpdateScanOrderingPickupSettingsDto {
   @IsOptional()
   @IsBoolean({ message: 'serveAutoPrintEnabled 必须是布尔值' })
   serveAutoPrintEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: '新订单语音播报开关（默认关闭）' })
+  @IsOptional()
+  @IsBoolean({ message: 'orderNoticeVoiceEnabled 必须是布尔值' })
+  orderNoticeVoiceEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: '新订单弹窗通知开关（默认关闭）' })
+  @IsOptional()
+  @IsBoolean({ message: 'orderNoticeEnabled 必须是布尔值' })
+  orderNoticeEnabled?: boolean;
 }

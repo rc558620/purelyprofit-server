@@ -37,6 +37,8 @@ export interface ManualEntryScanOrderWriteInput {
 export interface ManualEntryWrittenScanOrder {
   /** ScanOrders ID */
   id: number;
+  /** 乐观锁版本：实时事件要带上，商家端接单/拒单才不会因版本过旧 409 */
+  version: number;
   /** 订单号（手工补录号段） */
   orderNo: string;
   /** 应付金额（分） */
@@ -103,7 +105,13 @@ export class ManualEntryScanOrderWriter {
         manualEntry: true,
         manualEntryMetadata: buildManualEntryMetadata(dto),
       },
-      select: { id: true, orderNo: true, payableAmount: true, createdAt: true },
+      select: {
+        id: true,
+        version: true,
+        orderNo: true,
+        payableAmount: true,
+        createdAt: true,
+      },
     });
 
     // 创建 ScanOrderItem + ScanOrderItemSpec 快照
@@ -140,6 +148,7 @@ export class ManualEntryScanOrderWriter {
 
     return {
       id: scanOrder.id,
+      version: scanOrder.version,
       orderNo: scanOrder.orderNo,
       payableAmount: scanOrder.payableAmount,
       createdAt: scanOrder.createdAt,
