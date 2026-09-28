@@ -224,6 +224,8 @@ export async function loadPulseHomeRawData(
     prisma.storeMembershipOrder.findMany({
       where: {
         status: 'paid',
+        // 后台赠送（设置会员等级且未勾选「计入收入」）不是营收，且会虚增成交笔数
+        paymentChannel: { not: 'gift' },
         createdAt: {
           gte: new Date(previousRange.start),
           lte: new Date(currentRange.end),
@@ -246,6 +248,8 @@ export async function loadPulseHomeRawData(
       by: ['planId'],
       where: {
         status: 'paid',
+        // 同上：赠送订单不计入营收分档统计
+        paymentChannel: { not: 'gift' },
         createdAt: {
           gte: new Date(currentRange.start),
           lte: new Date(currentRange.end),

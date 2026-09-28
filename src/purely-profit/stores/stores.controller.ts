@@ -13,6 +13,7 @@ import type { FastifyReply } from 'fastify';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -99,16 +100,26 @@ export class StoresController {
   @ApiOperation({
     summary: '获取当前门店 Logo（同源代理）',
     description:
-      '对象存储未配置 CORS 时前端无法把 Logo 画进 Canvas，经本接口代理为同源资源后即可参与桌码海报合成。',
+      '对象存储未配置 CORS 时前端无法把 Logo 画进 Canvas，经本接口代理为同源资源后即可参与桌码海报合成。' +
+      'Logo 为选填项，门店未上传时返回 204 空响应（非 404），由前端回退品牌图标。',
   })
+  @ApiNoContentResponse({ description: '门店未上传 Logo' })
   async getStoreLogo(
     @CurrentUser() user: AuthenticatedUser,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const logo = await this.storeLogoProxyService.getStoreLogo(user);
+    if (!logo) {
+      // Logo 选填：未上传是正常状态，回 204 让前端静默回退品牌图标
+      void reply.code(204).header('Cache-Control', 'no-store').send();
+      return;
+    }
     void reply
       .type(logo.contentType)
-      .header('Cache-Control', `private, max-age=${STORE_LOGO_CACHE_MAX_AGE_SECONDS}`)
+      .header(
+        'Cache-Control',
+        `private, max-age=${STORE_LOGO_CACHE_MAX_AGE_SECONDS}`,
+      )
       .send(logo.buffer);
   }
 

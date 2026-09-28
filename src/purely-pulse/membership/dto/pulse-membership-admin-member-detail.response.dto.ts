@@ -52,12 +52,32 @@ export class PulseMemberDetailDto extends PulseMemberBaseDto {
 
   @ApiProperty({
     type: [PulseRechargeRecordDto],
-    description: '充值记录列表（对齐前端 MemberDetail.rechargeHistory）',
+    description:
+      '充值记录列表（商家端微信充值，对齐前端 MemberDetail.rechargeHistory）',
   })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PulseRechargeRecordDto)
   rechargeHistory: PulseRechargeRecordDto[];
+
+  @ApiProperty({
+    example: 2,
+    description:
+      '管理端设置会员等级次数（对齐前端 MemberDetail.adminGrantCount）',
+  })
+  @IsInt()
+  adminGrantCount: number;
+
+  @ApiProperty({
+    type: [PulseRechargeRecordDto],
+    description:
+      '设置会员等级记录列表（对齐前端 MemberDetail.adminGrantHistory）。' +
+      'channel=admin 为勾选了计入收入，channel=gift 为按赠送处理（金额显示「赠送」）',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseRechargeRecordDto)
+  adminGrantHistory: PulseRechargeRecordDto[];
 
   @ApiPropertyOptional({
     example: '老会员，优先服务',

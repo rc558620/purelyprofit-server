@@ -65,15 +65,28 @@ model StoreMembershipOrder {
   @@map("store_membership_orders")
 }
 
-/// 会员套餐「首购锁定价」：
-/// 有子账号功能（pulseSubAccountQuota > 0）的门店按首次成交价续费，
-/// 避免平台调高含子账号权益的套餐价后影响老客。
+/// 会员套餐成交价快照。
+///
+/// 定价规则：**续费价 = 当前配置价 + 子账号加价**
+/// - 「当前配置价」实时读取，平台涨价与降价都能传导，同一档位永远同价
+/// - 「子账号加价」是唯一长期锁定的分量，成交时录入，之后不随配置价变动
+/// - 成交总额**不参与定价**（旧模型用 max 当护城河）：老客被旧价托住会出现
+///   档位倒挂（季度月均反而低于年度），统一按标准定价后比例恒等于配置价之比
+///
+/// 因此本表不再限定「只有曾开通子账号功能的门店才生效」：
+/// 任何一笔成交（商家端自助购买 / 平台侧设置会员等级）都会被记录，
+/// 运营洽谈的价格才不会被配置价打回原形。
 model StoreMembershipLockedPrice {
   id        Int                              @id @default(autoincrement())
   storeId   Int                              @map("store_id")
   planId    MembershipPlanCycle              @map("plan_id")
-  /// 锁定价格（分）
+  /// 成交总额（分）：本次成交实际成交的套餐总价。只作记账 / 快照展示，不参与定价
   price     Int
+  /// 该套餐包含的子账号加价（分）。参与定价——续费价 = 当前配置价 + 本字段。
+  /// 可空：存量数据在运营补录前按 0 处理，即维持纯配置价的旧口径
+  subAccountAmount Int?                      @map("sub_account_amount")
+  /// 该套餐包含的子账号数量。仅用于展示与财务核算，不参与定价计算
+  subAccountCount  Int?                      @map("sub_account_count")
   /// 锁价来源：purchase=商家端下单成交，admin=平台侧设置会员等级成交
   source    StoreMembershipLockedPriceSource @default(purchase)
   lockedAt  DateTime                         @default(now()) @map("locked_at")
@@ -149,8 +162,15 @@ enum MembershipOrderStatus {
   refunded
 }
 
+/// 会员订单的支付 / 入账渠道
+/// - wechat：商家端微信支付充值
+/// - admin：Pulse 管理端设置会员等级，且勾选了「计入收入」——按成交价计入平台营收
+/// - gift：Pulse 管理端设置会员等级，未勾选「计入收入」——按赠送处理，
+///   金额落 0，且必须被营收统计排除（否则会虚增成交笔数）
 enum MembershipPaymentChannel {
   wechat
+  admin
+  gift
 }
 
 enum StoreMembershipLockedPriceSource {

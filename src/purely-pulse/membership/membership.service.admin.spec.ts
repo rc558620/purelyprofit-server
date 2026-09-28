@@ -496,7 +496,11 @@ describe('PulseMembershipService admin', () => {
 
   it('listAdminMembers 按账号最近鉴权时间标记在线，离线与无记录都为 false', async () => {
     context.prismaService.storeMembershipProfile.findMany
-      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValueOnce([
+        { storeId: 18 },
+        { storeId: 19 },
+        { storeId: 20 },
+      ])
       .mockResolvedValueOnce([
         {
           storeId: 18,
@@ -561,9 +565,7 @@ describe('PulseMembershipService admin', () => {
 
     const result = await context.service.listAdminMembers(context.user, {});
 
-    expect(
-      result.items.map((item) => [item.id, item.isOnline]),
-    ).toEqual([
+    expect(result.items.map((item) => [item.id, item.isOnline])).toEqual([
       ['18', true],
       ['19', false],
       ['20', false],
@@ -1069,7 +1071,7 @@ describe('PulseMembershipService admin', () => {
     context.prismaService.storePartner.findFirst.mockResolvedValue(null);
   };
 
-  it('setAdminMemberMembership 带成交价时按元转分写入首购锁定价（source=admin）', async () => {
+  it('setAdminMemberMembership 带成交价时按元转分写入成交价（source=admin）', async () => {
     stubMembershipMutationDependencies();
 
     await context.service.setAdminMemberMembership(context.user, 18, {
@@ -1078,41 +1080,68 @@ describe('PulseMembershipService admin', () => {
       priceDisplay: '598',
     });
 
+    // 管理端设置会员等级是一次显式成交，必须覆盖旧价（运营改价要立刻生效）
     expect(
-      context.prismaService.storeMembershipLockedPrice.createMany,
-    ).toHaveBeenCalledWith({
-      data: [{ storeId: 18, planId: 'yearly', price: 59800, source: 'admin' }],
-      skipDuplicates: true,
-    });
-  });
-
-  it('setAdminMemberMembership 锁定价已存在时不覆盖（skipDuplicates 命中重复）', async () => {
-    stubMembershipMutationDependencies();
-    context.prismaService.storeMembershipLockedPrice.createMany.mockResolvedValue(
-      { count: 0 },
-    );
-
-    await expect(
-      context.service.setAdminMemberMembership(context.user, 18, {
-        level: 'annual',
-        membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
-        priceDisplay: '369',
+      context.prismaService.storeMembershipLockedPrice.upsert,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId_planId: { storeId: 18, planId: 'yearly' } },
+        update: expect.objectContaining({
+          price: 59800,
+          source: 'admin',
+        }),
       }),
-    ).resolves.toBeDefined();
-
-    // 第二次成交仍以 skipDuplicates 写入，由唯一键保证保留首次锁定价
+    );
     expect(
       context.prismaService.storeMembershipLockedPrice.createMany,
-    ).toHaveBeenCalledWith({
-      data: [{ storeId: 18, planId: 'yearly', price: 36900, source: 'admin' }],
-      skipDuplicates: true,
-    });
+    ).not.toHaveBeenCalled();
   });
 
-  it('setAdminMemberMembership 未开通子账号功能时不写入首购锁定价', async () => {
+  it('setAdminMemberMembership 带子账号加价与数量时一并写入成交价', async () => {
     stubMembershipMutationDependencies();
-    // 从未开通子账号功能：快照写入后读侧永不生效，却会在门店日后开通子账号
-    // （pulseSubAccountQuota 由 0 变正）时突然生效，所以宁可不写
+
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
+      priceDisplay: '650',
+      subAccountCount: 3,
+      subAccountAmountDisplay: '150',
+    });
+
+    expect(
+      context.prismaService.storeMembershipLockedPrice.upsert,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          price: 65000,
+          subAccountAmount: 15000,
+          subAccountCount: 3,
+        }),
+      }),
+    );
+  });
+
+  it('setAdminMemberMembership 不带子账号字段时不覆盖已录入的加价', async () => {
+    stubMembershipMutationDependencies();
+
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
+      priceDisplay: '369',
+    });
+
+    const [upsertArgs] =
+      context.prismaService.storeMembershipLockedPrice.upsert.mock.calls.at(
+        -1,
+      ) ?? [];
+    const { update } = upsertArgs as { update: Record<string, unknown> };
+
+    expect(update).not.toHaveProperty('subAccountAmount');
+    expect(update).not.toHaveProperty('subAccountCount');
+  });
+
+  it('setAdminMemberMembership 未开通子账号功能时也要写入成交价', async () => {
+    stubMembershipMutationDependencies();
     context.platformMembershipAccessService.getSubAccountBenefitSnapshot.mockResolvedValue(
       {
         level: 'yearly',
@@ -1132,9 +1161,16 @@ describe('PulseMembershipService admin', () => {
       priceDisplay: '598',
     });
 
+    // 运营谈下的价格必须留痕：否则这家店次年续费会被打回配置价，溢价直接蒸发。
+    // 「是否开通子账号」只影响档位裁剪，不该决定要不要记录成交价。
     expect(
-      context.prismaService.storeMembershipLockedPrice.createMany,
-    ).not.toHaveBeenCalled();
+      context.prismaService.storeMembershipLockedPrice.upsert,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId_planId: { storeId: 18, planId: 'yearly' } },
+        update: expect.objectContaining({ price: 59800, source: 'admin' }),
+      }),
+    );
   });
 
   it('setAdminMemberMembership 未带成交价 / 成交价非法时不写入锁定价', async () => {
@@ -1211,6 +1247,8 @@ describe('PulseMembershipService admin', () => {
         planId: 'yearly',
         planName: '年度会员',
         amount: 36900,
+        // 商家端真实充值：「最近活跃」的展示兜底只认这一档
+        paymentChannel: 'wechat',
         createdAt: recentOrderAt,
       },
     ]);
@@ -1292,6 +1330,7 @@ describe('PulseMembershipService admin', () => {
         planId: 'quarterly',
         planName: '季度会员',
         amount: 9900,
+        paymentChannel: 'wechat',
         createdAt: new Date('2026-05-21T10:48:50.390Z'),
       },
       {
@@ -1299,7 +1338,26 @@ describe('PulseMembershipService admin', () => {
         planId: 'yearly',
         planName: '年度会员',
         amount: 36900,
+        paymentChannel: 'wechat',
         createdAt: new Date('2026-05-18T02:22:50.168Z'),
+      },
+      {
+        // 管理端设置会员等级：勾选计入收入
+        id: 4,
+        planId: 'yearly',
+        planName: '年度会员',
+        amount: 39800,
+        paymentChannel: 'admin',
+        createdAt: new Date('2026-05-22T10:00:00.000Z'),
+      },
+      {
+        // 管理端设置会员等级：按赠送处理
+        id: 5,
+        planId: 'yearly',
+        planName: '年度会员',
+        amount: 0,
+        paymentChannel: 'gift',
+        createdAt: new Date('2026-05-23T10:00:00.000Z'),
       },
     ]);
     context.prismaService.storePartner.findFirst.mockResolvedValue({
@@ -1314,12 +1372,17 @@ describe('PulseMembershipService admin', () => {
         {
           planId: 'lifetime',
           price: 59800,
+          // 尚未补录子账号加价：详情需下发 null，让运营在弹窗里看到补录入口
+          subAccountAmount: null,
+          subAccountCount: null,
           source: 'admin',
           lockedAt: new Date('2026-05-20T00:00:00.000Z'),
         },
         {
           planId: 'yearly',
           price: 58800,
+          subAccountAmount: 15000,
+          subAccountCount: 3,
           source: 'purchase',
           lockedAt: new Date('2026-05-21T00:00:00.000Z'),
         },
@@ -1336,16 +1399,46 @@ describe('PulseMembershipService admin', () => {
       isPartner: true,
       beanBalance: 12,
       invitedCount: 2,
+      // 充值次数只统计商家端充值，不含后台设置
       rechargeCount: 2,
+      // 累计充值只统计商家端充值 468；后台设置的 398 走营收看板与「设置记录」，
+      // 不混进会员的充值口径
       totalRecharged: 46800,
+      // 设置会员等级记录单独成组，不混进充值记录
+      adminGrantCount: 2,
     });
     expect(result.rechargeHistory).toHaveLength(2);
-    // 首购锁定价快照：元 / 分双口径 + 来源 + 锁定时点，供运营直接查看
+    expect(result.adminGrantHistory).toHaveLength(2);
+    // 勾选了「计入收入」的那次：显示金额
+    expect(result.adminGrantHistory.find((item) => item.id === '4')).toEqual({
+      id: '4',
+      planName: '年度会员',
+      amount: 39800,
+      amountDisplay: '398',
+      pointsAwarded: 0,
+      channel: 'admin',
+      createdAt: new Date('2026-05-22T10:00:00.000Z').getTime(),
+    });
+    // 未勾选（赠送）的那次：金额显示「赠送」
+    expect(result.adminGrantHistory.find((item) => item.id === '5')).toEqual({
+      id: '5',
+      planName: '年度会员',
+      amount: 0,
+      amountDisplay: '赠送',
+      pointsAwarded: 0,
+      channel: 'gift',
+      createdAt: new Date('2026-05-23T10:00:00.000Z').getTime(),
+    });
+    // 成交价快照：元 / 分双口径 + 来源 + 锁定时点 + 子账号加价补录状态
     expect(result.lockedPrices).toEqual([
       {
         planId: 'lifetime',
         price: 59800,
         priceDisplay: '598',
+        // 未补录：下发 null，前端据此提示运营补录
+        subAccountAmountDisplay: null,
+        subAccountCount: null,
+        renewalPriceDisplay: null,
         source: 'admin',
         lockedAt: new Date('2026-05-20T00:00:00.000Z').getTime(),
       },
@@ -1353,6 +1446,10 @@ describe('PulseMembershipService admin', () => {
         planId: 'yearly',
         price: 58800,
         priceDisplay: '588',
+        subAccountAmountDisplay: '150',
+        subAccountCount: 3,
+        // 续费价 = 配置价 39800 + 加价 15000 = 54800
+        renewalPriceDisplay: '548',
         source: 'purchase',
         lockedAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
       },

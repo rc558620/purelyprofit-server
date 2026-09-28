@@ -25,6 +25,7 @@ import type {
   PulseAdminSubAccountDetail,
 } from './membership.types';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
+import { loadPlanCatalog } from '../../purely-profit/member/platform-membership/platform-membership.query';
 import {
   StoreMembershipLockedPriceService,
   type LockedPriceSnapshot,
@@ -52,6 +53,8 @@ type PulseAdminMemberDetailSnapshot = {
   promoCount: number;
   subAccountSummary: PulseAdminSubAccountDetail;
   lockedPrices: LockedPriceSnapshot[];
+  /** 各档位当前配置价（分）：供 builder 折算「配置价 + 子账号加价 = 续费价」 */
+  planPrices: Map<string, number>;
   banReason: string | null;
 };
 
@@ -82,8 +85,22 @@ export class PulseMembershipAdminMemberReadService {
       return [];
     }
 
+    // 「待补录子账号加价」清单：有子账号能力但成交价快照里缺子账号加价的门店。
+    // 这些门店的续费价会退化为 max(配置价, 成交总额)，配置价涨过成交总额即白送子账号，
+    // 需要运营补录；过滤在进库查询前完成，避免拉全量再筛。
+    const effectiveStoreIds =
+      query.pendingSubAccountBackfill === true
+        ? (
+            await this.lockedPriceService.listStoresPendingSubAccountBackfill()
+          ).filter((storeId) => storeIds.includes(storeId))
+        : storeIds;
+
+    if (effectiveStoreIds.length === 0) {
+      return [];
+    }
+
     const stores = await this.prisma.store.findMany({
-      where: buildAdminMemberListStoreWhere(storeIds, query),
+      where: buildAdminMemberListStoreWhere(effectiveStoreIds, query),
       select: {
         id: true,
         name: true,
@@ -185,6 +202,7 @@ export class PulseMembershipAdminMemberReadService {
       promoCount,
       subAccountSummary,
       lockedPrices,
+      planCatalog,
     ] = await Promise.all([
       this.prisma.store.findUnique({
         where: { id: storeId },
@@ -215,6 +233,7 @@ export class PulseMembershipAdminMemberReadService {
       }),
       this.subAccountReadService.buildAdminSubAccountDetail(storeId),
       this.lockedPriceService.listLockedPrices(storeId),
+      loadPlanCatalog(this.prisma),
     ]);
 
     if (!store) {
@@ -224,6 +243,7 @@ export class PulseMembershipAdminMemberReadService {
     return {
       store,
       profile,
+      planPrices: new Map(planCatalog.map((plan) => [plan.id, plan.price])),
       paidOrders,
       partner,
       promoCount,
@@ -233,6 +253,13 @@ export class PulseMembershipAdminMemberReadService {
     };
   }
 
+  /**
+   * 会员订单（含后台设置记录）。
+   *
+   * 取出 `paymentChannel` 后交给 builder 按渠道拆成两组：
+   * - wechat：商家端充值 → 「充值记录」
+   * - admin / gift：管理端设置会员等级 → 「设置会员等级记录」（gift 显示「赠送」）
+   */
   private async loadPaidOrders(
     storeId: number,
   ): Promise<PulseAdminMembershipOrderRecord[]> {
@@ -243,6 +270,7 @@ export class PulseMembershipAdminMemberReadService {
         planId: true,
         planName: true,
         amount: true,
+        paymentChannel: true,
         createdAt: true,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -276,6 +304,9 @@ export class PulseMembershipAdminMemberReadService {
           where: {
             storeId: { in: storeIds },
             status: 'paid',
+            // 只统计商家端真实充值：后台设置会员等级（admin / gift）单独成组展示，
+            // 不能虚增列表的「充值次数 / 累计充值」
+            paymentChannel: 'wechat',
           },
           _count: { _all: true },
           _sum: { amount: true },

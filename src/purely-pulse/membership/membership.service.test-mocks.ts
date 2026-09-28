@@ -27,6 +27,9 @@ export interface PulseMembershipPlatformAccessServiceMock {
 }
 
 export interface PulseMembershipPrismaServiceMock {
+  membershipPlanSetting: {
+    findMany: jest.Mock;
+  };
   store: {
     findMany: jest.Mock;
     findUnique: jest.Mock;
@@ -55,6 +58,8 @@ export interface PulseMembershipPrismaServiceMock {
     findFirst: jest.Mock;
     findMany: jest.Mock;
     groupBy: jest.Mock;
+    /** 管理端设置会员等级落订单用 */
+    create: jest.Mock;
   };
   storeMembershipPromoRecord: {
     count: jest.Mock;
@@ -63,7 +68,9 @@ export interface PulseMembershipPrismaServiceMock {
   storeMembershipLockedPrice: {
     findMany: jest.Mock;
     createMany: jest.Mock;
+    upsert: jest.Mock;
     deleteMany: jest.Mock;
+    updateMany: jest.Mock;
   };
   storeMembershipPointsLog: {
     create: jest.Mock;
@@ -108,7 +115,15 @@ export interface PulseMembershipCacheInvalidatorServiceMock {
 export function createPlatformMembershipServiceMock(): PulseMembershipPlatformMembershipServiceMock {
   return {
     listPlans: jest.fn(),
-    getPlanConfig: jest.fn(),
+    // 设置会员等级落订单时要取套餐名，默认给一份可用配置
+    getPlanConfig: jest.fn().mockResolvedValue({
+      id: 'yearly',
+      name: '年度会员',
+      price: 39800,
+      originalPrice: 45600,
+      durationMonths: 12,
+      validDays: 365,
+    }),
     getCenterByStoreId: jest.fn(),
     getProfileByStoreId: jest.fn(),
     listOrdersByStoreId: jest.fn(),
@@ -138,6 +153,43 @@ export function createPlatformMembershipAccessServiceMock(): PulseMembershipPlat
 
 export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
   const prismaService = {
+    // 套餐目录：详情快照折算「配置价 + 子账号加价 = 续费价」时读取
+    membershipPlanSetting: {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          planId: 'monthly',
+          planName: '月度会员',
+          price: 4200,
+          originalPrice: 4200,
+          durationMonths: 1,
+          validDays: null,
+        },
+        {
+          planId: 'quarterly',
+          planName: '季度会员',
+          price: 10800,
+          originalPrice: 14400,
+          durationMonths: 3,
+          validDays: null,
+        },
+        {
+          planId: 'yearly',
+          planName: '年度会员',
+          price: 39800,
+          originalPrice: 45600,
+          durationMonths: 12,
+          validDays: 365,
+        },
+        {
+          planId: 'lifetime',
+          planName: '永久会员',
+          price: 59800,
+          originalPrice: null,
+          durationMonths: null,
+          validDays: 730,
+        },
+      ]),
+    },
     store: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
@@ -154,7 +206,8 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
-      upsert: jest.fn(),
+      // 必须返回带 id 的记录：设置会员等级落订单时要拿 profileId
+      upsert: jest.fn().mockResolvedValue({ id: 3, storeId: 18 }),
     },
     storePartner: {
       findFirst: jest.fn(),
@@ -166,6 +219,8 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       groupBy: jest.fn(),
+      // 管理端设置会员等级会落一条订单（admin = 计入收入 / gift = 赠送）
+      create: jest.fn().mockResolvedValue({ id: 1 }),
     },
     storeMembershipPromoRecord: {
       count: jest.fn(),
@@ -174,7 +229,9 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     storeMembershipLockedPrice: {
       findMany: jest.fn().mockResolvedValue([]),
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     storeMembershipPointsLog: {
       create: jest.fn(),

@@ -100,7 +100,10 @@ describe('StoresProfileService', () => {
 
   it('批量读取时 DB 优先，未命中项回退 Redis', async () => {
     prisma.store.findMany.mockResolvedValue([
-      { id: 1, profileMetadata: { storeType: '零售', region: ['a', 'b', 'c'] } },
+      {
+        id: 1,
+        profileMetadata: { storeType: '零售', region: ['a', 'b', 'c'] },
+      },
     ]);
     redis.mgetJson.mockResolvedValue([
       { storeType: '餐饮', region: ['x', 'y', 'z'] },

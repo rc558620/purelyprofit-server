@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import {
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import type { NewCustomerQuotaCheckResult } from '../../purely-profit/member/new-customer-quota/new-customer-quota.types';
 import { ClubAuthService } from './club-auth.service';
 import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
@@ -181,7 +183,10 @@ export class ClubAuthController {
       '微信登录成功后，若 needPhoneBind=true，前端跳转绑定页调用此接口。' +
       '验证码来自 POST /club/auth/bind-phone/send-code。' +
       '若手机号已有账号，自动将微信 openid 合并到手机号账号；否则直接绑定到当前用户。' +
-      '绑定成功后返回新 JWT token。',
+      '绑定成功后返回新 JWT token。' +
+      '⚠️ 与 POST /club/auth/bind-phone/by-wechat-code 共用同一道新客额度闸门：' +
+      '本店新客在门店额度耗尽时返回 403 NEW_CUSTOMER_QUOTA_EXHAUSTED，' +
+      '短信不是绕过路径。扫码点餐流程请务必传 sessionId，额度按会话所属门店计。',
   })
   @ApiOkResponse({
     description: '绑定成功，返回新 JWT token',
@@ -191,7 +196,7 @@ export class ClubAuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BindPhoneDto,
   ): Promise<AuthTokenResponseDto> {
-    return this.clubAuthService.bindPhone(user.id, dto);
+    return this.clubAuthService.bindPhone(user.id, dto, user);
   }
 
   @Post('rebind-phone')
@@ -232,7 +237,8 @@ export class ClubAuthController {
       '无需短信验证码（手机号归属由微信背书）。' +
       '成功后返回新 JWT token，前端**必须替换旧 token**。' +
       '⚠️ 该入口要求小程序已通过**微信认证**，由 auth.wechatPhoneBindEnabled 控制；' +
-      '未开放时返回 501，请改用 POST /club/auth/bind-phone（短信验证码）。',
+      '未开放时返回 501，请改用 POST /club/auth/bind-phone（短信验证码）。' +
+      '扫码点餐流程请务必传 sessionId：额度按会话所属门店计，缺省会落到「当前选中门店」。',
   })
   @ApiOkResponse({
     description: '绑定成功，返回新 JWT token',
@@ -253,14 +259,24 @@ export class ClubAuthController {
   @ApiOperation({
     summary: '新用户额度预检',
     description:
-      '返回当前门店的新用户额度状态：blocked=true 表示额度已用完，' +
-      '此时点击 getPhoneNumber 会被后端拦截（返回业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED），' +
-      '前端应直接提示「新用户额度已用完，当前无法下单，请联系商家」，不要调起微信授权。',
+      '返回当前顾客在该门店的新用户额度状态。' +
+      'blocked=true 表示「该顾客是本店新客且额度已用完」，此时下单会被后端拦截' +
+      '（返回业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED），前端应阻止提交并提示' +
+      '「新用户额度已用完，当前无法下单，请联系商家」。' +
+      '老顾客恒为 blocked=false——额度只限制新客。' +
+      '扫码点餐请务必带 sessionId：以会话所属门店为准，避免用「当前选中门店」算错门店。',
   })
   getNewCustomerQuotaStatus(
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ blocked: boolean; remaining: number }> {
-    return this.clubAuthService.getNewCustomerQuotaStatus(user);
+    @Query('sessionId') sessionId?: string,
+  ): Promise<NewCustomerQuotaCheckResult> {
+    const parsedSessionId = Number.parseInt(sessionId ?? '', 10);
+    return this.clubAuthService.getNewCustomerQuotaStatus(
+      user,
+      Number.isInteger(parsedSessionId) && parsedSessionId > 0
+        ? parsedSessionId
+        : null,
+    );
   }
 
   @Post('refresh')

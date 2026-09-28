@@ -33,8 +33,11 @@ import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipLedgerService } from './membership-ledger.service';
 import { PulseMembershipOrdersService } from './membership-orders.service';
 import type {
+  PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
+  PulseAdminPricingPreviewResult,
   PulseAdminStatusMutationInput,
+  PulseAdminSubAccountAmountBackfillInput,
   PulseAdminSubAccountQuotaMutationInput,
   PulseAdminSubAccountSlotMutationInput,
   PulseMembershipAdjustmentInput,
@@ -198,6 +201,38 @@ export class PulseMembershipService {
     memberId: number,
   ): Promise<PulseMemberDetailDto> {
     return this.adminService.resetAdminMemberLockedPrices(user, memberId);
+  }
+
+  /**
+   * 会员成交价预览：只算不落库。
+   *
+   * 设置会员等级弹窗里运营每改一次输入就要看到新的「下次续费价 / 当期应补」，
+   * 但前端不做金额计算，所以由后端算好并以展示字符串下发。
+   */
+  previewAdminMemberPricing(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: {
+      targetLevel?: PulseAdminMemberLevel;
+      priceDisplay?: string;
+      subAccountCount?: number;
+      subAccountAmountDisplay?: string;
+    },
+  ): Promise<PulseAdminPricingPreviewResult> {
+    return this.adminService.previewAdminMemberPricing(user, memberId, dto);
+  }
+
+  /** 补录 / 撤销存量门店的子账号加价（只动子账号字段，不改成交总额） */
+  backfillAdminMemberSubAccountAmount(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountAmountBackfillInput,
+  ): Promise<PulseMemberDetailDto> {
+    return this.adminService.backfillAdminMemberSubAccountAmount(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   banAdminMember(

@@ -55,6 +55,7 @@ import {
   toPulseMemberLevel,
 } from './membership-admin-query.helper';
 import { Money } from '../../shared/money.utils';
+import { isSubAccountPricingPlan } from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import type { LockedPriceSnapshot } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 
 type PulseAdminLogStoreRecord = Pick<
@@ -111,6 +112,8 @@ interface BuildPulseAdminMemberDetailInput {
   subAccountSummary: PulseAdminSubAccountDetail;
   /** 首购锁定价快照（空数组表示未锁价） */
   lockedPrices: LockedPriceSnapshot[];
+  /** 各档位当前配置价（分）：折算「配置价 + 子账号加价 = 续费价」用 */
+  planPrices: Map<string, number>;
   banReason: string | null;
 }
 
@@ -251,8 +254,16 @@ export function buildPulseAdminMemberDetail(
     promoCount,
     subAccountSummary,
     lockedPrices,
+    planPrices,
     banReason,
   } = input;
+  // 按渠道拆两组：wechat = 商家端充值；admin / gift = 管理端设置会员等级
+  const rechargeOrders = paidOrders.filter(
+    (order) => order.paymentChannel === 'wechat',
+  );
+  const adminGrantOrders = paidOrders.filter(
+    (order) => order.paymentChannel !== 'wechat',
+  );
   const ownerName = resolveAdminMemberDisplayName(store);
   const phone = resolveAdminMemberPhone(store);
   const currentPlanId = profile?.currentPlanId ?? null;
@@ -262,12 +273,16 @@ export function buildPulseAdminMemberDetail(
   const isBanned = Boolean(banReason);
   const isActive = isPulseMemberActive(profile);
   const registeredAt = store.createdAt.getTime();
+  // 兜底只认商家端充值：后台设置会员等级是平台侧动作，
+  // 用它当「最近活跃」会让一次后台操作把会员刷成刚活跃
   const lastActiveAt =
     store.owner.lastActiveAt?.getTime() ??
-    paidOrders[0]?.createdAt.getTime() ??
+    rechargeOrders[0]?.createdAt.getTime() ??
     store.updatedAt.getTime();
+  // 「累计充值」只统计商家端真实充值：后台设置会员等级（admin / gift）属于
+  // 平台侧操作，单独由 adminGrantHistory / 营收看板承载，不混进会员的充值口径
   const totalRecharged = Money.sum(
-    paidOrders.map((order) => Money.fromDbCents(order.amount)),
+    rechargeOrders.map((order) => Money.fromDbCents(order.amount)),
   ).toDbCents();
 
   return {
@@ -295,9 +310,9 @@ export function buildPulseAdminMemberDetail(
     totalRechargedDisplay: Money.fromDbCents(totalRecharged)
       .toFixedOutputYuan()
       .replace(/\.00$/, ''),
-    rechargeCount: paidOrders.length,
+    rechargeCount: rechargeOrders.length,
     invitedCount: promoCount,
-    rechargeHistory: paidOrders.map((order) => ({
+    rechargeHistory: rechargeOrders.map((order) => ({
       id: String(order.id),
       planName: order.planName,
       amount: Money.fromDbCents(order.amount).toDbCents(),
@@ -308,16 +323,61 @@ export function buildPulseAdminMemberDetail(
       channel: 'wechat' as const,
       createdAt: order.createdAt.getTime(),
     })),
+    // 「设置会员等级记录」：admin=勾选了计入收入（显示金额）；gift=赠送（显示「赠送」）
+    adminGrantCount: adminGrantOrders.length,
+    adminGrantHistory: adminGrantOrders.map((order) => ({
+      id: String(order.id),
+      planName: order.planName,
+      amount: Money.fromDbCents(order.amount).toDbCents(),
+      amountDisplay:
+        order.paymentChannel === 'gift'
+          ? '赠送'
+          : Money.fromDbCents(order.amount)
+              .toFixedOutputYuan()
+              .replace(/\.00$/, ''),
+      pointsAwarded: 0,
+      channel:
+        order.paymentChannel === 'gift'
+          ? ('gift' as const)
+          : ('admin' as const),
+      createdAt: order.createdAt.getTime(),
+    })),
     remark: banReason ?? `${store.name} 的平台会员档案`,
     membershipExpiry,
     isOnline: resolveMemberOnline(store.owner.lastActiveAt),
-    // 首购锁定价快照：让运营看得到「当前锁了什么价」，而不只是一个重置按钮
+    // 成交价快照：让运营看得到「当前是什么价、子账号加价补录了没有」，
+    // 而不只是一个重置按钮。subAccountAmountDisplay 为 null 即提示需要补录。
     lockedPrices: lockedPrices.map((item) => ({
       planId: item.planId,
       price: item.price,
       priceDisplay: Money.fromDbCents(item.price)
         .toFixedOutputYuan()
         .replace(/\.00$/, ''),
+      // 用 typeof 兜底：缺少该列的行（旧数据 / mock 残行）值为 undefined，
+      // `=== null` 判断会漏过去并把 undefined 交给金额格式化
+      subAccountAmountDisplay:
+        typeof item.subAccountAmount === 'number'
+          ? Money.fromDbCents(item.subAccountAmount)
+              .toFixedOutputYuan()
+              .replace(/\.00$/, '')
+          : null,
+      subAccountCount:
+        typeof item.subAccountCount === 'number' ? item.subAccountCount : null,
+      // 续费价 = 当前配置价 + 子账号加价（仅当该档位录了加价时下发），
+      // 供管理端快照展示「加价 ¥100 = ¥498」。
+      //
+      // ⚠️ 必须过 isSubAccountPricingPlan：月 / 季开不了子账号，`resolvePlanPrice`
+      // 也不计它们的加价，这里带上就会显示一个客户永远付不到的价格
+      renewalPriceDisplay:
+        typeof item.subAccountAmount === 'number' &&
+        planPrices.has(item.planId) &&
+        isSubAccountPricingPlan(item.planId)
+          ? Money.fromDbCents(
+              (planPrices.get(item.planId) ?? 0) + item.subAccountAmount,
+            )
+              .toFixedOutputYuan()
+              .replace(/\.00$/, '')
+          : null,
       source: item.source,
       lockedAt: item.lockedAt.getTime(),
     })),

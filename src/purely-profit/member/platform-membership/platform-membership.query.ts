@@ -149,7 +149,19 @@ export async function findPaidStoreMembershipOrders(
   storeId: number,
 ): Promise<StoreMembershipOrderRecord[]> {
   return prismaExecutor.storeMembershipOrder.findMany({
-    where: { storeId, status: 'paid' },
+    where: {
+      storeId,
+      status: 'paid',
+      // 只认商家端真实微信充值。
+      //
+      // Pulse 管理端「设置会员等级」会写后台订单（admin / gift）：那不是商家自己的
+      // 支付行为，不能出现在商家端订单列表 / 充值次数 / 累计消费里——尤其 gift 金额
+      // 落 0，混进来既虚增笔数、又向商家展示一笔解释不通的 ¥0 订单。
+      //
+      // 从付费订单重建档案（normalizeMembershipProfileFromPaidOrders）同理：
+      // 只能用商家真实购买记录重建，否则后台一次赠送就会把会员「买回来」。
+      paymentChannel: 'wechat',
+    },
     select: {
       id: true,
       planId: true,

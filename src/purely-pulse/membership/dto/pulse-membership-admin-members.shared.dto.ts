@@ -43,11 +43,17 @@ export const PULSE_MEMBER_LEVEL_VALUES = [
 ] as const;
 /**
  * 充值支付渠道（对齐前端 RechargeRecord.channel）
+ *
+ * - wechat / alipay / card：商家端支付充值
+ * - admin：管理端设置会员等级，且勾选了「计入收入」
+ * - gift：管理端设置会员等级，按赠送处理（不计入营收，金额显示「赠送」）
  */
 export const PULSE_RECHARGE_CHANNEL_VALUES = [
   'wechat',
   'alipay',
   'card',
+  'admin',
+  'gift',
 ] as const;
 /**
  * 充值记录（对齐前端 RechargeRecord）
@@ -83,7 +89,8 @@ export class PulseRechargeRecordDto {
     enum: PULSE_RECHARGE_CHANNEL_VALUES,
     example: 'wechat',
     description:
-      '支付渠道：wechat=微信 / alipay=支付宝 / card=银行卡（对齐前端 RechargeRecord.channel）',
+      '支付渠道：wechat=微信充值 / alipay=支付宝 / card=银行卡 / ' +
+      'admin=管理端设置会员等级且计入收入 / gift=管理端设置会员等级按赠送（对齐前端 RechargeRecord.channel）',
   })
   @IsIn(PULSE_RECHARGE_CHANNEL_VALUES)
   channel: PulseRechargeChannelValue;
@@ -310,7 +317,10 @@ export type PulseMembershipPlanIdValue =
   (typeof PULSE_MEMBERSHIP_PLAN_ID_VALUES)[number];
 
 /**
- * 首购锁定价快照条目（管理端展示）。
+ * 成交价快照条目（管理端展示）。
+ *
+ * 定价公式为 `当前配置价 + 子账号加价`：子账号加价是唯一的长期锁定分量，
+ * 成交总额（price）只作记账，不参与定价。
  *
  * 对齐前端 MemberLockedPrice（purelyPulse memberList.types.ts）。
  */
@@ -323,9 +333,40 @@ export class PulseAdminMemberLockedPriceDto {
   @IsIn(PULSE_MEMBERSHIP_PLAN_ID_VALUES)
   planId: PulseMembershipPlanIdValue;
 
-  @ApiProperty({ example: 58800, description: '锁定价格（分）' })
+  @ApiProperty({ example: 58800, description: '成交总额（分）' })
   @IsInt()
   price: number;
+
+  @ApiPropertyOptional({
+    example: '150',
+    description:
+      '该档位包含的子账号加价（元，已格式化）。null 表示运营尚未补录，' +
+      '此时该门店续费会退化为 max(当前配置价, 成交总额)，配置价涨过成交总额即白送子账号',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  subAccountAmountDisplay: string | null;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: '该档位包含的子账号数量；null 表示运营尚未补录',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsInt()
+  subAccountCount: number | null;
+
+  @ApiPropertyOptional({
+    example: '498',
+    description:
+      '续费价 = 当前配置价 + 子账号加价（元，已格式化）。' +
+      '仅当该档位录了子账号加价时下发，供快照展示「加价 ¥100 = ¥498」',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  renewalPriceDisplay: string | null;
 
   @ApiProperty({ example: '588', description: '锁定价格（元，已格式化）' })
   @IsString()

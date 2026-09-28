@@ -88,6 +88,8 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     rawQuota?: number;
     /** 档案里保留的原档位；到期后 level 为 free，此处仍是原档位 */
     previousLevel?: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
+    /** 是否曾开通子账号功能；默认 true */
+    featureOwned?: boolean;
   }) => {
     const rawQuota = params.rawQuota ?? params.quota;
 
@@ -140,10 +142,11 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     }
   });
 
-  it('已开通子账号功能的年度会员：只返回年度卡，且命中首购锁定价', async () => {
+  it('已开通子账号功能的年度会员：只返回年度卡，价格 = 后台配置价（成交价不参与）', async () => {
     accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
       subAccountSnapshot({ level: 'yearly', quota: 2 }),
     );
+    // 成交价 58800 只作记账，不参与续费定价
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
       { planId: 'yearly', price: 58800 },
     ]);
@@ -153,13 +156,12 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
     expect(plans[0]).toMatchObject({
       name: '年度会员',
-      price: 58800,
+      price: 36900,
       // 价格已含子账号权益，配置原价（不含子账号的旧价）不再下发
       originalPrice: null,
       subAccountIncludedCount: 2,
-      // 58800 / 12 = 4900，按月均价与大价格同源
-      monthlyPrice: 4900,
-      lockedPrice: true,
+      // 36900 / 12 = 3075，月均价与展示价同源
+      monthlyPrice: 3075,
     });
   });
 
@@ -176,13 +178,13 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans.map((plan) => plan.id)).toEqual(['lifetime']);
     expect(plans[0]).toMatchObject({
       name: 'AGES会员',
-      price: 59800,
+      // 永久配置价；成交价 59800 只记账，不参与定价
+      price: 39800,
       originalPrice: null,
       durationMonths: null,
       validDays: 730,
       hideOriginalPrice: true,
       hideMonthlyPrice: true,
-      lockedPrice: true,
       subAccountIncludedCount: 2,
     });
     // 月均价字段整体不出现，避免前端拿到 config 折算值误渲染
@@ -203,7 +205,35 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans[0].subAccountIncludedCount).toBe(2);
   });
 
-  it('未开通子账号功能时即使存在锁定价快照也按配置价下发（锁定价不生效）', async () => {
+  it('仅在设置会员等级时录了子账号加价（未单独设置配额）：同样只返回年 / 永久卡', async () => {
+    // featureOwned=false（pulseSubAccountQuota=0），但快照里有年卡子账号加价
+    accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
+      subAccountSnapshot({
+        level: 'yearly',
+        quota: 0,
+        featureOwned: false,
+        previousLevel: 'yearly',
+      }),
+    );
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      {
+        planId: 'yearly',
+        price: 49800,
+        subAccountAmount: 10000,
+        subAccountCount: 2,
+      },
+    ]);
+
+    const plans = await createService().listRenewalPlans(18);
+
+    // 判据与价格里的子账号加价同源：否则年度卡标着「包含 2 个子账号」
+    // 却还能买月 / 季，月均比例直接倒挂
+    expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
+    // 36900 + 10000 = 46900
+    expect(plans[0]).toMatchObject({ price: 46900 });
+  });
+
+  it('成交价不参与定价：高于配置价的成交记录也按配置价下发', async () => {
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
       { planId: 'yearly', price: 58800 },
       { planId: 'monthly', price: 1000 },
@@ -211,17 +241,19 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
 
     const plans = await createService().listRenewalPlans(18);
 
+    // 档位裁剪仍由「是否曾开通子账号」决定：未开通 → 月 / 季 / 年三档全给
     expect(plans.map((plan) => plan.id)).toEqual([
       'monthly',
       'quarterly',
       'yearly',
     ]);
+    // 定价一律按配置价：成交价 58800 只记账，不托住续费价
     expect(plans.find((plan) => plan.id === 'yearly')).toMatchObject({
       price: 36900,
     });
-    for (const plan of plans) {
-      expect(plan.lockedPrice).toBeUndefined();
-    }
+    const monthlyPlan = plans.find((plan) => plan.id === 'monthly');
+    expect(monthlyPlan).toMatchObject({ price: 3800 });
+    expect(monthlyPlan?.lockedPrice).toBeUndefined();
   });
 
   it('已开通子账号功能但档位为月 / 季脏数据：按年度兜底，避免返回空或降级档位', async () => {
@@ -232,6 +264,25 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     const plans = await createService().listRenewalPlans(18);
 
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
+  });
+
+  it('续费卡的子账号数量优先用成交时录入的数量，与收费口径保持同源', async () => {
+    accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
+      subAccountSnapshot({ level: 'yearly', quota: 8 }),
+    );
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      {
+        planId: 'yearly',
+        price: 51900,
+        subAccountAmount: 15000,
+        subAccountCount: 3,
+      },
+    ]);
+
+    const plans = await createService().listRenewalPlans(18);
+
+    // 实时配额是 8，但价格是按 3 个子账号算出来的 → 展示必须跟账单一致
+    expect(plans[0]).toMatchObject({ subAccountIncludedCount: 3 });
   });
 
   it('已开通子账号功能且配额为 0：视为未开通，返回月 / 季 / 年三档', async () => {
@@ -248,22 +299,43 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     ]);
   });
 
-  it('命中锁定价时月均价按实付锁定价折算，避免与展示价自相矛盾', async () => {
+  it('月均价按实付价（配置价 + 子账号加价）折算，避免与展示价自相矛盾', async () => {
     accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
       subAccountSnapshot({ level: 'yearly', quota: 2 }),
     );
+    // 子账号加价 15000 参与定价；成交价 50000 只记账
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      {
+        planId: 'yearly',
+        price: 50000,
+        subAccountAmount: 15000,
+        subAccountCount: 2,
+      },
+    ]);
+
+    const plans = await createService().listRenewalPlans(18);
+
+    expect(plans[0]).toMatchObject({
+      // 36900 + 15000 = 51900
+      price: 51900,
+      // 51900 / 12 = 4325，与卡片大价格同源
+      monthlyPrice: 4325,
+    });
+  });
+
+  it('成交价低于标准总价时按标准总价下发，且不打锁价标记', async () => {
+    accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
+      subAccountSnapshot({ level: 'yearly', quota: 2 }),
+    );
+    // 配置价已涨到 36900，客户当年只成交了 30000 → 按当前标准价结算
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
       { planId: 'yearly', price: 30000 },
     ]);
 
     const plans = await createService().listRenewalPlans(18);
 
-    expect(plans[0]).toMatchObject({
-      price: 30000,
-      lockedPrice: true,
-      // 30000 / 12 = 2500（按实付价折算），不是配置价折算的 3075
-      monthlyPrice: 2500,
-    });
+    expect(plans[0]).toMatchObject({ price: 36900 });
+    expect(plans[0].lockedPrice).toBeUndefined();
   });
 
   it('含子账号的续费卡：价格位改下发子账号数量，不再给划线原价', async () => {
@@ -277,18 +349,18 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     const plans = await createService().listRenewalPlans(18);
 
     expect(plans[0]).toMatchObject({
-      price: 46900,
+      // 成交价 46900 不参与定价，按配置价 36900 下发
+      price: 36900,
       // 配置价 45600 是「不含子账号」的旧价，划掉它会被读成「续费反而涨价」
       originalPrice: null,
       subAccountIncludedCount: 5,
-      // 46900 / 12 = 3908，与卡片大价格同源
-      monthlyPrice: 3908,
-      lockedPrice: true,
+      // 36900 / 12 = 3075，与卡片大价格同源
+      monthlyPrice: 3075,
     });
     expect('hideOriginalPrice' in plans[0]).toBe(false);
   });
 
-  it('年度会员到期后：仍只返回年度卡，并按首购锁定价展示（不回落成三档）', async () => {
+  it('年度会员到期后：仍只返回年度卡，并按配置价展示（不回落成三档）', async () => {
     // 到期后实时档位回落为 free、实时配额归零，但档案里保留原档位与配置额度
     accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
       subAccountSnapshot({
@@ -307,17 +379,16 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
     expect(plans[0]).toMatchObject({
       name: '年度会员',
-      // 首次成交价，而不是涨过价的配置价 36900
-      price: 58800,
-      lockedPrice: true,
+      // 配置价；成交价 58800 只记账
+      price: 36900,
       // 价格已含子账号权益：不下发划线原价，改下发配置额度
       originalPrice: null,
       subAccountIncludedCount: 8,
-      monthlyPrice: 4900,
+      monthlyPrice: 3075,
     });
   });
 
-  it('AGES（永久）会员到期后：仍只返回 AGES 卡，并按首购锁定价展示', async () => {
+  it('AGES（永久）会员到期后：仍只返回 AGES 卡，并按配置价展示', async () => {
     accessService.getSubAccountBenefitSnapshot.mockResolvedValue(
       subAccountSnapshot({
         level: 'free',
@@ -335,11 +406,11 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans.map((plan) => plan.id)).toEqual(['lifetime']);
     expect(plans[0]).toMatchObject({
       name: 'AGES会员',
-      price: 59800,
+      // 永久配置价；成交价 59800 只记账
+      price: 39800,
       originalPrice: null,
       hideOriginalPrice: true,
       hideMonthlyPrice: true,
-      lockedPrice: true,
       subAccountIncludedCount: 8,
     });
   });

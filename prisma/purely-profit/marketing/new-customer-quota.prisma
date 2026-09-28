@@ -29,15 +29,22 @@ model StoreNewCustomerQuotaLog {
   @@map("store_new_customer_quota_logs")
 }
 
-/// 新客消耗记录：保证同一手机号在同一门店只扣一次额度
+/// 新客消耗记录：保证同一顾客在同一门店只扣一次额度
 model StoreNewCustomerQuotaConsume {
-  id        Int      @id @default(autoincrement())
-  storeId   Int      @map("store_id")
-  /// 新客手机号（已归一化的大陆手机号）
-  phone     String
-  createdAt DateTime @default(now()) @map("created_at")
+  id         Int      @id @default(autoincrement())
+  storeId    Int      @map("store_id")
+  /// 新客的 C 端账号 ID。
+  ///
+  /// 判定与幂等**必须以账号为准，不能用手机号**：扫码进桌即建档（占位手机号
+  /// `club_wechat:{openid}`），随后绑定手机号会把该档案迁成真实号码，
+  /// 手机号口径会把真正的首单新客误判成老客，导致额度永不消耗。
+  clubUserId Int      @map("club_user_id")
+  /// 消耗时的手机号快照（未绑手机号即下单时为空），仅用于运营追溯
+  phone      String?
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  @@unique([storeId, phone])
+  @@unique([storeId, clubUserId])
+  @@index([storeId, phone])
   @@map("store_new_customer_quota_consumes")
 }
 

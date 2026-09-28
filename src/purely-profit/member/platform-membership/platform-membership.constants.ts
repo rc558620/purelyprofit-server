@@ -13,6 +13,21 @@ export const POINTS_DEDUCT_LIMIT = 0.3;
 export const BEAN_DEDUCT_RATE = 100;
 export const BEAN_DEDUCT_LIMIT = 0.5;
 
+/**
+ * 可开通子账号能力的档位：仅年 / 永久。
+ *
+ * 月 / 季会员开不了子账号，因此它们的成交快照**永远不应该**有子账号加价，
+ * 补录、预览、定价、续费卡展示都必须以此白名单为准。
+ */
+export const SUB_ACCOUNT_PRICING_PLAN_IDS: readonly PlatformMembershipPlanId[] =
+  ['yearly', 'lifetime'];
+
+export function isSubAccountPricingPlan(
+  planId: PlatformMembershipPlanId,
+): boolean {
+  return SUB_ACCOUNT_PRICING_PLAN_IDS.includes(planId);
+}
+
 /** 合伙人推广奖励纯利豆数量（按等级 x 套餐） */
 export const PROMO_BEAN_REWARDS_BY_LEVEL: Record<
   PartnerLevelValue,

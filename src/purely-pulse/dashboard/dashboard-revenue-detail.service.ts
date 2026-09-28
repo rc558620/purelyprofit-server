@@ -93,6 +93,8 @@ export class PulseDashboardRevenueDetailService {
       await this.prisma.storeMembershipOrder.findMany({
         where: {
           status: 'paid',
+          // 后台赠送（设置会员等级且未勾选「计入收入」）不算营收，排除掉
+          paymentChannel: { not: 'gift' },
           createdAt: {
             gte: new Date(lowerBound),
             lte: new Date(upperBound),

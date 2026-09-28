@@ -83,9 +83,15 @@ export class PlatformMembershipPromoService {
         continue;
       }
 
-      // 检查被推广人门店是否有 paid 订单
+      // 检查被推广人门店是否有 paid 订单。
+      // 只看真实微信充值：管理端「设置会员等级」写的后台订单（admin / gift）
+      // 不是被推广人自己付费，不能作为触发推广返豆的依据
       const paidOrder = await this.prisma.storeMembershipOrder.findFirst({
-        where: { storeId: inviteeStore.id, status: 'paid' },
+        where: {
+          storeId: inviteeStore.id,
+          status: 'paid',
+          paymentChannel: 'wechat',
+        },
         select: { amount: true, planId: true },
         orderBy: { createdAt: 'asc' },
       });

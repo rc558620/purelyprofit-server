@@ -85,7 +85,9 @@ export class StoresProfileService {
     try {
       const raw = await this.redisService.get(this.getStoreProfileKey(storeId));
       if (raw) {
-        const metadata = normalizeStoreProfileMetadata(JSON.parse(raw) as unknown);
+        const metadata = normalizeStoreProfileMetadata(
+          JSON.parse(raw) as unknown,
+        );
         if (Object.keys(metadata).length > 0) {
           await this.persistStoreProfileMetadata(storeId, metadata);
         }
@@ -125,7 +127,10 @@ export class StoresProfileService {
       });
       const recordById = new Map(
         records
-          .filter((r) => r.profileMetadata !== null && r.profileMetadata !== undefined)
+          .filter(
+            (r) =>
+              r.profileMetadata !== null && r.profileMetadata !== undefined,
+          )
           .map((r) => [r.id, r.profileMetadata as unknown]),
       );
       storeIds.forEach((storeId, index) => {

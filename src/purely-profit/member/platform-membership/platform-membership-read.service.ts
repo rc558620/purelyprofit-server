@@ -177,11 +177,17 @@ export class PlatformMembershipReadService {
       createdAt: true,
     } as const;
 
+    // 商家端只呈现商家自己的支付行为：Pulse 管理端「设置会员等级」写的后台订单
+    // （admin=计入收入 / gift=赠送）不属于商家充值，一律排除。
+    // gift 金额落 0，混进列表会让商家看到一笔「¥0 已支付」的订单，
+    // 混进汇总则虚增充值次数而金额不增。
+    const storePaidWhere = { storeId, paymentChannel: 'wechat' } as const;
+
     const [total, orders, paidOrderCount, paidTotal] = await Promise.all([
       // 列表分页与总条数基于全量订单（保留完整订单历史，含各状态）
-      this.prisma.storeMembershipOrder.count({ where: { storeId } }),
+      this.prisma.storeMembershipOrder.count({ where: storePaidWhere }),
       this.prisma.storeMembershipOrder.findMany({
-        where: { storeId },
+        where: storePaidWhere,
         select: orderSelect,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip,
@@ -189,11 +195,11 @@ export class PlatformMembershipReadService {
       }),
       // 汇总口径仅统计已支付订单，避免把 pending/failed/refunded 计入「累计消费金额/充值次数」
       this.prisma.storeMembershipOrder.count({
-        where: { storeId, status: 'paid' },
+        where: { ...storePaidWhere, status: 'paid' },
       }),
       // 用数据库层聚合替代应用层全量扫描求和（性能优化）
       this.prisma.storeMembershipOrder.aggregate({
-        where: { storeId, status: 'paid' },
+        where: { ...storePaidWhere, status: 'paid' },
         _sum: { amount: true },
       }),
     ]);

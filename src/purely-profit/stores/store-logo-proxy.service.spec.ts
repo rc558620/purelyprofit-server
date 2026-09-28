@@ -76,10 +76,14 @@ describe('StoreLogoProxyService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('门店未上传 Logo 时抛 404', async () => {
-    await expect(buildService({}).getStoreLogo(user)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+  it('门店未上传 Logo 时返回 null（由控制器回 204，不报 404）', async () => {
+    await expect(buildService({}).getStoreLogo(user)).resolves.toBeNull();
+  });
+
+  it('Logo 为空字符串时同样返回 null', async () => {
+    await expect(
+      buildService({ storeLogo: '   ' }).getStoreLogo(user),
+    ).resolves.toBeNull();
   });
 
   it('正常返回图片类型与二进制', async () => {
@@ -90,8 +94,8 @@ describe('StoreLogoProxyService', () => {
 
     const result = await service.getStoreLogo(user);
 
-    expect(result.contentType).toBe('image/jpeg');
-    expect(result.buffer.byteLength).toBe(16);
+    expect(result?.contentType).toBe('image/jpeg');
+    expect(result?.buffer.byteLength).toBe(16);
   });
 
   it('content-type 非图片时抛 502', async () => {

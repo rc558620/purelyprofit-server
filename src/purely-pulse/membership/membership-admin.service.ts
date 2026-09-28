@@ -13,9 +13,13 @@ import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-
 import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
+import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
 import type {
+  PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
+  PulseAdminPricingPreviewResult,
   PulseAdminStatusMutationInput,
+  PulseAdminSubAccountAmountBackfillInput,
   PulseAdminSubAccountQuotaMutationInput,
   PulseAdminSubAccountSlotMutationInput,
   PulseMembershipAdjustmentInput,
@@ -26,6 +30,7 @@ export class PulseMembershipAdminService {
   constructor(
     private readonly queryService: PulseMembershipAdminQueryService,
     private readonly mutationService: PulseMembershipAdminMutationService,
+    private readonly pricingPreviewService: PulseMembershipAdminPricingPreviewService,
   ) {}
 
   listAdminPointsLogs(
@@ -106,6 +111,37 @@ export class PulseMembershipAdminService {
     memberId: number,
   ): Promise<PulseMemberDetailDto> {
     return this.mutationService.resetAdminMemberLockedPrices(user, memberId);
+  }
+
+  /** 会员成交价预览：只算不落库，供设置会员等级弹窗实时展示 */
+  previewAdminMemberPricing(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: {
+      targetLevel?: PulseAdminMemberLevel;
+      priceDisplay?: string;
+      subAccountCount?: number;
+      subAccountAmountDisplay?: string;
+    },
+  ): Promise<PulseAdminPricingPreviewResult> {
+    return this.pricingPreviewService.preview({
+      user,
+      storeId: memberId,
+      ...dto,
+    });
+  }
+
+  /** 补录 / 撤销存量门店的子账号加价（只动子账号字段，不改成交总额） */
+  backfillAdminMemberSubAccountAmount(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountAmountBackfillInput,
+  ): Promise<PulseMemberDetailDto> {
+    return this.mutationService.backfillAdminMemberSubAccountAmount(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   banAdminMember(

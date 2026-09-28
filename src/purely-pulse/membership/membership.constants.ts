@@ -13,6 +13,14 @@ export const PULSE_MEMBERSHIP_BAN_REASON_KEY_PREFIX =
  */
 export const MEMBER_ONLINE_WINDOW_MS = 10 * 60 * 1000;
 
+/**
+ * 管理端「追加期数」可选档位（× 1 / × 2 / × 3 / × 6 / × 12）的上限。
+ *
+ * 时长与新客额度都按它叠加（年度 × 2 = 730 天 / 600 位新客），
+ * 后端对超出上限的异常值按 1 期处理，防止接口被直接调大赠送额度。
+ */
+export const MAX_MEMBERSHIP_PERIOD_COUNT = 12;
+
 export const PURCHASE_BONUS_POINTS: Record<
   (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number],
   number

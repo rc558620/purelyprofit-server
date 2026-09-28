@@ -18,6 +18,7 @@ import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-qu
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
 import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
+import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminStatusMutationService } from './membership-admin-status-mutation.service';
@@ -106,6 +107,41 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
   const platformMembershipAccessService =
     createPlatformMembershipAccessServiceMock();
   const prismaService = createPrismaServiceMock();
+  // 详情快照的成交价条目要折算「配置价 + 子账号加价 = 续费价」，需要套餐目录
+  prismaService.membershipPlanSetting.findMany.mockResolvedValue([
+    {
+      planId: 'monthly',
+      planName: '月度会员',
+      price: 4200,
+      originalPrice: 4200,
+      durationMonths: 1,
+      validDays: null,
+    },
+    {
+      planId: 'quarterly',
+      planName: '季度会员',
+      price: 10800,
+      originalPrice: 14400,
+      durationMonths: 3,
+      validDays: null,
+    },
+    {
+      planId: 'yearly',
+      planName: '年度会员',
+      price: 39800,
+      originalPrice: 45600,
+      durationMonths: 12,
+      validDays: 365,
+    },
+    {
+      planId: 'lifetime',
+      planName: '永久会员',
+      price: 59800,
+      originalPrice: null,
+      durationMonths: null,
+      validDays: 730,
+    },
+  ]);
   const pulseStoreContextService = createPulseStoreContextServiceMock();
   const redisService = createRedisServiceMock();
   const cacheInvalidatorService = createCacheInvalidatorServiceMock();
@@ -124,6 +160,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipAdminLogsQueryService,
       PulseMembershipAdminMutationStateService,
       PulseMembershipAdminMembershipMutationService,
+      PulseMembershipAdminPricingPreviewService,
       PulseMembershipAdminPointsMutationService,
       PulseMembershipAdminBeansMutationService,
       PulseMembershipAdminStatusMutationService,

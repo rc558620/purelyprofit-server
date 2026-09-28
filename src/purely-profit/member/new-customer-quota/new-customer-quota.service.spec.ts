@@ -9,7 +9,7 @@ import {
 } from './new-customer-quota.constants';
 import { NewCustomerQuotaService } from './new-customer-quota.service';
 
-/** 构造唯一约束冲突（同店同手机号重复扣减） */
+/** 构造唯一约束冲突（同店同顾客重复扣减） */
 const buildUniqueConstraintError = (): Prisma.PrismaClientKnownRequestError =>
   new Prisma.PrismaClientKnownRequestError('duplicate key', {
     code: 'P2002',
@@ -34,9 +34,7 @@ describe('NewCustomerQuotaService', () => {
     },
     storeNewCustomerQuotaConsume: {
       create: jest.fn(),
-    },
-    marketingCustomer: {
-      findFirst: jest.fn(),
+      findUnique: jest.fn(),
     },
   };
 
@@ -162,6 +160,39 @@ describe('NewCustomerQuotaService', () => {
     expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledTimes(2);
   });
 
+  it('会员赠送按期数叠加：年度 × 2 = 600，且流水标注期数', async () => {
+    delegates.storeMembershipProfile.upsert.mockResolvedValue({ storeId: 42 });
+    delegates.storeMembershipProfile.update.mockResolvedValue({
+      newCustomerQuota: 600,
+    });
+
+    await expect(service.grantByPlan(42, 'yearly', 2)).resolves.toBe(600);
+    expect(delegates.storeMembershipProfile.update).toHaveBeenCalledWith({
+      where: { storeId: 42 },
+      data: { newCustomerQuota: { increment: 600 } },
+      select: { newCustomerQuota: true },
+    });
+    expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: 'grant',
+          changeAmount: 600,
+          description: '年度会员赠送 ×2',
+        }),
+      }),
+    );
+  });
+
+  it('会员赠送：非法期数（0 / 小数）按 1 期处理', async () => {
+    delegates.storeMembershipProfile.upsert.mockResolvedValue({ storeId: 42 });
+    delegates.storeMembershipProfile.update.mockResolvedValue({
+      newCustomerQuota: 300,
+    });
+
+    await expect(service.grantByPlan(42, 'yearly', 0)).resolves.toBe(300);
+    await expect(service.grantByPlan(42, 'yearly', 1.5)).resolves.toBe(300);
+  });
+
   it('免费会员不赠送额度，也不写流水', async () => {
     await expect(service.grantByPlan(42, 'free')).resolves.toBe(0);
     expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
@@ -203,11 +234,21 @@ describe('NewCustomerQuotaService', () => {
     });
 
     await expect(
-      service.consumeForNewCustomer(42, '13800000000'),
+      service.consumeForNewCustomer(42, 1001, '13800000000'),
     ).resolves.toEqual({
       consumed: true,
       remaining: 85,
     });
+    // 幂等键必须是账号，手机号仅作快照
+    expect(delegates.storeNewCustomerQuotaConsume.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          storeId: 42,
+          clubUserId: 1001,
+          phone: '13800000000',
+        }),
+      }),
+    );
     expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -219,7 +260,7 @@ describe('NewCustomerQuotaService', () => {
     );
   });
 
-  it('同一手机号重复绑定不重复扣减（幂等）', async () => {
+  it('同一顾客重复下单不重复扣减（幂等）', async () => {
     delegates.storeNewCustomerQuotaConsume.create.mockRejectedValueOnce(
       buildUniqueConstraintError(),
     );
@@ -228,7 +269,7 @@ describe('NewCustomerQuotaService', () => {
     });
 
     await expect(
-      service.consumeForNewCustomer(42, '13800000000'),
+      service.consumeForNewCustomer(42, 1001, '13800000000'),
     ).resolves.toEqual({
       consumed: false,
       remaining: 85,
@@ -242,7 +283,7 @@ describe('NewCustomerQuotaService', () => {
     delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      service.consumeForNewCustomer(42, '13800000000'),
+      service.consumeForNewCustomer(42, 1001, '13800000000'),
     ).rejects.toMatchObject({
       response: {
         message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
@@ -257,7 +298,7 @@ describe('NewCustomerQuotaService', () => {
     delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      service.consumeForNewCustomer(42, '13800000000'),
+      service.consumeForNewCustomer(42, 1001, '13800000000'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(delegates.storeMembershipProfile.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -266,15 +307,67 @@ describe('NewCustomerQuotaService', () => {
     );
   });
 
-  it('新客判定：本店无该手机号档案即为新客', async () => {
-    delegates.marketingCustomer.findFirst.mockResolvedValueOnce(null);
-    await expect(service.isNewCustomer(42, '13800000000')).resolves.toBe(true);
+  it('新客判定：本店无该顾客的消耗记录即为新客（按账号，不看手机号档案）', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValueOnce(
+      null,
+    );
+    await expect(service.isNewCustomer(42, 1001)).resolves.toBe(true);
+    expect(
+      delegates.storeNewCustomerQuotaConsume.findUnique,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId_clubUserId: { storeId: 42, clubUserId: 1001 } },
+      }),
+    );
 
-    delegates.marketingCustomer.findFirst.mockResolvedValueOnce({ id: 9 });
-    await expect(service.isNewCustomer(42, '13800000000')).resolves.toBe(false);
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValueOnce({
+      id: 9,
+    });
+    await expect(service.isNewCustomer(42, 1001)).resolves.toBe(false);
   });
 
-  it('预检：余额大于 0 才允许绑定', async () => {
+  it('下单闸门：老客直接放行，不查余额', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue({
+      id: 9,
+    });
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 0,
+    });
+
+    await expect(service.ensureAvailableForNewCustomer(42, 1001)).resolves.toBe(
+      false,
+    );
+    expect(delegates.storeMembershipProfile.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('下单闸门：新客且额度已用完 → 抛 NEW_CUSTOMER_QUOTA_EXHAUSTED 阻止建单', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 0,
+    });
+
+    await expect(
+      service.ensureAvailableForNewCustomer(42, 1001),
+    ).rejects.toMatchObject({
+      response: {
+        message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+        code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
+      },
+    });
+  });
+
+  it('下单闸门：新客且额度充足 → 放行', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 12,
+    });
+
+    await expect(service.ensureAvailableForNewCustomer(42, 1001)).resolves.toBe(
+      true,
+    );
+  });
+
+  it('预检：余额大于 0 才允许', async () => {
     delegates.storeMembershipProfile.findUnique.mockResolvedValueOnce({
       newCustomerQuota: 0,
     });

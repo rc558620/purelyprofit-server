@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -34,10 +35,13 @@ import {
 import {
   GetPulseAdminMembersQueryDto,
   PulseAdminMemberMembershipDto,
+  PulseAdminMemberPricingPreviewDto,
   PulseAdminMemberStatusDto,
+  PulseAdminMemberSubAccountAmountBackfillDto,
   PulseAdminMemberSubAccountQuotaDto,
   PulseAdminMemberSubAccountSlotDto,
 } from './dto/pulse-membership-admin-members.request.dto';
+import { PulseAdminMemberPricingPreviewResponseDto } from './dto/pulse-membership-admin-pricing-preview.response.dto';
 import { PulseAdminEmployeeCandidatesResponseDto } from './dto/pulse-membership-admin-employee.response.dto';
 import { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
 import { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
@@ -191,6 +195,57 @@ export class PulseMembershipAdminController {
       user,
       memberId,
       dto,
+    );
+  }
+
+  @Post('members/:id/membership/pricing-preview')
+  @ApiOperation({ summary: 'Pulse 会员管理会员成交价预览（只算不落库）' })
+  @ApiCreatedResponse({
+    description:
+      '返回按当前输入算出的「下次续费价 / 当期应补金额」。' +
+      '金额一律由后端计算并以展示字符串下发，前端不做任何金额运算。',
+    type: PulseAdminMemberPricingPreviewResponseDto,
+  })
+  previewAdminMemberPricing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminMemberPricingPreviewDto,
+  ): Promise<PulseAdminMemberPricingPreviewResponseDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId, dto);
+    return this.pulseMembershipService.previewAdminMemberPricing(
+      user,
+      memberId,
+      {
+        targetLevel: dto.level,
+        priceDisplay: dto.priceDisplay,
+        subAccountCount: dto.subAccountCount,
+        subAccountAmountDisplay: dto.subAccountAmountDisplay,
+      },
+    );
+  }
+
+  @Patch('members/:id/deal-price/sub-account')
+  @ApiOperation({ summary: 'Pulse 补录 / 撤销会员子账号加价' })
+  @ApiOkResponse({
+    description:
+      '只更新成交价快照里的子账号加价与数量，不改写成交总额。' +
+      '不传加价即撤销补录，回退到 max(当前配置价, 成交总额) 的旧口径。',
+    type: PulseMemberDetailDto,
+  })
+  backfillAdminMemberSubAccountAmount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminMemberSubAccountAmountBackfillDto,
+  ): Promise<PulseMemberDetailDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId, dto);
+    return this.pulseMembershipService.backfillAdminMemberSubAccountAmount(
+      user,
+      memberId,
+      {
+        planId: dto.planId,
+        subAccountAmountDisplay: dto.subAccountAmountDisplay,
+        subAccountCount: dto.subAccountCount,
+      },
     );
   }
 

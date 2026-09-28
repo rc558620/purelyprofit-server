@@ -1,4 +1,7 @@
-import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
+import {
+  StoreMembershipLockedPriceService,
+  type StoreRenewalPricingContext,
+} from './store-membership-locked-price.service';
 import {
   isRenewalPlanPurchasable,
   resolveVisibleRenewalPlanIds,
@@ -8,10 +11,15 @@ import type { PlatformMembershipAccessService } from './platform-membership-acce
 
 describe('StoreMembershipLockedPriceService', () => {
   const prismaService = {
+    storeMembershipProfile: {
+      findMany: jest.fn(),
+    },
     storeMembershipLockedPrice: {
       findMany: jest.fn(),
       createMany: jest.fn(),
+      upsert: jest.fn(),
       deleteMany: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
 
@@ -32,6 +40,10 @@ describe('StoreMembershipLockedPriceService', () => {
       count: 1,
     });
     prismaService.storeMembershipLockedPrice.deleteMany.mockResolvedValue({
+      count: 0,
+    });
+    prismaService.storeMembershipLockedPrice.upsert.mockResolvedValue({});
+    prismaService.storeMembershipLockedPrice.updateMany.mockResolvedValue({
       count: 0,
     });
     accessService.getSubAccountBenefitSnapshot.mockResolvedValue({
@@ -67,6 +79,8 @@ describe('StoreMembershipLockedPriceService', () => {
             storeId: 18,
             planId: 'lifetime',
             price: 59800,
+            subAccountAmount: null,
+            subAccountCount: null,
             source: 'admin',
           },
         ],
@@ -107,18 +121,7 @@ describe('StoreMembershipLockedPriceService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    it('未开通子账号功能时不写入（锁定价不会生效，避免日后开通时突然生效）', async () => {
-      accessService.getSubAccountBenefitSnapshot.mockResolvedValue({
-        level: 'yearly',
-        eligible: true,
-        quota: 0,
-        quotaMax: 0,
-        enabled: false,
-        // 从未开通子账号功能
-        rawQuota: 0,
-        featureOwned: false,
-        previousLevel: 'yearly',
-      });
+    it('未开通子账号功能的门店也要写入（成交价一律留痕）', async () => {
       const service = createService();
 
       await expect(
@@ -128,113 +131,412 @@ describe('StoreMembershipLockedPriceService', () => {
           price: 29900,
           source: 'admin',
         }),
-      ).resolves.toBe(false);
+      ).resolves.toBe(true);
 
       expect(
         prismaService.storeMembershipLockedPrice.createMany,
+      ).toHaveBeenCalledWith({
+        data: [
+          {
+            storeId: 59,
+            planId: 'yearly',
+            price: 29900,
+            subAccountAmount: null,
+            subAccountCount: null,
+            source: 'admin',
+          },
+        ],
+        skipDuplicates: true,
+      });
+      // 写入不再受「是否开通子账号」约束，因此不需要再读能力快照
+      expect(accessService.getSubAccountBenefitSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('带子账号加价与数量时一并落库', async () => {
+      const service = createService();
+
+      await service.lockPriceOnFirstDeal({
+        storeId: 18,
+        planId: 'yearly',
+        price: 65000,
+        source: 'admin',
+        subAccountAmount: 15000,
+        subAccountCount: 3,
+      });
+
+      expect(
+        prismaService.storeMembershipLockedPrice.createMany,
+      ).toHaveBeenCalledWith({
+        data: [
+          {
+            storeId: 18,
+            planId: 'yearly',
+            price: 65000,
+            subAccountAmount: 15000,
+            subAccountCount: 3,
+            source: 'admin',
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+
+    it('upsertDealPrice 覆盖已有成交价（运营重新议定）', async () => {
+      const service = createService();
+
+      await service.upsertDealPrice({
+        storeId: 18,
+        planId: 'yearly',
+        price: 75000,
+        source: 'admin',
+        subAccountAmount: 20000,
+        subAccountCount: 5,
+      });
+
+      expect(
+        prismaService.storeMembershipLockedPrice.upsert,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { storeId_planId: { storeId: 18, planId: 'yearly' } },
+          update: expect.objectContaining({
+            price: 75000,
+            subAccountAmount: 20000,
+            subAccountCount: 5,
+            source: 'admin',
+          }),
+        }),
+      );
+    });
+
+    it('upsertDealPrice 未传子账号字段时不动这两个字段', async () => {
+      const service = createService();
+
+      await service.upsertDealPrice({
+        storeId: 18,
+        planId: 'yearly',
+        price: 75000,
+        source: 'admin',
+      });
+
+      // upsert 只接收单个 options 对象，取第 0 个实参即可
+      const [upsertArgs] =
+        prismaService.storeMembershipLockedPrice.upsert.mock.calls.at(-1) ?? [];
+      const { update } = upsertArgs as { update: Record<string, unknown> };
+
+      expect(update).not.toHaveProperty('subAccountAmount');
+      expect(update).not.toHaveProperty('subAccountCount');
+    });
+
+    it('upsertDealPrice 忽略非法的子账号加价（负数会把标准总价算小）', async () => {
+      const service = createService();
+
+      await service.upsertDealPrice({
+        storeId: 18,
+        planId: 'yearly',
+        price: 75000,
+        source: 'admin',
+        subAccountAmount: -1,
+      });
+
+      expect(
+        prismaService.storeMembershipLockedPrice.upsert,
       ).not.toHaveBeenCalled();
     });
 
-    it('调用方已给出 featureOwned 时不再重复读取能力快照', async () => {
+    it('upsertDealPrice 忽略非法的子账号数量', async () => {
+      const service = createService();
+
+      await service.upsertDealPrice({
+        storeId: 18,
+        planId: 'yearly',
+        price: 75000,
+        source: 'admin',
+        subAccountCount: 1.5,
+      });
+
+      expect(
+        prismaService.storeMembershipLockedPrice.upsert,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('lockPriceOnFirstDeal 忽略非法的子账号加价', async () => {
       const service = createService();
 
       await expect(
         service.lockPriceOnFirstDeal({
           storeId: 18,
           planId: 'yearly',
-          price: 36900,
-          source: 'purchase',
-          featureOwned: true,
+          price: 65000,
+          source: 'admin',
+          subAccountAmount: -100,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toBe(false);
 
-      expect(accessService.getSubAccountBenefitSnapshot).not.toHaveBeenCalled();
+      expect(
+        prismaService.storeMembershipLockedPrice.createMany,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearSubAccountAmounts', () => {
+    it('只清子账号两列，保留成交总额', async () => {
+      const service = createService();
+      prismaService.storeMembershipLockedPrice.updateMany.mockResolvedValue({
+        count: 2,
+      });
+
+      await expect(service.clearSubAccountAmounts(18)).resolves.toBe(2);
+
+      expect(
+        prismaService.storeMembershipLockedPrice.updateMany,
+      ).toHaveBeenCalledWith({
+        where: {
+          storeId: 18,
+          OR: [
+            { subAccountAmount: { not: null } },
+            { subAccountCount: { not: null } },
+          ],
+        },
+        data: { subAccountAmount: null, subAccountCount: null },
+      });
+    });
+
+    it('判据覆盖「只录了数量、加价仍为 NULL」的行', async () => {
+      const service = createService();
+
+      await service.clearSubAccountAmounts(18);
+
+      // 只判 subAccountAmount 为空会漏掉这类行，关掉子账号后数量却还挂着
+      const [args] =
+        prismaService.storeMembershipLockedPrice.updateMany.mock.calls.at(-1) ??
+        [];
+      const { where } = args as {
+        where: { OR: Array<Record<string, unknown>> };
+      };
+
+      expect(where.OR).toEqual(
+        expect.arrayContaining([{ subAccountCount: { not: null } }]),
+      );
     });
   });
 
   describe('resolvePlanPrice', () => {
-    it('未开通子账号功能时使用配置价', () => {
-      const service = createService();
-      const plan = { id: 'lifetime' as const, price: 39800 };
-
-      expect(
-        service.resolvePlanPrice({
-          plan,
-          context: {
-            level: 'lifetime',
-            renewalLevel: 'lifetime',
-            subAccountEnabled: false,
-            subAccountFeatureOwned: false,
-            subAccountQuota: 0,
-            lockedPrices: new Map([['lifetime', 59800]]),
-          },
-        }),
-      ).toEqual({ price: 39800, locked: false });
+    /** 构造定价上下文：未声明的字段取默认，让用例只暴露与断言相关的那一两个变量 */
+    const buildContext = (
+      overrides: Partial<StoreRenewalPricingContext> = {},
+    ): StoreRenewalPricingContext => ({
+      level: 'yearly',
+      renewalLevel: 'yearly',
+      subAccountEnabled: false,
+      subAccountFeatureOwned: false,
+      subAccountQuota: 0,
+      lockedPrices: new Map(),
+      lockedSubAccountAmounts: new Map(),
+      lockedSubAccountCounts: new Map(),
+      ...overrides,
     });
 
-    it('已开通子账号功能且存在锁定价时使用锁定价', () => {
+    it('无子账号：续费价 = 配置价，与成交价无关（卖 498 也按 398）', () => {
       const service = createService();
-      const plan = { id: 'lifetime' as const, price: 39800 };
+      const plan = { id: 'yearly' as const, price: 39800 };
 
       expect(
         service.resolvePlanPrice({
           plan,
-          context: {
-            level: 'lifetime',
-            renewalLevel: 'lifetime',
-            subAccountEnabled: true,
+          context: buildContext({
+            lockedPrices: new Map([['yearly', 49800]]),
+          }),
+        }),
+      ).toEqual({ price: 39800 });
+    });
+
+    it('无子账号：成交价低于配置价时也按配置价（卖 298 仍按 398）', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 39800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
+            lockedPrices: new Map([['yearly', 29800]]),
+          }),
+        }),
+      ).toEqual({ price: 39800 });
+    });
+
+    it('配置价上调后涨价传导给老客', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 59800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
+            lockedPrices: new Map([['yearly', 39800]]),
+          }),
+        }),
+      ).toEqual({ price: 59800 });
+    });
+
+    it('配置价下调后降价同样传导给老客（旧模型会被成交价托住）', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 39800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
+            lockedPrices: new Map([['yearly', 49800]]),
+          }),
+        }),
+      ).toEqual({ price: 39800 });
+    });
+
+    it('有子账号：续费价 = 配置价 + 子账号加价', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 39800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
             subAccountFeatureOwned: true,
             subAccountQuota: 2,
-            lockedPrices: new Map([['lifetime', 59800]]),
-          },
+            lockedSubAccountAmounts: new Map([['yearly', 10000]]),
+            lockedSubAccountCounts: new Map([['yearly', 2]]),
+          }),
         }),
-      ).toEqual({ price: 59800, locked: true });
+      ).toEqual({ price: 49800 });
     });
 
-    it('已开通子账号功能但未锁价时回落配置价', () => {
+    it('有子账号时成交价依然不参与定价（卖 598 / 398 都按 498）', () => {
       const service = createService();
-      const plan = { id: 'yearly' as const, price: 36900 };
+      const plan = { id: 'yearly' as const, price: 39800 };
+      const context = buildContext({
+        subAccountFeatureOwned: true,
+        lockedSubAccountAmounts: new Map([['yearly', 10000]]),
+      });
 
       expect(
         service.resolvePlanPrice({
           plan,
-          context: {
-            level: 'yearly',
-            renewalLevel: 'yearly',
-            subAccountEnabled: true,
-            subAccountFeatureOwned: true,
-            subAccountQuota: 2,
-            lockedPrices: new Map(),
-          },
+          context: { ...context, lockedPrices: new Map([['yearly', 59800]]) },
         }),
-      ).toEqual({ price: 36900, locked: false });
-    });
-
-    it('会员到期（实时能力已归零）但仍曾开通子账号功能时，锁定价继续生效', () => {
-      const service = createService();
-      const plan = { id: 'yearly' as const, price: 36900 };
+      ).toEqual({ price: 49800 });
 
       expect(
         service.resolvePlanPrice({
           plan,
-          context: {
+          context: { ...context, lockedPrices: new Map([['yearly', 39800]]) },
+        }),
+      ).toEqual({ price: 49800 });
+    });
+
+    it('子账号加价按档位独立：永久档读自己的快照', () => {
+      const service = createService();
+      const plan = { id: 'lifetime' as const, price: 59800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
+            lockedSubAccountAmounts: new Map([['lifetime', 10000]]),
+          }),
+        }),
+      ).toEqual({ price: 69800 });
+    });
+
+    it('子账号加价被清空（配额归零）后退化为纯配置价', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 39800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
+            lockedPrices: new Map([['yearly', 50000]]),
+            lockedSubAccountAmounts: new Map(),
+          }),
+        }),
+      ).toEqual({ price: 39800 });
+    });
+
+    it('会员到期（实时能力已归零）后仍按配置价 + 子账号加价', () => {
+      const service = createService();
+      const plan = { id: 'yearly' as const, price: 39800 };
+
+      expect(
+        service.resolvePlanPrice({
+          plan,
+          context: buildContext({
             level: 'free',
             renewalLevel: 'yearly',
-            subAccountEnabled: false,
             subAccountFeatureOwned: true,
             subAccountQuota: 8,
-            lockedPrices: new Map([['yearly', 58800]]),
-          },
+            lockedSubAccountAmounts: new Map([['yearly', 10000]]),
+          }),
         }),
-      ).toEqual({ price: 58800, locked: true });
+      ).toEqual({ price: 49800 });
+    });
+  });
+
+  describe('listStoresPendingSubAccountBackfill', () => {
+    it('只把「年 / 永久档位缺子账号加价」的门店列为待补录', async () => {
+      const service = createService();
+      prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+        { storeId: 18 },
+        { storeId: 59 },
+      ]);
+      prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+        { storeId: 18 },
+      ]);
+
+      await expect(
+        service.listStoresPendingSubAccountBackfill(),
+      ).resolves.toEqual([18]);
+
+      // 判据必须限定年 / 永久档位：月 / 季开不了子账号，缺加价不算待补录
+      expect(
+        prismaService.storeMembershipLockedPrice.findMany,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            planId: { in: ['yearly', 'lifetime'] },
+            subAccountAmount: null,
+          }),
+        }),
+      );
+    });
+
+    it('没有待补录档位时返回空数组', async () => {
+      const service = createService();
+      prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+        { storeId: 18 },
+      ]);
+      prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.listStoresPendingSubAccountBackfill(),
+      ).resolves.toEqual([]);
     });
   });
 
   describe('loadRenewalPricingContext', () => {
-    it('聚合子账号能力快照与锁定价', async () => {
+    it('聚合子账号能力快照与成交价，并拆分出子账号加价', async () => {
+      // 只有 yearly 录入了子账号加价与数量，lifetime 为 null → 后者不进这两张表
       prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
-        { planId: 'lifetime', price: 59800 },
-        { planId: 'yearly', price: 99900 },
+        {
+          planId: 'lifetime',
+          price: 59800,
+          subAccountAmount: null,
+          subAccountCount: null,
+        },
+        {
+          planId: 'yearly',
+          price: 99900,
+          subAccountAmount: 15000,
+          subAccountCount: 3,
+        },
       ]);
       const service = createService();
 
@@ -248,6 +550,9 @@ describe('StoreMembershipLockedPriceService', () => {
           ['lifetime', 59800],
           ['yearly', 99900],
         ]),
+        // 存量 / 未录入的 lifetime 按 0 处理，因此不出现在这两张表里
+        lockedSubAccountAmounts: new Map([['yearly', 15000]]),
+        lockedSubAccountCounts: new Map([['yearly', 3]]),
       });
     });
 
@@ -273,6 +578,8 @@ describe('StoreMembershipLockedPriceService', () => {
         // 实时配额被归零，但展示口径退回档案里的配置额度
         subAccountQuota: 8,
         lockedPrices: new Map(),
+        lockedSubAccountAmounts: new Map(),
+        lockedSubAccountCounts: new Map(),
       });
     });
 
@@ -292,7 +599,12 @@ describe('StoreMembershipLockedPriceService', () => {
       );
       expect(tx.storeMembershipLockedPrice.findMany).toHaveBeenCalledWith({
         where: { storeId: 18 },
-        select: { planId: true, price: true },
+        select: {
+          planId: true,
+          price: true,
+          subAccountAmount: true,
+          subAccountCount: true,
+        },
       });
       expect(
         prismaService.storeMembershipLockedPrice.findMany,

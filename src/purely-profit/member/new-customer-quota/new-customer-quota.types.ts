@@ -48,8 +48,18 @@ export interface NewCustomerQuotaLogItem {
 
 /** 新客消耗额度结果 */
 export interface ConsumeNewCustomerQuotaResult {
-  /** 是否实际扣减；false 表示该手机号在本店已扣过（重复绑定） */
+  /** 是否实际扣减；false 表示该顾客在本店已扣过（重复下单 / 重复绑定） */
   consumed: boolean;
   /** 扣减后的余额 */
+  remaining: number;
+}
+
+/** C 端额度预检结果：供 purelyClub 在下单前判断是否放行 */
+export interface NewCustomerQuotaCheckResult {
+  /** 当前顾客在该门店是否为新客（尚未消耗过额度） */
+  isNewCustomer: boolean;
+  /** 是否阻止下单：仅新客且在额度耗尽时为 true，老客恒为 false */
+  blocked: boolean;
+  /** 剩余额度（位新客） */
   remaining: number;
 }

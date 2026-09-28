@@ -14,6 +14,8 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { SUB_ACCOUNT_PRICING_PLAN_IDS } from '../../../purely-profit/member/platform-membership/platform-membership.constants';
+import type { PulseMembershipPlanId } from '../membership.types';
 import {
   PULSE_MEMBER_FILTER_EXPIRY_VALUES,
   PULSE_MEMBER_FILTER_LEVEL_VALUES,
@@ -34,6 +36,14 @@ import type {
   PulseSubAccountRoleValue,
   PulseSubAccountStatusValue,
 } from './pulse-membership-admin-members.shared.dto';
+
+/**
+ * 成交价：最多两位小数的**正数**，`0` / `0.0` / `0.00` 一律拒绝。
+ *
+ * 放行 0 会在服务端被当成「未填价」回落到**配置价**（`resolvePriceFen('0')` 返回 null），
+ * 勾了「计入收入」就等于按全价记一笔营收——运营明明没收钱。
+ */
+const POSITIVE_AMOUNT_PATTERN = /^(?!0+(?:\.0{1,2})?$)\d+(\.\d{1,2})?$/;
 
 export class PulseAdminMemberMembershipDto {
   @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
@@ -112,20 +122,102 @@ export class PulseAdminMemberMembershipDto {
   confirmDowngradeToFree?: boolean;
 
   @ApiPropertyOptional({
+    example: true,
+    description:
+      '显式确认把会员**降级到更低的付费档位**（如年度 → 月度）。' +
+      '不传时系统会保持当前档位、只按所选档位追加时长，避免误降档；' +
+      '对开了子账号的门店，降档后会员却买不回去，会直接卡死续费。',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean({ message: '降档确认标记必须是布尔值' })
+  confirmDowngradePlan?: boolean;
+
+  @ApiPropertyOptional({
     example: '598',
     description:
-      '本次成交价展示值（元字符串）。首次设置该档位时写入「首购锁定价」，' +
-      '同一个档位已存在锁定价时不覆盖；免费会员忽略该字段',
+      '本次成交价展示值（元字符串，即成交总额）。管理端设置会员等级视为一次' +
+      '显式成交，会**覆盖**该档位已有的成交价；免费会员忽略该字段',
   })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
   @IsString({ message: '成交价必须是字符串' })
-  @Matches(/^\d+(\.\d{1,2})?$/, {
+  @Matches(POSITIVE_AMOUNT_PATTERN, {
     message: '成交价必须是正数，最多两位小数',
   })
   priceDisplay?: string;
+
+  @ApiPropertyOptional({
+    example: 5,
+    description:
+      '本次成交包含的子账号数量，范围 0~10。与 subAccountAmountDisplay 成对 ' +
+      '记录，用于「包含 N 个子账号」的展示与财务核算',
+  })
+  @IsOptional()
+  @ValidateIf(
+    (dto: PulseAdminMemberMembershipDto) => dto.subAccountCount !== undefined,
+  )
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    return Number(value);
+  })
+  @IsInt({ message: '子账号数量必须是整数' })
+  @Min(0, { message: '子账号数量不能小于 0' })
+  @Max(10, { message: '子账号数量不能超过 10' })
+  subAccountCount?: number;
+
+  @ApiPropertyOptional({
+    example: '250',
+    description:
+      '本次成交的子账号加价展示值（元字符串，0~2 位小数）。参与续费定价：' +
+      '标准总价 = 当前配置价 + 本字段',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '子账号加价必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '子账号加价必须是正数，最多两位小数',
+  })
+  subAccountAmountDisplay?: string;
+
+  @ApiPropertyOptional({
+    example: 2,
+    description:
+      '本次设置的期数（弹窗的 × 1 / × 2 / × 3 / × 6 / × 12）。' +
+      '追加时长与新客额度都按它叠加：年度 × 2 = 730 天、300 × 2 = 600 位新客。' +
+      '不传按 1 期处理；永久会员固定 1 期',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    return Number(value);
+  })
+  @IsInt({ message: '期数必须是整数' })
+  @Min(1, { message: '期数不能小于 1' })
+  @Max(12, { message: '期数不能超过 12' })
+  multiplier?: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '本次设置是否计入收入，与是否降档无关（被「只升不降」抬回原档位、' +
+      '只追加时长时同样有效）。勾选 → 按所选档位计入平台营收（订单渠道 admin），' +
+      '金额取成交价、未填则回落所选档位配置价；' +
+      '不勾选 → 按赠送处理，金额落 0 且不计入营收（订单渠道 gift），' +
+      '仅在「设置会员等级记录」里标注「赠送」',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean({ message: '计入收入标记必须是布尔值' })
+  countAsIncome?: boolean;
 
   @ApiPropertyOptional({
     example: 'member-detail-membership-modal',
@@ -134,6 +226,156 @@ export class PulseAdminMemberMembershipDto {
   @IsOptional()
   @IsString({ message: '调用来源标识必须是字符串' })
   actionSource?: string;
+}
+
+/**
+ * POST /pulse/membership/admin/members/:id/membership/pricing-preview
+ * 会员成交价预览 —— 只算不落库
+ */
+export class PulseAdminMemberPricingPreviewDto {
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  memberId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的主键 ID' })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_LEVEL_VALUES,
+    description: '目标会员等级；不传或 free 表示免费会员（没有定价）',
+  })
+  @IsOptional()
+  @IsIn(PULSE_MEMBER_LEVEL_VALUES, { message: '会员等级不合法' })
+  level?: PulseMemberLevelValue;
+
+  @ApiPropertyOptional({
+    example: '650',
+    description: '本次成交价展示值（元字符串）',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '成交价必须是字符串' })
+  @Matches(POSITIVE_AMOUNT_PATTERN, {
+    message: '成交价必须是正数，最多两位小数',
+  })
+  priceDisplay?: string;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: '本次成交包含的子账号数量，范围 0~10',
+  })
+  @IsOptional()
+  @ValidateIf(
+    (dto: PulseAdminMemberPricingPreviewDto) =>
+      dto.subAccountCount !== undefined,
+  )
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    return Number(value);
+  })
+  @IsInt({ message: '子账号数量必须是整数' })
+  @Min(0, { message: '子账号数量不能小于 0' })
+  @Max(10, { message: '子账号数量不能超过 10' })
+  subAccountCount?: number;
+
+  @ApiPropertyOptional({
+    example: '150',
+    description: '本次成交的子账号加价展示值（元字符串）',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '子账号加价必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '子账号加价必须是正数，最多两位小数',
+  })
+  subAccountAmountDisplay?: string;
+}
+
+/**
+ * PATCH /pulse/membership/admin/members/:id/deal-price/sub-account
+ * 补录 / 撤销存量门店的子账号加价 —— 只动子账号字段，不改写成交总额
+ */
+export class PulseAdminMemberSubAccountAmountBackfillDto {
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  memberId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的主键 ID' })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiProperty({
+    enum: SUB_ACCOUNT_PRICING_PLAN_IDS,
+    description:
+      '目标档位：哪张成交记录要补录。仅年度 / 永久 —— 月 / 季开不了子账号，无需补录',
+  })
+  @IsIn([...SUB_ACCOUNT_PRICING_PLAN_IDS], {
+    message: '仅年度 / 永久档位支持补录子账号加价',
+  })
+  planId: PulseMembershipPlanId;
+
+  @ApiPropertyOptional({
+    example: '150',
+    description:
+      '子账号加价展示值（元字符串）。不传或传空串表示撤销补录，回退到旧口径',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const trimmedValue = value.trim();
+    // 空串必须转成 undefined：@IsOptional 只跳过 null / undefined，
+    // 留着空串会被下面的 @Matches 判为非法 → 400，撤销补录就永远提交不了
+    return trimmedValue === '' ? undefined : trimmedValue;
+  })
+  @IsString({ message: '子账号加价必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '子账号加价必须是正数，最多两位小数',
+  })
+  subAccountAmountDisplay?: string;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: '子账号数量，范围 0~10；撤销补录时一并清空',
+  })
+  @IsOptional()
+  @ValidateIf(
+    (dto: PulseAdminMemberSubAccountAmountBackfillDto) =>
+      dto.subAccountCount !== undefined,
+  )
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    return Number(value);
+  })
+  @IsInt({ message: '子账号数量必须是整数' })
+  @Min(0, { message: '子账号数量不能小于 0' })
+  @Max(10, { message: '子账号数量不能超过 10' })
+  subAccountCount?: number;
 }
 
 export class PulseAdminMemberSubAccountQuotaRoleSummaryDto {
@@ -341,6 +583,17 @@ export class PulseAdminMemberStatusDto {
  * 管理员获取会员列表 — 查询参数
  */
 export class GetPulseAdminMembersQueryDto {
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '只看「有子账号能力但成交价快照里缺子账号加价」的门店，供运营批量补录。' +
+      '这些门店的续费价只按当前配置价收，等于白送子账号权益',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean({ message: '待补录筛选必须是布尔值' })
+  pendingSubAccountBackfill?: boolean;
+
   @ApiPropertyOptional({
     enum: PULSE_MEMBER_FILTER_STATUS_VALUES,
     description: '会员状态筛选，不传返回全部',

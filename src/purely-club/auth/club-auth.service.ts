@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotImplementedException,
@@ -13,11 +12,8 @@ import {
   normalizePhone,
 } from '../../purely-profit/auth/auth.utils';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import {
-  NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
-  NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
-} from '../../purely-profit/member/new-customer-quota/new-customer-quota.constants';
 import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import type { NewCustomerQuotaCheckResult } from '../../purely-profit/member/new-customer-quota/new-customer-quota.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubPhoneBindService } from './club-phone-bind.service';
@@ -138,18 +134,31 @@ export class ClubAuthService {
   }
 
   /**
-   * 绑定手机号（微信登录后补绑手机号）
+   * 绑定手机号（微信登录后补绑手机号，短信验证码链路）
    *
-   * 需要 JWT 鉴权。先校验短信验证码，再委托 ClubPhoneBindService 完成绑定。
+   * 需要 JWT 鉴权。先过新客额度闸门，再校验短信验证码，最后委托
+   * ClubPhoneBindService 完成绑定。
    *
    * 验证码校验是后续所有合并动作的安全前提：绑定会按手机号查找已有账号并触发
    * 账号合并，若不校验验证码，攻击者填入他人手机号即可把自己的 openid 绑定到
    * 受害者账号上。
+   *
+   * ⚠️ 额度闸门**不能省**：微信入口 `auth.wechatPhoneBindEnabled` 未开启时前端会
+   * 撤掉一键授权按钮、展开短信表单，若这里不拦，「改走短信」就是一条完整的绕过
+   * 路径——额度一旦耗尽仍能建档消费。闸门必须前置到验证码校验之前，避免被拦时
+   * 白白消耗掉一次性且按条计费的验证码。
    */
   async bindPhone(
     userId: number,
     dto: BindPhoneDto,
+    /** 当前登录用户：用于解析额度归属门店，缺省时不触发额度校验（历史/测试调用路径） */
+    currentUser?: AuthenticatedUser,
   ): Promise<AuthTokenResponseDto> {
+    const storeId = await this.assertQuotaAvailableForBind(
+      currentUser,
+      dto.sessionId,
+    );
+
     // 1. 验证短信验证码（一次性消费）
     await this.authCodeVerifyService.ensureRegisterCodeValid(
       dto.phone,
@@ -162,7 +171,21 @@ export class ClubAuthService {
     );
 
     // 2. 委托统一绑定实现
-    return this.clubPhoneBindService.bindVerifiedPhone(userId, dto.phone);
+    const result = await this.clubPhoneBindService.bindVerifiedPhone(
+      userId,
+      dto.phone,
+    );
+
+    // 3. 绑定成功后扣减：同一顾客在同一门店只扣一次（consume 内部按 clubUserId 幂等）
+    if (storeId !== null) {
+      await this.consumeQuotaForNewCustomer(
+        storeId,
+        currentUser?.id ?? userId,
+        dto.phone,
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -188,7 +211,6 @@ export class ClubAuthService {
     /** 当前登录用户：用于解析额度归属门店，缺省时不触发额度校验（历史/测试调用路径） */
     currentUser?: AuthenticatedUser,
   ): Promise<AuthTokenResponseDto> {
-
     // 该能力要求小程序已通过微信认证（个人主体不可用），默认关闭。
     // 认证通过后只需打开 auth.wechatPhoneBindEnabled，无需改代码。
     const enabled = this.configService.get<boolean>(
@@ -202,19 +224,12 @@ export class ClubAuthService {
 
     // 新用户额度预检：必须在调用微信 getPhoneNumber 之前完成。
     // 微信按次计费（0.03 元/次），先扣量再调接口才能避免无意义的成本支出。
-    const storeId =
-      currentUser === undefined
-        ? null
-        : await this.resolveQuotaStoreId(currentUser);
-    if (storeId !== null) {
-      const hasRemaining = await this.quotaService.hasRemaining(storeId);
-      if (!hasRemaining) {
-        throw new ForbiddenException({
-          message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
-          code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
-        });
-      }
-    }
+    //
+    // 仅对「本店新客」生效：老顾客换设备 / 重新绑定不应被额度拦住。
+    const storeId = await this.assertQuotaAvailableForBind(
+      currentUser,
+      dto.sessionId,
+    );
 
     const phoneResult = await this.clubWechatAuthService.getPhoneNumber(
       dto.code,
@@ -236,57 +251,135 @@ export class ClubAuthService {
       phone,
     );
 
-    // 绑定成功后扣减：同一手机号在同一门店只扣一次，老顾客重复绑定不扣。
+    // 绑定成功后扣减：同一顾客在同一门店只扣一次（consume 内部按 clubUserId 幂等）。
     if (storeId !== null) {
-      await this.consumeQuotaForNewCustomer(storeId, phone, userId);
+      await this.consumeQuotaForNewCustomer(
+        storeId,
+        currentUser?.id ?? userId,
+        phone,
+      );
     }
 
     return result;
   }
 
-  /** C 端新用户额度预检：返回当前门店额度是否可用（用于前端禁用绑定按钮） */
+  /**
+   * C 端新用户额度预检：告知前端「当前顾客是否本店新客」以及「额度是否阻止其下单」。
+   *
+   * 关键语义：blocked **只对新客为真**。老顾客已在消耗表中留痕，不应被额度拦住，
+   * 否则门店额度一旦耗尽，老客也会被一并挡在门外。
+   *
+   * @param sessionId 扫码点餐会话 ID。传了就以会话所属门店为准——
+   *   「当前选中门店」与「扫码进的那家店」是两回事，用错会把额度算到别的门店。
+   */
   async getNewCustomerQuotaStatus(
     user: AuthenticatedUser,
-  ): Promise<{ blocked: boolean; remaining: number }> {
-    const storeId = await this.resolveQuotaStoreId(user);
+    sessionId?: number | null,
+  ): Promise<NewCustomerQuotaCheckResult> {
+    const storeId = sessionId
+      ? await this.resolveStoreIdBySessionId(sessionId, user.id)
+      : await this.resolveQuotaStoreId(user);
     if (storeId === null) {
-      return { blocked: false, remaining: 0 };
+      return { isNewCustomer: false, blocked: false, remaining: 0 };
     }
 
+    const isNewCustomer = await this.quotaService.isNewCustomer(
+      storeId,
+      user.id,
+    );
     const overview = await this.quotaService.getOverview(storeId);
-    return { blocked: overview.remaining <= 0, remaining: overview.remaining };
+    return {
+      isNewCustomer,
+      blocked: isNewCustomer && overview.remaining <= 0,
+      remaining: overview.remaining,
+    };
+  }
+
+  /**
+   * 由扫码点餐会话解析门店：会话与 clubUserId 绑定，取到的 storeId 就是
+   * 用户扫码进的那家店，不受「当前选中门店」影响。
+   *
+   * 会话不存在 / 不属于该用户 / 已结束 → 返回 null，按「不拦截」处理。
+   */
+  private async resolveStoreIdBySessionId(
+    sessionId: number,
+    clubUserId: number,
+  ): Promise<number | null> {
+    const session = await this.prisma.scanOrderingSession.findFirst({
+      where: {
+        id: sessionId,
+        clubUserId,
+        status: 'active',
+        deletedAt: null,
+      },
+      select: { storeId: true },
+    });
+    return session?.storeId ?? null;
   }
 
   /**
    * 解析额度归属门店。
-   * 绑定是账号级操作，跨门店批量更新，必须显式取「当前选中门店」；
-   * 暂无可访问门店（未加入任何门店）时不拦截也不扣减，返回 null。
+   *
+   * `@param sessionId` 优先：用户可能是在扫码点餐流程中被引导来绑手机的，
+   * 此时「当前选中门店」与「扫码进的那家店」是两回事，必须用后者，否则额度
+   * 会记到别的门店头上。缺省（从个人中心进入绑定页等）时才退回「当前选中门店」。
+   * 两者都取不到（未加入任何门店）时不拦截也不扣减，返回 null。
    */
   private async resolveQuotaStoreId(
     user: AuthenticatedUser,
+    sessionId?: number | null,
   ): Promise<number | null> {
+    if (sessionId !== null && sessionId !== undefined && sessionId > 0) {
+      return this.resolveStoreIdBySessionId(sessionId, user.id);
+    }
+
     try {
-      const store = await this.clubCurrentStoreContextService.getCurrentStore(user);
+      const store =
+        await this.clubCurrentStoreContextService.getCurrentStore(user);
       return store.id ?? null;
     } catch {
       return null;
     }
   }
 
-  /** 新客扣减：非新客（本店已有该手机号档案）不扣；额度意外耗尽时只记日志不阻断绑定 */
+  /**
+   * 绑定前的额度闸门：两条绑定链路（短信 / 微信 getPhoneNumber）共用。
+   *
+   * 仅对「本店新客」生效，老顾客换设备 / 重新绑定不会被额度拦住。
+   *
+   * @returns 额度归属门店，供绑定成功后扣减复用；null 表示定位不到门店，
+   *   按「不拦截也不扣减」处理（绑定本身是账号级操作，不能因为额度查不到就拒绝）
+   */
+  private async assertQuotaAvailableForBind(
+    currentUser: AuthenticatedUser | undefined,
+    sessionId?: number | null,
+  ): Promise<number | null> {
+    if (currentUser === undefined) return null;
+
+    const storeId = await this.resolveQuotaStoreId(currentUser, sessionId);
+    if (storeId === null) return null;
+
+    await this.quotaService.ensureAvailableForNewCustomer(
+      storeId,
+      currentUser.id,
+    );
+    return storeId;
+  }
+
+  /**
+   * 新客扣减：由 `consumeForNewCustomer` 按 clubUserId 保证幂等，
+   * 老顾客重复绑定 / 重复下单都不会重复扣；额度意外耗尽时只记日志，不阻断主流程。
+   */
   private async consumeQuotaForNewCustomer(
     storeId: number,
+    clubUserId: number,
     phone: string,
-    userId: number,
   ): Promise<void> {
     try {
-      const isNewCustomer = await this.quotaService.isNewCustomer(storeId, phone);
-      if (!isNewCustomer) return;
-
-      await this.quotaService.consumeForNewCustomer(storeId, phone);
+      await this.quotaService.consumeForNewCustomer(storeId, clubUserId, phone);
     } catch (error) {
       this.logger.warn(
-        `新用户额度扣减失败，store ${storeId} user ${userId}：${String(error)}`,
+        `新用户额度扣减失败，store ${storeId} user ${clubUserId}：${String(error)}`,
       );
     }
   }

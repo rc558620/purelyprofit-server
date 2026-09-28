@@ -67,15 +67,22 @@ export class StoreLogoProxyService {
     private readonly configService: ConfigService,
   ) {}
 
-  /** 读取当前门店 Logo 并以同源二进制返回。 */
-  async getStoreLogo(user: AuthenticatedUser): Promise<StoreLogoProxyResult> {
+  /**
+   * 读取当前门店 Logo 并以同源二进制返回。
+   *
+   * Logo 为选填项：门店未上传时返回 null（由控制器回 204），
+   * 不用 404 —— 「没传 Logo」是合法的门店状态，不是资源不存在。
+   */
+  async getStoreLogo(
+    user: AuthenticatedUser,
+  ): Promise<StoreLogoProxyResult | null> {
     const storeId = user.currentMembership?.storeId;
     if (!storeId) throw new NotFoundException('当前账号未绑定门店');
 
     const metadata =
       await this.profileService.readStoreProfileMetadata(storeId);
     const logoUrl = metadata.storeLogo?.trim();
-    if (!logoUrl) throw new NotFoundException('门店未上传 Logo');
+    if (!logoUrl) return null;
 
     this.assertHostAllowed(logoUrl);
 

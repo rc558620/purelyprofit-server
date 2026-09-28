@@ -31,9 +31,9 @@ describe('StoreInviteCodeService', () => {
       storeInviteQrIssue: {
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
-      $transaction: jest.fn().mockImplementation(async (tx: (tx: unknown) => unknown) =>
-        tx(prisma),
-      ),
+      $transaction: jest
+        .fn()
+        .mockImplementation(async (tx: (tx: unknown) => unknown) => tx(prisma)),
     };
     cacheInvalidator = {
       invalidateMarketingOverview: jest.fn().mockResolvedValue(undefined),
@@ -63,7 +63,9 @@ describe('StoreInviteCodeService', () => {
       const code = await service.generateForStore(18);
 
       expect(code).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/);
-      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(18);
+      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(
+        18,
+      );
       expect(redis.del).toHaveBeenCalledWith(buildClubInviteCodeMapCacheKey());
     });
   });
@@ -78,7 +80,9 @@ describe('StoreInviteCodeService', () => {
       });
       expect(prisma.storeInviteCode.create).toHaveBeenCalled();
       expect(code).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/);
-      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(18);
+      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(
+        18,
+      );
       expect(redis.del).toHaveBeenCalledWith(buildClubInviteCodeMapCacheKey());
     });
 
@@ -103,7 +107,9 @@ describe('StoreInviteCodeService', () => {
         where: { storeId: 18, isActive: true },
         data: { isActive: false },
       });
-      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(18);
+      expect(cacheInvalidator.invalidateMarketingOverview).toHaveBeenCalledWith(
+        18,
+      );
       expect(redis.del).toHaveBeenCalledWith(buildClubInviteCodeMapCacheKey());
     });
 

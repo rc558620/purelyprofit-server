@@ -2449,16 +2449,22 @@ describe('PlatformMembershipService', () => {
     ).resolves.toMatchObject({ planPrice: 36900 });
   });
 
-  it('previewOrder 命中首购锁定价时预览价等于锁定价（看到的价格 = 实付）', async () => {
+  it('previewOrder 按「配置价 + 子账号加价」定价，成交价不参与', async () => {
     stubPurchasableStore();
     stubActiveSubAccountYearlyProfile();
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
-      { planId: 'yearly', price: 58800 },
+      {
+        planId: 'yearly',
+        price: 58800,
+        subAccountAmount: 15000,
+        subAccountCount: 2,
+      },
     ]);
 
+    // 36900 + 15000 = 51900（成交价 58800 只记账）
     await expect(
       service.previewOrder(user, { planId: 'yearly' }),
-    ).resolves.toMatchObject({ planPrice: 58800, finalAmount: 58800 });
+    ).resolves.toMatchObject({ planPrice: 51900, finalAmount: 51900 });
   });
 
   it('purchaseOrder 已开通子账号功能时拒绝月度 / 季度且不落单', async () => {
@@ -2475,11 +2481,16 @@ describe('PlatformMembershipService', () => {
     expect(prismaService.storeMembershipOrder.create).not.toHaveBeenCalled();
   });
 
-  it('purchaseOrder 命中首购锁定价时按锁定价成交并写入首购快照', async () => {
+  it('purchaseOrder 按「配置价 + 子账号加价」成交并写入首购快照', async () => {
     stubPurchasableStore();
     stubActiveSubAccountYearlyProfile();
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
-      { planId: 'yearly', price: 58800 },
+      {
+        planId: 'yearly',
+        price: 58800,
+        subAccountAmount: 15000,
+        subAccountCount: 2,
+      },
     ]);
 
     const result = await service.purchaseOrder(user, { planId: 'yearly' });
@@ -2488,9 +2499,9 @@ describe('PlatformMembershipService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           planId: 'yearly',
-          // 成交金额取锁定价（配置价 36900），而不是当前配置价
-          originalAmount: 58800,
-          amount: 58800,
+          // 36900 + 15000 = 51900；成交价 58800 不参与定价
+          originalAmount: 51900,
+          amount: 51900,
         }),
       }),
     );
@@ -2501,17 +2512,24 @@ describe('PlatformMembershipService', () => {
       prismaService.storeMembershipLockedPrice.createMany,
     ).toHaveBeenCalledWith({
       data: [
-        { storeId: 18, planId: 'yearly', price: 58800, source: 'purchase' },
+        {
+          storeId: 18,
+          planId: 'yearly',
+          price: 51900,
+          subAccountAmount: null,
+          subAccountCount: null,
+          source: 'purchase',
+        },
       ],
       skipDuplicates: true,
     });
   });
 
-  it('purchaseOrder 锁定价已存在（createMany 命中重复返回 0）时仍按原锁定价成交', async () => {
+  it('purchaseOrder 成交价已存在（createMany 命中重复返回 0）时同样按标准定价', async () => {
     stubPurchasableStore();
     stubActiveSubAccountYearlyProfile();
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
-      { planId: 'yearly', price: 30000 },
+      { planId: 'yearly', price: 58800 },
     ]);
     prismaService.storeMembershipLockedPrice.createMany.mockResolvedValue({
       count: 0,
@@ -2523,8 +2541,9 @@ describe('PlatformMembershipService', () => {
     expect(prismaService.storeMembershipOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          originalAmount: 30000,
-          amount: 30000,
+          // 按配置价结算，成交价 58800 不参与定价
+          originalAmount: 36900,
+          amount: 36900,
         }),
       }),
     );

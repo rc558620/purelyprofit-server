@@ -11,6 +11,7 @@ import { PulseMembershipAdminSubAccountMutationService } from './membership-admi
 import type {
   PulseAdminMembershipMutationInput,
   PulseAdminStatusMutationInput,
+  PulseAdminSubAccountAmountBackfillInput,
   PulseAdminSubAccountQuotaMutationInput,
   PulseAdminSubAccountSlotMutationInput,
   PulseMembershipAdjustmentInput,
@@ -64,6 +65,21 @@ export class PulseMembershipAdminMutationService {
     await this.assertAdminMemberMutationAccess(user, memberId);
     await this.membershipMutationService.applyAdminMembershipLevel(
       user,
+      memberId,
+      dto,
+    );
+
+    return this.memberReadService.buildAdminMemberDetail(memberId);
+  }
+
+  /** 补录 / 撤销存量门店的子账号加价（只动子账号字段，不改成交总额） */
+  async backfillAdminMemberSubAccountAmount(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountAmountBackfillInput,
+  ): Promise<PulseMemberDetailDto> {
+    await this.assertAdminMemberMutationAccess(user, memberId);
+    await this.subAccountMutationService.backfillSubAccountAmount(
       memberId,
       dto,
     );

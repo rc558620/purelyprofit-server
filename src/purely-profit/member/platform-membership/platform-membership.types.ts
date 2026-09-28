@@ -99,7 +99,8 @@ export interface StoreMembershipOrderRecord {
   pointsUsed: number;
   beansUsed: number;
   status: MembershipOrderStatusValue;
-  paymentChannel: 'wechat';
+  /** wechat=商家端充值；admin=管理端设置且计入收入；gift=管理端设置按赠送 */
+  paymentChannel: MembershipPaymentChannelValue;
   paymentOrderId: string | null;
   createdAt: Date;
 }
@@ -211,6 +212,8 @@ export type MembershipOrderStatusValue =
   | 'paid'
   | 'failed'
   | 'refunded';
+/** 与 Prisma MembershipPaymentChannel 对齐 */
+export type MembershipPaymentChannelValue = 'wechat' | 'admin' | 'gift';
 export type PartnerStatusValue =
   | 'pending'
   | 'reviewing'
