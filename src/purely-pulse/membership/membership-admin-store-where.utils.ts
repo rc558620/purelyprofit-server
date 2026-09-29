@@ -44,8 +44,14 @@ export function buildAdminMemberListStoreWhere(
   return filters.length === 1 ? filters[0] : { AND: filters };
 }
 
-function buildAdminMemberLevelStoreWhere(
-  query: GetPulseAdminMembersQueryDto,
+/**
+ * 会员等级筛选条件（会员列表与会员记录管理共用）。
+ *
+ * 等级是「会员当前等级」：查年卡会员的记录 = 查现在还是年卡的门店，
+ * 而不是查当年买过年卡的门店。
+ */
+export function buildAdminMemberLevelStoreWhere(
+  query: Pick<GetPulseAdminMembersQueryDto, 'level'>,
 ): Prisma.StoreWhereInput | null {
   switch (query.level) {
     case 'free':

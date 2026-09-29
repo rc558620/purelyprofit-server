@@ -42,7 +42,8 @@ const PLAN_SETTINGS = [
 
 /**
  * 续费价预览：定价公式必须与结算路径（resolvePlanPrice）完全一致，
- * 即 `当前配置价 + 子账号加价`；成交价**不参与**定价，只回显记账。
+ * 即 `max(当前配置价, 议定价) + 子账号加价`；
+ * 成交价**不参与**定价，只回显记账。
  */
 describe('PulseMembershipAdminPricingPreviewService', () => {
   const prismaService = {
@@ -72,12 +73,14 @@ describe('PulseMembershipAdminPricingPreviewService', () => {
   const stubSnapshots = (
     overrides: {
       prices?: Map<string, number>;
+      priceOverrides?: Map<string, number>;
       subAccountAmounts?: Map<string, number>;
       subAccountCounts?: Map<string, number>;
     } = {},
   ) =>
     lockedPriceService.loadDealPriceSnapshots.mockResolvedValue({
       prices: overrides.prices ?? new Map(),
+      priceOverrides: overrides.priceOverrides ?? new Map(),
       subAccountAmounts: overrides.subAccountAmounts ?? new Map(),
       subAccountCounts: overrides.subAccountCounts ?? new Map(),
     });
@@ -135,6 +138,54 @@ describe('PulseMembershipAdminPricingPreviewService', () => {
 
     // 398 + 100 = 498
     expect(result.renewalPriceDisplay).toBe('498');
+  });
+
+  it('未议定覆盖价时 overridePriceDisplay 为 null，续费价回落到配置价', async () => {
+    const result = await createService().preview({
+      user: {} as never,
+      storeId: 18,
+      targetLevel: 'annual',
+    });
+
+    expect(result.overridePriceDisplay).toBeNull();
+    expect(result.renewalPriceDisplay).toBe('398');
+  });
+
+  it('已议定续费价高于配置价时：基数为议定价，子账号加价仍然叠加', async () => {
+    stubSnapshots({
+      priceOverrides: new Map([['yearly', 45800]]),
+      subAccountAmounts: new Map([['yearly', 10000]]),
+    });
+
+    const result = await createService().preview({
+      user: {} as never,
+      storeId: 18,
+      targetLevel: 'annual',
+      // 本次成交价 598 不参与定价
+      priceDisplay: '598',
+    });
+
+    // 议定的是基础价：458 高于配置价 398，再加子账号 100
+    expect(result.configPriceDisplay).toBe('398');
+    expect(result.overridePriceDisplay).toBe('458');
+    expect(result.renewalPriceDisplay).toBe('558');
+  });
+
+  it('已议定续费价低于配置价时：基数回到配置价', async () => {
+    stubSnapshots({
+      priceOverrides: new Map([['yearly', 35800]]),
+    });
+
+    const result = await createService().preview({
+      user: {} as never,
+      storeId: 18,
+      targetLevel: 'annual',
+    });
+
+    // 358 < 配置价 398 → 按配置价收，陈旧议定价压不住平台涨价
+    expect(result.configPriceDisplay).toBe('398');
+    expect(result.overridePriceDisplay).toBe('358');
+    expect(result.renewalPriceDisplay).toBe('398');
   });
 
   it('本次输入的子账号加价优先于已录入值', async () => {

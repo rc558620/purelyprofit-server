@@ -60,13 +60,13 @@ export class MembershipPlanSettingItemDto {
   planName: string;
 
   @ApiProperty({
-    example: 3800,
+    example: 4200,
     description: '套餐价格，单位分（内部字段，保留兼容）',
   })
   price: number;
 
   @ApiProperty({
-    example: '38',
+    example: '42',
     description: '套餐价格展示值，单位元（字符串），由后端从 price 自动换算',
   })
   priceDisplay: string;

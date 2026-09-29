@@ -8,11 +8,18 @@ import {
 } from './membership-renewal-policy.shared';
 import { loadPlanCatalog } from './platform-membership.query';
 import {
+  MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+  resolvePlanBadge,
+} from './membership-plan-resolver';
+import {
   StoreMembershipLockedPriceService,
   type StoreRenewalPricingContext,
 } from './store-membership-locked-price.service';
 import type { MembershipPlanConfig } from './platform-membership.types';
-import { isSubAccountPricingPlan } from './platform-membership.constants';
+import {
+  hasSubAccountPricingEntitlement,
+  isSubAccountPricingPlan,
+} from './platform-membership.constants';
 
 /**
  * 会员续费套餐服务（商家端 `/platform-membership/plans`）。
@@ -30,6 +37,44 @@ export class MembershipRenewalService {
     private readonly lockedPriceService: StoreMembershipLockedPriceService,
   ) {}
 
+  /**
+   * 当前门店的**会员套餐版本号**，由两部分叠加：
+   * - 数据版本（毫秒时间戳，取两者较大值）：
+   *   - 全局套餐配置价的最近变更时间
+   *   - 本门店成交价快照（续费价覆盖 / 子账号加价）的最近变更时间
+   * - 代码级展示口径版本 `MEMBERSHIP_PLAN_PRESENTATION_VERSION`：
+   *   由主推位、档位顺序、默认套餐配置、角标规则输出哈希自动算出（改了就变，
+   *   不需要人工 +1）。主推位这类不下库的配置改了不会动任何 updatedAt，
+   *   不叠加进去的话「推荐位从季度挪到年度」这类纯代码改动永远刷新不掉缓存。
+   *
+   * 用途：purelyPulse 改价发生在另一个会话，无法 bump purelyProfit 本地的
+   * mutationVersion，商家端会一直命中本地缓存看到旧价。前端进入
+   * member-plans / member-center 时先取这个版本号，与缓存里的版本不一致就弃用缓存重拉。
+   *
+   * 刻意**不读缓存**：版本号本身一旦被缓存就永远发现不了变化，这个接口必须实时。
+   * 查询只是两个 aggregate，成本可忽略。
+   *
+   * 返回值只用于「前后是否一致」的比对，不做时间展示，因此叠加一个小整数是安全的。
+   */
+  async getPricingVersion(storeId: number): Promise<number> {
+    const [globalSettings, storePrices] = await Promise.all([
+      this.prisma.membershipPlanSetting.aggregate({
+        _max: { updatedAt: true },
+      }),
+      this.prisma.storeMembershipLockedPrice.aggregate({
+        where: { storeId },
+        _max: { updatedAt: true },
+      }),
+    ]);
+
+    return (
+      Math.max(
+        globalSettings._max.updatedAt?.getTime() ?? 0,
+        storePrices._max.updatedAt?.getTime() ?? 0,
+      ) + MEMBERSHIP_PLAN_PRESENTATION_VERSION
+    );
+  }
+
   /** 门店续费页可见套餐列表 */
   async listRenewalPlans(
     storeId: number,
@@ -42,12 +87,10 @@ export class MembershipRenewalService {
     // 「只给年 / 永久」的判据必须与价格里的子账号加价同源：
     // 运营在设置会员等级时录入了子账号加价（即便配额尚未单独设置），
     // 该门店同样视为已开通子账号 —— 否则年度卡标着「包含 2 个子账号」
-    // 却还能买月 / 季，月均比例直接倒挂
-    const hasSubAccountEntitlement =
-      context.subAccountFeatureOwned ||
-      [...context.lockedSubAccountAmounts.keys()].some((planId) =>
-        isSubAccountPricingPlan(planId),
-      );
+    // 却还能买月 / 季，月均比例直接倒挂。
+    //
+    // 与管理端「月 / 季能否改价」共用同一个判据，避免两边口径漂移。
+    const hasSubAccountEntitlement = hasSubAccountPricingEntitlement(context);
 
     const visiblePlanIds = new Set(
       resolveVisibleRenewalPlanIds({
@@ -93,6 +136,15 @@ export class MembershipRenewalService {
           : null;
     const showOriginalPrice =
       !hideOriginalPrice && subAccountIncludedCount === null;
+    const originalPrice = showOriginalPrice ? plan.originalPrice : null;
+    // 角标必须用**最终下发的实付价**重算，不能沿用套餐目录里按配置价算出的
+    // plan.badge：这里下发的 price 是门店解析价（max(配置价, 议定价) + 子账号加价），
+    // 两者基数不同，Pulse 改过议定价或录了子账号加价后就会出现
+    // 「划线 ¥298 / 实付 ¥112 / 省190元」这类自相矛盾的展示
+    // （190 = 298 − 108 配置价，而 298 − 112 = 186）。
+    // 展示位被划线价以外的内容（子账号数量）占用时 originalPrice 为 null，
+    // 此时按定义没有可对比的原价，角标一并不下发。
+    const badge = resolvePlanBadge(price, originalPrice);
     // 月均价按**实付价**折算：实付价 = 配置价 + 子账号加价，若仍用配置价折算，
     // 同一张卡片会出现「¥498 + 约¥3075/月」这类自相矛盾的展示
     const effectiveMonthlyPrice =
@@ -105,14 +157,14 @@ export class MembershipRenewalService {
       name:
         plan.id === 'lifetime' ? LIFETIME_RENEWAL_PLAN_DISPLAY_NAME : plan.name,
       price,
-      originalPrice: showOriginalPrice ? plan.originalPrice : null,
+      originalPrice,
       durationMonths: plan.durationMonths ?? null,
       validDays: plan.validDays ?? null,
       ...(hideMonthlyPrice ? {} : { monthlyPrice: effectiveMonthlyPrice }),
       ...(hideOriginalPrice ? { hideOriginalPrice: true } : {}),
       ...(subAccountIncludedCount !== null ? { subAccountIncludedCount } : {}),
       ...(hideMonthlyPrice ? { hideMonthlyPrice: true } : {}),
-      ...(plan.badge ? { badge: plan.badge } : {}),
+      ...(badge ? { badge } : {}),
       ...(plan.recommended ? { recommended: true } : {}),
     };
   }

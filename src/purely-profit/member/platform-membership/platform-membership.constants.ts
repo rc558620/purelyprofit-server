@@ -28,6 +28,63 @@ export function isSubAccountPricingPlan(
   return SUB_ACCOUNT_PRICING_PLAN_IDS.includes(planId);
 }
 
+/**
+ * 门店是否「含子账号权益」——档位裁剪与「月 / 季能否改价」的共同判据。
+ *
+ * 必须用「曾开通」口径（`pulseSubAccountQuota > 0`，到期不失效）而非实时配额：
+ * 会员到期后实时配额被收回归零，但续费卡仍要展示「包含 x 个子账号」、
+ * 仍要只给年 / 永久档。用实时口径会出现「到期后月 / 季又能买了」的矛盾。
+ *
+ * 另外即便没开通子账号，只要运营历史上录过子账号加价，价格里就含这部分，
+ * 同样要按含子账号处理——否则会按纯配置价续费，白送子账号。
+ */
+export function hasSubAccountPricingEntitlement(context: {
+  subAccountFeatureOwned: boolean;
+  lockedSubAccountAmounts: Map<PlatformMembershipPlanId, number>;
+}): boolean {
+  return (
+    context.subAccountFeatureOwned ||
+    [...context.lockedSubAccountAmounts.keys()].some(isSubAccountPricingPlan)
+  );
+}
+
+/**
+ * 续费定价公式的**唯一实现**：`max(当前配置价, 议定价) + 子账号加价`。
+ *
+ * 结算（下单预览 / 下单落库）、商家端续费卡、管理端预览与会员详情展示
+ * 都必须调用本函数，不得各自手抄公式——只要有一处漏改就会出现
+ * 「看到的价格 ≠ 实际扣款」。
+ *
+ * - 配置价与议定价**取高者**，因为两者回答的是不同问题：
+ *   配置价是平台对该档位的当前标准价，议定价是运营为「单个门店 x 单个档位」
+ *   谈下来的保价。配置价上调必须传导到所有门店——议定价低于配置价时仍按配置价收，
+ *   否则「调整续费价格」里一个陈旧的低价会把平台涨价永久压住；
+ *   而当议定价高于配置价时（成交价高于标准价的客户），配置价也不能把它吞掉。
+ * - `议定价` 取代的只是**基数**，不是最终价，因此年 / 永久档位的子账号加价仍叠加，
+ *   两者正交。
+ * - 用 `typeof === 'number'` 判定而非真值判断：0 是合法入参（不能当成「未设置」），
+ *   但按取高者口径，0 会回落到配置价——议定价只用于抬价，不能让档位变免费。
+ */
+export function resolveRenewalPriceFen(params: {
+  planId: PlatformMembershipPlanId;
+  /** 当前配置价（分） */
+  configPrice: number;
+  /** 该门店该档位的议定价（分）；null / undefined 表示未议定 */
+  overridePrice?: number | null;
+  /** 子账号加价（分）；只对年 / 永久档位生效 */
+  subAccountAmount?: number | null;
+}): number {
+  const { planId, configPrice, overridePrice, subAccountAmount } = params;
+
+  const basePrice =
+    typeof overridePrice === 'number'
+      ? Math.max(configPrice, overridePrice)
+      : configPrice;
+  const amount = isSubAccountPricingPlan(planId) ? (subAccountAmount ?? 0) : 0;
+
+  return basePrice + amount;
+}
+
 /** 合伙人推广奖励纯利豆数量（按等级 x 套餐） */
 export const PROMO_BEAN_REWARDS_BY_LEVEL: Record<
   PartnerLevelValue,
@@ -81,24 +138,27 @@ export const DEFAULT_MEMBERSHIP_PLAN_SETTINGS: Record<
   monthly: {
     planId: 'monthly',
     planName: '月度会员',
-    price: 3800,
-    originalPrice: 3800,
+    price: 4200,
+    // 划线原价（108 元）；月均价 42 元/月，角标由 resolvePlanBadge 算出
+    originalPrice: 10800,
     durationMonths: 1,
     validDays: null,
   },
   quarterly: {
     planId: 'quarterly',
     planName: '季度会员',
-    price: 9900,
-    originalPrice: 11400,
+    price: 10800,
+    // 划线原价（298 元）
+    originalPrice: 29800,
     durationMonths: 3,
     validDays: null,
   },
   yearly: {
     planId: 'yearly',
     planName: '年度会员',
-    price: 36900,
-    originalPrice: 45600,
+    price: 39800,
+    // 划线原价（998 元）
+    originalPrice: 99800,
     // durationMonths 用于月均价展示；有效期优先按 validDays（自然年 365 天）计算
     durationMonths: 12,
     validDays: 365,
@@ -113,18 +173,19 @@ export const DEFAULT_MEMBERSHIP_PLAN_SETTINGS: Record<
   },
 };
 
-export const PLAN_BADGE_CONFIG: Record<
+/**
+ * 各档位的「主推」标记。
+ *
+ * 注意：角标文案（`省X元`）不在本表里，而是由 `resolvePlanBadge` 按
+ * 「划线原价 − 实付价」实时算出——写死文案会在每次调价后与划线价对不上。
+ */
+export const PLAN_RECOMMEND_CONFIG: Record<
   PlatformMembershipPlanId,
-  Pick<MembershipPlanConfig, 'badge' | 'recommended'>
+  Pick<MembershipPlanConfig, 'recommended'>
 > = {
   monthly: {},
-  quarterly: {
-    badge: '省15元',
-    recommended: true,
-  },
-  yearly: {
-    badge: '超划算',
-  },
+  quarterly: {},
+  yearly: { recommended: true },
   lifetime: {},
 };
 

@@ -1,4 +1,4 @@
-import { StoreSubAccountStatus } from '@prisma/client';
+import { MembershipPlanCycle, StoreSubAccountStatus } from '@prisma/client';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import type { MembershipPaymentChannelValue } from '../../purely-profit/member/platform-membership/platform-membership.types';
 
@@ -56,6 +56,43 @@ export interface PulseAdminMembershipOrderRecord {
   amount: number;
   /** wechat=商家端充值；admin=管理端设置且计入收入；gift=管理端设置按赠送 */
   paymentChannel: MembershipPaymentChannelValue;
+  createdAt: Date;
+}
+
+/**
+ * 续费价覆盖变更审计行（`store_membership_price_override_audits`）。
+ *
+ * 运营每改一次续费价就留一条痕，供会员详情页「调整续费记录」tab 展示
+ * 「谁、什么时候、把哪一档从多少改成了多少」。
+ */
+export interface PulseAdminRenewalPriceAdjustRecord {
+  id: number;
+  planId: MembershipPlanCycle;
+  planName: string;
+  /** 变更前的议定价（分）；null = 此前未议定 */
+  oldPrice: number | null;
+  /** 变更后的议定价（分）；null = 已清除覆盖、恢复默认价 */
+  newPrice: number | null;
+  operatorName: string | null;
+  createdAt: Date;
+}
+
+/**
+ * 子账号额度变更审计行（`store_sub_account_quota_audits`）。
+ *
+ * ⚠️ 该表只记录**额度数值**的变更（如 2 → 5）；槽位的角色 / 状态 / 分配员工
+ * 变更没有留痕，因此会员详情的「子账号设置记录」只覆盖调额本身。
+ */
+export interface PulseAdminSubAccountQuotaAuditRecord {
+  id: number;
+  /** 变更前的额度 */
+  oldQuota: number;
+  /** 变更后的额度；0 = 关闭子账号功能 */
+  newQuota: number;
+  /** 操作人名称；查不到用户（已注销 / 历史数据）时为 null */
+  operatorName: string | null;
+  /** 变更原因；未填写时为 null */
+  reason: string | null;
   createdAt: Date;
 }
 
@@ -201,17 +238,60 @@ export interface PulseAdminPricingPreviewResult {
   targetPlanId: PulseMembershipPlanId | null;
   /** 当前配置价（不含子账号） */
   configPriceDisplay: string;
+  /**
+   * 该门店该档位议定的基础价（入库原值）；null = 未议定，按配置价走。
+   *
+   * 有值也只是**参与取高**：实际定价基数 = `max(配置价, 议定价)`，
+   * 因此它低于配置价时不再生效，配置价仅作对照展示。
+   */
+  overridePriceDisplay: string | null;
   /** 参与定价的子账号加价：本次输入优先，未填时沿用已录入值 */
   subAccountAmountDisplay: string;
-  /** ★ 下次续费价 = 配置价 + 子账号加价 */
+  /**
+   * ★ 下次续费价 = max(配置价, 议定价) + 子账号加价
+   *
+   * 与结算路径共用 `resolveRenewalPriceFen`，保证「看到的价格 = 实际扣款」。
+   */
   renewalPriceDisplay: string;
   /**
    * 本次填写的成交金额（仅记账回显）。
    *
    * 成交价**不参与**续费定价，运营议出的价格只对本次生效，
-   * 未来续费一律按「配置价 + 子账号加价」。
+   * 未来续费一律按「配置价与议定价取高者 + 子账号加价」。
    */
   dealPriceDisplay: string | null;
+}
+
+/**
+ * 单个档位的续费价信息（管理端「调整续费价格」弹窗）。
+ *
+ * 金额一律是后端算好的**展示字符串**，前端不做任何乘除与分转元。
+ */
+export interface PulseAdminRenewalPriceItem {
+  planId: PulseMembershipPlanId;
+  planName: string;
+  /** 当前配置价（该档位的标准价） */
+  configPriceDisplay: string;
+  /** 本门店议定的基础价（入库原值）；null = 未议定。定价基数取 max(配置价, 议定价) */
+  overridePriceDisplay: string | null;
+  /** 该档位计入定价的子账号加价；月 / 季恒为 '0' */
+  subAccountAmountDisplay: string;
+  /** ★ 最终续费价 = max(配置价, 议定价) + 子账号加价 */
+  renewalPriceDisplay: string;
+  /** 是否允许编辑（含子账号权益的门店不给改月 / 季） */
+  editable: boolean;
+  /** 不可编辑时的原因文案，可直接展示给运营 */
+  editableReason: string | null;
+}
+
+/** 「调整续费价格」弹窗的提交项：`priceDisplay` 为空即清除覆盖、恢复默认价 */
+export interface PulseAdminRenewalPriceUpdateItem {
+  planId: PulseMembershipPlanId;
+  /**
+   * 覆盖价（元）。传 null / 空字符串表示**清除覆盖**，回落到「配置价 + 子账号加价」。
+   * 0 是合法取值（该档位免费），不会被当成「未设置」。
+   */
+  priceDisplay: string | null;
 }
 
 export interface PulseAdminStatusMutationInput {

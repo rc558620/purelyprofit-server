@@ -79,6 +79,7 @@ describe('PlatformMembershipService', () => {
     storeMembershipLockedPrice: {
       findMany: jest.fn().mockResolvedValue([]),
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     storeInviteCode: {
@@ -271,8 +272,8 @@ describe('PlatformMembershipService', () => {
       {
         planId: 'monthly',
         planName: '月度会员',
-        price: 3800,
-        originalPrice: 3800,
+        price: 4200,
+        originalPrice: 10800,
         durationMonths: 1,
         validDays: null,
         updatedAt: new Date('2026-05-21T00:00:00.000Z'),
@@ -280,8 +281,8 @@ describe('PlatformMembershipService', () => {
       {
         planId: 'quarterly',
         planName: '季度会员',
-        price: 9900,
-        originalPrice: 11400,
+        price: 10800,
+        originalPrice: 29800,
         durationMonths: 3,
         validDays: null,
         updatedAt: new Date('2026-05-21T00:00:01.000Z'),
@@ -289,8 +290,8 @@ describe('PlatformMembershipService', () => {
       {
         planId: 'yearly',
         planName: '年度会员',
-        price: 36900,
-        originalPrice: 45600,
+        price: 39800,
+        originalPrice: 99800,
         durationMonths: 12,
         validDays: null,
         updatedAt: new Date('2026-05-21T00:00:02.000Z'),
@@ -427,32 +428,37 @@ describe('PlatformMembershipService', () => {
       {
         id: 'monthly',
         name: '月度会员',
-        price: 3800,
-        originalPrice: 3800,
+        price: 4200,
+        originalPrice: 10800,
         durationMonths: 1,
         validDays: null,
-        monthlyPrice: 3800,
+        // 角标由「划线价 − 实付价」算出：10800 - 4200 = 6600 分 → 省66元
+        badge: '省66元',
+        monthlyPrice: 4200,
       },
       {
         id: 'quarterly',
         name: '季度会员',
-        price: 9900,
-        originalPrice: 11400,
+        price: 10800,
+        originalPrice: 29800,
         durationMonths: 3,
         validDays: null,
-        badge: '省15元',
-        recommended: true,
-        monthlyPrice: 3300,
+        // 29800 - 10800 = 19000 分 → 省190元
+        badge: '省190元',
+        monthlyPrice: 3600,
       },
       {
         id: 'yearly',
         name: '年度会员',
-        price: 36900,
-        originalPrice: 45600,
+        price: 39800,
+        originalPrice: 99800,
         durationMonths: 12,
         validDays: null,
-        badge: '超划算',
-        monthlyPrice: 3075,
+        // 99800 - 39800 = 60000 分 → 省600元（不再是写死的「超划算」）
+        badge: '省600元',
+        // 主推位在年度：月均价最低、赠积分最多，季度的「省190元」已不足以撑推荐位
+        recommended: true,
+        monthlyPrice: 3316,
       },
       {
         id: 'lifetime',
@@ -2333,7 +2339,7 @@ describe('PlatformMembershipService', () => {
       planName: '月度会员',
       durationDays: 30,
       orderId: 34,
-      amount: 3800,
+      amount: 4200,
       paymentOrderId: 'WX18123459',
       bonusPoints: 0,
     });
@@ -2345,7 +2351,7 @@ describe('PlatformMembershipService', () => {
       planName: '季度会员',
       durationDays: 90,
       orderId: 35,
-      amount: 9900,
+      amount: 10800,
       paymentOrderId: 'WX18123460',
       bonusPoints: 300,
     });
@@ -2357,7 +2363,7 @@ describe('PlatformMembershipService', () => {
       planName: '年度会员',
       durationDays: 360,
       orderId: 36,
-      amount: 36900,
+      amount: 39800,
       paymentOrderId: 'WX18123461',
       bonusPoints: 1500,
     });
@@ -2446,7 +2452,7 @@ describe('PlatformMembershipService', () => {
 
     await expect(
       service.previewOrder(user, { planId: 'yearly' }),
-    ).resolves.toMatchObject({ planPrice: 36900 });
+    ).resolves.toMatchObject({ planPrice: 39800 });
   });
 
   it('previewOrder 按「配置价 + 子账号加价」定价，成交价不参与', async () => {
@@ -2461,10 +2467,10 @@ describe('PlatformMembershipService', () => {
       },
     ]);
 
-    // 36900 + 15000 = 51900（成交价 58800 只记账）
+    // 39800 + 15000 = 54800（成交价 58800 只记账）
     await expect(
       service.previewOrder(user, { planId: 'yearly' }),
-    ).resolves.toMatchObject({ planPrice: 51900, finalAmount: 51900 });
+    ).resolves.toMatchObject({ planPrice: 54800, finalAmount: 54800 });
   });
 
   it('purchaseOrder 已开通子账号功能时拒绝月度 / 季度且不落单', async () => {
@@ -2499,9 +2505,9 @@ describe('PlatformMembershipService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           planId: 'yearly',
-          // 36900 + 15000 = 51900；成交价 58800 不参与定价
-          originalAmount: 51900,
-          amount: 51900,
+          // 39800 + 15000 = 54800；成交价 58800 不参与定价
+          originalAmount: 54800,
+          amount: 54800,
         }),
       }),
     );
@@ -2515,10 +2521,11 @@ describe('PlatformMembershipService', () => {
         {
           storeId: 18,
           planId: 'yearly',
-          price: 51900,
+          price: 54800,
           subAccountAmount: null,
           subAccountCount: null,
           source: 'purchase',
+          dealLockedAt: expect.any(Date) as unknown as Date,
         },
       ],
       skipDuplicates: true,
@@ -2542,8 +2549,8 @@ describe('PlatformMembershipService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           // 按配置价结算，成交价 58800 不参与定价
-          originalAmount: 36900,
-          amount: 36900,
+          originalAmount: 39800,
+          amount: 39800,
         }),
       }),
     );

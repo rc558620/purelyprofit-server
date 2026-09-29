@@ -1,4 +1,9 @@
 import { MembershipRenewalService } from './membership-renewal.service';
+import {
+  buildPlanPresentationSignature,
+  computePresentationVersion,
+  MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+} from './membership-plan-resolver';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
 import type { PlatformMembershipAccessService } from './platform-membership-access.service';
 
@@ -15,8 +20,8 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     {
       planId: 'monthly',
       planName: '月度会员',
-      price: 3800,
-      originalPrice: 3800,
+      price: 4200,
+      originalPrice: 10800,
       durationMonths: 1,
       validDays: null,
       updatedAt: new Date('2026-05-21T00:00:00.000Z'),
@@ -24,8 +29,8 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     {
       planId: 'quarterly',
       planName: '季度会员',
-      price: 9900,
-      originalPrice: 11400,
+      price: 10800,
+      originalPrice: 29800,
       durationMonths: 3,
       validDays: null,
       updatedAt: new Date('2026-05-21T00:00:01.000Z'),
@@ -33,8 +38,8 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     {
       planId: 'yearly',
       planName: '年度会员',
-      price: 36900,
-      originalPrice: 45600,
+      price: 39800,
+      originalPrice: 99800,
       durationMonths: 12,
       validDays: null,
       updatedAt: new Date('2026-05-21T00:00:02.000Z'),
@@ -54,9 +59,11 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     membershipPlanSetting: {
       findMany: jest.fn(),
       upsert: jest.fn(),
+      aggregate: jest.fn(),
     },
     storeMembershipLockedPrice: {
       findMany: jest.fn(),
+      aggregate: jest.fn(),
     },
   };
 
@@ -129,9 +136,11 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     ]);
     expect(plans.find((plan) => plan.id === 'yearly')).toMatchObject({
       name: '年度会员',
-      price: 36900,
-      originalPrice: 45600,
-      monthlyPrice: 3075,
+      price: 39800,
+      originalPrice: 99800,
+      monthlyPrice: 3316,
+      // 无议定价、无子账号加价时实付价 == 配置价，角标即「配置划线价 − 配置价」
+      badge: '省600元',
     });
     for (const plan of plans) {
       expect(plan.lockedPrice).toBeUndefined();
@@ -140,6 +149,36 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
       // 未开通子账号：不出现子账号数量，价格位仍展示划线原价
       expect(plan.subAccountIncludedCount).toBeUndefined();
     }
+  });
+
+  /**
+   * 回归：Pulse「会员续费价格」改过议定价后，角标必须跟着**实付价**走。
+   *
+   * 角标曾经沿用套餐目录里按**配置价**算出的 badge，于是卡片上出现
+   * 「划线 ¥298 / 实付 ¥112 / 省190元」这种自相矛盾的展示
+   * （190 = 298 − 108 配置价，而 298 − 112 = 186）。
+   */
+  it('命中议定价时：角标按最终实付价重算，与卡片大价格一致', async () => {
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      // 成交价只记账，实际下发价取「配置价与议定价的较高者」
+      { planId: 'quarterly', price: 9900, renewalPriceOverride: 11200 },
+      { planId: 'yearly', price: 36900, renewalPriceOverride: 40500 },
+    ]);
+
+    const plans = await createService().listRenewalPlans(18);
+
+    // 298 − 112 = 186（而不是按配置价 108 算出的 190）
+    expect(plans.find((plan) => plan.id === 'quarterly')).toMatchObject({
+      price: 11200,
+      originalPrice: 29800,
+      badge: '省186元',
+    });
+    // 998 − 405 = 593（而不是按配置价 398 算出的 600）
+    expect(plans.find((plan) => plan.id === 'yearly')).toMatchObject({
+      price: 40500,
+      originalPrice: 99800,
+      badge: '省593元',
+    });
   });
 
   it('已开通子账号功能的年度会员：只返回年度卡，价格 = 后台配置价（成交价不参与）', async () => {
@@ -156,13 +195,15 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
     expect(plans[0]).toMatchObject({
       name: '年度会员',
-      price: 36900,
+      price: 39800,
       // 价格已含子账号权益，配置原价（不含子账号的旧价）不再下发
       originalPrice: null,
       subAccountIncludedCount: 2,
-      // 36900 / 12 = 3075，月均价与展示价同源
-      monthlyPrice: 3075,
+      // 39800 / 12 = 3316，月均价与展示价同源
+      monthlyPrice: 3316,
     });
+    // 划线原价不下发时没有可对比的基准，角标必须一并不下发
+    expect('badge' in plans[0]).toBe(false);
   });
 
   it('已开通子账号功能的永久会员：只返回 AGES 卡，隐藏划线价与月均价', async () => {
@@ -199,7 +240,7 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     const plans = await createService().listRenewalPlans(18);
 
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
-    expect(plans[0]).toMatchObject({ price: 36900 });
+    expect(plans[0]).toMatchObject({ price: 39800 });
     expect(plans[0].lockedPrice).toBeUndefined();
     // 子账号数量不依赖锁定价：只要开通了子账号功能就下发
     expect(plans[0].subAccountIncludedCount).toBe(2);
@@ -229,8 +270,8 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     // 判据与价格里的子账号加价同源：否则年度卡标着「包含 2 个子账号」
     // 却还能买月 / 季，月均比例直接倒挂
     expect(plans.map((plan) => plan.id)).toEqual(['yearly']);
-    // 36900 + 10000 = 46900
-    expect(plans[0]).toMatchObject({ price: 46900 });
+    // 39800 + 10000 = 49800
+    expect(plans[0]).toMatchObject({ price: 49800 });
   });
 
   it('成交价不参与定价：高于配置价的成交记录也按配置价下发', async () => {
@@ -249,10 +290,10 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     ]);
     // 定价一律按配置价：成交价 58800 只记账，不托住续费价
     expect(plans.find((plan) => plan.id === 'yearly')).toMatchObject({
-      price: 36900,
+      price: 39800,
     });
     const monthlyPlan = plans.find((plan) => plan.id === 'monthly');
-    expect(monthlyPlan).toMatchObject({ price: 3800 });
+    expect(monthlyPlan).toMatchObject({ price: 4200 });
     expect(monthlyPlan?.lockedPrice).toBeUndefined();
   });
 
@@ -273,7 +314,7 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
       {
         planId: 'yearly',
-        price: 51900,
+        price: 54800,
         subAccountAmount: 15000,
         subAccountCount: 3,
       },
@@ -316,10 +357,10 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     const plans = await createService().listRenewalPlans(18);
 
     expect(plans[0]).toMatchObject({
-      // 36900 + 15000 = 51900
-      price: 51900,
-      // 51900 / 12 = 4325，与卡片大价格同源
-      monthlyPrice: 4325,
+      // 39800 + 15000 = 54800
+      price: 54800,
+      // 54800 / 12 = 4566，与卡片大价格同源
+      monthlyPrice: 4566,
     });
   });
 
@@ -334,7 +375,7 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
 
     const plans = await createService().listRenewalPlans(18);
 
-    expect(plans[0]).toMatchObject({ price: 36900 });
+    expect(plans[0]).toMatchObject({ price: 39800 });
     expect(plans[0].lockedPrice).toBeUndefined();
   });
 
@@ -343,19 +384,19 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
       subAccountSnapshot({ level: 'yearly', quota: 5 }),
     );
     prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
-      { planId: 'yearly', price: 46900 },
+      { planId: 'yearly', price: 49800 },
     ]);
 
     const plans = await createService().listRenewalPlans(18);
 
     expect(plans[0]).toMatchObject({
-      // 成交价 46900 不参与定价，按配置价 36900 下发
-      price: 36900,
-      // 配置价 45600 是「不含子账号」的旧价，划掉它会被读成「续费反而涨价」
+      // 成交价 49800 不参与定价，按配置价 39800 下发
+      price: 39800,
+      // 配置价 99800 是「不含子账号」的旧价，划掉它会被读成「续费反而涨价」
       originalPrice: null,
       subAccountIncludedCount: 5,
-      // 36900 / 12 = 3075，与卡片大价格同源
-      monthlyPrice: 3075,
+      // 39800 / 12 = 3316，与卡片大价格同源
+      monthlyPrice: 3316,
     });
     expect('hideOriginalPrice' in plans[0]).toBe(false);
   });
@@ -380,11 +421,11 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
     expect(plans[0]).toMatchObject({
       name: '年度会员',
       // 配置价；成交价 58800 只记账
-      price: 36900,
+      price: 39800,
       // 价格已含子账号权益：不下发划线原价，改下发配置额度
       originalPrice: null,
       subAccountIncludedCount: 8,
-      monthlyPrice: 3075,
+      monthlyPrice: 3316,
     });
   });
 
@@ -432,5 +473,107 @@ describe('MembershipRenewalService.listRenewalPlans', () => {
       'quarterly',
       'yearly',
     ]);
+  });
+
+  describe('getPricingVersion', () => {
+    const CONFIG_UPDATED_AT = new Date('2026-05-21T00:00:03.000Z');
+    const STORE_UPDATED_AT = new Date('2026-06-01T00:00:00.000Z');
+
+    const mockVersions = (params: {
+      configUpdatedAt?: Date | null;
+      storeUpdatedAt?: Date | null;
+    }) => {
+      prismaService.membershipPlanSetting.aggregate.mockResolvedValue({
+        _max: { updatedAt: params.configUpdatedAt ?? null },
+      });
+      prismaService.storeMembershipLockedPrice.aggregate.mockResolvedValue({
+        _max: { updatedAt: params.storeUpdatedAt ?? null },
+      });
+    };
+
+    it('取「全局配置价」与「本门店成交价快照」两者的较大变更时间', async () => {
+      mockVersions({
+        configUpdatedAt: CONFIG_UPDATED_AT,
+        storeUpdatedAt: null,
+      });
+      await expect(createService().getPricingVersion(18)).resolves.toBe(
+        CONFIG_UPDATED_AT.getTime() + MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+
+      // 门店议价 / 子账号加价改得比平台配置更晚时按门店时间
+      mockVersions({
+        configUpdatedAt: CONFIG_UPDATED_AT,
+        storeUpdatedAt: STORE_UPDATED_AT,
+      });
+      await expect(createService().getPricingVersion(18)).resolves.toBe(
+        STORE_UPDATED_AT.getTime() + MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+    });
+
+    /**
+     * 回归：主推位（`PLAN_RECOMMEND_CONFIG`）这类配置**不落库**，改代码不会动
+     * 任何 `updatedAt`。版本号必须显式叠加代码级展示口径版本，否则部署后商家端
+     * 在同一次会话里会一直命中本地缓存，「推荐」标签还挂在旧的档位上。
+     */
+    it('叠加代码级展示口径版本：不下库的配置改了也要能刷新缓存', async () => {
+      expect(MEMBERSHIP_PLAN_PRESENTATION_VERSION).toBeGreaterThan(0);
+
+      mockVersions({
+        configUpdatedAt: CONFIG_UPDATED_AT,
+        storeUpdatedAt: null,
+      });
+
+      const version = await createService().getPricingVersion(18);
+
+      // 数据一点没变，版本号也必须比纯时间戳大 —— 差值即代码版本
+      expect(version - CONFIG_UPDATED_AT.getTime()).toBe(
+        MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+    });
+
+    /**
+     * 版本号由展示配置哈希算出，因此「改了配置」本身就等于「版本号变了」，
+     * 不依赖任何人记得去 +1 —— 人工计数器漏改一次，缓存就刷不掉。
+     */
+    it('展示口径一改版本号就自动变（无需人工维护计数器）', () => {
+      const signature = buildPlanPresentationSignature();
+
+      expect(computePresentationVersion(signature)).toBe(
+        MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+
+      // 把主推位挪回季度：与「挪到年度」那次改动必须算出不同的版本号
+      const movedRecommend = {
+        ...signature,
+        recommended: {
+          ...signature.recommended,
+          quarterly: { recommended: true },
+          yearly: {},
+        },
+      };
+      expect(computePresentationVersion(movedRecommend)).not.toBe(
+        MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+
+      // 默认配置价改了同样要变
+      const changedDefaults = {
+        ...signature,
+        defaults: {
+          ...signature.defaults,
+          yearly: { ...signature.defaults.yearly, price: 43800 },
+        },
+      };
+      expect(computePresentationVersion(changedDefaults)).not.toBe(
+        MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+    });
+
+    it('两侧都没有数据时仍返回可用的版本号', async () => {
+      mockVersions({});
+
+      await expect(createService().getPricingVersion(18)).resolves.toBe(
+        MEMBERSHIP_PLAN_PRESENTATION_VERSION,
+      );
+    });
   });
 });

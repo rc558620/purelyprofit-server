@@ -11,7 +11,9 @@ import { PulseMemberBaseDto } from './pulse-membership-admin-member-base.dto';
 import {
   PulseAdminMemberLockedPriceDto,
   PulseRechargeRecordDto,
+  PulseRenewalPriceAdjustRecordDto,
   PulseSubAccountCapabilityDto,
+  PulseSubAccountQuotaRecordDto,
   PulseSubAccountRoleSummaryDto,
   PulseSubAccountSlotDto,
 } from './pulse-membership-admin-members.shared.dto';
@@ -78,6 +80,44 @@ export class PulseMemberDetailDto extends PulseMemberBaseDto {
   @ValidateNested({ each: true })
   @Type(() => PulseRechargeRecordDto)
   adminGrantHistory: PulseRechargeRecordDto[];
+
+  @ApiProperty({
+    example: 2,
+    description:
+      '调整续费价格次数（对齐前端 MemberDetail.renewalPriceAdjustCount）',
+  })
+  @IsInt()
+  renewalPriceAdjustCount: number;
+
+  @ApiProperty({
+    type: [PulseRenewalPriceAdjustRecordDto],
+    description:
+      '调整续费价格记录列表（对齐前端 MemberDetail.renewalPriceAdjustHistory）。' +
+      '记录的是运营议定的基础价覆盖：newPriceDisplay 为 null 表示已清除覆盖、恢复配置价',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseRenewalPriceAdjustRecordDto)
+  renewalPriceAdjustHistory: PulseRenewalPriceAdjustRecordDto[];
+
+  @ApiProperty({
+    example: 2,
+    description:
+      '子账号额度调整次数（对齐前端 MemberDetail.subAccountQuotaRecordCount）',
+  })
+  @IsInt()
+  subAccountQuotaRecordCount: number;
+
+  @ApiProperty({
+    type: [PulseSubAccountQuotaRecordDto],
+    description:
+      '子账号设置记录列表（对齐前端 MemberDetail.subAccountQuotaRecordHistory）。' +
+      '只覆盖额度数值变更：槽位的角色 / 状态 / 分配员工变更没有留痕',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseSubAccountQuotaRecordDto)
+  subAccountQuotaRecordHistory: PulseSubAccountQuotaRecordDto[];
 
   @ApiPropertyOptional({
     example: '老会员，优先服务',

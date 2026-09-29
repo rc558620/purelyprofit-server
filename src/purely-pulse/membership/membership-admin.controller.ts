@@ -28,6 +28,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { AdjustMemberBeansDto } from '../../purely-profit/member/members/dto/member-beans.dto';
 import { AdjustMemberPointsDto } from '../../purely-profit/member/members/dto/member-points.dto';
 import { GetPulseAdminMemberLogsQueryDto } from './dto/pulse-membership-admin-logs.request.dto';
+import { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
+import { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
 import {
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
@@ -37,11 +39,13 @@ import {
   PulseAdminMemberMembershipDto,
   PulseAdminMemberPricingPreviewDto,
   PulseAdminMemberStatusDto,
+  PulseAdminRenewalPriceUpdateDto,
   PulseAdminMemberSubAccountAmountBackfillDto,
   PulseAdminMemberSubAccountQuotaDto,
   PulseAdminMemberSubAccountSlotDto,
 } from './dto/pulse-membership-admin-members.request.dto';
 import { PulseAdminMemberPricingPreviewResponseDto } from './dto/pulse-membership-admin-pricing-preview.response.dto';
+import { PulseAdminRenewalPriceResponseDto } from './dto/pulse-membership-admin-renewal-price.response.dto';
 import { PulseAdminEmployeeCandidatesResponseDto } from './dto/pulse-membership-admin-employee.response.dto';
 import { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
 import { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
@@ -86,6 +90,20 @@ export class PulseMembershipAdminController {
     @Query() query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
     return this.pulseMembershipService.listAdminBeanLogs(user, query);
+  }
+
+  @Get('member-records')
+  @ApiOperation({ summary: '获取 Pulse 会员记录管理列表' })
+  @ApiOkResponse({
+    description:
+      '返回 purelyPulse member-records 页面使用的跨会员记录时间轴：充值记录、会员等级设置记录、调整续费记录、子账号设置记录。',
+    type: PulseAdminMemberRecordsResponseDto,
+  })
+  listAdminMemberRecords(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetPulseAdminMemberRecordsQueryDto,
+  ): Promise<PulseAdminMemberRecordsResponseDto> {
+    return this.pulseMembershipService.listAdminMemberRecords(user, query);
   }
 
   @Get('members')
@@ -222,6 +240,56 @@ export class PulseMembershipAdminController {
         subAccountAmountDisplay: dto.subAccountAmountDisplay,
       },
     );
+  }
+
+  @Get('members/:id/renewal-price')
+  @ApiOperation({ summary: 'Pulse 读取会员各档位续费价现状' })
+  @ApiOkResponse({
+    description:
+      '供「调整续费价格」弹窗使用：返回月 / 季 / 年 / 永久四个档位当前的配置价、' +
+      '是否已覆盖、子账号加价与最终续费价。金额一律由后端算好并以展示字符串下发。',
+    type: PulseAdminRenewalPriceResponseDto,
+  })
+  async listAdminMemberRenewalPrices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+  ): Promise<PulseAdminRenewalPriceResponseDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId);
+    const items =
+      await this.pulseMembershipService.listAdminMemberRenewalPrices(
+        user,
+        memberId,
+      );
+    return { items };
+  }
+
+  @Patch('members/:id/renewal-price')
+  @ApiOperation({ summary: 'Pulse 调整会员续费价格' })
+  @ApiOkResponse({
+    description:
+      '为单个门店的指定档位议定基础价覆盖，改动后该门店在 purelyProfit 的' +
+      '会员套餐页与会员中心立即按新价展示、下单也按新价结算。' +
+      'priceDisplay 传空串即清除覆盖、恢复默认价。' +
+      '只动覆盖价，不碰成交总额与子账号加价，与「设置会员等级」互不干扰。',
+    type: PulseAdminRenewalPriceResponseDto,
+  })
+  async updateAdminMemberRenewalPrices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminRenewalPriceUpdateDto,
+  ): Promise<PulseAdminRenewalPriceResponseDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId, dto);
+    const items =
+      await this.pulseMembershipService.updateAdminMemberRenewalPrices(
+        user,
+        memberId,
+        // 未传（undefined）与显式传空串都表示「清除覆盖」，统一收敛成 null
+        dto.items.map((item) => ({
+          planId: item.planId,
+          priceDisplay: item.priceDisplay ?? null,
+        })),
+      );
+    return { items };
   }
 
   @Patch('members/:id/deal-price/sub-account')

@@ -147,6 +147,22 @@ describe('PulseMembershipAdminController sub-account quota', () => {
   });
 });
 
+/** 列表分页用例用的门店记录：无会员档案 → free 会员，只用于验证切片与统计口径。 */
+const buildAdminMemberListStore = (storeId: number) => ({
+  id: storeId,
+  name: `纯利宝${storeId}店`,
+  contactPhone: '13619654020',
+  createdAt: new Date('2026-05-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+  owner: {
+    email: 'phone_13619654020@purelyprofit.local',
+    name: null,
+    realName: `张三${storeId}`,
+    avatar: null,
+    lastActiveAt: null,
+  },
+});
+
 describe('PulseMembershipService admin', () => {
   let context: PulseMembershipServiceTestingContext;
 
@@ -617,6 +633,83 @@ describe('PulseMembershipService admin', () => {
     });
   });
 
+  it('listAdminMembers 按 page / pageSize 切片，total 与 hasMore 反映过滤后的全量结果', async () => {
+    context.prismaService.storeMembershipProfile.findMany
+      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValue([]);
+    context.prismaService.store.findMany.mockResolvedValue(
+      [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),
+    );
+    context.prismaService.storeMembershipOrder.groupBy.mockResolvedValue([]);
+    context.prismaService.storePartner.findMany.mockResolvedValue([]);
+    context.redisService.getClient = jest.fn(() => ({
+      mget: jest.fn().mockResolvedValue([null, null, null]),
+    }));
+
+    const result = await context.service.listAdminMembers(context.user, {
+      page: 1,
+      pageSize: 2,
+    });
+
+    expect(result.total).toBe(3);
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(2);
+    expect(result.items.map((item) => item.id)).toEqual(['18', '19']);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('listAdminMembers 最后一页 hasMore 为 false', async () => {
+    context.prismaService.storeMembershipProfile.findMany
+      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValue([]);
+    context.prismaService.store.findMany.mockResolvedValue(
+      [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),
+    );
+    context.prismaService.storeMembershipOrder.groupBy.mockResolvedValue([]);
+    context.prismaService.storePartner.findMany.mockResolvedValue([]);
+    context.redisService.getClient = jest.fn(() => ({
+      mget: jest.fn().mockResolvedValue([null, null, null]),
+    }));
+
+    const result = await context.service.listAdminMembers(context.user, {
+      page: 2,
+      pageSize: 2,
+    });
+
+    expect(result.total).toBe(3);
+    expect(result.items.map((item) => item.id)).toEqual(['20']);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('listAdminMembers 统计按过滤后全量计算，不随分页缩水', async () => {
+    context.prismaService.storeMembershipProfile.findMany
+      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValue([]);
+    context.prismaService.store.findMany.mockResolvedValue(
+      [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),
+    );
+    context.prismaService.storeMembershipOrder.groupBy.mockResolvedValue([]);
+    context.prismaService.storePartner.findMany.mockResolvedValue([]);
+    context.redisService.getClient = jest.fn(() => ({
+      mget: jest.fn().mockResolvedValue([null, null, null]),
+    }));
+
+    const result = await context.service.listAdminMembers(context.user, {
+      page: 1,
+      pageSize: 2,
+    });
+
+    // 当前页只有 2 条，统计必须仍然反映 3 条全量结果。
+    // 这三家门店都没有会员档案，builder 一律判为未活跃（activeCount 为 0）。
+    expect(result.stats).toEqual({
+      totalCount: 3,
+      activeCount: 0,
+      inactiveCount: 3,
+      partnerCount: 0,
+      bannedCount: 0,
+    });
+  });
+
   it('listAdminMembers 将 partner、keyword、level、status 下推到批量查询', async () => {
     context.prismaService.storeMembershipProfile.findMany.mockResolvedValueOnce(
       [{ storeId: 18 }, { storeId: 19 }],
@@ -630,7 +723,20 @@ describe('PulseMembershipService admin', () => {
         level: 'annual',
         status: 'active',
       }),
-    ).resolves.toEqual({ items: [], total: 0 });
+    ).resolves.toMatchObject({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      stats: {
+        totalCount: 0,
+        activeCount: 0,
+        inactiveCount: 0,
+        partnerCount: 0,
+        bannedCount: 0,
+      },
+    });
 
     expect(context.prismaService.store.findMany).toHaveBeenCalledWith({
       where: {
@@ -1294,9 +1400,22 @@ describe('PulseMembershipService admin', () => {
       18,
     );
 
+    // 有覆盖价的行只作废成交分量（保留运营议定的续费价），无覆盖价的才整行删除
+    expect(
+      context.prismaService.storeMembershipLockedPrice.updateMany,
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18, renewalPriceOverride: { not: null } },
+      data: {
+        dealLockedAt: null,
+        subAccountAmount: null,
+        subAccountCount: null,
+      },
+    });
     expect(
       context.prismaService.storeMembershipLockedPrice.deleteMany,
-    ).toHaveBeenCalledWith({ where: { storeId: 18 } });
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18, renewalPriceOverride: null },
+    });
     expect(loggerWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('pulse_admin_membership_locked_price_reset'),
     );
@@ -1375,6 +1494,8 @@ describe('PulseMembershipService admin', () => {
           // 尚未补录子账号加价：详情需下发 null，让运营在弹窗里看到补录入口
           subAccountAmount: null,
           subAccountCount: null,
+          // 未议定续费价覆盖：按配置价续费
+          renewalPriceOverride: null,
           source: 'admin',
           lockedAt: new Date('2026-05-20T00:00:00.000Z'),
         },
@@ -1383,6 +1504,8 @@ describe('PulseMembershipService admin', () => {
           price: 58800,
           subAccountAmount: 15000,
           subAccountCount: 3,
+          // 议定价 298 已被配置价 398 涨过（取高者），定价基数按 398 走
+          renewalPriceOverride: 29800,
           source: 'purchase',
           lockedAt: new Date('2026-05-21T00:00:00.000Z'),
         },
@@ -1439,6 +1562,8 @@ describe('PulseMembershipService admin', () => {
         subAccountAmountDisplay: null,
         subAccountCount: null,
         renewalPriceDisplay: null,
+        // 未议定覆盖：下发 null，前端据此展示「按配置价」
+        renewalPriceOverrideDisplay: null,
         source: 'admin',
         lockedAt: new Date('2026-05-20T00:00:00.000Z').getTime(),
       },
@@ -1448,8 +1573,10 @@ describe('PulseMembershipService admin', () => {
         priceDisplay: '588',
         subAccountAmountDisplay: '150',
         subAccountCount: 3,
-        // 续费价 = 配置价 39800 + 加价 15000 = 54800
+        // 续费价 = max(配置价 39800, 议定价 29800) + 加价 15000 = 54800
         renewalPriceDisplay: '548',
+        // 议定价原值照常下发（供运营回看当初谈了多少），只是当期不参与定价
+        renewalPriceOverrideDisplay: '298',
         source: 'purchase',
         lockedAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
       },
@@ -1483,6 +1610,155 @@ describe('PulseMembershipService admin', () => {
     const result = await context.service.getAdminMemberDetail(context.user, 18);
 
     expect(result.lockedPrices).toEqual([]);
+  });
+
+  it('getAdminMemberDetail 返回调整续费记录：档位名 + 未议定 / 清除覆盖的 null 语义', async () => {
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      contactPhone: '13619654020',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+      owner: {
+        email: 'phone_13619654020@purelyprofit.local',
+        name: null,
+        realName: '张三',
+        avatar: null,
+        lastActiveAt: null,
+      },
+    });
+    context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'yearly',
+      expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    context.prismaService.storeMembershipPromoRecord.count.mockResolvedValue(0);
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    context.prismaService.storeMembershipPriceOverrideAudit.findMany.mockResolvedValueOnce(
+      [
+        {
+          // 首次议价：oldPrice 为 null 表示此前未覆盖
+          id: 7,
+          planId: 'yearly',
+          oldPrice: null,
+          newPrice: 49800,
+          operatorName: '李四',
+          createdAt: new Date('2026-05-24T10:00:00.000Z'),
+        },
+        {
+          // 清除覆盖：newPrice 为 null 表示回到配置价
+          id: 6,
+          planId: 'yearly',
+          oldPrice: 49800,
+          newPrice: null,
+          operatorName: null,
+          createdAt: new Date('2026-05-23T10:00:00.000Z'),
+        },
+      ],
+    );
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.renewalPriceAdjustCount).toBe(2);
+    expect(result.renewalPriceAdjustHistory).toEqual([
+      {
+        id: '7',
+        planId: 'yearly',
+        planName: '年度会员',
+        oldPriceDisplay: null,
+        newPriceDisplay: '498',
+        operatorName: '李四',
+        createdAt: new Date('2026-05-24T10:00:00.000Z').getTime(),
+      },
+      {
+        id: '6',
+        planId: 'yearly',
+        planName: '年度会员',
+        oldPriceDisplay: '498',
+        newPriceDisplay: null,
+        operatorName: null,
+        createdAt: new Date('2026-05-23T10:00:00.000Z').getTime(),
+      },
+    ]);
+    expect(
+      context.prismaService.storeMembershipPriceOverrideAudit.findMany,
+    ).toHaveBeenCalledWith(expect.objectContaining({ where: { storeId: 18 } }));
+  });
+
+  it('getAdminMemberDetail 返回子账号设置记录：额度变更 + 操作人 + 变更原因', async () => {
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      contactPhone: '13619654020',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+      owner: {
+        email: 'phone_13619654020@purelyprofit.local',
+        name: null,
+        realName: '张三',
+        avatar: null,
+        lastActiveAt: null,
+      },
+    });
+    context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'yearly',
+      expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    context.prismaService.storeMembershipPromoRecord.count.mockResolvedValue(0);
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    context.prismaService.storeSubAccountQuotaAudit.findMany.mockResolvedValueOnce(
+      [
+        {
+          id: 11,
+          oldQuota: 2,
+          newQuota: 5,
+          operatorUserId: 9,
+          reason: '门店扩张，新增收银员',
+          createdAt: new Date('2026-05-26T10:00:00.000Z'),
+        },
+        {
+          // 历史数据：没有操作人、没填原因
+          id: 10,
+          oldQuota: 0,
+          newQuota: 2,
+          operatorUserId: null,
+          reason: null,
+          createdAt: new Date('2026-05-25T10:00:00.000Z'),
+        },
+      ],
+    );
+    context.prismaService.user.findMany.mockResolvedValueOnce([
+      { id: 9, name: null, realName: '王五' },
+    ]);
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.subAccountQuotaRecordCount).toBe(2);
+    expect(result.subAccountQuotaRecordHistory).toEqual([
+      {
+        id: '11',
+        oldQuota: 2,
+        newQuota: 5,
+        operatorName: '王五',
+        reason: '门店扩张，新增收银员',
+        createdAt: new Date('2026-05-26T10:00:00.000Z').getTime(),
+      },
+      {
+        id: '10',
+        oldQuota: 0,
+        newQuota: 2,
+        operatorName: null,
+        reason: null,
+        createdAt: new Date('2026-05-25T10:00:00.000Z').getTime(),
+      },
+    ]);
+    // 只为出现过的操作人补名字，空集合不该白查一次库
+    expect(context.prismaService.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: [9] } } }),
+    );
   });
 
   it('getAdminMemberDetail 不返回开发者账号自身门店', async () => {

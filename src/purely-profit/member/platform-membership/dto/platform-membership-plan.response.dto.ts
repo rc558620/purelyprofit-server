@@ -22,12 +22,12 @@ export class PlatformMembershipPlanResponseDto {
   @IsString({ message: '套餐名称必须是字符串' })
   name: string;
 
-  @ApiProperty({ example: 9900, description: '套餐价格，单位分' })
+  @ApiProperty({ example: 10800, description: '套餐价格，单位分' })
   @IsInt({ message: '套餐价格必须是整数' })
   price: number;
 
   @ApiPropertyOptional({
-    example: 11400,
+    example: 29800,
     description: '原价，单位分；永久会员可为空',
   })
   @IsOptional()
@@ -50,7 +50,11 @@ export class PlatformMembershipPlanResponseDto {
   @IsInt({ message: '有效期天数必须是整数' })
   validDays?: number | null;
 
-  @ApiPropertyOptional({ example: '省15元', description: '套餐角标文案' })
+  @ApiPropertyOptional({
+    example: '省190元',
+    description:
+      '套餐角标文案，由「划线原价 − 实付价」实时算出（不给定时前端不展示角标）',
+  })
   @IsOptional()
   @IsString({ message: '套餐角标必须是字符串' })
   badge?: string;
@@ -60,7 +64,7 @@ export class PlatformMembershipPlanResponseDto {
   recommended?: boolean;
 
   @ApiPropertyOptional({
-    example: 3300,
+    example: 3600,
     description: '月均价格，单位分；永久会员可为空',
   })
   @IsOptional()
@@ -137,4 +141,24 @@ export class PlatformMembershipPlanRulesResponseDto {
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipPlanRuleRowDto)
   rows: PlatformMembershipPlanRuleRowDto[];
+}
+
+/**
+ * GET /platform-membership/pricing-version
+ * 当前门店的会员价格版本号 —— 响应
+ *
+ * purelyPulse 改价发生在另一个会话，无法 bump 商家端本地的 mutationVersion，
+ * 商家端会一直命中本地缓存看到旧价。前端进入 member-plans / member-center 时
+ * 先取一次这个版本号，与缓存里的版本不一致就弃用缓存重新拉取。
+ */
+export class PlatformMembershipPricingVersionResponseDto {
+  @ApiProperty({
+    example: 1785000000000,
+    description:
+      '套餐版本号（毫秒时间戳 + 代码级展示口径版本）：全局配置价与本门店成交价快照两者的最近变更时间，' +
+      '再叠加主推位 / 角标规则这类不下库的代码配置版本。' +
+      '仅用于比对「是否变化」，不要当时间展示',
+  })
+  @IsInt({ message: '价格版本号必须是整数' })
+  pricingVersion: number;
 }

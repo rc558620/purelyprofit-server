@@ -39,6 +39,7 @@ import {
   PlatformMembershipPlanResponseDto,
   PlatformMembershipPlanRulesResponseDto,
   PlatformMembershipPointsLogsResponseDto,
+  PlatformMembershipPricingVersionResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
   PreviewPlatformMembershipOrderResponseDto,
@@ -79,6 +80,21 @@ export class PlatformMembershipController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipProfileResponseDto> {
     return this.platformMembershipService.getProfile(user);
+  }
+
+  @Get('pricing-version')
+  @ApiOperation({ summary: '获取当前门店会员价格版本号' })
+  @ApiOkResponse({
+    description:
+      '供商家端校验套餐缓存是否过期：与上次拉取时记录的版本号不一致，' +
+      '说明平台配置价、本门店的续费价覆盖、或套餐展示口径（主推位 / 角标规则等' +
+      '不下库的代码配置）发生了变化，应弃用本地缓存重新拉取套餐与会员中心数据。',
+    type: PlatformMembershipPricingVersionResponseDto,
+  })
+  getPricingVersion(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PlatformMembershipPricingVersionResponseDto> {
+    return this.platformMembershipService.getPricingVersion(user);
   }
 
   @Get('plans')

@@ -100,6 +100,95 @@ export class PulseRechargeRecordDto {
   createdAt: number;
 }
 
+/**
+ * 子账号设置记录（对齐前端 MemberSubAccountQuotaRecord）
+ *
+ * 数据源为 `store_sub_account_quota_audits`：运营每改一次子账号额度留一条痕。
+ * newQuota 为 0 表示这次把子账号功能关掉了。
+ */
+export class PulseSubAccountQuotaRecordDto {
+  @ApiProperty({ example: '11', description: '记录 ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ example: 2, description: '变更前的子账号额度' })
+  @IsInt()
+  oldQuota: number;
+
+  @ApiProperty({ example: 5, description: '变更后的子账号额度（0 = 关闭）' })
+  @IsInt()
+  newQuota: number;
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '操作人名称；用户已注销或历史数据缺失时为空',
+  })
+  @IsOptional()
+  @IsString()
+  operatorName: string | null;
+
+  @ApiPropertyOptional({
+    example: '门店扩张，新增收银员',
+    description: '变更原因；未填写时为 null',
+  })
+  @IsOptional()
+  @IsString()
+  reason: string | null;
+
+  @ApiProperty({ example: 1747123200000, description: '变更时间戳（ms）' })
+  @IsInt()
+  createdAt: number;
+}
+
+/**
+ * 调整续费价格记录（对齐前端 MemberRenewalPriceAdjustRecord）
+ *
+ * 数据源为 `store_membership_price_override_audits`：运营每改一次续费价留一条痕。
+ * 记录的是**议定基础价**的覆盖（不含子账号加价），因此这里展示的是运营填的价。
+ */
+export class PulseRenewalPriceAdjustRecordDto {
+  @ApiProperty({ example: '7', description: '记录 ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ example: 'yearly', description: '套餐档位标识' })
+  @IsString()
+  planId: string;
+
+  @ApiProperty({ example: '年度会员', description: '档位展示名' })
+  @IsString()
+  planName: string;
+
+  @ApiPropertyOptional({
+    example: '398',
+    description: '调整前的议定价展示值（元，字符串）；null = 此前未议定',
+  })
+  @IsOptional()
+  @IsString()
+  oldPriceDisplay: string | null;
+
+  @ApiPropertyOptional({
+    example: '498',
+    description:
+      '调整后的议定价展示值（元，字符串）；null = 已清除覆盖、恢复默认配置价',
+  })
+  @IsOptional()
+  @IsString()
+  newPriceDisplay: string | null;
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '操作人名称；历史数据缺失时为空',
+  })
+  @IsOptional()
+  @IsString()
+  operatorName: string | null;
+
+  @ApiProperty({ example: 1747123200000, description: '调整时间戳（ms）' })
+  @IsInt()
+  createdAt: number;
+}
+
 export const PULSE_SUB_ACCOUNT_ROLE_VALUES = [
   'cashier',
   'finance',
@@ -264,6 +353,11 @@ export function toOptionalBoolean(value: unknown): boolean | undefined {
 
 /* ────────────────── Filter constants ────────────────── */
 
+/** 会员列表单页最大条数（与会员记录 limit 上限保持一致口径）。 */
+export const PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE = 100;
+/** 会员列表默认单页条数。 */
+export const PULSE_ADMIN_MEMBER_LIST_DEFAULT_PAGE_SIZE = 20;
+
 /**
  * 会员列表筛选状态（对齐前端 MemberFilterStatus / MemberFilterLevel）
  */
@@ -358,10 +452,23 @@ export class PulseAdminMemberLockedPriceDto {
   subAccountCount: number | null;
 
   @ApiPropertyOptional({
+    example: '350',
+    description:
+      '该档位议定的基础价（元，已格式化，入库原值）。null 表示未议定。' +
+      '实际定价基数为 max(当前配置价, 议定价)，因此它低于配置价时不再生效；' +
+      '年 / 永久档位的子账号加价仍然叠加',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  renewalPriceOverrideDisplay: string | null;
+
+  @ApiPropertyOptional({
     example: '498',
     description:
-      '续费价 = 当前配置价 + 子账号加价（元，已格式化）。' +
-      '仅当该档位录了子账号加价时下发，供快照展示「加价 ¥100 = ¥498」',
+      '续费价 = max(当前配置价, 议定价) + 子账号加价（元，已格式化）。' +
+      '仅当该档位录了子账号加价、或有议定价时下发，' +
+      '供快照展示「加价 ¥100 = ¥498」',
     nullable: true,
   })
   @IsOptional()

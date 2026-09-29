@@ -16,9 +16,11 @@ import { PulseMembershipAdminBeansMutationService } from './membership-admin-bea
 import { PulseMembershipAdminClubStatsService } from './membership-admin-club-stats.service';
 import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-query.service';
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
+import { PulseMembershipAdminMemberRecordsService } from './membership-admin-member-records.service';
 import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
+import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminStatusMutationService } from './membership-admin-status-mutation.service';
@@ -161,6 +163,8 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipAdminMutationStateService,
       PulseMembershipAdminMembershipMutationService,
       PulseMembershipAdminPricingPreviewService,
+      PulseMembershipAdminRenewalPriceService,
+      PulseMembershipAdminMemberRecordsService,
       PulseMembershipAdminPointsMutationService,
       PulseMembershipAdminBeansMutationService,
       PulseMembershipAdminStatusMutationService,

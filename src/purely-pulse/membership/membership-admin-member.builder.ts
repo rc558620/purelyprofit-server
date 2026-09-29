@@ -13,9 +13,11 @@ import type {
   PulseAdminMembershipOrderRecord,
   PulseAdminMembershipProfileRecord,
   PulseAdminPartnerRecord,
+  PulseAdminRenewalPriceAdjustRecord,
   PulseAdminStoreIdentityRecord,
   PulseAdminStoreRecord,
   PulseAdminSubAccountDetail,
+  PulseAdminSubAccountQuotaAuditRecord,
 } from './membership.types';
 
 /**
@@ -55,7 +57,7 @@ import {
   toPulseMemberLevel,
 } from './membership-admin-query.helper';
 import { Money } from '../../shared/money.utils';
-import { isSubAccountPricingPlan } from '../../purely-profit/member/platform-membership/platform-membership.constants';
+import { resolveRenewalPriceFen } from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import type { LockedPriceSnapshot } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 
 type PulseAdminLogStoreRecord = Pick<
@@ -101,6 +103,8 @@ interface BuildPulseAdminMemberListItemInput {
   orderSummary: PulseAdminMemberOrderSummary | undefined;
   partner: PulseAdminPartnerRecord | null;
   banReason: string | null;
+  /** 续费价是否被调整过（曾经调过即 true，由调用方按审计 + 当前覆盖价判定） */
+  renewalPriceAdjusted: boolean;
 }
 
 interface BuildPulseAdminMemberDetailInput {
@@ -112,6 +116,10 @@ interface BuildPulseAdminMemberDetailInput {
   subAccountSummary: PulseAdminSubAccountDetail;
   /** 首购锁定价快照（空数组表示未锁价） */
   lockedPrices: LockedPriceSnapshot[];
+  /** 调整续费价格审计（新→旧排序，空数组表示从未调过价） */
+  renewalPriceAdjustments: PulseAdminRenewalPriceAdjustRecord[];
+  /** 子账号额度变更审计（新→旧排序，空数组表示从未调过额度） */
+  subAccountQuotaAudits: PulseAdminSubAccountQuotaAuditRecord[];
   /** 各档位当前配置价（分）：折算「配置价 + 子账号加价 = 续费价」用 */
   planPrices: Map<string, number>;
   banReason: string | null;
@@ -195,7 +203,14 @@ function resolveMemberOnline(
 export function buildPulseAdminMemberListItem(
   input: BuildPulseAdminMemberListItemInput,
 ): PulseMemberListItemDto {
-  const { store, profile, orderSummary, partner, banReason } = input;
+  const {
+    store,
+    profile,
+    orderSummary,
+    partner,
+    banReason,
+    renewalPriceAdjusted,
+  } = input;
   const ownerName = resolveAdminMemberDisplayName(store);
   const phone = resolveAdminMemberPhone(store);
   const isCancelled = Boolean(store.deletedAt);
@@ -240,6 +255,7 @@ export function buildPulseAdminMemberListItem(
     subAccountQuota: profile?.pulseSubAccountQuota ?? 0,
     subAccountCapabilityEnabled: (profile?.pulseSubAccountQuota ?? 0) > 0,
     membershipExpiry,
+    renewalPriceAdjusted,
   } satisfies PulseMemberListItemDto;
 }
 
@@ -254,6 +270,8 @@ export function buildPulseAdminMemberDetail(
     promoCount,
     subAccountSummary,
     lockedPrices,
+    renewalPriceAdjustments,
+    subAccountQuotaAudits,
     planPrices,
     banReason,
   } = input;
@@ -342,6 +360,41 @@ export function buildPulseAdminMemberDetail(
           : ('admin' as const),
       createdAt: order.createdAt.getTime(),
     })),
+    // 「调整续费记录」：与「设置会员等级记录」严格分工——那条是一次成交，
+    // 这条是运营为**未来每次续费**议定的基础价，改价留痕单独成 tab
+    renewalPriceAdjustCount: renewalPriceAdjustments.length,
+    renewalPriceAdjustHistory: renewalPriceAdjustments.map((audit) => ({
+      id: String(audit.id),
+      planId: audit.planId,
+      planName: audit.planName,
+      // 用 typeof 而非 === null：审计行缺列（旧数据 / mock 残行）时值为 undefined，
+      // 直接交给金额格式化会渲染出 NaN
+      oldPriceDisplay:
+        typeof audit.oldPrice === 'number'
+          ? Money.fromDbCents(audit.oldPrice)
+              .toFixedOutputYuan()
+              .replace(/\.00$/, '')
+          : null,
+      newPriceDisplay:
+        typeof audit.newPrice === 'number'
+          ? Money.fromDbCents(audit.newPrice)
+              .toFixedOutputYuan()
+              .replace(/\.00$/, '')
+          : null,
+      operatorName: audit.operatorName,
+      createdAt: audit.createdAt.getTime(),
+    })),
+    // 「子账号设置记录」：只覆盖额度数值变更（newQuota=0 即关闭子账号），
+    // 槽位角色 / 状态 / 分配员工的改动没有审计，不在本列表里
+    subAccountQuotaRecordCount: subAccountQuotaAudits.length,
+    subAccountQuotaRecordHistory: subAccountQuotaAudits.map((audit) => ({
+      id: String(audit.id),
+      oldQuota: audit.oldQuota,
+      newQuota: audit.newQuota,
+      operatorName: audit.operatorName,
+      reason: audit.reason,
+      createdAt: audit.createdAt.getTime(),
+    })),
     remark: banReason ?? `${store.name} 的平台会员档案`,
     membershipExpiry,
     isOnline: resolveMemberOnline(store.owner.lastActiveAt),
@@ -363,17 +416,29 @@ export function buildPulseAdminMemberDetail(
           : null,
       subAccountCount:
         typeof item.subAccountCount === 'number' ? item.subAccountCount : null,
-      // 续费价 = 当前配置价 + 子账号加价（仅当该档位录了加价时下发），
-      // 供管理端快照展示「加价 ¥100 = ¥498」。
+      // 该档位被「调整续费价格」覆盖过的基础价；null = 未覆盖
+      renewalPriceOverrideDisplay:
+        typeof item.renewalPriceOverride === 'number'
+          ? Money.fromDbCents(item.renewalPriceOverride)
+              .toFixedOutputYuan()
+              .replace(/\.00$/, '')
+          : null,
+      // 续费价 = max(当前配置价, 议定价) + 子账号加价，仅在「录了加价」或
+      // 「有议定价」时下发，供管理端快照展示「加价 ¥100 = ¥498」。
       //
-      // ⚠️ 必须过 isSubAccountPricingPlan：月 / 季开不了子账号，`resolvePlanPrice`
-      // 也不计它们的加价，这里带上就会显示一个客户永远付不到的价格
+      // ⚠️ 必须走 resolveRenewalPriceFen 而不是手抄公式：子账号加价只对
+      // 年 / 永久档位生效，月 / 季带上它就会显示一个客户永远付不到的价格。
       renewalPriceDisplay:
-        typeof item.subAccountAmount === 'number' &&
         planPrices.has(item.planId) &&
-        isSubAccountPricingPlan(item.planId)
+        (typeof item.subAccountAmount === 'number' ||
+          typeof item.renewalPriceOverride === 'number')
           ? Money.fromDbCents(
-              (planPrices.get(item.planId) ?? 0) + item.subAccountAmount,
+              resolveRenewalPriceFen({
+                planId: item.planId,
+                configPrice: planPrices.get(item.planId) ?? 0,
+                overridePrice: item.renewalPriceOverride,
+                subAccountAmount: item.subAccountAmount,
+              }),
             )
               .toFixedOutputYuan()
               .replace(/\.00$/, '')

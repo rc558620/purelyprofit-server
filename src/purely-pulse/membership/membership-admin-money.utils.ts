@@ -7,6 +7,18 @@
  */
 
 /**
+ * 金额上限（分）= 100 万元。
+ *
+ * 会员成交 / 续费价不可能到这个量级，超出一律按「误输入」拒绝。
+ *
+ * 必须有这道护栏：库里 `price` / `renewal_price_override` / `sub_account_amount`
+ * 都是 PG `integer`（上限 2147483647 分），而 `Math.round(元 * 100)` 没有上限。
+ * 少了它，运营填一串长数字会让 Prisma 抛「value out of range」→ 变成 500，
+ * 本该是一条可读的 400 参数错误。
+ */
+export const MAX_MEMBERSHIP_AMOUNT_FEN = 100_000_000;
+
+/**
  * 成交价展示值（元字符串）→ 分；缺失或非法时返回 null。
  *
  * 与 `resolveAmountFen` 的差别是**不允许 0**：0 元成交价不是有效输入，
@@ -22,7 +34,7 @@ export function resolvePriceFen(display?: string | null): number | null {
     return null;
   }
 
-  return Math.round(parsedValue * 100);
+  return toBoundedFen(parsedValue);
 }
 
 /**
@@ -42,5 +54,12 @@ export function resolveAmountFen(display?: string | null): number | null {
     return null;
   }
 
-  return Math.round(parsedValue * 100);
+  return toBoundedFen(parsedValue);
+}
+
+/** 元 → 分，并在超过 `MAX_MEMBERSHIP_AMOUNT_FEN` 时返回 null（视为非法输入） */
+function toBoundedFen(yuan: number): number | null {
+  const fen = Math.round(yuan * 100);
+
+  return fen > MAX_MEMBERSHIP_AMOUNT_FEN ? null : fen;
 }

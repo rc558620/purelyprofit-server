@@ -182,7 +182,7 @@ describe('PulseMembershipSettingsService', () => {
     );
 
     const result = await service.getSettings(developerUser);
-    // monthly 的价格应保留用户修改值 5800，而非默认值 3800
+    // monthly 的价格应保留用户修改值 5800，而非默认值 4200
     expect(result.items[0]).toEqual({
       planId: 'monthly',
       planName: '月度会员',

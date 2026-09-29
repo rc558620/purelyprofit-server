@@ -41,6 +41,8 @@ export interface PulseMembershipPrismaServiceMock {
   };
   user: {
     update: jest.Mock;
+    /** 子账号设置记录：按 operatorUserId 补操作人展示名 */
+    findMany: jest.Mock;
   };
   storeMembershipProfile: {
     findFirst: jest.Mock;
@@ -71,6 +73,14 @@ export interface PulseMembershipPrismaServiceMock {
     upsert: jest.Mock;
     deleteMany: jest.Mock;
     updateMany: jest.Mock;
+  };
+  /** 续费价覆盖审计：会员列表的「已调价」徽章按它判定 */
+  storeMembershipPriceOverrideAudit: {
+    findMany: jest.Mock;
+  };
+  /** 子账号额度变更审计：会员详情「子账号设置记录」tab 按它判定 */
+  storeSubAccountQuotaAudit: {
+    findMany: jest.Mock;
   };
   storeMembershipPointsLog: {
     create: jest.Mock;
@@ -201,6 +211,7 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     },
     user: {
       update: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     storeMembershipProfile: {
       findFirst: jest.fn(),
@@ -232,6 +243,12 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    storeMembershipPriceOverrideAudit: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    storeSubAccountQuotaAudit: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
     storeMembershipPointsLog: {
       create: jest.fn(),

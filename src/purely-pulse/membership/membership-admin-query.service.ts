@@ -22,6 +22,11 @@ import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-qu
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
 import { PulseMembershipAdminSalesStatsService } from './membership-admin-sales-stats.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
+import { buildAdminMemberListStats } from './membership-admin-query.helper';
+import {
+  PULSE_ADMIN_MEMBER_LIST_DEFAULT_PAGE_SIZE,
+  PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE,
+} from './dto/pulse-membership-admin-members.shared.dto';
 
 @Injectable()
 export class PulseMembershipAdminQueryService {
@@ -59,11 +64,25 @@ export class PulseMembershipAdminQueryService {
       query,
     );
 
+    // 分页切片必须建立在**全量过滤结果**之上：封禁状态存 Redis、无法下推到
+    // 数据库层过滤，因此先在内存里过滤完，再切片 + 统计（统计与分页无关）。
+    const page = query.page ?? 1;
+    const pageSize = Math.min(
+      query.pageSize ?? PULSE_ADMIN_MEMBER_LIST_DEFAULT_PAGE_SIZE,
+      PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE,
+    );
+    const startIndex = (page - 1) * pageSize;
+    const pagedItems = items.slice(startIndex, startIndex + pageSize);
+
     return {
-      items,
-      // 使用内存过滤后的数量作为 total，因为封禁状态存储在 Redis 中，
+      items: pagedItems,
+      // 全量过滤后的数量作为 total，因为封禁状态存储在 Redis 中，
       // 数据库层过滤无法完整排除 banned 会员，需要二次过滤补全。
       total: items.length,
+      page,
+      pageSize,
+      hasMore: startIndex + pagedItems.length < items.length,
+      stats: buildAdminMemberListStats(items),
     };
   }
 

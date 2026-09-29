@@ -17,6 +17,8 @@ import type {
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
 } from './dto/pulse-membership-admin-logs.response.dto';
+import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
+import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
@@ -36,6 +38,8 @@ import type {
   PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
   PulseAdminPricingPreviewResult,
+  PulseAdminRenewalPriceItem,
+  PulseAdminRenewalPriceUpdateItem,
   PulseAdminStatusMutationInput,
   PulseAdminSubAccountAmountBackfillInput,
   PulseAdminSubAccountQuotaMutationInput,
@@ -107,6 +111,13 @@ export class PulseMembershipService {
     query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
     return this.adminService.listAdminBeanLogs(user, query);
+  }
+
+  listAdminMemberRecords(
+    user: AuthenticatedUser,
+    query: GetPulseAdminMemberRecordsQueryDto,
+  ): Promise<PulseAdminMemberRecordsResponseDto> {
+    return this.adminService.listAdminMemberRecords(user, query);
   }
 
   getPromoCenter(
@@ -220,6 +231,32 @@ export class PulseMembershipService {
     },
   ): Promise<PulseAdminPricingPreviewResult> {
     return this.adminService.previewAdminMemberPricing(user, memberId, dto);
+  }
+
+  /**
+   * 读取该会员各档位的续费价现状。
+   *
+   * 与「设置会员等级」弹窗里的成交价预览不同：这里读的是**已落库**的覆盖价，
+   * 运营一打开「调整续费价格」弹窗就能看到这家店现在真实的续费价。
+   */
+  listAdminMemberRenewalPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseAdminRenewalPriceItem[]> {
+    return this.adminService.listAdminMemberRenewalPrices(user, memberId);
+  }
+
+  /** 调整续费价格：为每个档位单独议定基础价覆盖（传空即恢复默认价） */
+  updateAdminMemberRenewalPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+    items: PulseAdminRenewalPriceUpdateItem[],
+  ): Promise<PulseAdminRenewalPriceItem[]> {
+    return this.adminService.updateAdminMemberRenewalPrices(
+      user,
+      memberId,
+      items,
+    );
   }
 
   /** 补录 / 撤销存量门店的子账号加价（只动子账号字段，不改成交总额） */

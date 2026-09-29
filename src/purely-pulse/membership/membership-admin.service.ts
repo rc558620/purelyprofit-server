@@ -5,19 +5,25 @@ import type {
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
 } from './dto/pulse-membership-admin-logs.response.dto';
+import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
+import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
 import type { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
 import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
 import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
+import { PulseMembershipAdminMemberRecordsService } from './membership-admin-member-records.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
+import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
 import type {
   PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
   PulseAdminPricingPreviewResult,
+  PulseAdminRenewalPriceItem,
+  PulseAdminRenewalPriceUpdateItem,
   PulseAdminStatusMutationInput,
   PulseAdminSubAccountAmountBackfillInput,
   PulseAdminSubAccountQuotaMutationInput,
@@ -31,6 +37,8 @@ export class PulseMembershipAdminService {
     private readonly queryService: PulseMembershipAdminQueryService,
     private readonly mutationService: PulseMembershipAdminMutationService,
     private readonly pricingPreviewService: PulseMembershipAdminPricingPreviewService,
+    private readonly renewalPriceService: PulseMembershipAdminRenewalPriceService,
+    private readonly memberRecordsService: PulseMembershipAdminMemberRecordsService,
   ) {}
 
   listAdminPointsLogs(
@@ -45,6 +53,18 @@ export class PulseMembershipAdminService {
     query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
     return this.queryService.listAdminBeanLogs(user, query);
+  }
+
+  /**
+   * 会员记录管理：跨会员聚合「充值 / 等级设置 / 调整续费 / 子账号设置」四类记录。
+   *
+   * 与积分流水同源的权限口径，但合并的是四张不同来源的表，游标里因此带上记录类型。
+   */
+  listAdminMemberRecords(
+    user: AuthenticatedUser,
+    query: GetPulseAdminMemberRecordsQueryDto,
+  ): Promise<PulseAdminMemberRecordsResponseDto> {
+    return this.memberRecordsService.listMemberRecords(user, query);
   }
 
   listAdminMembers(
@@ -129,6 +149,28 @@ export class PulseMembershipAdminService {
       storeId: memberId,
       ...dto,
     });
+  }
+
+  /** 读取该会员各档位的续费价现状（含是否被覆盖、能否编辑） */
+  listAdminMemberRenewalPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseAdminRenewalPriceItem[]> {
+    return this.renewalPriceService.listRenewalPrices(user, memberId);
+  }
+
+  /**
+   * 批量更新续费价覆盖（调整续费价格弹窗提交）。
+   *
+   * `items` 里 `priceDisplay` 为空的档位即清除覆盖、恢复默认价。
+   * 只动覆盖价，不碰成交总额与子账号加价，因此与「设置会员等级」互不干扰。
+   */
+  updateAdminMemberRenewalPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+    items: PulseAdminRenewalPriceUpdateItem[],
+  ): Promise<PulseAdminRenewalPriceItem[]> {
+    return this.renewalPriceService.updateRenewalPrices(user, memberId, items);
   }
 
   /** 补录 / 撤销存量门店的子账号加价（只动子账号字段，不改成交总额） */

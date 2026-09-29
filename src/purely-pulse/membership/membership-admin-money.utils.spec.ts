@@ -50,4 +50,20 @@ describe('membership-admin-money.utils', () => {
       expect(resolveAmountFen(null)).toBeNull();
     });
   });
+
+  describe('金额上限护栏', () => {
+    it('上限（100 万元）以内正常转分', () => {
+      expect(resolvePriceFen('1000000')).toBe(100_000_000);
+      expect(resolveAmountFen('1000000')).toBe(100_000_000);
+    });
+
+    it('超过上限一律返回 null，由调用方报 400', () => {
+      // 库里这三列都是 PG integer（上限 2147483647 分），
+      // 没有这道护栏就会在写入时抛 Prisma 错误 → 500
+      expect(resolvePriceFen('1000000.01')).toBeNull();
+      expect(resolveAmountFen('1000000.01')).toBeNull();
+      expect(resolvePriceFen('99999999999')).toBeNull();
+      expect(resolveAmountFen('99999999999')).toBeNull();
+    });
+  });
 });

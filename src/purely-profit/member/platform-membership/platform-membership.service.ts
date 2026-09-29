@@ -27,6 +27,7 @@ import type {
   PlatformMembershipPlanResponseDto,
   PlatformMembershipPlanRulesResponseDto,
   PlatformMembershipPointsLogsResponseDto,
+  PlatformMembershipPricingVersionResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
   PreviewPlatformMembershipOrderResponseDto,
@@ -101,6 +102,23 @@ export class PlatformMembershipService {
       buildPlatformMembershipCenterCacheKey(storeId),
       () => this.platformMembershipReadService.getCenterByStoreId(storeId),
     );
+  }
+
+  /**
+   * 当前门店的会员价格版本号。
+   *
+   * purelyPulse 改价、或平台调整配置价后，商家端本地缓存的价格就是过期的。
+   * 前端在 member-plans / member-center 用它做一次轻量校验即可发现变化。
+   */
+  async getPricingVersion(
+    user: AuthenticatedUser,
+  ): Promise<PlatformMembershipPricingVersionResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
+    return {
+      pricingVersion: await this.membershipRenewalService.getPricingVersion(
+        this.getCurrentStoreIdOrThrow(user),
+      ),
+    };
   }
 
   async getProfile(

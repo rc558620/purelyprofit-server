@@ -3,7 +3,10 @@ import type {
   PulseAdminMembershipProfileRecord,
   PulseAdminStoreIdentityRecord,
 } from './membership.types';
-import type { PulseMemberListItemDto } from './dto/pulse-membership-admin-members.response.dto';
+import type {
+  PulseAdminMemberListStatsDto,
+  PulseMemberListItemDto,
+} from './dto/pulse-membership-admin-members.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 
 // ─── Re-exports for backward compatibility ───────────────────────────────────
@@ -50,6 +53,43 @@ export function isMissingSubAccountQuotaSchemaError(error: unknown): boolean {
 }
 
 // ─── In-memory filter matching ───────────────────────────────────────────────
+
+/**
+ * 基于过滤后的完整列表构建统计概览。
+ *
+ * 统计必须吃**分页切片之前**的全量结果，否则「共 X 位 / 活跃」会跟着页大小缩水。
+ * cancelled 会员历史上只在注销后短暂出现，不单独计数（对齐前端概览行五个指标）。
+ */
+export function buildAdminMemberListStats(
+  members: Array<Pick<PulseMemberListItemDto, 'status' | 'isPartner'>>,
+): PulseAdminMemberListStatsDto {
+  let activeCount = 0;
+  let inactiveCount = 0;
+  let bannedCount = 0;
+  let partnerCount = 0;
+
+  for (const member of members) {
+    if (member.status === 'active') {
+      activeCount += 1;
+    } else if (member.status === 'inactive') {
+      inactiveCount += 1;
+    } else if (member.status === 'banned') {
+      bannedCount += 1;
+    }
+
+    if (member.isPartner) {
+      partnerCount += 1;
+    }
+  }
+
+  return {
+    totalCount: members.length,
+    activeCount,
+    inactiveCount,
+    partnerCount,
+    bannedCount,
+  };
+}
 
 export function matchesAdminMemberFilters(
   member: Pick<

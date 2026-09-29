@@ -10,7 +10,10 @@ import { loadPlanCatalog } from '../../purely-profit/member/platform-membership/
 import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 import type { PlatformMembershipPlanId } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
-import { isSubAccountPricingPlan } from '../../purely-profit/member/platform-membership/platform-membership.constants';
+import {
+  isSubAccountPricingPlan,
+  resolveRenewalPriceFen,
+} from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import { resolveAmountFen } from './membership-admin-money.utils';
 import type {
   PulseAdminMemberLevel,
@@ -82,12 +85,23 @@ export class PulseMembershipAdminPricingPreviewService {
         0)
       : 0;
 
-    // 定价公式：配置价 + 子账号加价。成交价不参与，只在下面回显
-    const renewalPrice = plan.price + subAccountAmount;
+    // 本档位已被「调整续费价格」覆盖过：基数用覆盖价，子账号加价仍然叠加
+    const overridePrice = snapshots.priceOverrides.get(targetPlanId) ?? null;
+
+    // 与结算路径严格同一入口（resolveRenewalPriceFen），
+    // 否则会出现「弹窗显示 398、实际扣 450」
+    const renewalPrice = resolveRenewalPriceFen({
+      planId: targetPlanId,
+      configPrice: plan.price,
+      overridePrice,
+      subAccountAmount,
+    });
 
     return {
       targetPlanId,
       configPriceDisplay: toYuanDisplay(plan.price),
+      overridePriceDisplay:
+        overridePrice === null ? null : toYuanDisplay(overridePrice),
       subAccountAmountDisplay: toYuanDisplay(subAccountAmount),
       renewalPriceDisplay: toYuanDisplay(renewalPrice),
       dealPriceDisplay: priceDisplay?.trim() || null,
@@ -117,6 +131,7 @@ export class PulseMembershipAdminPricingPreviewService {
     return {
       targetPlanId: null,
       configPriceDisplay: '0',
+      overridePriceDisplay: null,
       subAccountAmountDisplay: '0',
       renewalPriceDisplay: '0',
       dealPriceDisplay: null,

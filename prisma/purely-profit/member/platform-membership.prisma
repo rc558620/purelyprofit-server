@@ -87,6 +87,24 @@ model StoreMembershipLockedPrice {
   subAccountAmount Int?                      @map("sub_account_amount")
   /// 该套餐包含的子账号数量。仅用于展示与财务核算，不参与定价计算
   subAccountCount  Int?                      @map("sub_account_count")
+  /// 续费价覆盖（分）：运营为该门店、该档位单独议定的**基础价**。
+  ///
+  /// 定价公式：`(本字段 ?? 当前配置价) + 子账号加价`
+  /// - 覆盖的是**基础配置价**，不是最终续费价：年 / 永久档位的子账号加价仍然叠加，
+  ///   与既有公式正交，不会重复计价，也不会吞掉已议定的子账号费用。
+  /// - 可空：null 表示未覆盖，完全回落到「当前配置价 + 子账号加价」的标准口径。
+  ///   运营可随时清空本字段恢复默认价。
+  /// - 与 `price`（成交总额，只记账）互斥：`price` 是一次成交的结果，
+  ///   本字段是**未来每次续费**都生效的定价输入，两者语义不得混用。
+  renewalPriceOverride Int?                  @map("renewal_price_override")
+  /// 成交锁定时点：**非空才代表本行的成交分量（price / subAccountAmount /
+  /// subAccountCount / source）来自一次真实成交**。
+  ///
+  /// 为 NULL 的行是「只为承载 `renewalPriceOverride` 而创建」的占位行：
+  /// 那次的 `price` 只是建行时抄的配置价，不是任何一次成交的结果，
+  /// 因此既不能进「成交价快照」展示，也不能拦住商家首次成交的写入
+  /// （`lockPriceOnFirstDeal` 会以本字段为判据补写成交分量）。
+  dealLockedAt DateTime?                     @map("deal_locked_at")
   /// 锁价来源：purchase=商家端下单成交，admin=平台侧设置会员等级成交
   source    StoreMembershipLockedPriceSource @default(purchase)
   lockedAt  DateTime                         @default(now()) @map("locked_at")
@@ -96,6 +114,28 @@ model StoreMembershipLockedPrice {
 
   @@unique([storeId, planId])
   @@map("store_membership_locked_prices")
+}
+
+/// 续费价覆盖变更审计。
+///
+/// 改价直接影响门店的实际扣款，必须留痕：谁、什么时候、把哪一档从多少改成了多少。
+/// `oldPrice` / `newPrice` 为 null 分别表示「新建覆盖」与「清除覆盖（恢复默认价）」。
+model StoreMembershipPriceOverrideAudit {
+  id          Int                  @id @default(autoincrement())
+  storeId     Int                  @map("store_id")
+  planId      MembershipPlanCycle  @map("plan_id")
+  /// 变更前的基础价（分）；null = 此前未覆盖
+  oldPrice    Int?                 @map("old_price")
+  /// 变更后的基础价（分）；null = 已清除覆盖，回落到配置价
+  newPrice    Int?                 @map("new_price")
+  operatorUserId Int?              @map("operator_user_id")
+  operatorName   String?           @map("operator_name")
+  reason      String?
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([storeId, planId, createdAt])
+  @@map("store_membership_price_override_audits")
 }
 
 model StoreMembershipPointsLog {

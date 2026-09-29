@@ -17,11 +17,13 @@ import {
 import { SUB_ACCOUNT_PRICING_PLAN_IDS } from '../../../purely-profit/member/platform-membership/platform-membership.constants';
 import type { PulseMembershipPlanId } from '../membership.types';
 import {
+  PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE,
   PULSE_MEMBER_FILTER_EXPIRY_VALUES,
   PULSE_MEMBER_FILTER_LEVEL_VALUES,
   PULSE_MEMBER_FILTER_STATUS_VALUES,
   PULSE_MEMBER_LEVEL_VALUES,
   PULSE_MEMBER_STATUS_VALUES,
+  PULSE_MEMBERSHIP_PLAN_ID_VALUES,
   PULSE_SUB_ACCOUNT_ROLE_VALUES,
   PULSE_SUB_ACCOUNT_STATUS_VALUES,
   toNullableNumber,
@@ -595,6 +597,17 @@ export class GetPulseAdminMembersQueryDto {
   pendingSubAccountBackfill?: boolean;
 
   @ApiPropertyOptional({
+    example: true,
+    description:
+      '只看「续费价被调整过」的门店，供运营复核议过价的客户。' +
+      '口径是曾经调过：后来在弹窗里清空覆盖（恢复配置价）的门店仍然算，不会掉出清单',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean({ message: '续费价调整筛选必须是布尔值' })
+  renewalPriceAdjusted?: boolean;
+
+  @ApiPropertyOptional({
     enum: PULSE_MEMBER_FILTER_STATUS_VALUES,
     description: '会员状态筛选，不传返回全部',
   })
@@ -636,4 +649,95 @@ export class GetPulseAdminMembersQueryDto {
   @IsOptional()
   @IsString({ message: '搜索关键词必须是字符串' })
   keyword?: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: '页码，从 1 开始，默认 1',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '页码必须是整数' })
+  @Min(1, { message: '页码不能小于 1' })
+  page?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: '每页条数，默认 20，最大 100',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '每页条数必须是整数' })
+  @Min(1, { message: '每页条数不能小于 1' })
+  @Max(PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE, {
+    message: `每页条数不能超过 ${PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE}`,
+  })
+  pageSize?: number;
+}
+
+/**
+ * 「调整续费价格」的单档位提交项。
+ *
+ * `priceDisplay` 为空（null / undefined / 空串）表示**清除覆盖**、恢复默认价，
+ * 因此弹窗清空输入框即可回退；`0` 是合法取值，表示该档位免费，
+ * 与「未设置」是两回事，校验规则必须放行。
+ */
+export class PulseAdminRenewalPriceItemDto {
+  @ApiProperty({
+    enum: PULSE_MEMBERSHIP_PLAN_ID_VALUES,
+    example: 'yearly',
+    description: '套餐档位',
+  })
+  @IsIn(PULSE_MEMBERSHIP_PLAN_ID_VALUES, { message: '套餐档位不合法' })
+  planId: PulseMembershipPlanId;
+
+  @ApiPropertyOptional({
+    example: '350',
+    description:
+      '覆盖价（元，最多两位小数，允许 0）。传空串表示清除覆盖、按配置价续费',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const trimmedValue = value.trim();
+    // 空串必须转成 undefined：@IsOptional 只跳过 null / undefined，
+    // 留着空串会被下面的 @Matches 判为非法 → 400，「清除覆盖」就永远提交不了
+    return trimmedValue === '' ? undefined : trimmedValue;
+  })
+  @IsString({ message: '续费价必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '续费价必须是非负数，最多两位小数',
+  })
+  priceDisplay?: string;
+}
+
+/** PATCH /pulse/membership/admin/members/:id/renewal-price —— 请求体 */
+export class PulseAdminRenewalPriceUpdateDto {
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的会员 ID' })
+  @IsOptional()
+  @IsString()
+  memberId?: string;
+
+  @ApiPropertyOptional({ example: '1', description: '兼容旧请求的主键 ID' })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiProperty({
+    type: [PulseAdminRenewalPriceItemDto],
+    description:
+      '要调整的档位列表。只需提交改动过的档位，未提交的保持原样；' +
+      'priceDisplay 为空即清除该档位的覆盖价',
+  })
+  @IsArray({ message: '档位列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PulseAdminRenewalPriceItemDto)
+  items: PulseAdminRenewalPriceItemDto[];
 }
