@@ -240,7 +240,7 @@ export class CustodyRealtimeService implements OnModuleInit, OnModuleDestroy {
       storeId,
       targetMemberId,
     };
-    this.logger.log(
+    this.logger.debug(
       `[custody-realtime] 发布: event=${event}, storeId=${storeId}, ` +
         `targetMemberId=${targetMemberId ?? '-'}`,
     );
@@ -269,7 +269,7 @@ export class CustodyRealtimeService implements OnModuleInit, OnModuleDestroy {
 
     // 诊断：小程序原生通道的订阅者是本 Worker 的内存表，这里把「消息收到了但本地
     // 无人接」（跨 Worker、连接已断、memberId 不匹配的直接证据）显式暴露出来。
-    this.logger.log(
+    this.logger.debug(
       `[custody-realtime] 收到扇出: event=${event}, storeId=${storeId}, ` +
         `targetMemberId=${targetMemberId ?? '-'}, 本地订阅者=` +
         `${targetMemberId === null ? 0 : (this.memberSubscribers.get(targetMemberId)?.size ?? 0)}`,
