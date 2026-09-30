@@ -55,6 +55,10 @@ describe('AccessControlService', () => {
       'handover:view',
       'handover:create',
       'handover:update',
+      // 客存：收银员可查看台账、发起存入与核销取出
+      'custody:view',
+      'custody:create',
+      'custody:pickup',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');
@@ -104,6 +108,12 @@ describe('AccessControlService', () => {
       'handover:view',
       'handover:create',
       'handover:update',
+      // 客存：店长额外拥有作废与门店口径配置
+      'custody:view',
+      'custody:create',
+      'custody:pickup',
+      'custody:void',
+      'custody:manage',
     ]);
     expect(permissions).not.toContain('members:view');
     expect(permissions).not.toContain('partner:view');
@@ -217,6 +227,9 @@ describe('AccessControlService', () => {
       'scan-ordering:order-process',
       'service-call:view',
       'service-call:process',
+      'custody:view',
+      'custody:create',
+      'custody:pickup',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('handover:view');

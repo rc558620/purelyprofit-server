@@ -1,0 +1,123 @@
+// 客存（custody）数据模型：门店代客户寄存的商品/服务凭证、取出流水与门店配置
+// 设计要点：数量整数字段；商品名/规格/单位/会员与店员姓名均为写入时快照，后续不回刷；
+// 库存口径（stock_mode）随单快照，历史单不受门店配置变更影响；软删除统一走 deleted_at。
+enum CustodyStatus {
+  draft // 待客户确认
+  stored // 在存
+  finished // 已取完
+  expired // 已过期
+  void // 已作废
+}
+
+enum CustodyStockMode {
+  sold // 实物已售出，不占库存
+  frozen // 冻结库存
+}
+
+model CustodyOrder {
+  id                    Int               @id @default(autoincrement())
+  storeId               Int               @map("store_id")
+  /// 存单号（业务唯一键，对外展示与核销定位）
+  orderNo               String            @map("order_no") @db.VarChar(32)
+  memberId              Int?              @map("member_id")
+  /// 会员姓名/手机号快照：会员解绑后仍可追溯归属，写入后不回刷
+  memberNameSnapshot    String?           @map("member_name_snapshot") @db.VarChar(50)
+  memberPhoneSnapshot   String?           @map("member_phone_snapshot") @db.VarChar(20)
+  productId             Int?              @map("product_id")
+  productName           String            @map("product_name") @db.VarChar(100)
+  /// 规格快照
+  specName              String?           @map("spec_name") @db.VarChar(50)
+  /// 计量单位快照：商品改单位后历史单不漂移
+  unit                  String            @map("unit") @db.VarChar(10)
+  /// 存入总量（整数）
+  totalQty              Int               @map("total_qty")
+  /// 剩余可取数量（整数）
+  remainingQty          Int               @map("remaining_qty")
+  /// 库存口径快照：历史单按各自口径走，不受门店配置变更影响
+  stockMode             CustodyStockMode  @default(sold) @map("stock_mode")
+  /// 存放位置
+  location              String?           @map("location") @db.VarChar(50)
+  storedAt              DateTime          @map("stored_at")
+  /// 到期时间：null 表示长期有效
+  expireAt              DateTime?         @map("expire_at")
+  status                CustodyStatus     @default(draft) @map("status")
+  /// 来源销售单：stock_mode=sold 时必填，证明已收款
+  sourceOrderId         Int?              @map("source_order_id")
+  /// 存入经手店员（含姓名快照）
+  createdByStaffId      Int?              @map("created_by_staff_id")
+  createdByNameSnapshot String?           @map("created_by_name_snapshot") @db.VarChar(50)
+  /// 作废审计：操作人、时间、原因
+  voidedByStaffId       Int?              @map("voided_by_staff_id")
+  voidedAt              DateTime?         @map("voided_at")
+  voidReason            String?           @map("void_reason") @db.VarChar(100)
+  /// 幂等键：发起存入由前端生成，防重复建单
+  idempotencyKey        String?           @map("idempotency_key") @db.VarChar(64)
+  /// 备注
+  note                  String?           @map("note") @db.VarChar(200)
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt             DateTime?         @map("deleted_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  pickups CustodyPickup[]
+
+  @@unique([storeId, orderNo], map: "uq_custody_orders_store_order_no")
+  @@unique([storeId, idempotencyKey], map: "uq_custody_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
+  @@index([storeId, status, createdAt(sort: Desc)], map: "idx_custody_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, memberId, status], map: "idx_custody_orders_store_member_status", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, productId, status], map: "idx_custody_orders_store_product_status", where: raw("((deleted_at IS NULL) AND (product_id IS NOT NULL))"))
+  @@index([storeId, expireAt], map: "idx_custody_orders_store_expire", where: raw("((status = 'stored'::\"CustodyStatus\") AND (deleted_at IS NULL))"))
+  @@map("custody_orders")
+}
+
+model CustodyPickup {
+  id                   Int          @id @default(autoincrement())
+  custodyOrderId       Int          @map("custody_order_id")
+  storeId              Int          @map("store_id")
+  /// 本次取出数量（整数）
+  qty                  Int          @map("qty")
+  /// 核销店员（含姓名快照）
+  operatorStaffId      Int?         @map("operator_staff_id")
+  operatorNameSnapshot String?      @map("operator_name_snapshot") @db.VarChar(50)
+  /// 核销时所在消费单（可空）
+  relatedOrderId       Int?         @map("related_order_id")
+  pickedAt             DateTime     @map("picked_at")
+  /// 幂等键：同一次核销重复提交只落一条
+  idempotencyKey       String?      @map("idempotency_key") @db.VarChar(64)
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt            DateTime?    @map("deleted_at")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  custodyOrder CustodyOrder @relation(fields: [custodyOrderId], references: [id])
+
+  @@unique([custodyOrderId, idempotencyKey], map: "uq_custody_pickups_order_idempotency", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
+  @@index([custodyOrderId, pickedAt(sort: Desc)], map: "idx_custody_pickups_order_picked", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, pickedAt(sort: Desc)])
+  @@map("custody_pickups")
+}
+
+model CustodySetting {
+  id                    Int               @id @default(autoincrement())
+  storeId               Int               @unique @map("store_id")
+  enabled               Boolean           @default(true) @map("enabled")
+  stockMode             CustodyStockMode  @default(sold) @map("stock_mode")
+  /// 默认有效期天数：null 表示长期有效
+  defaultExpireDays     Int?              @map("default_expire_days")
+  /// 跨店通取开关：一期恒为 false，预留连锁演进
+  allowCrossStorePickup Boolean           @default(false) @map("allow_cross_store_pickup")
+  /// 客户确认开关：true 表示存入必须客户在小程序确认
+  requireMemberConfirm  Boolean           @default(true) @map("require_member_confirm")
+  /// 取出核验开关：true 表示核销必须再核对会员手机号后四位
+  pickupPhoneVerifyEnabled   Boolean      @default(false) @map("pickup_phone_verify_enabled")
+  /// 单价阈值（单位：分）：存单商品单价 ≥ 该值时强制核对手机号后四位，null 表示不按阈值触发
+  pickupPhoneVerifyThreshold Int?         @map("pickup_phone_verify_threshold")
+  /// 可选计量单位列表
+  unitOptions           Json?             @map("unit_options")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt             DateTime?         @map("deleted_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  @@map("custody_settings")
+}

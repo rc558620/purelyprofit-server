@@ -1,3 +1,4 @@
+import type { InventoryAdjustType } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -280,12 +281,16 @@ export class InventoryAdjustmentResponseDto {
   @ApiProperty({ example: 5, description: '变化量' })
   delta: number;
 
+  /**
+   * 调整类型：出参覆盖全部 InventoryAdjustType 取值（含系统产生的 custody_pickup），
+   * 入参侧仍只允许人工可发起的四类（INVENTORY_ADJUST_TYPE_VALUES）。
+   */
   @ApiProperty({
     example: 'restock',
-    enum: INVENTORY_ADJUST_TYPE_VALUES,
+    enum: [...INVENTORY_ADJUST_TYPE_VALUES, 'custody_pickup'],
     description: '调整类型',
   })
-  adjustType: (typeof INVENTORY_ADJUST_TYPE_VALUES)[number];
+  adjustType: InventoryAdjustType;
 
   @ApiPropertyOptional({ example: '盘点修正', description: '备注' })
   note?: string;

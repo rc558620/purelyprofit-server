@@ -20,6 +20,8 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     spaceSession: { update: jest.fn(), findUnique: jest.fn() },
     product: { findFirst: jest.fn(), update: jest.fn() },
     inventoryAdjustmentLog: { create: jest.fn() },
+    // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
+    custodyOrder: { groupBy: jest.fn().mockResolvedValue([]) },
   };
 
   const items = [

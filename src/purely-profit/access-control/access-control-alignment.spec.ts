@@ -89,6 +89,10 @@ describe('Sub-account alignment regression', () => {
       'handover:view',
       'handover:create',
       'handover:update',
+      // 客存：收银员可查看台账、发起存入与核销取出
+      'custody:view',
+      'custody:create',
+      'custody:pickup',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');

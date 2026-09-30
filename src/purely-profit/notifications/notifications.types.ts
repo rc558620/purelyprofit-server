@@ -5,6 +5,7 @@ export const NOTIFICATION_TYPE_VALUES = [
   'marketing',
   'withdrawal',
   'employee',
+  'custody',
 ] as const;
 
 export type NotificationTypeValue = (typeof NOTIFICATION_TYPE_VALUES)[number];
@@ -67,6 +68,22 @@ export interface UpcomingLeaveRow {
   employeeName: string;
   startDate: Date;
   createdAt: Date;
+}
+
+/** 近期被作废的客存单（站内消息：作废是异常动作，需门店知晓） */
+export interface VoidedCustodyOrderRow {
+  id: number;
+  orderNo: string;
+  productName: string;
+  voidReason: string | null;
+  voidedAt: Date | null;
+}
+
+/** 近期核销汇总（站内消息：按天汇总，避免每笔取出都产生一条噪音） */
+export interface CustodyPickupSummary {
+  pickedCount: number;
+  pickedQty: number;
+  lastPickedAt: Date | null;
 }
 
 export interface NotificationDraft {

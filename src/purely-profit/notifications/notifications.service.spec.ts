@@ -49,6 +49,12 @@ describe('NotificationsService', () => {
     employeeLeave: {
       findMany: jest.fn(),
     },
+    custodyOrder: {
+      findMany: jest.fn(),
+    },
+    custodyPickup: {
+      findMany: jest.fn(),
+    },
   };
 
   const commerceAccessService = {
@@ -164,6 +170,9 @@ describe('NotificationsService', () => {
         createdAt: new Date(2026, 4, 14, 9, 0, 0, 0),
       },
     ]);
+    // 客存：默认无作废单、无核销记录，保持既有 6 条基线不被客存源影响
+    prismaService.custodyOrder.findMany.mockResolvedValue([]);
+    prismaService.custodyPickup.findMany.mockResolvedValue([]);
   }
 
   /**
@@ -228,6 +237,41 @@ describe('NotificationsService', () => {
       orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
       take: 20,
     });
+  });
+
+  it('客存作废与核销会落进站内消息', async () => {
+    mockNotificationSources();
+    prismaService.custodyOrder.findMany.mockResolvedValue([
+      {
+        id: 31,
+        orderNo: 'C031',
+        productName: '山崎 12 年',
+        voidReason: '客户要求作废',
+        voidedAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+      },
+    ]);
+    prismaService.custodyPickup.findMany.mockResolvedValue([
+      { qty: 2, pickedAt: new Date(2026, 4, 14, 12, 30, 0, 0) },
+      { qty: 1, pickedAt: new Date(2026, 4, 14, 12, 0, 0, 0) },
+    ]);
+
+    const result = await service.list(user, {});
+
+    // 作废逐条呈现，核销按天汇总成一条，避免每笔取出都产生噪音
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custody:order:31:void',
+          type: 'custody',
+          title: '客存单 C031 已作废',
+        }),
+        expect.objectContaining({
+          type: 'custody',
+          title: '近 24 小时已核销 2 笔客存',
+          content: '合计取出 3 件，最近一次 05/14 12:30。',
+        }),
+      ]),
+    );
   });
 
   it('list 支持未读过滤并返回 readAt', async () => {

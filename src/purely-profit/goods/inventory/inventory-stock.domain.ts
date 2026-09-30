@@ -59,16 +59,29 @@ export function buildInventoryManualAdjustmentPlan(params: {
 export function buildInventoryStockChangePlan(params: {
   product: InventoryMutableProductRecord | null;
   command: InventoryStockChangeCommand;
+  /** 客存在存冻结量（frozen 口径）：不传视为 0，未开启客存冻结的门店行为完全不变 */
+  frozenQty?: number;
 }): InventoryStockMutationPlan {
   const product = ensureInventoryProductExists(params.product);
+  const frozenQty = Math.max(0, params.frozenQty ?? 0);
   const delta =
     params.command.adjustType === 'sale'
       ? -params.command.quantity
       : params.command.quantity;
   const afterStock = product.stock + delta;
 
-  if (afterStock < 0) {
-    throw new BadRequestException(`商品【${product.name}】库存不足`);
+  /*
+   * 客存冻结：物理库存里有货不等于可卖。
+   * 可用库存 = 物理库存 − 在存冻结量，扣减后仍须保证可用库存不为负，
+   * 否则会把客户寄存的商品卖掉。frozenQty 为 0 时本分支与历史行为一致（afterStock < 0）。
+   */
+  const afterAvailableStock = afterStock - frozenQty;
+  if (afterAvailableStock < 0) {
+    throw new BadRequestException(
+      frozenQty > 0
+        ? `商品【${product.name}】可用库存不足（可用 ${Math.max(0, product.stock - frozenQty)}，其中客存冻结 ${frozenQty}）`
+        : `商品【${product.name}】库存不足`,
+    );
   }
 
   return {

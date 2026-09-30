@@ -19,12 +19,15 @@ describe('inventory-stock.query', () => {
     logCreate: jest.Mock;
     logFindMany: jest.Mock;
     logDeleteMany: jest.Mock;
+    custodyOrderGroupBy: jest.Mock;
   } {
     const productFindFirst = jest.fn();
     const productUpdate = jest.fn();
     const logCreate = jest.fn();
     const logFindMany = jest.fn();
     const logDeleteMany = jest.fn();
+    // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
+    const custodyOrderGroupBy = jest.fn().mockResolvedValue([]);
 
     return {
       transaction: {
@@ -37,12 +40,16 @@ describe('inventory-stock.query', () => {
           findMany: logFindMany,
           deleteMany: logDeleteMany,
         },
+        custodyOrder: {
+          groupBy: custodyOrderGroupBy,
+        },
       } as unknown as InventoryTransactionClient,
       productFindFirst,
       productUpdate,
       logCreate,
       logFindMany,
       logDeleteMany,
+      custodyOrderGroupBy,
     };
   }
 

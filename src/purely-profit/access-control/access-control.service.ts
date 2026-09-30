@@ -66,6 +66,10 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:view',
   'handover:create',
   'handover:update',
+  // 客存（餐饮门店收银员专用：查看台账、发起存入、核销取出）
+  'custody:view',
+  'custody:create',
+  'custody:pickup',
 ] as const;
 
 const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
@@ -111,6 +115,12 @@ const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:view',
   'handover:create',
   'handover:update',
+  // 客存（餐饮门店店长专用：含门店口径配置与作废）
+  'custody:view',
+  'custody:create',
+  'custody:pickup',
+  'custody:void',
+  'custody:manage',
 ] as const;
 
 const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
@@ -163,6 +173,12 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:view',
   'handover:create',
   'handover:update',
+  // 客存（非餐饮门店店长专用：含门店口径配置与作废）
+  'custody:view',
+  'custody:create',
+  'custody:pickup',
+  'custody:void',
+  'custody:manage',
 ] as const;
 
 const FINANCE_SUB_ACCOUNT_PERMISSIONS = [

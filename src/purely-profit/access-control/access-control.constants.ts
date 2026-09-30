@@ -66,6 +66,12 @@ export const PERMISSION_CODES = [
   'self-ordering:order-process',
   'commission:view',
   'commission:manage',
+  // 客存（寄存商品/服务：餐饮与非餐饮门店通用）
+  'custody:view',
+  'custody:create',
+  'custody:pickup',
+  'custody:void',
+  'custody:manage',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
@@ -179,6 +185,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'self-ordering:order-process',
     'commission:view',
     'commission:manage',
+    // 客存（店长可发起存入、核销取出、作废与配置门店口径）
+    'custody:view',
+    'custody:create',
+    'custody:pickup',
+    'custody:void',
+    'custody:manage',
   ],
   [StaffRole.staff]: [
     'store:view',
@@ -198,5 +210,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'space:view',
     // 自助下单（查看权限：非餐饮门店普通员工需实时接收新订单弹窗，与空间查看对齐）
     'self-ordering:view',
+    // 客存（普通员工仅可查看台账，发起存入/核销/作废由店长与主账号完成）
+    'custody:view',
   ],
 };

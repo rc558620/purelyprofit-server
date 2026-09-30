@@ -31,4 +31,5 @@ enum InventoryAdjustType {
   damage
   manual
   sale
+  custody_pickup
 }

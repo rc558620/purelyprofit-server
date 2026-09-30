@@ -27,6 +27,7 @@ import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
 import { TelemetryValidationPipe } from '../shared/telemetry-validation.pipe';
 import { registerScanOrderingNativeWebsocket } from './scan-ordering-native-websocket';
 import { registerPrintAgentNativeWebsocket } from './print-agent-native-websocket';
+import { registerCustodyNativeWebsocket } from './custody-native-websocket';
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
   if (corsOrigin === '*') {
@@ -256,6 +257,9 @@ export async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
   await registerScanOrderingNativeWebsocket(app);
   registerPrintAgentNativeWebsocket(app);
+  // 客存 C 端原生 WebSocket：必须在上面的 websocket 插件注册之后，
+  // 且不能重复 register 插件（见函数内注释）
+  registerCustodyNativeWebsocket(app);
 
   const corsOrigin = configService.get<string>('app.corsOrigin') ?? '*';
   const resolvedOrigin = resolveCorsOrigin(corsOrigin);

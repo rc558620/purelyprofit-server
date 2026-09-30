@@ -1,20 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import {
+  CustodyStatus,
   PartnerWithdrawalStatus,
   StoreSubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildDerivedFinanceAccountStatusWhere } from '../finance/finance-account.query';
 import { Money } from '../../shared/money.utils';
-import { DAY_MS, SOURCE_LIMIT } from './notifications.constants';
+import {
+  DAY_MS,
+  LOW_STOCK_SOURCE_LIMIT,
+  SOURCE_LIMIT,
+} from './notifications.constants';
 import type {
   ActivePromotionRow,
+  CustodyPickupSummary,
   NotificationDraft,
   OverdueAccountRow,
   PendingWithdrawalRow,
   ProductAlertRow,
   StoreSubscriptionRow,
   UpcomingLeaveRow,
+  VoidedCustodyOrderRow,
 } from './notifications.types';
 import {
   formatMoney,
@@ -38,6 +45,8 @@ export class NotificationsBuildService {
       activePromotions,
       pendingWithdrawals,
       upcomingLeaves,
+      voidedCustodyOrders,
+      custodyPickups,
     ]: [
       ProductAlertRow[],
       OverdueAccountRow[],
@@ -45,6 +54,8 @@ export class NotificationsBuildService {
       ActivePromotionRow[],
       PendingWithdrawalRow[],
       UpcomingLeaveRow[],
+      VoidedCustodyOrderRow[],
+      Array<{ qty: number; pickedAt: Date }>,
     ] = await Promise.all([
       // 在数据库层完成 stock <= alertThreshold 过滤，避免查出大量不需要的数据
       // BUG-7 修复：加 deleted_at IS NULL 过滤软删除商品，与列表查询口径一致
@@ -131,6 +142,35 @@ export class NotificationsBuildService {
         },
         orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
         take: SOURCE_LIMIT,
+      }),
+      // 客存作废：实时推送只在会员在线时送达，落一条站内消息给门店留存
+      this.prisma.custodyOrder.findMany({
+        where: {
+          storeId,
+          status: CustodyStatus.void,
+          deletedAt: null,
+          voidedAt: { gte: new Date(now - DAY_MS * 7) },
+        },
+        select: {
+          id: true,
+          orderNo: true,
+          productName: true,
+          voidReason: true,
+          voidedAt: true,
+        },
+        orderBy: [{ voidedAt: 'desc' }, { id: 'desc' }],
+        take: SOURCE_LIMIT,
+      }),
+      // 客存核销：按天汇总，避免每笔取出都产生一条噪音通知
+      this.prisma.custodyPickup.findMany({
+        where: {
+          storeId,
+          deletedAt: null,
+          pickedAt: { gte: new Date(now - DAY_MS) },
+        },
+        select: { qty: true, pickedAt: true },
+        orderBy: [{ pickedAt: 'desc' }],
+        take: LOW_STOCK_SOURCE_LIMIT,
       }),
     ]);
 
@@ -220,6 +260,44 @@ export class NotificationsBuildService {
         bizId: String(leave.id),
         actionUrl: '/employee-management',
         createdAt: leave.createdAt.getTime(),
+      });
+    }
+
+    for (const order of voidedCustodyOrders) {
+      drafts.push({
+        id: `custody:order:${order.id}:void`,
+        type: 'custody',
+        title: `客存单 ${order.orderNo} 已作废`,
+        content: `${order.productName}：${order.voidReason?.trim() ? order.voidReason : '未填写作废原因'}。`,
+        bizType: 'custody_order',
+        bizId: String(order.id),
+        actionUrl: '/custody',
+        createdAt: order.voidedAt?.getTime() ?? now,
+      });
+    }
+
+    // 核销按天汇总成一条：24h 内的笔数与件数，便于门店对账而非逐笔打扰
+    const pickupSummary: CustodyPickupSummary = custodyPickups.reduce<CustodyPickupSummary>(
+      (acc, pickup) => ({
+        pickedCount: acc.pickedCount + 1,
+        pickedQty: acc.pickedQty + pickup.qty,
+        lastPickedAt:
+          acc.lastPickedAt === null || pickup.pickedAt.getTime() > acc.lastPickedAt.getTime()
+            ? pickup.pickedAt
+            : acc.lastPickedAt,
+      }),
+      { pickedCount: 0, pickedQty: 0, lastPickedAt: null },
+    );
+    if (pickupSummary.pickedCount > 0 && pickupSummary.lastPickedAt) {
+      drafts.push({
+        id: `custody:pickup:${formatMonthDay(now)}`,
+        type: 'custody',
+        title: `近 24 小时已核销 ${pickupSummary.pickedCount} 笔客存`,
+        content: `合计取出 ${pickupSummary.pickedQty} 件，最近一次 ${formatMonthDayTime(pickupSummary.lastPickedAt.getTime())}。`,
+        bizType: 'custody_pickup',
+        bizId: formatMonthDay(now),
+        actionUrl: '/custody',
+        createdAt: pickupSummary.lastPickedAt.getTime(),
       });
     }
 

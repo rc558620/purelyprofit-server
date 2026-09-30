@@ -11,11 +11,29 @@ import type {
   InventoryTransactionClient,
 } from './inventory.types';
 import type { InventoryAdjustType } from '@prisma/client';
+import { sumCustodyFrozenQty } from '../../../shared/custody/custody-frozen-stock';
 import {
   buildInventoryManualAdjustmentPlan,
   buildInventoryRevertStockPlan,
   buildInventoryStockChangePlan,
 } from './inventory-stock.domain';
+
+/**
+ * 读取单个商品的客存冻结量。
+ *
+ * 未开启 frozen 口径的门店聚合结果恒为 0，因此这里不做门店开关判断：
+ * 门店没开客存冻结时，本函数对既有库存链路完全无副作用。
+ */
+async function resolveFrozenQty(
+  transaction: InventoryTransactionClient,
+  storeId: number,
+  productId: number,
+): Promise<number> {
+  const frozenMap = await sumCustodyFrozenQty(transaction, storeId, [
+    productId,
+  ]);
+  return frozenMap.get(productId) ?? 0;
+}
 
 export async function executeInventoryManualAdjustment(
   transaction: InventoryTransactionClient,
@@ -256,7 +274,15 @@ async function recordInventoryStockChange(
     command.storeId,
     command.productId,
   );
-  const plan = buildInventoryStockChangePlan({ product, command });
+  const plan = buildInventoryStockChangePlan({
+    product,
+    command,
+    frozenQty: await resolveFrozenQty(
+      transaction,
+      command.storeId,
+      command.productId,
+    ),
+  });
 
   /*
    * D2 修复：使用原子 increment 替代绝对赋值，
@@ -298,9 +324,15 @@ export async function deductInventoryForSaleBestEffort(
     // 商品被删除/不属于该门店：无库存可扣，跳过而非中断落账
     if (!product) continue;
 
-    const shortOf = item.quantity - product.stock;
-    const deducted = Math.min(item.quantity, product.stock);
-    // 库存已为 0：没有任何可扣量，不产生 delta=0 的流水噪音
+    // 客存冻结：只按可用库存扣减（物理库存 − 在存冻结量），不得卖掉客户寄存的商品
+    const availableStock = Math.max(
+      0,
+      product.stock -
+        (await resolveFrozenQty(transaction, storeId, item.productId)),
+    );
+    const shortOf = item.quantity - availableStock;
+    const deducted = Math.min(item.quantity, availableStock);
+    // 可用库存已为 0：没有任何可扣量，不产生 delta=0 的流水噪音
     if (deducted <= 0) continue;
 
     const afterStock = product.stock - deducted;
@@ -368,6 +400,7 @@ export async function applyInventoryDeductionsInTransaction(
         adjustType,
         note,
       },
+      frozenQty: await resolveFrozenQty(transaction, storeId, item.productId),
     });
 
     await updateInventoryProductStock(transaction, plan.productId, {

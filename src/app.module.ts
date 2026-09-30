@@ -22,6 +22,7 @@ import { WithdrawalsModule } from './purely-profit/member/withdrawals/withdrawal
 import { BusinessAnalysisModule } from './purely-profit/dashboard/business-analysis/business-analysis.module';
 import { CategoriesModule } from './purely-profit/goods/categories/categories.module';
 import { CostsModule } from './purely-profit/operations/costs/costs.module';
+import { CustodyModule } from './purely-profit/operations/custody/custody.module';
 import { FinanceModule } from './purely-profit/finance/finance.module';
 import { InventoryModule } from './purely-profit/goods/inventory/inventory.module';
 import { MarketingModule } from './purely-profit/marketing/marketing.module';
@@ -48,6 +49,7 @@ import { ClientErrorsModule } from './purely-profit/client-errors/client-errors.
 import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
 import { PulseAuthModule } from './purely-pulse/auth/pulse-auth.module';
 import { ClubAuthModule } from './purely-club/auth/club-auth.module';
+import { ClubCustodyModule } from './purely-club/custody/club-custody.module';
 import { ClubHomeModule } from './purely-club/home/club-home.module';
 import { ClubMemberModule } from './purely-club/member/club-member.module';
 import { ClubOrdersModule } from './purely-club/orders/club-orders.module';
@@ -115,6 +117,7 @@ import { UploadModule } from './shared/upload.module';
     WithdrawalsModule,
     BusinessAnalysisModule,
     CostsModule,
+    CustodyModule,
     FinanceModule,
     MarketingModule,
     CategoriesModule,
@@ -142,6 +145,7 @@ import { UploadModule } from './shared/upload.module';
     PulseGrowthModule,
     PulseAuthModule,
     ClubAuthModule,
+    ClubCustodyModule,
     ClubHomeModule,
     ClubMemberModule,
     ClubOrdersModule,
