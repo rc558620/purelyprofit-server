@@ -307,6 +307,22 @@ export type RecentOrderRow = Prisma.SaleOrderGetPayload<{
   select: typeof DASHBOARD_HOME_RECENT_ORDER_SELECT;
 }>;
 
+/** 客存到期预警行：在存且临期阈值内到期（含已到期）的存单 */
+export const DASHBOARD_HOME_CUSTODY_EXPIRING_SELECT =
+  Prisma.validator<Prisma.CustodyOrderSelect>()({
+    id: true,
+    productName: true,
+    memberNameSnapshot: true,
+    remainingQty: true,
+    unit: true,
+    expireAt: true,
+    updatedAt: true,
+  });
+
+export type CustodyExpiringRow = Prisma.CustodyOrderGetPayload<{
+  select: typeof DASHBOARD_HOME_CUSTODY_EXPIRING_SELECT;
+}>;
+
 export interface DashboardHomeActivitiesData {
   lowStockProducts: ProductAlertRow[];
   overdueAccounts: OverdueAccountRow[];
@@ -321,6 +337,8 @@ export interface DashboardHomeActivitiesData {
   inactiveVips: InactiveVipRow[];
   dailyRevenueRows: DailyRevenueRow[];
   recentOrders: RecentOrderRow[];
+  /** 客存到期预警：在存且临期阈值内到期（含已到期） */
+  expiringCustodies: CustodyExpiringRow[];
 }
 
 export interface ActivityDraft {
@@ -354,6 +372,7 @@ export interface BuildDashboardHomeActivitiesParams {
   inactiveVips: InactiveVipRow[];
   dailyRevenueRows: DailyRevenueRow[];
   recentOrders: RecentOrderRow[];
+  expiringCustodies: CustodyExpiringRow[];
 }
 
 export type DashboardHomeLeaveType = EmployeeLeaveType;

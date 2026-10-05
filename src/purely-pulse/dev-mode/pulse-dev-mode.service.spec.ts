@@ -113,8 +113,8 @@ describe('PulseDevModeService', () => {
       expect(result.membership.remainingDays).toBeGreaterThan(0);
     });
 
-    it('membership.expiresAt 使用 DEV_EXPIRES_AT', () => {
-      expect(result.membership.expiresAt).toBe(DEV_EXPIRES_AT);
+    it('membership.expiresAt 使用 DEV_EXPIRES_AT（DTO 内为 ISO 字符串）', () => {
+      expect(result.membership.expiresAt).toBe(DEV_EXPIRES_AT.toISOString());
     });
 
     it('unreadNotificationCount 为 0', () => {

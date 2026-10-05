@@ -1,6 +1,5 @@
-// 客存 C 端控制器：我的客存列表/详情、输码预览、确认/拒绝、取件码生命周期
+// 客存 C 端控制器：我的客存列表/详情、确认/拒绝、取件码生命周期
 import {
-  Body,
   Controller,
   Get,
   Param,
@@ -28,9 +27,7 @@ import {
   ClubCustodyOrderListResponseDto,
   ClubCustodyOrderResponseDto,
   ClubCustodyPickupCodeDto,
-  ClubCustodyPreviewResponseDto,
   ListClubCustodyOrdersQueryDto,
-  PreviewClubCustodyByCodeDto,
 } from './dto/club-custody.dto';
 
 @ApiTags('Club / Custody')
@@ -55,20 +52,6 @@ export class ClubCustodyController {
     return this.clubCustodyService.listOrders(context, query);
   }
 
-  @Post('preview-by-code')
-  @ApiOperation({
-    summary: '按确认码预览待确认客存',
-    description:
-      '校验店员出示的 6 位确认码并返回草稿存单预览；此步骤不消费确认码。',
-  })
-  @ApiOkResponse({ type: ClubCustodyPreviewResponseDto })
-  previewByCode(
-    @CurrentClubContext() context: ClubCurrentContext,
-    @Body() dto: PreviewClubCustodyByCodeDto,
-  ): Promise<ClubCustodyPreviewResponseDto> {
-    return this.clubCustodyService.previewByCode(context, dto.code);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: '查询我的客存详情与取出流水' })
   @ApiOkResponse({ type: ClubCustodyOrderDetailResponseDto })
@@ -83,7 +66,7 @@ export class ClubCustodyController {
   @ApiOperation({
     summary: '确认客存存入',
     description:
-      '会员确认后草稿存单流转到在存，确认码同时失效；并发确认只有第一次生效。',
+      '会员确认后草稿存单流转到在存；仅存单归属人可确认，并发确认只有第一次生效。',
   })
   @ApiOkResponse({ type: ClubCustodyOrderResponseDto })
   confirmStore(

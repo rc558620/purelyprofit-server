@@ -12,7 +12,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
-import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import {
   NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
   NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
@@ -51,8 +51,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   const realtime = { publishOrderCreated: jest.fn() };
   /** 新客额度闸门：默认按老客放行，额度用例会单独改写实现 */
   const quotaService = {
-    ensureAvailableForNewCustomer: jest.fn(),
-    consumeForNewCustomer: jest.fn(),
+    assertAvailableForOrder: jest.fn(),
+    consumeWithinOrderTransaction: jest.fn(),
   };
   const inventoryReservationService = {
     reserveMenuProductStock: jest.fn(
@@ -213,8 +213,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     jest.clearAllMocks();
 
     // 默认按老客放行：额度闸门只在专项用例里改写，其余用例不受影响
-    quotaService.ensureAvailableForNewCustomer.mockResolvedValue(false);
-    quotaService.consumeForNewCustomer.mockResolvedValue({
+    quotaService.assertAvailableForOrder.mockResolvedValue(false);
+    quotaService.consumeWithinOrderTransaction.mockResolvedValue({
       consumed: false,
       remaining: 0,
     });
@@ -222,13 +222,11 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     prisma.$transaction = jest.fn((fn: (client: unknown) => unknown) => fn(tx));
     prisma.scanOrderingSession.findFirst = jest.fn().mockResolvedValue(session);
     prisma.idempotencyRecord.findUnique = jest.fn().mockResolvedValue(null);
-    prisma.scanOrderingTable.findUnique = jest
-      .fn()
-      .mockResolvedValue({
-        name: 'A01',
-        area: { name: '1楼' },
-        type: { name: '大厅' },
-      });
+    prisma.scanOrderingTable.findUnique = jest.fn().mockResolvedValue({
+      name: 'A01',
+      area: { name: '1楼' },
+      type: { name: '大厅' },
+    });
 
     cartPricing.priceCart.mockResolvedValue([pricedItem]);
     cartPricing.cartVersion.mockReturnValue(dto.cartVersion);
@@ -271,7 +269,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       providers: [
         ClubScanOrderingOrderService,
         { provide: PrismaService, useValue: prisma },
-        { provide: NewCustomerQuotaService, useValue: quotaService },
+        { provide: ClubNewCustomerQuotaService, useValue: quotaService },
         { provide: ScanOrderingUnpaidOrderClosureService, useValue: {} },
         {
           provide: ScanOrderingPricingVersionService,
@@ -489,7 +487,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   // ─── 新客额度闸门 ───────────────────────────────────────────────────
 
   it('新客且门店额度已用完：拒绝下单并带 NEW_CUSTOMER_QUOTA_EXHAUSTED 业务码', async () => {
-    quotaService.ensureAvailableForNewCustomer.mockRejectedValue(
+    quotaService.assertAvailableForOrder.mockRejectedValue(
       new ForbiddenException({
         message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
         code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
@@ -507,20 +505,22 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     // 闸门位于定价与事务之前：被拦时不应有任何定价与落库动作
     expect(cartPricing.priceCart).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(quotaService.consumeForNewCustomer).not.toHaveBeenCalled();
+    expect(quotaService.consumeWithinOrderTransaction).not.toHaveBeenCalled();
   });
 
-  it('新客下单成功：按会话门店 + 账号扣减 1 位新客额度', async () => {
-    quotaService.ensureAvailableForNewCustomer.mockResolvedValue(true);
+  it('新客下单成功：在建单事务内按会话门店 + 账号扣减 1 位新客额度', async () => {
+    quotaService.assertAvailableForOrder.mockResolvedValue(true);
 
     await service.create(user, IDEMPOTENCY_KEY, dto);
 
     // 门店取会话所属门店，而非「当前选中门店」
-    expect(quotaService.ensureAvailableForNewCustomer).toHaveBeenCalledWith(
+    expect(quotaService.assertAvailableForOrder).toHaveBeenCalledWith(
       session.storeId,
       user.id,
     );
-    expect(quotaService.consumeForNewCustomer).toHaveBeenCalledWith(
+    // 扣减必须拿到事务客户端：与订单落库同事务提交才能做到不多不少
+    expect(quotaService.consumeWithinOrderTransaction).toHaveBeenCalledWith(
+      tx,
       session.storeId,
       user.id,
       null,
@@ -528,7 +528,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   });
 
   it('老客下单不受额度影响：放行且不扣减', async () => {
-    quotaService.ensureAvailableForNewCustomer.mockResolvedValue(false);
+    quotaService.assertAvailableForOrder.mockResolvedValue(false);
 
     const result = (await service.create(user, IDEMPOTENCY_KEY, dto)) as {
       id: number;
@@ -536,19 +536,29 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
     expect(result.id).toBe(100);
     // consume 内部按 clubUserId 幂等，老客不会真的扣减
-    expect(quotaService.consumeForNewCustomer).toHaveBeenCalled();
+    expect(quotaService.consumeWithinOrderTransaction).toHaveBeenCalled();
   });
 
-  it('额度扣减失败不影响已创建的订单（只告警，不吞掉真实消费）', async () => {
-    quotaService.ensureAvailableForNewCustomer.mockResolvedValue(true);
-    quotaService.consumeForNewCustomer.mockRejectedValue(new Error('db down'));
+  it('并发抢不到额度时整笔建单回滚：不留下没扣额度的订单', async () => {
+    // 闸门是乐观预检（此时额度还有），真正的抢占发生在事务内的扣减
+    quotaService.assertAvailableForOrder.mockResolvedValue(true);
+    quotaService.consumeWithinOrderTransaction.mockRejectedValue(
+      new ForbiddenException({
+        message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+        code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
+      }),
+    );
 
-    const result = (await service.create(user, IDEMPOTENCY_KEY, dto)) as {
-      id: number;
-    };
-
-    expect(result.id).toBe(100);
-    expect(realtime.publishOrderCreated).toHaveBeenCalled();
+    await expect(
+      service.create(user, IDEMPOTENCY_KEY, dto),
+    ).rejects.toMatchObject({
+      response: {
+        message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+        code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
+      },
+    });
+    // 关键：不能发布「订单已创建」事件，否则商家端会看到一个没扣额度的订单
+    expect(realtime.publishOrderCreated).not.toHaveBeenCalled();
   });
 
   // ─── 事务提交后才发布 order.created（防 Profit 读到未提交订单）────

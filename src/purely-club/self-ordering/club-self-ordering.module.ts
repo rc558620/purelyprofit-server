@@ -17,6 +17,9 @@ import { ClubSelfOrderingService } from './club-self-ordering.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
 import { ProductsModule } from '../../purely-profit/goods/products/products.module';
 import { PlatformMembershipAccessModule } from '../../purely-profit/member/platform-membership/platform-membership-access.module';
+// 新客额度：本店新客在额度耗尽时需阻止下单，依赖该模块提供的预检与扣减
+import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { PlatformMembershipAccessModule } from '../../purely-profit/member/platf
     ClubWechatPayModule,
     // 复用营销顾客解析（含历史客户认领），避免重复实现这套易错逻辑
     ClubScanOrderingModule,
+    NewCustomerQuotaModule,
   ],
   controllers: [ClubSelfOrderingController],
   providers: [
@@ -46,6 +50,7 @@ import { PlatformMembershipAccessModule } from '../../purely-profit/member/platf
     ClubSelfOrderingPaymentNotifierService,
     // 支付落账锁仅依赖 RedisService，直接本地提供，避免引入整个 ClubPaymentsModule
     ClubPaymentLockService,
+    ClubNewCustomerQuotaService,
   ],
   exports: [
     ClubSelfOrderingService,

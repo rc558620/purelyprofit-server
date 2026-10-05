@@ -19,6 +19,9 @@ import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown
 import { ClubOrdersService } from './club-orders.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import { PlatformMembershipAccessModule } from '../../purely-profit/member/platform-membership/platform-membership-access.module';
+// 新客额度：本店新客在额度耗尽时需阻止下单，依赖该模块提供的预检与扣减
+import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 @Module({
   imports: [
@@ -29,6 +32,7 @@ import { PlatformMembershipAccessModule } from '../../purely-profit/member/platf
     ClubWechatPayModule,
     // 会员过期门店需拦截会员专区服务购买，依赖该模块提供的 MembershipDowngradeService
     PlatformMembershipAccessModule,
+    NewCustomerQuotaModule,
   ],
   controllers: [ClubOrdersController],
   providers: [
@@ -45,6 +49,7 @@ import { PlatformMembershipAccessModule } from '../../purely-profit/member/platf
     ClubOrderPreviewBreakdownService,
     ClubOrdersService,
     ClubPromotionRepository,
+    ClubNewCustomerQuotaService,
   ],
   exports: [
     ClubOrderPreviewService,

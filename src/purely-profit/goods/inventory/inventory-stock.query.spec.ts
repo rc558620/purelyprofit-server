@@ -217,6 +217,90 @@ describe('inventory-stock.query', () => {
     });
   });
 
+  /*
+   * 回归用：物理库存不允许被改到低于「在存冻结量」。
+   * 否则会出现「冻结量 > 物理库存」的脏数据，可用库存被静默截断为 0，
+   * 商品不可售且无任何日志可追溯。
+   */
+  it('executeInventoryManualAdjustment 调整后库存低于客存冻结量时拒绝并回滚', async () => {
+    const { transaction, productFindFirst, productUpdate, logCreate, custodyOrderGroupBy } =
+      createTransaction();
+    productFindFirst.mockResolvedValue({ id: 101, name: '茅台', stock: 20 });
+    // 该商品有 12 件被客存冻结，可用库存只有 8
+    custodyOrderGroupBy.mockResolvedValue([
+      { productId: 101, _sum: { remainingQty: 12 } },
+    ]);
+
+    // delta 模式：20 - 15 = 5 < 12
+    await expect(
+      executeInventoryManualAdjustment(transaction, {
+        storeId: 18,
+        productId: 101,
+        operatorStaffId: 8,
+        delta: -15,
+        mode: 'delta',
+        adjustType: 'manual',
+        note: '盘点修正',
+      }),
+    ).rejects.toThrow(/低于该商品的客存冻结量 12/);
+
+    // set 模式：直接把库存压到 3 < 12
+    await expect(
+      executeInventoryManualAdjustment(transaction, {
+        storeId: 18,
+        productId: 101,
+        operatorStaffId: 8,
+        targetStock: 3,
+        mode: 'set',
+        adjustType: 'manual',
+        note: '盘点修正',
+      }),
+    ).rejects.toThrow(/低于该商品的客存冻结量 12/);
+
+    expect(productUpdate).not.toHaveBeenCalled();
+    expect(logCreate).not.toHaveBeenCalled();
+  });
+
+  it('executeInventoryManualAdjustment 调整后库存不低于客存冻结量时放行', async () => {
+    const { transaction, productFindFirst, productUpdate, logCreate, custodyOrderGroupBy } =
+      createTransaction();
+    productFindFirst.mockResolvedValue({ id: 101, name: '茅台', stock: 20 });
+    custodyOrderGroupBy.mockResolvedValue([
+      { productId: 101, _sum: { remainingQty: 12 } },
+    ]);
+    logCreate.mockResolvedValue({
+      id: 32,
+      productId: 101,
+      productName: '茅台',
+      beforeStock: 20,
+      afterStock: 12,
+      delta: -8,
+      adjustType: 'manual',
+      note: '盘点修正',
+      purchaseOrderId: null,
+      createdAt: new Date('2026-05-14T11:00:00.000Z'),
+    });
+
+    // 恰好扣到冻结量边界：afterStock = 12 == frozenQty，应放行
+    await expect(
+      executeInventoryManualAdjustment(transaction, {
+        storeId: 18,
+        productId: 101,
+        operatorStaffId: 8,
+        delta: -8,
+        mode: 'delta',
+        adjustType: 'manual',
+        note: '盘点修正',
+      }),
+    ).resolves.toBeDefined();
+
+    expect(productUpdate).toHaveBeenCalledWith({
+      where: { id: 101 },
+      data: { stock: { increment: -8 } },
+    });
+    expect(logCreate).toHaveBeenCalled();
+  });
+
   it('recordInventoryRestock 会批量补货并写入补货日志', async () => {
     const { transaction, productFindFirst, productUpdate, logCreate } =
       createTransaction();

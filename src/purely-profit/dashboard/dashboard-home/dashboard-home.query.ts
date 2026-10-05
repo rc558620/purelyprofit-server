@@ -25,6 +25,7 @@ import {
   UPCOMING_RESERVATION_WITHIN_HOURS,
   VIP_INACTIVE_THRESHOLD_DAYS,
 } from './dashboard-home.constants';
+import { CUSTODY_EXPIRING_SOON_DAYS } from '../../operations/custody/custody.constants';
 import {
   loadInactiveVips,
   loadRecentDailyRevenue,
@@ -42,6 +43,7 @@ import {
   DASHBOARD_HOME_UPCOMING_ACCOUNT_SELECT,
   DASHBOARD_HOME_UPCOMING_LEAVE_SELECT,
   DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT,
+  DASHBOARD_HOME_CUSTODY_EXPIRING_SELECT,
   type DashboardHomeActivitiesData,
   type DashboardHomePeriodValue,
   type DashboardHomeStatsData,
@@ -252,6 +254,7 @@ export async function loadDashboardHomeActivitiesData(
     inactiveVips,
     dailyRevenueRows,
     recentOrders,
+    expiringCustodies,
   ] = await Promise.all([
     prisma.product.findMany({
       where: {
@@ -369,6 +372,21 @@ export async function loadDashboardHomeActivitiesData(
     loadInactiveVips(prisma, storeId, vipInactiveThreshold),
     loadRecentDailyRevenue(prisma, storeId, revenueLookbackStart, now),
     loadRecentOrders(prisma, storeId, todayStart, now),
+    // 客存到期预警：在存且临期阈值内到期（含已到期），按到期时间升序取最早到期的几笔
+    prisma.custodyOrder.findMany({
+      where: {
+        storeId,
+        deletedAt: null,
+        status: 'stored',
+        expireAt: {
+          not: null,
+          lte: new Date(now + CUSTODY_EXPIRING_SOON_DAYS * DAY_MS),
+        },
+      },
+      select: DASHBOARD_HOME_CUSTODY_EXPIRING_SELECT,
+      orderBy: [{ expireAt: 'asc' }, { id: 'desc' }],
+      take: 5,
+    }),
   ]);
 
   return {
@@ -385,6 +403,7 @@ export async function loadDashboardHomeActivitiesData(
     inactiveVips,
     dailyRevenueRows,
     recentOrders,
+    expiringCustodies,
   };
 }
 

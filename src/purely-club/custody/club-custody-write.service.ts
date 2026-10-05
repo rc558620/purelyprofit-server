@@ -1,4 +1,4 @@
-// 客存 C 端写服务：输码预览、确认/拒绝存入、取件码签发与取消（发起方与确认方必须分离）
+// 客存 C 端写服务：确认/拒绝存入、取件码签发与取消（发起方与确认方必须分离）
 import {
   BadRequestException,
   ConflictException,
@@ -9,23 +9,21 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../../shared/audit-log.service';
 import { CustodyCodeService } from '../../shared/custody/custody-code.service';
-import { CONFIRM_FAIL_LOCK_SECONDS } from '../../shared/custody/custody-code.constants';
+import { writeCustodyFreezeLog } from '../../shared/custody/custody-frozen-log';
 import type { CustodyStatusValue } from '../../purely-profit/operations/custody/custody.domain';
 import { isPickable } from '../../purely-profit/operations/custody/custody.domain';
 import {
-  CUSTODY_CONFIRM_CODE_INVALID_MESSAGE,
-  CUSTODY_CONFIRM_CODE_LOCKED_CLUB_MESSAGE,
   CUSTODY_ORDER_NOT_FOUND_MESSAGE,
   CUSTODY_PICKUP_STATUS_INVALID_MESSAGE,
 } from '../../purely-profit/operations/custody/custody.constants';
-import { mapClubCustodyOrder, mapClubPreview } from './club-custody.mapper';
+import { ensureCustodyFrozenStockAvailable } from '../../purely-profit/operations/custody/custody-stock.guard';
+import { mapClubCustodyOrder } from './club-custody.mapper';
 import { ClubCustodyReadService } from './club-custody-read.service';
 import { CustodyRealtimeService } from './custody-realtime.service';
 import type {
   ClubCustodyAckResponseDto,
   ClubCustodyOrderResponseDto,
   ClubCustodyPickupCodeDto,
-  ClubCustodyPreviewResponseDto,
 } from './dto/club-custody.dto';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 
@@ -41,80 +39,76 @@ export class ClubCustodyWriteService {
     private readonly realtimeService: CustodyRealtimeService,
   ) {}
 
-  /** 按 6 位确认码预览待确认存单（不消费码，可反复预览） */
-  async previewByCode(
-    context: ClubCurrentContext,
-    code: string,
-  ): Promise<ClubCustodyPreviewResponseDto> {
-    const memberId = await this.requireMemberId(context);
-
-    // 防暴力枚举：窗口内连续输错达到阈值即拒绝继续预览
-    if (
-      await this.custodyCodeService.isClubConfirmFailLocked(
-        context.store.id,
-        memberId,
-      )
-    ) {
-      throw new BadRequestException(
-        `${CUSTODY_CONFIRM_CODE_LOCKED_CLUB_MESSAGE}（${Math.round(CONFIRM_FAIL_LOCK_SECONDS / 60)} 分钟）`,
-      );
-    }
-
-    const payload = await this.custodyCodeService.peekConfirmCode(code);
-    if (
-      !payload ||
-      payload.storeId !== context.store.id ||
-      payload.memberId !== memberId
-    ) {
-      await this.custodyCodeService.registerClubConfirmFailure(
-        context.store.id,
-        memberId,
-      );
-      throw new NotFoundException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
-    }
-
-    const order = await this.findDraftOrder(
-      payload.custodyOrderId,
-      context.store.id,
-    );
-    await this.custodyCodeService.clearClubConfirmFailures(
-      context.store.id,
-      memberId,
-    );
-    return { preview: mapClubPreview(order, context.store.name) };
-  }
-
-  /** 确认存入：消费确认码 + 条件流转 draft → stored */
+  /**
+   * 确认存入：条件流转 draft → stored。
+   *
+   * 授权口径与 rejectStore 完全一致：存单归属本人 + 仍是草稿，
+   * 由 findOwnDraftOrder 的 memberId 条件保证，不依赖任何一次性凭证。
+   *
+   * 早期版本靠店员口述的 6 位确认码授权，但该码只有 5 分钟有效期，
+   * 而待确认存单会一直留在「待确认」列表里——会员面前永远躺着一个必然 400 的动作。
+   * 去掉码之后，会员端拿得到 orderId 的路径只有「我的客存 → 待确认」，
+   * 归属校验已足以防止他人代确认。
+   */
   async confirmStore(
     context: ClubCurrentContext,
     orderId: number,
   ): Promise<ClubCustodyOrderResponseDto> {
-    const payload = await this.consumeOwnConfirmCode(context, orderId);
-    // 安全约束：确认人必须是码所绑定的本店会员本人。
-    // 一期强制会员制，匿名码（memberId 为 null）一律拒绝，
-    // 不可写成「memberId 非空才校验」——那等于谁都能确认。
     const memberId = await this.requireMemberId(context);
-    if (payload.memberId === null || payload.memberId !== memberId) {
-      throw new BadRequestException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
-    }
+    const order = await this.findOwnDraftOrder(
+      orderId,
+      context.store.id,
+      memberId,
+    );
 
     const now = new Date();
-    const order = await this.findDraftOrder(orderId, context.store.id);
-    // 条件更新：并发下只有第一次确认能成功
-    const updated = await this.prisma.custodyOrder.updateMany({
-      where: {
-        id: orderId,
-        storeId: context.store.id,
-        deletedAt: null,
-        status: 'draft',
-      },
-      data: { status: 'stored' },
-    });
-    if (updated.count === 0) {
-      throw new ConflictException('存单状态已变更，请返回列表重新查看');
-    }
+    /*
+     * 冻结口径下必须在此复核可用库存：draft 不占用冻结额度（未确认不算真的存进来），
+     * 真正占用发生在这一刻。校验与状态流转放进同一事务并锁住商品行，
+     * 否则多张待确认存单各自通过校验、被会员逐个确认后冻结量会超过物理库存。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      if (order.stockMode === 'frozen' && order.productId !== null) {
+        await ensureCustodyFrozenStockAvailable(tx, {
+          storeId: context.store.id,
+          productId: order.productId,
+          stockMode: order.stockMode,
+          totalQty: order.remainingQty,
+        });
+      }
+      // 条件更新：并发下只有第一次确认能成功
+      const updated = await tx.custodyOrder.updateMany({
+        where: {
+          id: orderId,
+          storeId: context.store.id,
+          deletedAt: null,
+          status: 'draft',
+        },
+        data: { status: 'stored' },
+      });
+      if (updated.count === 0) {
+        throw new ConflictException('存单状态已变更，请返回列表重新查看');
+      }
 
-    await this.custodyCodeService.unbindConfirmCode(orderId);
+      /*
+       * 冻结台账：确认这一刻才真正占用可用库存（draft 不算占用），
+       * 必须在此留痕，否则门店盘点时对不上「为什么这件商品突然不能卖了」。
+       */
+      if (order.stockMode === 'frozen' && order.productId !== null) {
+        await writeCustodyFreezeLog(tx, {
+          storeId: context.store.id,
+          productId: order.productId,
+          productName: order.productName,
+          qty: order.remainingQty,
+          beforeRemainingQty: 0,
+          afterRemainingQty: order.remainingQty,
+          operatorStaffId: order.createdByStaffId,
+          orderNo: order.orderNo,
+          note: `客存存入占用 ${order.remainingQty}${order.unit}（存单 ${order.orderNo}，物理库存未变动）`,
+        });
+      }
+    });
+
     await this.custodyCodeService.invalidateSummaryCache(context.store.id);
     this.logClubWrite('confirm', context, orderId, {
       orderNo: order.orderNo,
@@ -135,20 +129,24 @@ export class ClubCustodyWriteService {
     return { order: mapClubCustodyOrder(latest, context.store.name, now) };
   }
 
-  /** 拒绝存入：消费确认码并软删草稿，商家端列表不再出现 */
+  /**
+   * 拒绝存入：软删草稿，商家端列表不再出现。
+   *
+   * 拒绝是会员的自保动作、不产生任何权益，凭「存单归属于本人 + 仍是草稿」
+   * 即可授权，归属校验由 findOwnDraftOrder 的 memberId 条件保证。
+   */
   async rejectStore(
     context: ClubCurrentContext,
     orderId: number,
   ): Promise<ClubCustodyAckResponseDto> {
-    const payload = await this.consumeOwnConfirmCode(context, orderId);
-    // 与 confirmStore 同一条安全约束：匿名码与冒名确认一律拒绝
     const memberId = await this.requireMemberId(context);
-    if (payload.memberId === null || payload.memberId !== memberId) {
-      throw new BadRequestException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
-    }
+    const order = await this.findOwnDraftOrder(
+      orderId,
+      context.store.id,
+      memberId,
+    );
 
     const rejectedAt = new Date();
-    const order = await this.findDraftOrder(orderId, context.store.id);
     const softDeleted = await this.prisma.custodyOrder.updateMany({
       where: {
         id: orderId,
@@ -162,7 +160,6 @@ export class ClubCustodyWriteService {
       throw new ConflictException('存单状态已变更，请返回列表重新查看');
     }
 
-    await this.custodyCodeService.unbindConfirmCode(orderId);
     await this.custodyCodeService.invalidateSummaryCache(context.store.id);
     this.logClubWrite('reject', context, orderId, { orderNo: order.orderNo });
     this.realtimeService.publishStoreRejected(context.store.id, {
@@ -271,33 +268,25 @@ export class ClubCustodyWriteService {
     return memberId;
   }
 
-  private async findDraftOrder(orderId: number, storeId: number) {
+  /** 定位属于本人的草稿存单：确认与拒绝都靠它做归属校验 */
+  private async findOwnDraftOrder(
+    orderId: number,
+    storeId: number,
+    memberId: number,
+  ) {
     const order = await this.prisma.custodyOrder.findFirst({
-      where: { id: orderId, storeId, deletedAt: null, status: 'draft' },
+      where: {
+        id: orderId,
+        storeId,
+        memberId,
+        deletedAt: null,
+        status: 'draft',
+      },
     });
     if (!order) {
-      throw new NotFoundException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
+      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
     }
     return order;
-  }
-
-  /** 消费属于当前门店的确认码（定位不到即视为无效或已过期） */
-  private async consumeOwnConfirmCode(
-    context: ClubCurrentContext,
-    orderId: number,
-  ) {
-    const binding =
-      await this.custodyCodeService.readConfirmCodeBinding(orderId);
-    if (!binding) {
-      throw new BadRequestException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
-    }
-    const payload = await this.custodyCodeService.consumeConfirmCode(
-      binding.code,
-    );
-    if (!payload || payload.storeId !== context.store.id) {
-      throw new BadRequestException(CUSTODY_CONFIRM_CODE_INVALID_MESSAGE);
-    }
-    return payload;
   }
 
   private logClubWrite(

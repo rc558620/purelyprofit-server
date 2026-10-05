@@ -10,6 +10,7 @@ import { ClubCurrentStoreContextService } from '../stores/club-current-store-con
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 /**
  * 自助下单建单测试：
@@ -66,6 +67,14 @@ describe('ClubSelfOrderingOrderService', () => {
   /** 会员降级门禁桩：默认未过期，放行全部自助下单 */
   const downgradeService = {
     assertStoreCanOrder: jest.fn().mockResolvedValue(undefined),
+  };
+
+  /** 新客额度桩：默认放行且不真正扣减（额度另有专项用例覆盖） */
+  const newCustomerQuota = {
+    assertAvailableForOrder: jest.fn().mockResolvedValue(true),
+    consumeWithinOrderTransaction: jest
+      .fn()
+      .mockResolvedValue({ consumed: false, remaining: 0 }),
   };
 
   /**
@@ -163,6 +172,7 @@ describe('ClubSelfOrderingOrderService', () => {
         { provide: ProductSpecPricingService, useValue: specPricing },
         // 默认「未过期」，不拦截自助下单；需要验证拦截的用例自行覆盖
         { provide: MembershipDowngradeService, useValue: downgradeService },
+        { provide: ClubNewCustomerQuotaService, useValue: newCustomerQuota },
       ],
     }).compile();
     service = module.get<ClubSelfOrderingOrderService>(
@@ -336,5 +346,62 @@ describe('ClubSelfOrderingOrderService', () => {
     const specHash = await hashOf([11]);
 
     expect(plainHash).not.toBe(specHash);
+  });
+
+  it('建单前过新客额度闸门，建单成功后按本次下单门店扣减', async () => {
+    await service.create(
+      user,
+      { sessionId: 42, items: [{ productId: '101', quantity: 1 }] },
+      'idem-key-0009',
+    );
+
+    expect(newCustomerQuota.assertAvailableForOrder).toHaveBeenCalledWith(
+      1,
+      100,
+    );
+    // 扣减必须拿到事务客户端：与订单落库同事务提交才能做到不多不少
+    expect(newCustomerQuota.consumeWithinOrderTransaction).toHaveBeenCalledWith(
+      tx,
+      1,
+      100,
+      null,
+    );
+  });
+
+  it('新客额度耗尽时建单被拦在定价之前，不产生任何写操作', async () => {
+    newCustomerQuota.assertAvailableForOrder.mockRejectedValueOnce(
+      new ForbiddenException('新用户额度已用完，当前无法下单，请联系商家'),
+    );
+
+    await expect(
+      service.create(
+        user,
+        { sessionId: 42, items: [{ productId: '101', quantity: 1 }] },
+        'idem-key-0010',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(tx.selfOrder.create).not.toHaveBeenCalled();
+    expect(
+      newCustomerQuota.consumeWithinOrderTransaction,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('并发抢不到额度时整笔建单回滚：订单不成立', async () => {
+    // 闸门是乐观预检（此时还有额度），真正的抢占发生在事务内的扣减
+    newCustomerQuota.consumeWithinOrderTransaction.mockRejectedValueOnce(
+      new ForbiddenException('新用户额度已用完，当前无法下单，请联系商家'),
+    );
+
+    await expect(
+      service.create(
+        user,
+        { sessionId: 42, items: [{ productId: '101', quantity: 1 }] },
+        'idem-key-0011',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    // 幂等记录不能停在 succeeded：否则同键重试会被回放成一个没扣额度的订单
+    expect(tx.idempotencyRecord.update).not.toHaveBeenCalled();
   });
 });

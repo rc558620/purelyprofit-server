@@ -14,7 +14,6 @@ import type {
   ClubCustodyOrderDetailResponseDto,
   ClubCustodyOrderListResponseDto,
   ClubCustodyPickupCodeDto,
-  ClubCustodyPreviewResponseDto,
   ClubCustodyOrderResponseDto,
   ListClubCustodyOrdersQueryDto,
 } from './dto/club-custody.dto';
@@ -41,13 +40,6 @@ export class ClubCustodyService {
     orderId: number,
   ): Promise<ClubCustodyOrderDetailResponseDto> {
     return this.clubCustodyReadService.getOrderDetail(context, orderId);
-  }
-
-  previewByCode(
-    context: ClubCurrentContext,
-    code: string,
-  ): Promise<ClubCustodyPreviewResponseDto> {
-    return this.clubCustodyWriteService.previewByCode(context, code);
   }
 
   confirmStore(
@@ -88,6 +80,8 @@ export class ClubCustodyService {
         : 'all';
     return {
       status,
+      // 个人端列表暂不开放到期预警筛选，固定关闭
+      expiring: false,
       keyword: '',
       cursor: query.cursor,
       limit: Math.min(

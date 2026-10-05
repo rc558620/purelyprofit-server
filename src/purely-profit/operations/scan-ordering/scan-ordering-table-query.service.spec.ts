@@ -136,6 +136,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: new Date(now.getTime() + 60_000),
               guestCount: 1,
               status: 'active',
+              diningRoundId: 'round-a',
               orders: orders.slice(0, 2),
             },
             {
@@ -144,6 +145,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: new Date(now.getTime() + 60_000),
               guestCount: 2,
               status: 'active',
+              diningRoundId: 'round-b',
               orders: orders.slice(2),
             },
             {
@@ -152,6 +154,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: now,
               guestCount: 9,
               status: 'left',
+              diningRoundId: 'round-a',
               orders: [],
             },
           ],
@@ -188,6 +191,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: new Date(now.getTime() + 60_000),
               guestCount: 1,
               status: 'active',
+              diningRoundId: 'round-current',
               orders: [
                 {
                   id: 1,
@@ -207,6 +211,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: new Date(now.getTime() - 60_000),
               guestCount: 4,
               status: 'left',
+              diningRoundId: 'round-current',
               orders: [
                 {
                   id: 2,
@@ -265,6 +270,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
               expiresAt: now,
               guestCount: 4,
               status: 'left',
+              diningRoundId: 'round-previous',
               orders: [
                 {
                   id: 2,
@@ -288,6 +294,139 @@ describe('ScanOrderingTableQueryService.listTables', () => {
       expect(table.activeOrders).toHaveLength(0);
       expect(table.clearability).toMatchObject({
         canClear: false,
+        blockingOrderCount: 0,
+      });
+    });
+  });
+
+  describe('跨用餐轮次隔离', () => {
+    /** 上一轮遗留的已出餐订单（清桌前会话被置为 left）。 */
+    const buildLeftRoundOrders = (now: Date) =>
+      Array.from({ length: 5 }, (_, index) => ({
+        id: 100 + index,
+        orderNo: `OLD${index + 1}`,
+        status: 'served',
+        paymentStatus: 'paid',
+        fulfillmentStatus: 'served',
+        guestCount: 1,
+        payableAmount: 100,
+        createdAt: new Date(now.getTime() - (60 - index) * 60_000),
+      }));
+
+    it('上一轮未清桌时，其 left 会话订单不混入新一轮的订单/人数/清桌校验', async () => {
+      const now = new Date();
+      prisma.scanOrderingTable.findMany.mockResolvedValue([
+        {
+          id: 10,
+          tableCode: 'A01',
+          name: 'A01',
+          status: 'dining',
+          areaId: null,
+          typeId: null,
+          area: null,
+          type: null,
+          sessions: [
+            {
+              id: 401,
+              createdAt: new Date(now.getTime() - 90 * 60_000),
+              expiresAt: new Date(now.getTime() - 60_000),
+              guestCount: 5,
+              status: 'left',
+              diningRoundId: 'round-previous',
+              orders: buildLeftRoundOrders(now),
+            },
+            {
+              id: 402,
+              createdAt: now,
+              expiresAt: new Date(now.getTime() + 60_000),
+              guestCount: 2,
+              status: 'active',
+              diningRoundId: 'round-current',
+              orders: [
+                {
+                  id: 500,
+                  orderNo: 'NEW1',
+                  status: 'preparing',
+                  paymentStatus: 'paid',
+                  fulfillmentStatus: 'preparing',
+                  guestCount: 2,
+                  payableAmount: 4800,
+                  createdAt: now,
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+
+      const [table] = await service.listTables(user);
+
+      // 只展示新一轮的 1 笔订单，上一轮 5 笔已出餐单不再计数/展示
+      expect(table.activeOrders.map((order) => order.id)).toEqual([500]);
+      expect(table.activeOrderCount).toBe(1);
+      expect(table.guestCount).toBe(2);
+      expect(table.status).toBe('dining');
+      expect(table.clearability).toMatchObject({
+        canClear: false,
+        blockingOrderCount: 1,
+      });
+    });
+
+    it('同一轮次的 left 会话（顾客离桌后重扫）订单仍参与当前轮次汇总', async () => {
+      const now = new Date();
+      prisma.scanOrderingTable.findMany.mockResolvedValue([
+        {
+          id: 10,
+          tableCode: 'A01',
+          name: 'A01',
+          status: 'dining',
+          areaId: null,
+          typeId: null,
+          area: null,
+          type: null,
+          sessions: [
+            {
+              id: 401,
+              createdAt: new Date(now.getTime() - 30 * 60_000),
+              expiresAt: new Date(now.getTime() - 60_000),
+              guestCount: 5,
+              status: 'left',
+              diningRoundId: 'round-current',
+              orders: buildLeftRoundOrders(now),
+            },
+            {
+              id: 402,
+              createdAt: now,
+              expiresAt: new Date(now.getTime() + 60_000),
+              guestCount: 2,
+              status: 'active',
+              diningRoundId: 'round-current',
+              orders: [
+                {
+                  id: 500,
+                  orderNo: 'NEW1',
+                  status: 'served',
+                  paymentStatus: 'paid',
+                  fulfillmentStatus: 'served',
+                  guestCount: 2,
+                  payableAmount: 4800,
+                  createdAt: now,
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+
+      const [table] = await service.listTables(user);
+
+      // 同轮次：6 笔全部展示（最新在前），全部已出餐 → 允许清桌
+      expect(table.activeOrderCount).toBe(6);
+      expect(table.activeOrders).toHaveLength(6);
+      expect(table.activeOrders[0].id).toBe(500);
+      expect(table.guestCount).toBe(7);
+      expect(table.clearability).toMatchObject({
+        canClear: true,
         blockingOrderCount: 0,
       });
     });

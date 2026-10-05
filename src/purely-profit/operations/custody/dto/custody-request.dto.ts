@@ -13,6 +13,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CUSTODY_MAX_LIMIT, CUSTODY_MAX_QTY } from '../custody.constants';
@@ -25,6 +26,16 @@ const SHORT_CODE_PATTERN = /^\d{6}$/;
 
 /** 手机号后四位 */
 const PHONE_SUFFIX_PATTERN = /^\d{4}$/;
+
+/**
+ * ISO 瞬时格式：必须带时区后缀（Z 或 ±HH:mm）。
+ *
+ * 不带时区的串在 JS 里解释不一致：'2026-10-31' 按 UTC 解释、'2026-10-31 23:59' 按进程
+ * 本地时区解释，跨时区部署下到期时刻会凭空偏移 8 小时。这类取值统一在入口挡掉，
+ * 由调用方先把门店墙上时间换算成瞬时（详见 custody.domain.ts parseIsoDate）。
+ */
+const ISO_INSTANT_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** 发起存入请求体 */
 export class CreateCustodyOrderDto {
@@ -76,12 +87,17 @@ export class CreateCustodyOrderDto {
   @MaxLength(50, { message: '存放位置最长 50 个字符' })
   location?: string;
 
-  /** 到期时间（ISO 字符串，不传时按门店默认有效期计算） */
+  /** 到期时间（ISO 瞬时字符串，必须带时区，不传时按门店默认有效期计算） */
   @ApiPropertyOptional({
-    description: '到期时间（ISO 字符串），不传表示长期有效',
+    description: '到期时间（ISO 瞬时字符串，需带时区），不传表示长期有效',
+    example: '2026-10-31T15:59:00.000Z',
   })
   @IsOptional()
   @IsString({ message: '到期时间格式不合法' })
+  @Matches(ISO_INSTANT_PATTERN, {
+    message:
+      '到期时间格式不合法（需带时区的 ISO 瞬时，如 2026-10-31T15:59:00.000Z）',
+  })
   expireAt?: string;
 
   /** 库存口径：不传时按门店配置 */
@@ -114,13 +130,48 @@ export class CreateCustodyOrderDto {
   @IsString({ message: '幂等键必须是字符串' })
   @MaxLength(64, { message: '幂等键最长 64 个字符' })
   idempotencyKey?: string;
+
+  /**
+   * 物品图片 URL（存入时快照）。
+   *
+   * 取件核销时店员要对着照片比对实物，因此这里必须是可被客户端直接加载的地址。
+   * 只允许 http(s) 外链并校验长度，既防止把 base64 / blob URL 写进库（存了必然失效），
+   * 也避免任意协议串落库后在展示侧变成可执行内容。
+   */
+  @ApiPropertyOptional({
+    description: '物品图片 URL（http/https）',
+    example: 'https://cos.example.com/custody/xxx.jpg',
+  })
+  /*
+   * 空串按「未上传」处理，不能落进 @Matches：
+   * @IsOptional() 只放行 null / undefined，'' 仍会参与校验并被判成格式不合法，
+   * 老客户端 / 第三方调用带 image: '' 会让整单 400。写入侧（custody-write.service）
+   * 已有 trim 兜底把 '' 归一成 null，这里只需要让空串过得来。
+   */
+  @ValidateIf((o: CreateCustodyOrderDto) => o.image != null && o.image !== '')
+  @IsString({ message: '物品图片必须是字符串' })
+  @MaxLength(500, { message: '物品图片 URL 最长 500 个字符' })
+  @Matches(/^https?:\/\/\S+$/i, {
+    message: '物品图片格式不合法（需为 http/https 地址）',
+  })
+  image?: string;
+}
+
+/** 校验会员查询入参：按手机号定位当前门店会员并回显昵称 */
+export class VerifyCustodyMemberQueryDto {
+  /** 会员手机号 */
+  @ApiProperty({ description: '会员手机号', example: '13800138000' })
+  @IsString({ message: '会员手机号必须是字符串' })
+  @Matches(PHONE_PATTERN, { message: '会员手机号格式不正确' })
+  phone!: string;
 }
 
 /** 列表查询入参 */
 export class ListCustodyOrdersQueryDto {
   /** 状态筛选 */
   @ApiPropertyOptional({
-    description: '状态筛选',
+    description:
+      '状态筛选：all=全部 draft=待确认 stored=在存 finished=已取完 expired=已到期 void=已作废',
     enum: ['all', 'draft', 'stored', 'finished', 'expired', 'void'],
   })
   @IsOptional()
@@ -137,6 +188,15 @@ export class ListCustodyOrdersQueryDto {
   @IsString({ message: 'keyword 必须是字符串' })
   @MaxLength(30, { message: 'keyword 最长 30 个字符' })
   keyword?: string;
+
+  /** 到期预警：true 时忽略状态筛选，返回在存且临期阈值内到期（含已到期）的存单 */
+  @ApiPropertyOptional({
+    description: '到期预警筛选：true 返回临期阈值内到期（含已到期）的在存存单',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean({ message: 'expiring 必须是布尔值' })
+  expiring?: boolean;
 
   /** 游标 */
   @ApiPropertyOptional({ description: '分页游标，首次查询不传' })

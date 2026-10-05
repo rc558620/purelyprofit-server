@@ -89,10 +89,14 @@ export class PulseSessionMembershipDto {
 
   @ApiPropertyOptional({
     example: '2026-08-20T00:00:00.000Z',
-    description: '目标商家订阅到期时间，未开通时为 null',
+    description: '目标商家订阅到期时间（ISO 字符串），未开通时为 null',
   })
   @IsOptional()
-  expiresAt: Date | null;
+  /**
+   * 整个 bootstrap 响应会写入 Redis，命中回读后该字段是 ISO 字符串而非 Date。
+   * 这里按实际序列化形态声明为 string，避免强类型说谎。
+   */
+  expiresAt: string | null;
 }
 
 // ──────────────────────────────────────────────

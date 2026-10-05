@@ -10,6 +10,9 @@ import { ClubOrderPromotionsService } from '../orders/club-order-promotions.serv
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import { ClubMemberModule } from '../member/club-member.module';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
+// 新客额度：本店新客在额度耗尽时需阻止下单，依赖该模块提供的预检与扣减
+import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.service';
@@ -29,6 +32,7 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubWechatPayModule,
     // 团购券支付成功需广播 voucher_order.created（ScanOrderingRealtimeService）
     ClubScanOrderingModule,
+    NewCustomerQuotaModule,
   ],
   controllers: [ClubVoucherOrdersController],
   providers: [
@@ -44,6 +48,7 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubPromotionRepository,
     // 优惠拆解展示行生成（与服务商品 preview 同口径）
     ClubOrderPreviewBreakdownService,
+    ClubNewCustomerQuotaService,
   ],
   exports: [
     ClubVoucherOrdersService,

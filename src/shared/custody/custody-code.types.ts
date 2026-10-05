@@ -1,14 +1,4 @@
-// 客存验证码 Redis 载荷类型：确认码 / 取件码 / 核销预留令牌在 Redis 中存储的结构
-/** 存入确认码载荷：定位待客户确认的草稿存单 */
-export interface CustodyConfirmCodePayload {
-  /** 客存单主键 */
-  custodyOrderId: number;
-  /** 门店 ID（防跨店核销） */
-  storeId: number;
-  /** 会员 ID（校验码归属，防止他人冒认确认） */
-  memberId: number | null;
-}
-
+// 客存验证码 Redis 载荷类型：取件码与核销预留令牌在 Redis 中存储的结构
 /** 取件码载荷：定位可被核销的在存存单 */
 export interface CustodyPickupCodePayload {
   /** 客存单主键 */

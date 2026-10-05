@@ -12,7 +12,7 @@ import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
-import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 
 describe('ClubScanOrderingOrderService', () => {
@@ -28,11 +28,11 @@ describe('ClubScanOrderingOrderService', () => {
         ClubScanOrderingOrderService,
         { provide: PrismaService, useValue: prisma },
         {
-          provide: NewCustomerQuotaService,
+          provide: ClubNewCustomerQuotaService,
           useValue: {
             // 默认按老客放行，额度行为由 club-scan-ordering-order-quota.spec 专项覆盖
-            ensureAvailableForNewCustomer: jest.fn().mockResolvedValue(false),
-            consumeForNewCustomer: jest
+            assertAvailableForOrder: jest.fn().mockResolvedValue(false),
+            consumeWithinOrderTransaction: jest
               .fn()
               .mockResolvedValue({ consumed: false, remaining: 0 }),
           },

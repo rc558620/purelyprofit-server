@@ -1,19 +1,15 @@
-// 客存 C 端 DTO：我的客存列表/详情、输码预览、取件码与确认/拒绝，字段对齐 purelyClub/types/custody.ts
+// 客存 C 端 DTO：我的客存列表/详情、取件码与确认/拒绝，字段对齐 purelyClub/types/custody.ts
 import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
   IsOptional,
   IsString,
-  Matches,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-/** 6 位数字短码 */
-const SHORT_CODE_PATTERN = /^\d{6}$/;
 
 /**
  * 会员可见的状态枚举。
@@ -56,15 +52,6 @@ export class ListClubCustodyOrdersQueryDto {
   @Min(1, { message: 'limit 最少为 1' })
   @Max(50, { message: 'limit 最大为 50' })
   limit?: number;
-}
-
-/** 按确认码预览请求体 */
-export class PreviewClubCustodyByCodeDto {
-  /** 店员口述/展示的 6 位确认码 */
-  @ApiProperty({ description: '6 位确认码', example: '482716' })
-  @IsString({ message: '确认码必须是字符串' })
-  @Matches(SHORT_CODE_PATTERN, { message: '确认码必须是 6 位数字' })
-  code!: string;
 }
 
 /** 我的客存单（会员视角） */
@@ -120,6 +107,10 @@ export class ClubCustodyOrderDto {
   /** 备注 */
   @ApiProperty({ description: '备注' })
   remark!: string;
+
+  /** 物品图片 URL（存入时快照），无图为空串（会员端据此回落占位图标） */
+  @ApiProperty({ description: '物品图片 URL，无图为空串' })
+  image!: string;
 }
 
 /** 取出流水（会员视角） */
@@ -192,48 +183,6 @@ export class ClubCustodyOrderDetailResponseDto {
   /** 取出流水（时间倒序） */
   @ApiProperty({ type: [ClubCustodyPickupRecordDto] })
   pickupRecords!: ClubCustodyPickupRecordDto[];
-}
-
-/** 输码预览：待确认的草稿存单 */
-export class ClubCustodyPreviewDto {
-  /** 存单主键 */
-  @ApiProperty({ description: '存单主键' })
-  id!: string;
-
-  /** 门店名称 */
-  @ApiProperty({ description: '门店名称' })
-  storeName!: string;
-
-  /** 商品名称 */
-  @ApiProperty({ description: '商品名称' })
-  productName!: string;
-
-  /** 规格名称 */
-  @ApiProperty({ description: '规格名称' })
-  specName!: string;
-
-  /** 计量单位 */
-  @ApiProperty({ description: '计量单位' })
-  unit!: string;
-
-  /** 存入数量 */
-  @ApiProperty({ description: '存入数量（整数）' })
-  qty!: number;
-
-  /** 存放位置 */
-  @ApiProperty({ description: '存放位置' })
-  location!: string;
-
-  /** 到期时间（ISO 字符串，空串表示长期有效） */
-  @ApiProperty({ description: '到期时间（ISO 字符串），空串表示长期有效' })
-  expireAt!: string;
-}
-
-/** 输码预览响应 */
-export class ClubCustodyPreviewResponseDto {
-  /** 预览数据 */
-  @ApiProperty({ type: ClubCustodyPreviewDto })
-  preview!: ClubCustodyPreviewDto;
 }
 
 /** 确认 / 拒绝后的存单回包 */

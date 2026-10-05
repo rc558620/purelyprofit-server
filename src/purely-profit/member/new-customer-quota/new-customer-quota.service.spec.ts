@@ -1,20 +1,13 @@
 import { ForbiddenException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import type { PrismaExecutor } from '../platform-membership/platform-membership.types';
 import {
   NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
   NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
   NEW_CUSTOMER_QUOTA_WARNING_THRESHOLD,
 } from './new-customer-quota.constants';
 import { NewCustomerQuotaService } from './new-customer-quota.service';
-
-/** 构造唯一约束冲突（同店同顾客重复扣减） */
-const buildUniqueConstraintError = (): Prisma.PrismaClientKnownRequestError =>
-  new Prisma.PrismaClientKnownRequestError('duplicate key', {
-    code: 'P2002',
-    clientVersion: 'test',
-  });
 
 describe('NewCustomerQuotaService', () => {
   let service: NewCustomerQuotaService;
@@ -261,9 +254,11 @@ describe('NewCustomerQuotaService', () => {
   });
 
   it('同一顾客重复下单不重复扣减（幂等）', async () => {
-    delegates.storeNewCustomerQuotaConsume.create.mockRejectedValueOnce(
-      buildUniqueConstraintError(),
-    );
+    // 老客必须在写入前被识别出来：不能靠 insert 撞唯一约束再兜——
+    // PostgreSQL 下事务内一旦触发 P2002，整个事务进入 aborted，会把建单一起拖垮
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValueOnce({
+      id: 9,
+    });
     delegates.storeMembershipProfile.findUnique.mockResolvedValue({
       newCustomerQuota: 85,
     });
@@ -274,8 +269,37 @@ describe('NewCustomerQuotaService', () => {
       consumed: false,
       remaining: 85,
     });
+    expect(
+      delegates.storeNewCustomerQuotaConsume.create,
+    ).not.toHaveBeenCalled();
     expect(delegates.storeMembershipProfile.updateMany).not.toHaveBeenCalled();
     expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
+  });
+
+  it('传入事务客户端时复用连接，不再嵌套开事务', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
+    delegates.storeNewCustomerQuotaConsume.create.mockResolvedValue({ id: 1 });
+    delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 1 });
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 84,
+    });
+
+    await expect(
+      service.consumeForNewCustomer(
+        42,
+        1001,
+        null,
+        delegates as unknown as PrismaExecutor,
+      ),
+    ).resolves.toEqual({ consumed: true, remaining: 84 });
+
+    // 已在事务里：不能调用 $transaction（Prisma 事务客户端没有该方法）
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+    expect(delegates.storeMembershipProfile.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId: 42, newCustomerQuota: { gt: 0 } },
+      }),
+    );
   });
 
   it('额度耗尽时抛业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED，且不写消耗流水', async () => {

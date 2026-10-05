@@ -95,7 +95,19 @@ export class StoresController {
   }
 
   @Get('current/logo')
-  @RequirePermissions('store:view')
+  // PermissionsGuard 是「任一命中即通过」（AccessControlService.hasAnyPermission 用 some），
+  // 这里追加权限码不会收紧、只会放宽。
+  //
+  // 为什么不能只留 store:view：本方法是整个 controller 里唯一用 @AllowSubAccount 显式放开
+  // 给子账号的接口（class 上是 @BlockSubAccount）—— Logo 同源代理的目的是让前端把 Logo 画进
+  // 海报 Canvas，而合成海报的正是店长/收银员这类子账号。但 store:view 不在任何一种子账号
+  // 角色权限集里（cashier / manager / finance 全都没有），结果是「放开了子账号却必然 403」。
+  //
+  // 这里补两个「门店员工通用」的权限码作为子账号通道：三类角色都持有 service-call:view
+  // 与 handover:view，任一个在角色权限表里存活，海报取 Logo 就不会被守卫拦住。
+  // 反之不能把 store:view 直接加进子账号角色表——notifications、subscriptions 这些
+  // controller 没有 @BlockSubAccount，会连带泄漏门店通知与套餐订阅数据。
+  @RequirePermissions('store:view', 'service-call:view', 'handover:view')
   @AllowSubAccount()
   @ApiOperation({
     summary: '获取当前门店 Logo（同源代理）',

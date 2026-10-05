@@ -4,6 +4,7 @@ import {
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiTime } from '../../../shared/shanghai-time.utils';
+import { resolveTimestamp } from '../../../shared/date-coerce.utils';
 import {
   LEAVE_TYPE_LABELS,
   MAX_HOME_ACTIVITY_COUNT,
@@ -159,6 +160,7 @@ export function buildDashboardHomeActivities(
   appendDraftPayrollDraft(drafts, params, now);
   appendInactiveVipDraft(drafts, params, now);
   appendRevenueDeclineDraft(drafts, params, now);
+  appendCustodyExpiringDraft(drafts, params, now);
 
   return drafts
     .sort((left, right) => right.createdAt - left.createdAt)
@@ -333,6 +335,49 @@ function appendInactiveVipDraft(
     bizId: String(latestInactive.id),
     actionUrl: '/member-center',
     createdAt: toTimestamp(latestInactive.updatedAt),
+  });
+}
+
+/** 客存到期预警：临期阈值内到期（含已到期）的在存存单，聚合为一条预警动态 */
+function appendCustodyExpiringDraft(
+  drafts: ActivityDraft[],
+  params: BuildDashboardHomeActivitiesParams,
+  now: number,
+): void {
+  if (params.expiringCustodies.length === 0) {
+    return;
+  }
+
+  /*
+   * 活动数据经 Redis JSON 反序列化后，日期字段回读为字符串而非 Date：
+   * 所有时间比较与展示统一走 toTimestamp，禁止直接调 .getTime()。
+   */
+  // 查询按 expireAt 升序返回，首条即最早到期；已到期单用「已含」口径提示
+  const earliest = params.expiringCustodies[0]!;
+  // 查询条件已保证 expireAt 非空，缺失时回落更新时间，时间戳非法时回落 now
+  const earliestExpireAt = resolveTimestamp(
+    earliest.expireAt ?? earliest.updatedAt,
+    now,
+  );
+  const expiredCount = params.expiringCustodies.filter(
+    (item) => item.expireAt != null && resolveTimestamp(item.expireAt, now) <= now,
+  ).length;
+  const title =
+    expiredCount > 0
+      ? `有${params.expiringCustodies.length}笔客存到期预警`
+      : `有${params.expiringCustodies.length}笔客存即将到期`;
+
+  drafts.push({
+    id: 'custody-expiring',
+    type: 'warning',
+    icon: 'inventory',
+    title,
+    time: `${formatRelativeTime(resolveTimestamp(earliest.updatedAt, now), now)} · 客存管理`,
+    tag: `${formatMonthDayLabel(earliestExpireAt)}到期`,
+    bizType: 'custody_expiring',
+    bizId: String(earliest.id),
+    actionUrl: '/custody-management',
+    createdAt: earliestExpireAt,
   });
 }
 

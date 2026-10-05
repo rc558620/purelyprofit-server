@@ -1,3 +1,7 @@
+import {
+  resolveTimestamp,
+  toIsoStringOrNull,
+} from '../../shared/date-coerce.utils';
 import { toOptionalMediaText } from '../../purely-profit/commerce/commerce.utils';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
 import type {
@@ -52,28 +56,30 @@ export function buildMembershipDto(
       planId: profile.currentPlanId,
       planName: profile.planName,
       remainingDays: -1,
-      expiresAt: profile.expiresAt,
+      expiresAt: toIsoStringOrNull(profile.expiresAt),
     };
   }
 
-  const expiresAt = profile.expiresAt;
-  const isActive = expiresAt ? expiresAt > new Date() : false;
+  // 整个 bootstrap 响应会进 Redis，回读后日期是字符串：统一转时间戳再比较
+  const expiresAtMs = resolveTimestamp(profile.expiresAt, 0);
+  const isActive = expiresAtMs > Date.now();
 
   return {
     isActive,
     planId: profile.currentPlanId,
     planName: profile.planName,
-    remainingDays: calcRemainingDays(expiresAt),
-    expiresAt,
+    remainingDays: calcRemainingDays(expiresAtMs),
+    expiresAt: toIsoStringOrNull(profile.expiresAt),
   };
 }
 
-function calcRemainingDays(expiresAt: Date | null): number {
-  if (!expiresAt) {
+/** 剩余天数：入参为到期时间戳，0 表示未开通（无到期时间） */
+function calcRemainingDays(expiresAtMs: number): number {
+  if (expiresAtMs <= 0) {
     return 0;
   }
 
-  const diffMs = expiresAt.getTime() - Date.now();
+  const diffMs = expiresAtMs - Date.now();
   if (diffMs <= 0) {
     return 0;
   }

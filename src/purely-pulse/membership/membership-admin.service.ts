@@ -7,6 +7,11 @@ import type {
 } from './dto/pulse-membership-admin-logs.response.dto';
 import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
+import type { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import type {
+  PulseAdminNewCustomerQuotaStoreDto,
+  PulseAdminNewCustomerQuotaStoresResponseDto,
+} from './dto/pulse-membership-admin-new-customer-quota.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
@@ -15,6 +20,7 @@ import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-
 import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import { PulseMembershipAdminMemberRecordsService } from './membership-admin-member-records.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
+import { PulseMembershipAdminNewCustomerQuotaService } from './membership-admin-new-customer-quota.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
 import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
@@ -39,7 +45,24 @@ export class PulseMembershipAdminService {
     private readonly pricingPreviewService: PulseMembershipAdminPricingPreviewService,
     private readonly renewalPriceService: PulseMembershipAdminRenewalPriceService,
     private readonly memberRecordsService: PulseMembershipAdminMemberRecordsService,
+    private readonly newCustomerQuotaService: PulseMembershipAdminNewCustomerQuotaService,
   ) {}
+
+  /** 新客额度：可访问门店的额度一览 */
+  listAdminNewCustomerQuotaStores(
+    user: AuthenticatedUser,
+  ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
+    return this.newCustomerQuotaService.listAdminQuotaStores(user);
+  }
+
+  /** 新客额度：增减单个门店的额度（正数发放 / 负数回收） */
+  adjustAdminNewCustomerQuota(
+    user: AuthenticatedUser,
+    storeId: number,
+    dto: AdjustPulseAdminNewCustomerQuotaDto,
+  ): Promise<PulseAdminNewCustomerQuotaStoreDto> {
+    return this.newCustomerQuotaService.adjustAdminQuota(user, storeId, dto);
+  }
 
   listAdminPointsLogs(
     user: AuthenticatedUser,

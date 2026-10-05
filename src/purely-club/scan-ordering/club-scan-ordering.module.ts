@@ -12,6 +12,7 @@ import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
@@ -52,6 +53,7 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
   ],
   controllers: [ClubScanOrderingController],
   providers: [
+    ClubNewCustomerQuotaService,
     ClubScanOrderingService,
     ClubScanOrderingCartService,
     ClubScanOrderingMenuQueryService,

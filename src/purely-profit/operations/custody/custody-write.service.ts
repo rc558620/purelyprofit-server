@@ -1,4 +1,4 @@
-// 客存 B 端写服务：发起存入（草稿 + 确认码）与作废（含原因审计），幂等与并发控制在此收口
+// 客存 B 端写服务：发起存入（草稿 + 推送给客户确认）与作废（含原因审计），幂等与并发控制在此收口
 import {
   BadRequestException,
   ConflictException,
@@ -10,7 +10,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../../../shared/audit-log.service';
 import { CustodyCodeService } from '../../../shared/custody/custody-code.service';
-import type { IssuedShortCode } from '../../../shared/custody/custody-code.types';
+import {
+  writeCustodyFreezeLog,
+  writeCustodyVoidReleaseLog,
+} from '../../../shared/custody/custody-frozen-log';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
@@ -27,6 +30,7 @@ import {
   findIdempotentOrder,
 } from './custody-order-record';
 import { CustodyReadService } from './custody-read.service';
+import { maskPhone } from '../../marketing/marketing.utils';
 import { CustodyRealtimePublisher } from './custody-realtime.publisher';
 import { ensureCustodyFrozenStockAvailable } from './custody-stock.guard';
 import type {
@@ -36,6 +40,7 @@ import type {
 import type {
   CreateCustodyOrderResponseDto,
   CustodyOrderActionResponseDto,
+  VerifyCustodyMemberResponseDto,
 } from './dto/custody-response.dto';
 import type { CustodyCreateInput } from './custody.types';
 
@@ -60,6 +65,12 @@ export class CustodyWriteService {
     const storeId = await this.resolveStoreId(user, 'custody:create');
     const now = new Date();
 
+    // 开关校验先于幂等回放：门店已关闭客存时，重复提交旧幂等键不应重放出一张新单
+    const settings = await this.custodyReadService.getSettings(storeId);
+    if (!settings.enabled) {
+      throw new BadRequestException(CUSTODY_DISABLED_MESSAGE);
+    }
+
     const existing = await findIdempotentOrder(
       this.prisma,
       storeId,
@@ -72,12 +83,7 @@ export class CustodyWriteService {
         `[custody-realtime] 幂等命中，不推送: storeId=${storeId}, orderId=${existing.id}, ` +
           `idempotencyKey=${dto.idempotencyKey ?? '-'}`,
       );
-      return this.replayExistingOrder(existing, now);
-    }
-
-    const settings = await this.custodyReadService.getSettings(storeId);
-    if (!settings.enabled) {
-      throw new BadRequestException(CUSTODY_DISABLED_MESSAGE);
+      return this.replayExistingOrder(storeId, existing, now);
     }
 
     const member = await this.findMember(storeId, dto.memberPhone);
@@ -112,20 +118,41 @@ export class CustodyWriteService {
         settings.stockMode,
       sourceOrderId: dto.sourceOrderId ?? null,
       note: dto.note?.trim() ? dto.note.trim() : null,
+      image: dto.image?.trim() ? dto.image.trim() : null,
       idempotencyKey: dto.idempotencyKey ?? null,
     };
 
-    // 冻结口径：寄存量不得超过可用库存（物理库存 − 在存冻结量）
-    await ensureCustodyFrozenStockAvailable(this.prisma, input);
-
-    const order = await createCustodyOrderRecord(
-      this.prisma,
-      input,
-      requireMemberConfirm,
-    );
-    const confirmCode = requireMemberConfirm
-      ? await this.issueConfirmCode(order.id, storeId, member.id)
-      : null;
+    // 冻结口径：寄存量不得超过可用库存（物理库存 − 在存冻结量）。
+    // 校验、落库、台账必须在同一事务内：并发建单否则会各自读到同一份可用库存并双双通过校验，
+    // 台账也不能与占用动作分离，否则盘点时对不上。
+    const order = await this.prisma.$transaction(async (tx) => {
+      await ensureCustodyFrozenStockAvailable(tx, input);
+      const created = await createCustodyOrderRecord(
+        tx,
+        input,
+        requireMemberConfirm,
+      );
+      // 未开启会员确认时此刻直接占用额度；draft 要等会员确认才占用，
+      // 台账由 C 端 confirmStore 写入，这里不重复计数
+      if (
+        input.stockMode === 'frozen' &&
+        input.productId !== null &&
+        created.status === 'stored'
+      ) {
+        await writeCustodyFreezeLog(tx, {
+          storeId,
+          productId: input.productId,
+          productName: input.productName,
+          qty: input.totalQty,
+          beforeRemainingQty: 0,
+          afterRemainingQty: created.remainingQty,
+          operatorStaffId: input.createdByStaffId,
+          orderNo: created.orderNo,
+          note: `客存存入占用 ${input.totalQty}${input.unit}（存单 ${created.orderNo}，物理库存未变动）`,
+        });
+      }
+      return created;
+    });
 
     await this.custodyCodeService.invalidateSummaryCache(storeId);
     this.logWrite('存入', user.id, storeId, {
@@ -144,9 +171,14 @@ export class CustodyWriteService {
     }
 
     return {
-      order: mapCustodyOrder(order, now),
-      confirmCode: confirmCode?.code ?? '',
-      confirmCodeExpiresAt: confirmCode?.expiresAt ?? '',
+      order: mapCustodyOrder(
+        order,
+        now,
+        await this.custodyReadService.resolveOperatorRole(
+          storeId,
+          order.createdByStaffId,
+        ),
+      ),
       requireMemberConfirm,
     };
   }
@@ -162,7 +194,17 @@ export class CustodyWriteService {
     const order = await this.findOrder(storeId, orderId);
 
     if (order.status === 'void') {
-      return { order: mapCustodyOrder(order, now) };
+      // 幂等重放：已作废单据直接回档，经手角色仍按原存档店员解析
+      return {
+        order: mapCustodyOrder(
+          order,
+          now,
+          await this.custodyReadService.resolveOperatorRole(
+            storeId,
+            order.createdByStaffId,
+          ),
+        ),
+      };
     }
     if (order.status === 'finished') {
       throw new ConflictException('已取完的存单不支持作废');
@@ -173,24 +215,53 @@ export class CustodyWriteService {
         user,
         storeId,
       );
-    // 条件更新：并发下只允许一个请求把状态从 draft/stored 改为 void
-    const updated = await this.prisma.custodyOrder.updateMany({
-      where: {
-        id: orderId,
-        storeId,
-        deletedAt: null,
-        status: { in: ['draft', 'stored'] },
-      },
-      data: {
-        status: 'void',
-        voidedByStaffId: staffId,
-        voidedAt: now,
-        voidReason: dto.reason,
-      },
+    /*
+     * 条件更新与解冻台账必须在同一事务：并发下只有真正把状态改成 void 的那一次
+     * 才释放冻结额度，各自判断会出现「状态没改成但台账已释放」。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      // 条件更新：并发下只允许一个请求把状态从 draft/stored 改为 void
+      const updated = await tx.custodyOrder.updateMany({
+        where: {
+          id: orderId,
+          storeId,
+          deletedAt: null,
+          status: { in: ['draft', 'stored'] },
+        },
+        data: {
+          status: 'void',
+          voidedByStaffId: staffId,
+          voidedAt: now,
+          voidReason: dto.reason,
+        },
+      });
+      if (updated.count === 0) {
+        throw new ConflictException('存单状态已变更，请刷新列表后重试');
+      }
+
+      /*
+       * 作废即释放剩余占用，可用库存回升，必须留痕。
+       * draft 单从未占用过额度（冻结只算 stored），不能产生台账，否则两边抵消不平。
+       */
+      if (
+        order.stockMode === 'frozen' &&
+        order.productId !== null &&
+        order.status === 'stored' &&
+        order.remainingQty > 0
+      ) {
+        await writeCustodyVoidReleaseLog(tx, {
+          storeId,
+          productId: order.productId,
+          productName: order.productName,
+          qty: order.remainingQty,
+          beforeRemainingQty: order.remainingQty,
+          afterRemainingQty: 0,
+          operatorStaffId: staffId,
+          orderNo: order.orderNo,
+          note: `客存作废解冻 ${order.remainingQty}${order.unit}（存单 ${order.orderNo}，物理库存未变动）`,
+        });
+      }
     });
-    if (updated.count === 0) {
-      throw new ConflictException('存单状态已变更，请刷新列表后重试');
-    }
 
     const latest = await this.findOrder(storeId, orderId);
     await this.custodyCodeService.invalidateSummaryCache(storeId);
@@ -203,15 +274,24 @@ export class CustodyWriteService {
     // 会员侧需知情：存单被作废后取件码全部失效
     this.realtimePublisher.publishVoided(storeId, latest, dto.reason, now);
 
-    return { order: mapCustodyOrder(latest, now) };
+    return {
+      order: mapCustodyOrder(
+        latest,
+        now,
+        await this.custodyReadService.resolveOperatorRole(
+          storeId,
+          latest.createdByStaffId,
+        ),
+      ),
+    };
   }
 
   /**
-   * 重发确认码：确认码 5 分钟过期或客户错过时，店员可就地重发一枚新码。
+   * 重新推送：会员错过上一轮推送（没带手机 / 小程序在后台）时，店员可就地再推一次。
    *
-   * 仅 draft 存单可重发；重发前作废上一枚未确认的码，保证同一时刻只有一枚有效码。
+   * 仅 draft 存单可重推；存单本身不产生任何变化，只是把确认请求再送一次到会员端。
    */
-  async resendConfirmCode(
+  async resendStoreRequest(
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<CreateCustodyOrderResponseDto> {
@@ -222,69 +302,60 @@ export class CustodyWriteService {
     if (order.status !== 'draft') {
       throw new ConflictException(CUSTODY_RESEND_REQUIRE_DRAFT_MESSAGE);
     }
-
-    const previous =
-      await this.custodyCodeService.readConfirmCodeBinding(orderId);
-    if (previous) {
-      await this.custodyCodeService.cancelConfirmCode(previous.code);
+    if (order.memberId === null) {
+      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
     }
 
-    const issued = await this.issueConfirmCode(
-      order.id,
-      storeId,
-      order.memberId,
-    );
-    await this.custodyCodeService.invalidateSummaryCache(storeId);
-    this.logWrite('重发确认码', user.id, storeId, {
+    this.logWrite('重新推送', user.id, storeId, {
       orderId,
       orderNo: order.orderNo,
       memberId: order.memberId,
     });
-
-    /*
-     * 重发即重新触达：会员错过上一轮推送（没带手机 / 小程序在后台）时，
-     * 换一枚新码却不再推一次，B 端弹窗会一直停在「等待中」直到超时。
-     * 这里补发 store_requested，让「重新推送」按钮真正把确认层弹到会员面前。
-     */
-    if (order.memberId !== null) {
-      await this.realtimePublisher.publishStoreRequested(storeId, order);
-    }
+    await this.realtimePublisher.publishStoreRequested(storeId, order);
 
     return {
-      order: mapCustodyOrder(order, now),
-      confirmCode: issued.code,
-      confirmCodeExpiresAt: issued.expiresAt,
+      order: mapCustodyOrder(
+        order,
+        now,
+        await this.custodyReadService.resolveOperatorRole(
+          storeId,
+          order.createdByStaffId,
+        ),
+      ),
       requireMemberConfirm: true,
     };
   }
 
-  private async issueConfirmCode(
-    orderId: number,
-    storeId: number,
-    memberId: number | null,
-  ): Promise<IssuedShortCode> {
-    const issued = await this.custodyCodeService.issueConfirmCode({
-      custodyOrderId: orderId,
-      storeId,
-      memberId,
-    });
-    await this.custodyCodeService.bindConfirmCode(orderId, issued);
-    return issued;
-  }
-
-  /** 幂等命中：回填同一枚未过期确认码，避免重复建单 */
+  /** 幂等命中：重放已存在的存单，避免重复建单 */
   private async replayExistingOrder(
+    storeId: number,
     order: Prisma.CustodyOrderGetPayload<Record<string, never>>,
     now: Date,
   ): Promise<CreateCustodyOrderResponseDto> {
-    const binding = await this.custodyCodeService.readConfirmCodeBinding(
-      order.id,
-    );
     return {
-      order: mapCustodyOrder(order, now),
-      confirmCode: binding?.code ?? '',
-      confirmCodeExpiresAt: binding?.expiresAt ?? '',
+      order: mapCustodyOrder(
+        order,
+        now,
+        await this.custodyReadService.resolveOperatorRole(
+          storeId,
+          order.createdByStaffId,
+        ),
+      ),
       requireMemberConfirm: order.status === 'draft',
+    };
+  }
+
+  /** 按手机号校验会员：店员在存入弹窗点「验证会员」时回显昵称与脱敏手机号 */
+  async verifyMember(
+    user: AuthenticatedUser,
+    phone: string,
+  ): Promise<VerifyCustodyMemberResponseDto> {
+    const storeId = await this.resolveStoreId(user, 'custody:create');
+    const member = await this.findMember(storeId, phone);
+    return {
+      memberId: member.id,
+      memberName: member.name || (member.phone ?? ''),
+      phoneMasked: maskPhone(member.phone ?? ''),
     };
   }
 

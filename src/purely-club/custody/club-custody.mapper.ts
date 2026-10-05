@@ -8,7 +8,6 @@ import {
 import type {
   ClubCustodyOrderDto,
   ClubCustodyPickupRecordDto,
-  ClubCustodyPreviewDto,
   ClubCustodyStatus,
 } from './dto/club-custody.dto';
 
@@ -35,6 +34,7 @@ export function mapClubCustodyOrder(
     expireAt: toIsoString(record.expireAt),
     status: resolveClubStatus(record, now),
     remark: record.note ?? '',
+    image: record.image ?? '',
   };
 }
 
@@ -52,25 +52,8 @@ export function mapClubPickupRecord(
   };
 }
 
-/** 草稿存单 → 输码预览 DTO */
-export function mapClubPreview(
-  record: CustodyOrder,
-  storeName: string,
-): ClubCustodyPreviewDto {
-  return {
-    id: String(record.id),
-    storeName,
-    productName: record.productName,
-    specName: record.specName ?? '',
-    unit: record.unit,
-    qty: record.totalQty,
-    location: record.location ?? '',
-    expireAt: toIsoString(record.expireAt),
-  };
-}
-
 /**
- * 会员端状态映射：draft 必须原样透出（推送确认入口要显示「待确认」），
+ * 会员端状态映射：draft 必须原样透出（待确认入口要显示「待确认」），
  * 仅 void 不透出，降级为 stored 兜底。
  */
 function resolveClubStatus(record: CustodyOrder, now: Date): ClubCustodyStatus {

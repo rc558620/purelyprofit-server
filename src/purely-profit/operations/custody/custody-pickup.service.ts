@@ -11,6 +11,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../../../shared/audit-log.service';
 import { CustodyCodeService } from '../../../shared/custody/custody-code.service';
 import { CONFIRM_FAIL_LOCK_SECONDS } from '../../../shared/custody/custody-code.constants';
+import { writeCustodyPickupReleaseLog } from '../../../shared/custody/custody-frozen-log';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
@@ -23,6 +24,7 @@ import {
 import { isPickable, type CustodyStatusValue } from './custody.domain';
 import { mapCustodyOrder, mapVerifyPreview } from './custody.mapper';
 import { CustodyPickupVerifyService } from './custody-pickup-verify.service';
+import { CustodyReadService } from './custody-read.service';
 import { CustodyRealtimePublisher } from './custody-realtime.publisher';
 import type {
   ConfirmPickupDto,
@@ -41,6 +43,7 @@ export class CustodyPickupService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly custodyCodeService: CustodyCodeService,
+    private readonly custodyReadService: CustodyReadService,
     private readonly pickupVerifyService: CustodyPickupVerifyService,
     private readonly auditLogService: AuditLogService,
     private readonly realtimePublisher: CustodyRealtimePublisher,
@@ -58,10 +61,8 @@ export class CustodyPickupService {
         storeId,
       );
 
-    if (
-      staffId !== null &&
-      (await this.custodyCodeService.isConfirmFailLocked(storeId, staffId))
-    ) {
+    const lockId = this.resolveFailureLockId(user, staffId);
+    if (await this.custodyCodeService.isConfirmFailLocked(storeId, lockId)) {
       throw new BadRequestException(
         `核销尝试次数过多，请 ${Math.round(CONFIRM_FAIL_LOCK_SECONDS / 60)} 分钟后重试`,
       );
@@ -69,7 +70,7 @@ export class CustodyPickupService {
 
     const payload = await this.custodyCodeService.consumePickupCode(dto.code);
     if (!payload || payload.storeId !== storeId) {
-      await this.registerFailure(storeId, staffId);
+      await this.registerFailure(storeId, lockId);
       throw new BadRequestException(CUSTODY_PICKUP_CODE_INVALID_MESSAGE);
     }
 
@@ -84,7 +85,7 @@ export class CustodyPickupService {
         new Date(),
       )
     ) {
-      await this.registerFailure(storeId, staffId);
+      await this.registerFailure(storeId, lockId);
       throw new BadRequestException(CUSTODY_PICKUP_CODE_INVALID_MESSAGE);
     }
 
@@ -95,7 +96,7 @@ export class CustodyPickupService {
         storeId,
       },
     );
-    await this.clearFailure(storeId, staffId);
+    await this.clearFailure(storeId, lockId);
 
     // 高风险场景在确认前就把「是否需要后四位」告诉店员，
     // 避免店员填完数量点确认才被后端打回，白白烧掉一次性令牌
@@ -122,21 +123,40 @@ export class CustodyPickupService {
     this.pickupVerifyService.ensureIdentityChecked(dto.identityChecked);
 
     const storeId = await this.resolveStoreId(user);
+    const now = new Date();
+
+    /*
+     * 幂等判定必须先于令牌消费：核销令牌是一次性的（GETDEL 原子读取并删除），
+     * 先消费会让同一 idempotencyKey 的重试必然落到「核销信息已过期」，
+     * 幂等分支永远进不去，店员弱网重试时会被要求重新输入取件码。
+     */
+    const duplicated = await this.findIdempotentPickup(
+      storeId,
+      dto.idempotencyKey,
+    );
+    if (duplicated) {
+      const replayed = await this.findOrder(
+        storeId,
+        duplicated.custodyOrderId,
+      );
+      // 幂等命中：原样回放存单，经手角色按原存档店员解析
+      return {
+        order: mapCustodyOrder(
+          replayed,
+          now,
+          await this.custodyReadService.resolveOperatorRole(
+            storeId,
+            replayed.createdByStaffId,
+          ),
+        ),
+      };
+    }
+
     const tokenPayload = await this.custodyCodeService.consumeVerifyToken(
       dto.verifyToken,
     );
     if (!tokenPayload || tokenPayload.storeId !== storeId) {
       throw new BadRequestException(CUSTODY_VERIFY_TOKEN_INVALID_MESSAGE);
-    }
-
-    const duplicated = await this.findIdempotentPickup(
-      tokenPayload.custodyOrderId,
-      dto.idempotencyKey,
-    );
-    const now = new Date();
-    if (duplicated) {
-      const order = await this.findOrder(storeId, tokenPayload.custodyOrderId);
-      return { order: mapCustodyOrder(order, now) };
     }
 
     const order = await this.findOrder(storeId, tokenPayload.custodyOrderId);
@@ -230,7 +250,16 @@ export class CustodyPickupService {
     });
     await this.publishPicked(storeId, order, dto.qty, remainingQty, user, now);
 
-    return { order: mapCustodyOrder(latest, now) };
+    return {
+      order: mapCustodyOrder(
+        latest,
+        now,
+        await this.custodyReadService.resolveOperatorRole(
+          storeId,
+          latest.createdByStaffId,
+        ),
+      ),
+    };
   }
 
   /** 会员侧实时知情：核销后立刻推送，避免他人冒领而会员毫不知情 */
@@ -278,39 +307,33 @@ export class CustodyPickupService {
       now: Date;
     },
   ): Promise<void> {
-    const product = await tx.product.findUnique({
-      where: { id: productId },
-      select: { stock: true },
-    });
-    if (!product) {
-      return;
-    }
-
-    await tx.inventoryAdjustmentLog.create({
-      data: {
-        storeId,
-        productId,
-        operatorStaffId: params.operatorStaffId,
-        productName: params.productName,
-        beforeStock: product.stock - params.beforeRemainingQty,
-        afterStock: product.stock - params.afterRemainingQty,
-        delta: params.qty,
-        adjustType: 'custody_pickup',
-        note: `客存取出解冻 ${params.qty}${params.unit}（存单 ${params.orderNo}，物理库存未变动）`,
-      },
+    return writeCustodyPickupReleaseLog(tx, {
+      storeId,
+      productId,
+      productName: params.productName,
+      qty: params.qty,
+      beforeRemainingQty: params.beforeRemainingQty,
+      afterRemainingQty: params.afterRemainingQty,
+      operatorStaffId: params.operatorStaffId,
+      orderNo: params.orderNo,
+      note: `客存取出解冻 ${params.qty}${params.unit}（存单 ${params.orderNo}，物理库存未变动）`,
     });
   }
 
+  /**
+   * 幂等命中查询：同门店 + 同一幂等键视为同一次核销。
+   * 按门店而非存单查询，是因为幂等判定发生在消费核销令牌之前，此刻还拿不到存单。
+   */
   private async findIdempotentPickup(
-    custodyOrderId: number,
+    storeId: number,
     idempotencyKey: string | undefined,
   ) {
     if (!idempotencyKey) {
       return null;
     }
     return this.prisma.custodyPickup.findFirst({
-      where: { custodyOrderId, idempotencyKey, deletedAt: null },
-      select: { id: true },
+      where: { storeId, idempotencyKey, deletedAt: null },
+      select: { custodyOrderId: true },
     });
   }
 
@@ -326,20 +349,26 @@ export class CustodyPickupService {
 
   private async registerFailure(
     storeId: number,
-    staffId: number | null,
+    lockId: number,
   ): Promise<void> {
-    if (staffId !== null) {
-      await this.custodyCodeService.registerConfirmFailure(storeId, staffId);
-    }
+    await this.custodyCodeService.registerConfirmFailure(storeId, lockId);
   }
 
-  private async clearFailure(
-    storeId: number,
+  private async clearFailure(storeId: number, lockId: number): Promise<void> {
+    await this.custodyCodeService.clearConfirmFailures(storeId, lockId);
+  }
+
+  /**
+   * 失败锁定的计数维度：优先店员档案 ID，未关联店员档案的账号（主账号等）回退到 userId。
+   *
+   * 早期版本在 staffId 为 null 时既不计数也不加锁，这部分账号可以无限次尝试取件码，
+   * 失败锁定形同虚设。
+   */
+  private resolveFailureLockId(
+    user: AuthenticatedUser,
     staffId: number | null,
-  ): Promise<void> {
-    if (staffId !== null) {
-      await this.custodyCodeService.clearConfirmFailures(storeId, staffId);
-    }
+  ): number {
+    return staffId ?? user.id;
   }
 
   private resolveStoreId(user: AuthenticatedUser): Promise<number> {

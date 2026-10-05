@@ -1,12 +1,12 @@
 import { formatMonthDayLabel } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 
-export function toTimestamp(value: Date | string | number): number {
-  if (value instanceof Date) {
-    return value.getTime();
-  }
-  return new Date(value).getTime();
-}
+/*
+ * toTimestamp 已上提到共享层（缓存回读的日期字段是字符串，需统一容错转换）。
+ * 这里保留 re-export，使既有 import 路径不受影响。
+ */
+export { toTimestamp } from '../../../shared/date-coerce.utils';
+import { toTimestamp } from '../../../shared/date-coerce.utils';
 
 export function formatMoneyText(value: number): string {
   return Money.fromInputYuan(value)

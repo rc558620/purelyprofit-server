@@ -25,7 +25,8 @@ export class PulseDevModeSessionService {
         planId: DEV_PLAN_ID,
         planName: DEV_MODE_NAME,
         remainingDays: getDevRemainingDays(),
-        expiresAt: DEV_EXPIRES_AT,
+        // DTO 字段为 ISO 字符串（与真实链路缓存回读后的形态一致）
+        expiresAt: DEV_EXPIRES_AT.toISOString(),
       },
       unreadNotificationCount: 0,
       targetStoreSelected: false,

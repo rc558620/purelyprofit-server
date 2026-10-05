@@ -10,6 +10,7 @@ import type {
   InventoryStockChangeCommand,
   InventoryTransactionClient,
 } from './inventory.types';
+import { BadRequestException } from '@nestjs/common';
 import type { InventoryAdjustType } from '@prisma/client';
 import { sumCustodyFrozenQty } from '../../../shared/custody/custody-frozen-stock';
 import {
@@ -45,6 +46,22 @@ export async function executeInventoryManualAdjustment(
     command.productId,
   );
   const plan = buildInventoryManualAdjustmentPlan({ product, command });
+
+  /*
+   * 客存冻结兜底：物理库存不允许被改到低于「在存冻结量」。
+   * 否则会出现「冻结量 > 物理库存」的脏数据，可用库存被静默截断为 0、商品无法销售，
+   * 且没有任何日志或告警可追溯。delta 模式（报损 / 盘点减量）同样按调整后的库存校验。
+   */
+  const frozenQty = await resolveFrozenQty(
+    transaction,
+    command.storeId,
+    command.productId,
+  );
+  if (plan.afterStock < frozenQty) {
+    throw new BadRequestException(
+      `调整后库存 ${plan.afterStock} 低于该商品的客存冻结量 ${frozenQty}，请先处理在存的客存单`,
+    );
+  }
 
   /*
    * D2 修复：delta 模式使用原子 increment 替代绝对赋值，

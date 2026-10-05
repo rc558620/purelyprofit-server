@@ -4,15 +4,20 @@
 // 同时让写服务保持聚焦在编排与状态流转。
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../../prisma/prisma.service';
 import { buildOrderNo } from './custody.domain';
 import type { CustodyCreateInput } from './custody.types';
 
 /** 单号重复时的最大重试次数 */
 const ORDER_NO_MAX_RETRY = 3;
 
+/** 落库所需的最小客户端：事务客户端与非事务客户端均满足 */
+export type CustodyOrderRecordClient = Pick<
+  Prisma.TransactionClient,
+  'custodyOrder'
+>;
+
 export async function createCustodyOrderRecord(
-  prisma: PrismaService,
+  prisma: CustodyOrderRecordClient,
   input: CustodyCreateInput,
   requireMemberConfirm: boolean,
 ) {
@@ -40,6 +45,7 @@ export async function createCustodyOrderRecord(
           createdByStaffId: input.createdByStaffId,
           createdByNameSnapshot: input.createdByName,
           note: input.note,
+          image: input.image,
           idempotencyKey: input.idempotencyKey,
         },
       });
@@ -71,7 +77,7 @@ export async function createCustodyOrderRecord(
 
 /** 幂等命中查询：同门店 + 同一幂等键视为同一次提交 */
 export async function findIdempotentOrder(
-  prisma: PrismaService,
+  prisma: CustodyOrderRecordClient,
   storeId: number,
   idempotencyKey: string | undefined,
 ) {

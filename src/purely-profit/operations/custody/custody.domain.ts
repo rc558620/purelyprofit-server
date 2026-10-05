@@ -16,6 +16,67 @@ export type CustodyStatusValue =
 /** 库存口径取值 */
 export type CustodyStockModeValue = 'sold' | 'frozen';
 
+/**
+ * 操作员角色（存入经手 / 取出核销）：owner=主账号，manager=店长，staff=操作员。
+ *
+ * 取值由后端从 `staffs.role` 解析后下发，前端只按此决定标签文案与配色，
+ * 不在本地复制任何角色名到文案的映射规则。
+ */
+export type CustodyOperatorRole = 'owner' | 'manager' | 'staff';
+
+/**
+ * StaffRole → 操作员角色口径。
+ *
+ * 兜底规则：店员档案缺失（已删除 / 系统行为写入）或角色不可识别时统一按
+ * staff（操作员）处理，保证前端永远拿到可渲染的角色，不需要处理未知分支。
+ */
+export function resolveCustodyOperatorRole(
+  rawRole: string | null | undefined,
+): CustodyOperatorRole {
+  if (rawRole === 'owner' || rawRole === 'manager') {
+    return rawRole;
+  }
+  return 'staff';
+}
+
+/** 角色解析所需的店员行快照（userId / 子账号角色由调用方联表带出） */
+export interface CustodyOperatorStaffSnapshot {
+  /** 店员档案角色（历史数据可能未同步，仅作兜底） */
+  role: string;
+  /** 店员归属登录用户 ID：与 store.ownerId 比对判定主账号 */
+  userId: number | null;
+  /** 关联子账号角色（店长子账号在 staff.role 上可能不是 manager） */
+  subAccountRole?: string | null;
+}
+
+/**
+ * 店员行 → 操作员角色，口径与交班模块 resolveOperatorRole 对齐：
+ *
+ * 1. staff.userId === store.ownerId → 主账号（ownerId 是权威依据，
+ *    历史店员行的 role 可能仍是 manager，直接信 role 会把老板判成店长）
+ * 2. staff.role === owner → 主账号
+ * 3. 关联子账号角色为 manager → 店长
+ * 4. 其余（含档案缺失）→ 操作员
+ */
+export function resolveCustodyOperatorRoleFromStaff(
+  staff: CustodyOperatorStaffSnapshot | null | undefined,
+  storeOwnerUserId: number | null,
+): CustodyOperatorRole {
+  if (!staff) {
+    return 'staff';
+  }
+  if (storeOwnerUserId !== null && staff.userId === storeOwnerUserId) {
+    return 'owner';
+  }
+  if (staff.role === 'owner') {
+    return 'owner';
+  }
+  if (staff.subAccountRole === 'manager') {
+    return 'manager';
+  }
+  return resolveCustodyOperatorRole(staff.role);
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -75,9 +136,24 @@ export function resolveExpireAt(
   return null;
 }
 
-/** 解析 ISO 日期字符串，格式非法时抛出参数异常 */
+/** ISO 瞬时后缀：Z 或 ±HH:mm。用于拒绝「无时区」的时间串 */
+const ISO_TIMEZONE_SUFFIX = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * 解析带时区的 ISO 瞬时字符串，格式非法时抛出参数异常。
+ *
+ * 强制要求时区后缀（Z 或 ±HH:mm）：不带时区的串（如 '2026-10-31'）会被 `new Date()`
+ * 按 UTC 解释、'2026-10-31 23:59' 又被按进程本地时区解释，跨时区部署下到期时刻会
+ * 凭空偏移 8 小时。DTO 层已用同一口径挡过一道，这里作为写入前的最后一道闸门。
+ */
 export function parseIsoDate(value: string, fieldName: string): Date {
-  const parsed = new Date(value);
+  const trimmed = value.trim();
+  if (!ISO_TIMEZONE_SUFFIX.test(trimmed)) {
+    throw new BadRequestException(
+      `${fieldName} 必须是带时区的 ISO 瞬时时间（如 2026-10-31T15:59:00.000Z）`,
+    );
+  }
+  const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) {
     throw new BadRequestException(`${fieldName} 时间格式不合法`);
   }

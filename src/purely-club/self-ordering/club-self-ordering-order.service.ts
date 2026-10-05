@@ -22,6 +22,7 @@ import {
   MembershipDowngradeService,
   SELF_ORDER_BLOCKED_MESSAGE,
 } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 /** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */
 const buildSelfOrderLineKey = (
@@ -75,6 +76,7 @@ export class ClubSelfOrderingOrderService {
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
     private readonly specPricing: ProductSpecPricingService,
     private readonly downgradeService: MembershipDowngradeService,
+    private readonly quotaService: ClubNewCustomerQuotaService,
   ) {}
 
   async create(
@@ -140,11 +142,16 @@ export class ClubSelfOrderingOrderService {
       session.createdAt,
     );
 
+    // 新客额度闸门：本店新客在额度耗尽时禁止下单，与扫码点餐同一口径。
+    // 额度归属取本次下单所在门店（会话已校验属于当前门店），切到别的门店即按
+    // 那家店的额度重新判定：A 店有额度可下单，B 店额度为 0 就该被拦住。
+    await this.quotaService.assertAvailableForOrder(storeId, user.id);
+
     const priced = await this.priceItems(storeId, dto.items);
     const orderNo = createSelfOrderNo();
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const response = await this.prisma.$transaction(async (tx) => {
         // 先插占位记录抢占唯一索引，并发的兄弟请求会在此失败并走幂等回放
         await tx.idempotencyRecord.create({
           data: {
@@ -207,6 +214,16 @@ export class ClubSelfOrderingOrderService {
           include: { items: true },
         });
 
+        // 新客额度扣减：与订单落库在同一个事务里提交。
+        // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
+        // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
+        await this.quotaService.consumeWithinOrderTransaction(
+          tx,
+          storeId,
+          user.id,
+          user.phone || null,
+        );
+
         const response = this.toOrderResponse(order);
         await tx.idempotencyRecord.update({
           where: {
@@ -226,6 +243,8 @@ export class ClubSelfOrderingOrderService {
 
         return response;
       });
+
+      return response;
     } catch (error) {
       // 唯一键冲突等并发场景：兄弟请求可能已建单成功，回放其结果
       if (!(error instanceof ConflictException)) {

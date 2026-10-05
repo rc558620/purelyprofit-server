@@ -8,6 +8,7 @@ import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-b
 import { deductPointsForSettlement } from '../orders/club-order-settlement-points.utils';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { settleVoucherBalancePayment } from './club-voucher-order-balance-settlement.helper';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import { buildVoucherOrderNo } from './club-voucher-order-code.utils';
@@ -42,6 +43,7 @@ export class ClubVoucherOrderPaymentService {
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly quotaService: ClubNewCustomerQuotaService,
   ) {}
 
   /** 创建团购券订单草稿：校验商品/算价 → JSAPI 下单 → 落库 unpaid */
@@ -53,6 +55,14 @@ export class ClubVoucherOrderPaymentService {
       currentContext,
       dto,
     );
+    // 新客额度闸门：本店新客在额度耗尽时禁止下单，与扫码点餐同一口径。
+    // 放在算价之前——被拦时不必白算一轮促销与积分。
+    // 额度归属取本次下单所在门店（context 已校验等于当前门店），换店即按那家店的额度判定。
+    await this.quotaService.assertAvailableForOrder(
+      context.store.id,
+      currentContext.user.id,
+    );
+
     const quantity = dto.quantity ?? 1;
     const personCount = dto.personCount ?? context.product.personCount ?? 1;
     const pricing = await this.clubVoucherOrderContextService.resolvePricing(
@@ -95,24 +105,41 @@ export class ClubVoucherOrderPaymentService {
           })
         : undefined;
 
-    const created = await this.prisma.clubVoucherOrder.create({
-      data: buildVoucherOrderCreateInput({
-        orderNo,
-        storeId: context.store.id,
-        userId: currentContext.user.id,
-        customerId: context.customer.id,
-        product: context.product,
-        guestName: currentContext.user.name,
-        guestPhone: currentContext.user.phone,
-        quantity,
-        personCount,
-        remark: dto.remark,
-        pricing,
-        breakdownItems,
-        paymentMethod,
-      }),
-      select: { id: true },
-    });
+    // 落库与额度扣减必须在同一事务：扣不到额度（并发下被别人抢走最后一个）就回滚，
+    // 保证「服务的新客数」严格等于「扣掉的额度」。老客在扣减处直接放行。
+    // 余额结算（completePayment）刻意留在事务外——它自带事务且要发实时通知。
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.clubVoucherOrder.create({
+          data: buildVoucherOrderCreateInput({
+            orderNo,
+            storeId: context.store.id,
+            userId: currentContext.user.id,
+            customerId: context.customer.id,
+            product: context.product,
+            guestName: currentContext.user.name,
+            guestPhone: currentContext.user.phone,
+            quantity,
+            personCount,
+            remark: dto.remark,
+            pricing,
+            breakdownItems,
+            paymentMethod,
+          }),
+          select: { id: true },
+        });
+
+        await this.quotaService.consumeWithinOrderTransaction(
+          tx,
+          context.store.id,
+          currentContext.user.id,
+          currentContext.user.phone || null,
+        );
+
+        return order;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     // 余额支付：同一请求内完成落账（扣余额 + 生成券码 + 扣库存 + 起算有效期）
     if (paymentMethod === 'balance') {

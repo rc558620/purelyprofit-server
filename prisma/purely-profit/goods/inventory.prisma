@@ -31,5 +31,10 @@ enum InventoryAdjustType {
   damage
   manual
   sale
+  /// 客存取出解冻：物理库存不变，记录可用库存（stock − 在存量）回升
   custody_pickup
+  /// 客存存入占用：物理库存不变，记录可用库存被寄存量占用
+  custody_freeze
+  /// 客存作废解冻：作废冻结口径存单时释放占用
+  custody_release
 }

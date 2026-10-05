@@ -67,6 +67,7 @@ export class ScanOrderingTableQueryService {
             expiresAt: true,
             guestCount: true,
             status: true,
+            diningRoundId: true,
             orders: {
               where: {
                 deletedAt: null,
@@ -128,9 +129,22 @@ export class ScanOrderingTableQueryService {
           (session.expiresAt > now || session.orders.length > 0),
       );
       const activeSession = activeSessions[0] ?? null;
+      // 本轮会话口径（与清桌服务 resolveRoundSessions 对齐）：全部有效 active 会话
+      // + 与之同 diningRoundId 的 left 会话。left 会话即使已软删除也要保留本轮
+      // 待履约订单（顾客离桌/同顾客重扫仍属同一轮）；但 diningRoundId 不同的 left
+      // 会话属于上一轮，上一轮未清桌时其订单不得混入新一轮展示/人数/清桌校验。
+      const roundIds = new Set(
+        activeSessions.map((session) => session.diningRoundId),
+      );
       // left 会话不能单独恢复已清空桌台：它只有在存在有效 active 会话时，
       // 才作为同一轮次的一部分参与订单汇总与清桌校验。
-      const currentRoundSessions = activeSession ? table.sessions : [];
+      const currentRoundSessions = activeSession
+        ? table.sessions.filter(
+            (session) =>
+              session.status === 'active' ||
+              roundIds.has(session.diningRoundId),
+          )
+        : [];
       const activeOrders = currentRoundSessions.flatMap(
         (session) => session.orders,
       );

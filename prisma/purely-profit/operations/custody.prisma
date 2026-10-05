@@ -5,7 +5,7 @@ enum CustodyStatus {
   draft // 待客户确认
   stored // 在存
   finished // 已取完
-  expired // 已过期
+  expired // 已到期
   void // 已作废
 }
 
@@ -52,6 +52,8 @@ model CustodyOrder {
   voidReason            String?           @map("void_reason") @db.VarChar(100)
   /// 幂等键：发起存入由前端生成，防重复建单
   idempotencyKey        String?           @map("idempotency_key") @db.VarChar(64)
+  /// 物品图片 URL（存入时快照：会员带到门店的实物照，取件核销时比对；写入后不回刷）
+  image                 String?           @map("image") @db.VarChar(500)
   /// 备注
   note                  String?           @map("note") @db.VarChar(200)
   /// 软删除标记：非 null 表示已删除，值是删除时间

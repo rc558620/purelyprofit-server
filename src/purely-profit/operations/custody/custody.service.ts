@@ -21,6 +21,7 @@ import type {
   CustodyOrderDetailResponseDto,
   CustodyOrderListResponseDto,
   CustodySettingsDto,
+  VerifyCustodyMemberResponseDto,
   VerifyPickupCodeResponseDto,
 } from './dto/custody-response.dto';
 import type { CustodyListParams } from './custody.types';
@@ -58,6 +59,13 @@ export class CustodyService {
     return this.custodyWriteService.createOrder(user, dto);
   }
 
+  verifyMember(
+    user: AuthenticatedUser,
+    phone: string,
+  ): Promise<VerifyCustodyMemberResponseDto> {
+    return this.custodyWriteService.verifyMember(user, phone);
+  }
+
   verifyPickupCode(
     user: AuthenticatedUser,
     dto: VerifyPickupCodeDto,
@@ -80,11 +88,11 @@ export class CustodyService {
     return this.custodyWriteService.voidOrder(user, orderId, dto);
   }
 
-  resendConfirmCode(
+  resendStoreRequest(
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<CreateCustodyOrderResponseDto> {
-    return this.custodyWriteService.resendConfirmCode(user, orderId);
+    return this.custodyWriteService.resendStoreRequest(user, orderId);
   }
 
   getSettings(user: AuthenticatedUser): Promise<CustodySettingsDto> {
@@ -108,6 +116,7 @@ export class CustodyService {
         : 'all';
     return {
       status,
+      expiring: query.expiring === true,
       keyword: query.keyword ?? '',
       cursor: query.cursor,
       limit: Math.min(

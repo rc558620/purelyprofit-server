@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
@@ -41,7 +41,7 @@ export class ClubScanOrderingOrderService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly quotaService: NewCustomerQuotaService,
+    private readonly quotaService: ClubNewCustomerQuotaService,
     private readonly unpaidOrderClosureService: ScanOrderingUnpaidOrderClosureService,
     private readonly pricingVersionService: ScanOrderingPricingVersionService,
     private readonly realtimeService: ScanOrderingRealtimeService,
@@ -85,10 +85,7 @@ export class ClubScanOrderingOrderService {
     // 新客额度闸门：本店新客在额度耗尽时禁止下单，商家充值后才能继续。
     // 刻意放在定价之前——被拦时不必白算一轮价格与促销。
     // 老客（本店已消耗过额度）不受限制，见 ensureAvailableForNewCustomer。
-    await this.quotaService.ensureAvailableForNewCustomer(
-      session.storeId,
-      user.id,
-    );
+    await this.quotaService.assertAvailableForOrder(session.storeId, user.id);
 
     const pricedItems = await this.cartPricingService.priceCart(
       session.id,
@@ -209,6 +206,15 @@ export class ClubScanOrderingOrderService {
           where: { sessionId: session.id, status: 'active', deletedAt: null },
           data: { status: 'ordered', version: { increment: 1 } },
         });
+        // 新客额度扣减：与订单落库在同一个事务里提交。
+        // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
+        // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
+        await this.quotaService.consumeWithinOrderTransaction(
+          tx,
+          session.storeId,
+          user.id,
+          user.phone || null,
+        );
         const response = {
           ...order,
           paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
@@ -232,13 +238,6 @@ export class ClubScanOrderingOrderService {
       });
       this.logger.log(
         `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
-      );
-      // 新客额度扣减：订单已成立才扣，按 clubUserId 幂等（重复下单不会重复扣）。
-      // 失败只告警——额度记账失败不能回滚一次真实消费。
-      await this.consumeNewCustomerQuota(
-        session.storeId,
-        user.id,
-        user.phone || null,
       );
       // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置单独查一次并静默降级，
       // 查询失败不阻塞下单主流程与实时通知（通知退化为仅展示商品摘要与金额）
@@ -402,26 +401,6 @@ export class ClubScanOrderingOrderService {
     });
     if (!closed) {
       throw new ConflictException('订单状态已变化，请刷新后重试');
-    }
-  }
-
-  /**
-   * 订单落库后扣减本店新客额度。
-   *
-   * 失败只记日志：额度记账失败不能回滚一次已经发生的真实消费，
-   * 商家最多少记一位新客，代价远小于把用户已下的单吞掉。
-   */
-  private async consumeNewCustomerQuota(
-    storeId: number,
-    clubUserId: number,
-    phone: string | null,
-  ): Promise<void> {
-    try {
-      await this.quotaService.consumeForNewCustomer(storeId, clubUserId, phone);
-    } catch (error) {
-      this.logger.warn(
-        `新用户额度扣减失败，store ${storeId} user ${clubUserId}：${String(error)}`,
-      );
     }
   }
 

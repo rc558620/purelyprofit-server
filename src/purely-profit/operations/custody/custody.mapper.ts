@@ -8,8 +8,10 @@ import type {
 import { maskPhone } from '../../marketing/marketing.utils';
 import { CUSTODY_DEFAULT_UNIT_OPTIONS } from './custody.constants';
 import {
+  isExpiringSoon,
   resolveEffectiveStatus,
   toIsoString,
+  type CustodyOperatorRole,
   type CustodyStockModeValue,
   type CustodyStatusValue,
 } from './custody.domain';
@@ -20,11 +22,23 @@ import type {
   VerifyPickupPreviewDto,
 } from './dto/custody-response.dto';
 
-/** 实体 → 存单 DTO（状态按到期时间惰性派生） */
+/**
+ * 实体 → 存单 DTO（状态按到期时间惰性派生）。
+ *
+ * createdByRole 由调用方解析后传入：读链路按店员档案联表解析，
+ * 写链路直接取当前登录主体的角色，mapper 不自行查库。
+ */
 export function mapCustodyOrder(
   record: CustodyOrder,
   now: Date,
+  createdByRole: CustodyOperatorRole,
 ): CustodyOrderResponseDto {
+  // 状态与临期同用一个 now 与同一份派生口径：状态已流转到 expired 时不再算临期
+  const status = resolveEffectiveStatus(
+    record.status as CustodyStatusValue,
+    record.expireAt,
+    now,
+  );
   return {
     id: String(record.id),
     orderNo: record.orderNo,
@@ -38,25 +52,32 @@ export function mapCustodyOrder(
     location: record.location ?? '',
     storedAt: toIsoString(record.storedAt),
     expireAt: toIsoString(record.expireAt),
-    status: resolveEffectiveStatus(
-      record.status as CustodyStatusValue,
-      record.expireAt,
-      now,
-    ),
+    status,
+    expiringSoon: isExpiringSoon(status, record.expireAt, now),
     stockMode: record.stockMode as CustodyStockModeValue,
     createdByName: record.createdByNameSnapshot ?? '',
+    createdByRole,
     voidReason: record.voidReason ?? '',
     remark: record.note ?? '',
+    image: record.image ?? '',
   };
 }
 
-/** 实体 → 取出流水 DTO */
-export function mapPickupRecord(record: CustodyPickup): CustodyPickupRecordDto {
+/**
+ * 实体 → 取出流水 DTO。
+ *
+ * operatorRole 由调用方解析后传入，口径与 mapCustodyOrder 一致。
+ */
+export function mapPickupRecord(
+  record: CustodyPickup,
+  operatorRole: CustodyOperatorRole,
+): CustodyPickupRecordDto {
   return {
     id: String(record.id),
     qty: record.qty,
     pickedAt: toIsoString(record.pickedAt),
     operatorName: record.operatorNameSnapshot ?? '',
+    operatorRole,
   };
 }
 

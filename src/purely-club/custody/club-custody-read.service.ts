@@ -2,7 +2,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CustodyCodeService } from '../../shared/custody/custody-code.service';
 import { resolveCustodyMemberId } from '../../shared/custody/custody-member.resolver';
 import type { CustodyListParams } from '../../purely-profit/operations/custody/custody.types';
 import {
@@ -31,10 +30,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export class ClubCustodyReadService {
   private readonly logger = new Logger(ClubCustodyReadService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly custodyCodeService: CustodyCodeService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** 会员在当前门店的会员档案 ID（找不到返回 null，对应未登记会员） */
   findMemberId(context: ClubCurrentContext): Promise<number | null> {
@@ -57,7 +53,12 @@ export class ClubCustodyReadService {
     params: Omit<CustodyListParams, 'storeId'>,
   ): Promise<ClubCustodyOrderListResponseDto> {
     const memberId = await this.findMemberId(context);
-    const empty = { storedCount: 0, pickedCount: 0, expiringCount: 0, pendingCount: 0 };
+    const empty = {
+      storedCount: 0,
+      pickedCount: 0,
+      expiringCount: 0,
+      pendingCount: 0,
+    };
     if (memberId === null) {
       return { items: [], nextCursor: null, summary: empty };
     }
@@ -79,9 +80,10 @@ export class ClubCustodyReadService {
     ]);
 
     const hasMore = records.length > params.limit;
-    const items = records
-      .slice(0, params.limit)
-      .map((record) => mapClubCustodyOrder(record, context.store.name, now));
+    const visible = records.slice(0, params.limit);
+    const items = visible.map((record) =>
+      mapClubCustodyOrder(record, context.store.name, now),
+    );
 
     return {
       items,
@@ -145,43 +147,44 @@ export class ClubCustodyReadService {
     const expiringEdge = new Date(
       now.getTime() + CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
     );
-    const [storedCount, pendingCount, expiringCount, pickedAgg] = await Promise.all([
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'stored',
-          OR: [{ expireAt: null }, { expireAt: { gt: now } }],
-        },
-      }),
-      // 待确认总数：草稿不进主列表 Tab，徽标必须走独立计数而非预览数组长度
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'draft',
-        },
-      }),
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: now, lte: expiringEdge },
-        },
-      }),
-      this.prisma.custodyPickup.aggregate({
-        where: {
-          storeId,
-          deletedAt: null,
-          custodyOrder: { memberId, deletedAt: null },
-        },
-        _sum: { qty: true },
-      }),
-    ]);
+    const [storedCount, pendingCount, expiringCount, pickedAgg] =
+      await Promise.all([
+        this.prisma.custodyOrder.count({
+          where: {
+            storeId,
+            memberId,
+            deletedAt: null,
+            status: 'stored',
+            OR: [{ expireAt: null }, { expireAt: { gt: now } }],
+          },
+        }),
+        // 待确认总数：草稿不进主列表 Tab，徽标必须走独立计数而非预览数组长度
+        this.prisma.custodyOrder.count({
+          where: {
+            storeId,
+            memberId,
+            deletedAt: null,
+            status: 'draft',
+          },
+        }),
+        this.prisma.custodyOrder.count({
+          where: {
+            storeId,
+            memberId,
+            deletedAt: null,
+            status: 'stored',
+            expireAt: { gt: now, lte: expiringEdge },
+          },
+        }),
+        this.prisma.custodyPickup.aggregate({
+          where: {
+            storeId,
+            deletedAt: null,
+            custodyOrder: { memberId, deletedAt: null },
+          },
+          _sum: { qty: true },
+        }),
+      ]);
 
     return {
       storedCount,

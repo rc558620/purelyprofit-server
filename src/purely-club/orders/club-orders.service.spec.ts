@@ -26,6 +26,7 @@ import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 describe('ClubOrdersService', () => {
   let service: ClubOrdersService;
@@ -270,6 +271,20 @@ describe('ClubOrdersService', () => {
           useValue: clubMemberProfileService,
         },
         { provide: ClubMemberLevelsService, useValue: clubMemberLevelsService },
+        // 新客额度桩：默认放行且扣减成功，不干扰既有下单断言
+        {
+          provide: ClubNewCustomerQuotaService,
+          useValue: {
+            assertAvailableForOrder: jest.fn().mockResolvedValue(true),
+            consumeForOrder: jest.fn().mockResolvedValue({
+              consumed: false,
+              remaining: 0,
+            }),
+            consumeWithinOrderTransaction: jest
+              .fn()
+              .mockResolvedValue({ consumed: false, remaining: 0 }),
+          },
+        },
       ],
     }).compile();
 

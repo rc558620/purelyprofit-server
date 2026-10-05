@@ -282,12 +282,18 @@ export class InventoryAdjustmentResponseDto {
   delta: number;
 
   /**
-   * 调整类型：出参覆盖全部 InventoryAdjustType 取值（含系统产生的 custody_pickup），
+   * 调整类型：出参覆盖全部 InventoryAdjustType 取值
+   * （含系统产生的 custody_pickup / custody_freeze / custody_release），
    * 入参侧仍只允许人工可发起的四类（INVENTORY_ADJUST_TYPE_VALUES）。
    */
   @ApiProperty({
     example: 'restock',
-    enum: [...INVENTORY_ADJUST_TYPE_VALUES, 'custody_pickup'],
+    enum: [
+      ...INVENTORY_ADJUST_TYPE_VALUES,
+      'custody_pickup',
+      'custody_freeze',
+      'custody_release',
+    ],
     description: '调整类型',
   })
   adjustType: InventoryAdjustType;

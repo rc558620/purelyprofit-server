@@ -28,6 +28,7 @@ import {
   CreateCustodyOrderDto,
   ListCustodyOrdersQueryDto,
   UpdateCustodySettingsDto,
+  VerifyCustodyMemberQueryDto,
   VerifyPickupCodeDto,
   VoidCustodyOrderDto,
 } from './dto/custody-request.dto';
@@ -38,6 +39,7 @@ import {
   CustodyOrderListResponseDto,
   CustodySettingsDto,
   CustodySettingsResponseDto,
+  VerifyCustodyMemberResponseDto,
   VerifyPickupCodeResponseDto,
 } from './dto/custody-response.dto';
 
@@ -53,7 +55,7 @@ export class CustodyController {
   @ApiOperation({
     summary: '发起客存存入',
     description:
-      '店员在当前门店为会员发起寄存：落草稿存单并返回 6 位确认码；门店关闭客户确认时存单直接进入在存。支持 idempotencyKey 幂等重放。',
+      '店员在当前门店为会员发起寄存：落草稿存单并实时推送给客户确认；门店关闭客户确认时存单直接进入在存。支持 idempotencyKey 幂等重放。',
   })
   @ApiCreatedResponse({ type: CreateCustodyOrderResponseDto })
   createOrder(
@@ -78,6 +80,21 @@ export class CustodyController {
     return this.custodyService.listOrders(user, query);
   }
 
+  @Get('verify-member')
+  @RequirePermissions('custody:create')
+  @ApiOperation({
+    summary: '按手机号校验会员',
+    description:
+      '店员发起存入前校验手机号对应的门店会员并回显昵称与脱敏手机号；会员不存在时返回 404。',
+  })
+  @ApiOkResponse({ type: VerifyCustodyMemberResponseDto })
+  verifyMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: VerifyCustodyMemberQueryDto,
+  ): Promise<VerifyCustodyMemberResponseDto> {
+    return this.custodyService.verifyMember(user, query.phone);
+  }
+
   @Get(':id')
   @RequirePermissions('custody:view')
   @ApiOperation({ summary: '查询客存存单详情与取出流水' })
@@ -89,19 +106,19 @@ export class CustodyController {
     return this.custodyService.getOrderDetail(user, orderId);
   }
 
-  @Post(':id/resend-confirm-code')
+  @Post(':id/resend-push')
   @RequirePermissions('custody:create')
   @ApiOperation({
-    summary: '重发存入确认码',
+    summary: '重新推送存入确认',
     description:
-      '确认码 5 分钟过期或客户错过时重发一枚新码（同存单同时只有一枚有效码）；仅待客户确认的草稿存单可重发。',
+      '客户错过推送（没带手机 / 小程序在后台）时再推一次确认请求；仅待客户确认的草稿存单可重推。',
   })
   @ApiOkResponse({ type: CreateCustodyOrderResponseDto })
-  resendConfirmCode(
+  resendStoreRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) orderId: number,
   ): Promise<CreateCustodyOrderResponseDto> {
-    return this.custodyService.resendConfirmCode(user, orderId);
+    return this.custodyService.resendStoreRequest(user, orderId);
   }
 
   @Post(':id/void')

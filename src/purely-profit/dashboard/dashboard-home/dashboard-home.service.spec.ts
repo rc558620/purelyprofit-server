@@ -54,6 +54,9 @@ describe('DashboardHomeService', () => {
     employeePayroll: {
       findMany: jest.fn(),
     },
+    custodyOrder: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   const commerceAccessService = {
@@ -523,6 +526,7 @@ describe('DashboardHomeService', () => {
         inactiveVips: [],
         dailyRevenueRows: [],
         recentOrders: [],
+        expiringCustodies: [],
       });
     storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
       quota: 3,
@@ -1582,5 +1586,60 @@ describe('DashboardHomeService', () => {
     expect(orderActivity).toBeUndefined();
     // 不应抛错
     expect(result.activities).toBeDefined();
+  });
+
+  it('客存到期预警动态：expireAt 为字符串（缓存反序列化形态）时仍能生成且不抛错', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+      ])
+      .mockResolvedValueOnce([
+        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
+      .mockResolvedValueOnce([]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
+      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    prismaService.member.count.mockResolvedValue(0);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([]);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+    // 缓存反序列化后日期字段回读为字符串：直接调 .getTime() 会抛错
+    prismaService.custodyOrder.findMany.mockResolvedValue([
+      {
+        id: 901,
+        productName: '飞天茅台',
+        memberNameSnapshot: '张三',
+        remainingQty: 2,
+        unit: '瓶',
+        expireAt: '2026-05-16T00:00:00.000Z',
+        updatedAt: '2026-05-14T10:00:00.000Z',
+      },
+    ]);
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    const custodyActivity = result.activities.find(
+      (a) => a.id === 'custody-expiring',
+    );
+    expect(custodyActivity).toBeDefined();
+    expect(custodyActivity?.type).toBe('warning');
+    expect(custodyActivity?.bizType).toBe('custody_expiring');
+    expect(custodyActivity?.actionUrl).toBe('/custody-management');
   });
 });

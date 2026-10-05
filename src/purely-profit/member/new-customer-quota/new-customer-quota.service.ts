@@ -1,6 +1,5 @@
 // 新用户额度服务：余额查询 / 充值 / 会员赠送 / 清零 / 新客消耗（扣减幂等 + 防超卖）
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import {
   PrismaService,
   TX_TIMEOUT_MEDIUM,
@@ -200,6 +199,64 @@ export class NewCustomerQuotaService {
   }
 
   /**
+   * 运营增减额度：按增量调整余额（不会低于 0），并写一条流水。
+   *
+   * 供 purelyPulse「新客额度」管理页使用：平台运营代商家发放 / 回收额度。
+   * 与 `recharge`（微信支付充值）、`grantByPlan`（会员赠送）共用同一张流水表，
+   * 保证 purelyProfit 额度页的「余额 + 累计赠送 + 流水」三者始终自洽。
+   *
+   * 流水类型受枚举限制（recharge / grant / consume / clear）：增加按 `grant` 记，
+   * 减少按 `clear` 记；余额未发生变化时（例如已是 0 仍继续减少）不写流水，
+   * 避免产生 0 变动的噪音记录。
+   *
+   * @returns 调整后的余额
+   */
+  async adjustQuota(
+    storeId: number,
+    delta: number,
+    description: string,
+  ): Promise<number> {
+    const safeDelta = Math.trunc(Number.isFinite(delta) ? delta : 0);
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.storeMembershipProfile.upsert({
+          where: { storeId },
+          create: { storeId },
+          update: {},
+        });
+
+        const profile = await tx.storeMembershipProfile.findUnique({
+          where: { storeId },
+          select: { newCustomerQuota: true },
+        });
+        const remaining = profile?.newCustomerQuota ?? 0;
+        const nextQuota = Math.max(0, remaining + safeDelta);
+        const changeAmount = nextQuota - remaining;
+        if (changeAmount === 0) return nextQuota;
+
+        await tx.storeMembershipProfile.update({
+          where: { storeId },
+          data: { newCustomerQuota: nextQuota },
+        });
+
+        await tx.storeNewCustomerQuotaLog.create({
+          data: {
+            storeId,
+            type: changeAmount > 0 ? 'grant' : 'clear',
+            changeAmount,
+            balanceAfter: nextQuota,
+            description,
+          },
+        });
+
+        return nextQuota;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
+  }
+
+  /**
    * 会员赠送：购买 / 续费成功时一次性叠加，免费档位不赠送。
    *
    * multiplier 为购买期数（管理端「追加期数」：年度 × 2 = 300 × 2 = 600）。
@@ -312,71 +369,92 @@ export class NewCustomerQuotaService {
    * 新客消耗额度：同一顾客（clubUserId）在同一门店只扣一次。
    * 额度不足时抛 NEW_CUSTOMER_QUOTA_EXHAUSTED（事务回滚，不产生消耗记录）。
    *
+   * `executor` 用于把扣减并入**建单事务**：闸门只是乐观预检，真正的一致性由
+   * 「订单落库 + 扣减」在同一事务内提交来保证——扣不到额度就必须让建单一起回滚，
+   * 否则并发下第二个新客会白嫖一个额度（订单成立但额度没扣）。
+   *
+   * 并发正确性靠两点，不需要额外的锁表：
+   * - `updateMany` 的 `newCustomerQuota: { gt: 0 }` 条件 + PostgreSQL 行锁：
+   *   两个新客争抢最后一个额度时，先到者把额度扣到 0 并提交，后到者的 UPDATE
+   *   在锁释放后重新评估 WHERE（READ COMMITTED），条件不再满足 → count=0 → 抛错；
+   * - `storeNewCustomerQuotaConsume` 的唯一约束保证同一顾客不会被重复记账。
+   *
+   * ⚠️ 老客必须在写入之前用查询识别出来，不能靠「insert 撞唯一约束再兜」：
+   * PostgreSQL 下事务内一旦触发 P2002，整个事务进入 aborted 状态、后续语句全部
+   * 失败，会把老客的整笔建单一起拖垮。
+   *
    * @param phone 可选的手机号快照，仅用于运营追溯；未绑手机号即下单时传 null
    */
   async consumeForNewCustomer(
     storeId: number,
     clubUserId: number,
     phone?: string | null,
+    executor: PrismaExecutor = this.prisma,
   ): Promise<ConsumeNewCustomerQuotaResult> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        try {
-          await tx.storeNewCustomerQuotaConsume.create({
-            data: { storeId, clubUserId, phone: phone ?? null },
-          });
-        } catch (error) {
-          if (
-            error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2002'
-          ) {
-            // 该顾客在本店已扣过：老顾客重复下单/重复绑定不重复扣减
-            const existing = await tx.storeMembershipProfile.findUnique({
-              where: { storeId },
-              select: { newCustomerQuota: true },
-            });
-            return {
-              consumed: false,
-              remaining: existing?.newCustomerQuota ?? 0,
-            };
-          }
-          throw error;
-        }
-
-        const updated = await tx.storeMembershipProfile.updateMany({
-          where: { storeId, newCustomerQuota: { gt: 0 } },
-          data: {
-            newCustomerQuota: { decrement: 1 },
-            newCustomerQuotaConsumed: { increment: 1 },
-          },
-        });
-
-        if (updated.count === 0) {
-          throw new ForbiddenException({
-            message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
-            code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
-          });
-        }
-
+    const consume = async (
+      tx: PrismaExecutor,
+    ): Promise<ConsumeNewCustomerQuotaResult> => {
+      // 老客（本店已消耗过额度）：直接放行，不做任何写入
+      const existing = await tx.storeNewCustomerQuotaConsume.findUnique({
+        where: { storeId_clubUserId: { storeId, clubUserId } },
+        select: { id: true },
+      });
+      if (existing) {
         const profile = await tx.storeMembershipProfile.findUnique({
           where: { storeId },
           select: { newCustomerQuota: true },
         });
-        const remaining = profile?.newCustomerQuota ?? 0;
+        return { consumed: false, remaining: profile?.newCustomerQuota ?? 0 };
+      }
 
-        await tx.storeNewCustomerQuotaLog.create({
-          data: {
-            storeId,
-            type: 'consume',
-            changeAmount: -1,
-            balanceAfter: remaining,
-            description: '新客授权手机号消耗',
-          },
+      // 新客：抢占 1 个额度（额度为 0 时命中 0 行 → 抛错回滚）
+      const updated = await tx.storeMembershipProfile.updateMany({
+        where: { storeId, newCustomerQuota: { gt: 0 } },
+        data: {
+          newCustomerQuota: { decrement: 1 },
+          newCustomerQuotaConsumed: { increment: 1 },
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new ForbiddenException({
+          message: NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
+          code: NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
         });
+      }
 
-        return { consumed: true, remaining };
-      },
-      { timeout: TX_TIMEOUT_MEDIUM },
-    );
+      await tx.storeNewCustomerQuotaConsume.create({
+        data: { storeId, clubUserId, phone: phone ?? null },
+      });
+
+      const profile = await tx.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: { newCustomerQuota: true },
+      });
+      const remaining = profile?.newCustomerQuota ?? 0;
+
+      await tx.storeNewCustomerQuotaLog.create({
+        data: {
+          storeId,
+          type: 'consume',
+          changeAmount: -1,
+          balanceAfter: remaining,
+          // 消耗点不再只有「授权手机号」：下单（扫码点餐 / 自助下单 / 团购券 /
+          // 服务商品）同样扣减，且这些链路并不强制绑定手机号，
+          // 写成「授权手机号消耗」会让商家在流水里看到与事实不符的描述。
+          description: '新客消耗',
+        },
+      });
+
+      return { consumed: true, remaining };
+    };
+
+    // 已经在事务里就直接复用连接，事务客户端没有 $transaction 可嵌套
+    if (executor === this.prisma) {
+      return this.prisma.$transaction(consume, {
+        timeout: TX_TIMEOUT_MEDIUM,
+      });
+    }
+    return consume(executor);
   }
 }

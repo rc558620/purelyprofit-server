@@ -11,6 +11,7 @@ import {
   MembershipDowngradeService,
   MEMBER_ZONE_ORDER_BLOCKED_MESSAGE,
 } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import type {
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
@@ -25,6 +26,7 @@ export class ClubOrderServiceCreationService {
     private readonly clubOrderServiceContextService: ClubOrderServiceContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly downgradeService: MembershipDowngradeService,
+    private readonly quotaService: ClubNewCustomerQuotaService,
   ) {}
 
   async createServiceOrder(
@@ -42,6 +44,15 @@ export class ClubOrderServiceCreationService {
         currentContext,
         dto,
       );
+
+    // 新客额度闸门：本店新客在额度耗尽时禁止下单，与扫码点餐同一口径。
+    // 放在算价之前——被拦时不必白算一轮促销与积分。
+    // 额度归属取本次下单所在门店（context 已校验等于当前门店），换店即按那家店的额度判定。
+    await this.quotaService.assertAvailableForOrder(
+      context.store.id,
+      currentContext.user.id,
+    );
+
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
@@ -117,6 +128,25 @@ export class ClubOrderServiceCreationService {
       orderNo,
       paymentParams,
     });
+
+    // 服务商品草稿只存 Redis、不落数据库，扣减无法与建单共用事务，
+    // 因此用「先落草稿 → 扣额度 → 扣不到就撤销草稿」的补偿顺序保证等价的一致性：
+    // 扣不到额度时草稿被删除、订单不成立，服务的新客数与扣掉的额度仍然严格相等。
+    // 进程崩溃会留下一个没扣到额度的草稿，它自带 TTL 会自动过期，不会造成多扣。
+    try {
+      await this.quotaService.consumeForOrder(
+        context.store.id,
+        currentContext.user.id,
+        currentContext.user.phone || null,
+      );
+    } catch (error) {
+      // 撤销草稿失败不能吞掉额度错误：草稿带 TTL 会自行过期，
+      // 而额度错误必须让用户看到「为什么下不了单」。
+      await this.clubOrderDraftsService
+        .deleteDraft(orderNo)
+        .catch(() => undefined);
+      throw error;
+    }
 
     return this.clubOrderDraftsService.toServiceOrderResponse(draft);
   }

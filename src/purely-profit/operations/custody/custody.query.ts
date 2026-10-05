@@ -1,11 +1,14 @@
 // 客存 Prisma 查询构造：列表筛选、游标分页与排序集中于此，service 只做编排
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { CUSTODY_EXPIRING_SOON_DAYS } from './custody.constants';
 import type {
   CustodyCursorContext,
   CustodyListParams,
   CustodyListQuery,
 } from './custody.types';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 列表支持的筛选状态（含 all） */
 const FILTERABLE_STATUSES = [
@@ -56,9 +59,20 @@ export function buildListQuery(
   const conditions: Prisma.CustodyOrderWhereInput[] = [
     { storeId: params.storeId, deletedAt: null },
   ];
-  const statusCondition = buildStatusCondition(params.status, now);
-  if (Object.keys(statusCondition).length > 0) {
-    conditions.push(statusCondition);
+  // 到期预警查询忽略状态 Tab：直接取在存且临期阈值内到期（含已到期）的存单
+  if (params.expiring) {
+    const expiringEdge = new Date(
+      now.getTime() + CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
+    );
+    conditions.push({
+      status: 'stored',
+      expireAt: { not: null, lte: expiringEdge },
+    });
+  } else {
+    const statusCondition = buildStatusCondition(params.status, now);
+    if (Object.keys(statusCondition).length > 0) {
+      conditions.push(statusCondition);
+    }
   }
   const keywordCondition = buildKeywordCondition(params.keyword);
   if (Object.keys(keywordCondition).length > 0) {
@@ -92,7 +106,7 @@ export function buildPickupWhere(
 
 /**
  * 状态条件：expired 为惰性派生状态，DB 不落库；
- * stored 需排除已过期记录，expired 则取 stored 且已到期的记录。
+ * stored 需排除已到期记录，expired 则取 stored 且已到期的记录。
  */
 function buildStatusCondition(
   status: string,

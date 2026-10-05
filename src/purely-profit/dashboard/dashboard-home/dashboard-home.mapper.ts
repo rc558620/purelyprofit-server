@@ -70,6 +70,7 @@ export function buildDashboardHomeOverviewResponse(params: {
       inactiveVips: activitiesData.inactiveVips,
       dailyRevenueRows: activitiesData.dailyRevenueRows,
       recentOrders: activitiesData.recentOrders,
+      expiringCustodies: activitiesData.expiringCustodies,
     }),
     meta: buildDashboardHomeMeta(
       period,

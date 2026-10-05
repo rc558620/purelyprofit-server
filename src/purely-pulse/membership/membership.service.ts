@@ -19,6 +19,11 @@ import type {
 } from './dto/pulse-membership-admin-logs.response.dto';
 import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
+import type { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import type {
+  PulseAdminNewCustomerQuotaStoreDto,
+  PulseAdminNewCustomerQuotaStoresResponseDto,
+} from './dto/pulse-membership-admin-new-customer-quota.response.dto';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
@@ -104,6 +109,27 @@ export class PulseMembershipService {
     query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberPointsLogsResponseDto> {
     return this.adminService.listAdminPointsLogs(user, query);
+  }
+
+  /** 新客额度：可访问门店的额度一览（供 purelyPulse 新客额度页使用） */
+  listAdminNewCustomerQuotaStores(
+    user: AuthenticatedUser,
+  ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
+    return this.adminService.listAdminNewCustomerQuotaStores(user);
+  }
+
+  /**
+   * 新客额度：增减单个门店的额度（正数发放 / 负数回收）。
+   *
+   * 落库即对商家端与 C 端生效：purelyProfit 额度页按同一份数据展示，
+   * purelyClub 新客在额度为 0 时会被下单闸门拦下。
+   */
+  adjustAdminNewCustomerQuota(
+    user: AuthenticatedUser,
+    storeId: number,
+    dto: AdjustPulseAdminNewCustomerQuotaDto,
+  ): Promise<PulseAdminNewCustomerQuotaStoreDto> {
+    return this.adminService.adjustAdminNewCustomerQuota(user, storeId, dto);
   }
 
   listAdminBeanLogs(

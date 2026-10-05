@@ -11,6 +11,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type {
+  CustodyOperatorRole,
   CustodyStatusValue,
   CustodyStockModeValue,
 } from '../custody.domain';
@@ -77,13 +78,22 @@ export class CustodyOrderResponseDto {
   @IsString({ message: '到期时间格式不合法' })
   expireAt!: string;
 
-  /** 存单状态 */
+  /** 存单状态（expired=已到期，由后端按到期时间惰性派生） */
   @ApiProperty({
-    description: '存单状态',
+    description:
+      '存单状态：draft=待确认 stored=在存 finished=已取完 expired=已到期 void=已作废',
     enum: ['draft', 'stored', 'finished', 'expired', 'void'],
   })
   @IsString({ message: '存单状态必须是字符串' })
   status!: CustodyStatusValue;
+
+  /**
+   * 是否临期：在存且剩余有效期 ≤ CUSTODY_EXPIRING_SOON_DAYS 天。
+   * 阈值属业务规则，由后端统一判定，前端只负责配色与文案，避免两端各维护一份常量。
+   */
+  @ApiProperty({ description: '是否临期（在存且剩余有效期 ≤ 3 天）' })
+  @IsBoolean({ message: '是否临期必须是布尔值' })
+  expiringSoon!: boolean;
 
   /** 库存口径快照 */
   @ApiProperty({ description: '库存口径', enum: ['sold', 'frozen'] })
@@ -95,6 +105,17 @@ export class CustodyOrderResponseDto {
   @IsString({ message: '存入经手店员必须是字符串' })
   createdByName!: string;
 
+  /**
+   * 存入经手角色：owner=主账号 manager=店长 staff=操作员。
+   * 由后端按店员档案解析，店员已删除时兜底为 staff。
+   */
+  @ApiProperty({
+    description: '存入经手角色',
+    enum: ['owner', 'manager', 'staff'],
+  })
+  @IsString({ message: '存入经手角色必须是字符串' })
+  createdByRole!: CustodyOperatorRole;
+
   /** 作废原因（仅作废单有值） */
   @ApiPropertyOptional({ description: '作废原因' })
   @IsOptional()
@@ -105,6 +126,11 @@ export class CustodyOrderResponseDto {
   @ApiProperty({ description: '备注' })
   @IsString({ message: '备注必须是字符串' })
   remark!: string;
+
+  /** 物品图片 URL（存入时快照），无图为空串 */
+  @ApiProperty({ description: '物品图片 URL，无图为空串' })
+  @IsString({ message: '物品图片必须是字符串' })
+  image!: string;
 }
 
 /** 取出流水 */
@@ -128,6 +154,17 @@ export class CustodyPickupRecordDto {
   @ApiProperty({ description: '核销店员' })
   @IsString({ message: '核销店员必须是字符串' })
   operatorName!: string;
+
+  /**
+   * 核销店员角色：owner=主账号 manager=店长 staff=操作员。
+   * 由后端按店员档案解析，店员已删除时兜底为 staff。
+   */
+  @ApiProperty({
+    description: '核销店员角色',
+    enum: ['owner', 'manager', 'staff'],
+  })
+  @IsString({ message: '核销店员角色必须是字符串' })
+  operatorRole!: CustodyOperatorRole;
 }
 
 /** 客存统计（后端聚合，前端不做任何计算） */
@@ -203,16 +240,6 @@ export class CreateCustodyOrderResponseDto {
   @ValidateNested()
   @Type(() => CustodyOrderResponseDto)
   order!: CustodyOrderResponseDto;
-
-  /** 6 位确认码（客户在小程序输入） */
-  @ApiProperty({ description: '6 位确认码', example: '482716' })
-  @IsString({ message: '确认码必须是字符串' })
-  confirmCode!: string;
-
-  /** 确认码过期时间（ISO 字符串） */
-  @ApiProperty({ description: '确认码过期时间（ISO 字符串）' })
-  @IsString({ message: '确认码过期时间格式不合法' })
-  confirmCodeExpiresAt!: string;
 
   /** 是否需要客户确认（门店关闭确认时存单直接进入在存） */
   @ApiProperty({ description: '是否需要客户在小程序确认' })
@@ -300,6 +327,24 @@ export class VerifyPickupCodeResponseDto {
   @IsOptional()
   @IsString({ message: '核验触发原因必须是字符串' })
   phoneVerifyReason?: string | null;
+}
+
+/** 校验会员响应：存入前按手机号回显会员信息 */
+export class VerifyCustodyMemberResponseDto {
+  /** 会员主键 */
+  @ApiProperty({ description: '会员主键' })
+  @IsInt({ message: '会员主键必须是整数' })
+  memberId!: number;
+
+  /** 会员昵称（姓名为空时回落手机号） */
+  @ApiProperty({ description: '会员昵称' })
+  @IsString({ message: '会员昵称必须是字符串' })
+  memberName!: string;
+
+  /** 手机号（已脱敏） */
+  @ApiProperty({ description: '脱敏手机号', example: '138****8000' })
+  @IsString({ message: '脱敏手机号必须是字符串' })
+  phoneMasked!: string;
 }
 
 /** 作废 / 取出后的存单回包 */

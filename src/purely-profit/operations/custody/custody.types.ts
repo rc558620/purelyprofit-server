@@ -17,6 +17,13 @@ export interface CustodyListParams {
   storeId: number;
   /** 状态筛选：all 或具体状态 */
   status: string;
+  /**
+   * 到期预警筛选：true 时忽略状态条件，改取「在存且临期阈值内到期（含已到期）」。
+   *
+   * 已到期存单在 DB 中仍为 stored（expired 为读取时惰性派生），
+   * 因此预警口径直接用 expireAt 上界即可覆盖「临期 + 已到期」两类。
+   */
+  expiring: boolean;
   /** 关键字：会员姓名/手机号/商品名/存放位置 */
   keyword: string;
   /** 游标（首次查询为空） */
@@ -85,6 +92,8 @@ export interface CustodyCreateInput {
   sourceOrderId: number | null;
   /** 备注 */
   note: string | null;
+  /** 物品图片 URL（存入时快照，已上传至 COS；未上传为 null） */
+  image: string | null;
   /** 幂等键 */
   idempotencyKey: string | null;
 }

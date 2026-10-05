@@ -271,7 +271,8 @@ export class NotificationsBuildService {
         content: `${order.productName}：${order.voidReason?.trim() ? order.voidReason : '未填写作废原因'}。`,
         bizType: 'custody_order',
         bizId: String(order.id),
-        actionUrl: '/custody',
+        // 与首页动态卡保持一致：B 端客存页路由是 /custody-management
+        actionUrl: '/custody-management',
         createdAt: order.voidedAt?.getTime() ?? now,
       });
     }
@@ -296,7 +297,7 @@ export class NotificationsBuildService {
         content: `合计取出 ${pickupSummary.pickedQty} 件，最近一次 ${formatMonthDayTime(pickupSummary.lastPickedAt.getTime())}。`,
         bizType: 'custody_pickup',
         bizId: formatMonthDay(now),
-        actionUrl: '/custody',
+        actionUrl: '/custody-management',
         createdAt: pickupSummary.lastPickedAt.getTime(),
       });
     }

@@ -23,14 +23,27 @@ export class StoreSubAccountConflictCheckService {
     excludeStaffId: number | null,
     excludeUserId: number | null,
   ): Promise<void> {
-    // 1. loginAccount 全局唯一（跨所有门店、含禁用 Staff，防止禁用态历史数据错配）
+    // 1. loginAccount（email）全局唯一：
+    //    - active Staff 跨所有门店占用账号（与数据库部分唯一索引
+    //      staffs_active_email_unique 的口径保持一致）；
+    //    - 已禁用（isActive=false）的 Staff 不占用账号：
+    //      * 同门店的禁用残留行（子账号被关闭后遗留）由
+    //        ensureEmployeeHasLoginAccount 的复用逻辑接管，重新保存设置
+    //        会直接复用该行，因此不算冲突（excludeStaffId 为空的新建链路）；
+    //      * 已关联 Staff 的更新链路（excludeStaffId 非空）无法走复用，
+    //        同门店其他禁用行仍视为冲突，避免后续 update 撞
+    //        @@unique([storeId, email]) 抛 500；
+    //      * 跨门店的禁用行不受任何唯一约束，一律不算冲突。
     //    excludeStaffId 排除当前员工自己的 Staff，避免不变更 email 时误报冲突
-    const emailWhere = excludeStaffId
-      ? { email: nextStaffEmail, id: { not: excludeStaffId } }
-      : { email: nextStaffEmail };
-
     const emailConflict = await db.staff.findFirst({
-      where: emailWhere,
+      where: {
+        email: nextStaffEmail,
+        ...(excludeStaffId ? { id: { not: excludeStaffId } } : {}),
+        OR: [
+          { isActive: true },
+          ...(excludeStaffId ? [{ isActive: false, storeId }] : []),
+        ],
+      },
       select: { id: true },
     });
 
