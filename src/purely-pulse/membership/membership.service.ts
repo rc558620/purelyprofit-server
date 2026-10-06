@@ -19,7 +19,10 @@ import type {
 } from './dto/pulse-membership-admin-logs.response.dto';
 import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
-import type { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import type {
+  AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaStoresQueryDto,
+} from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import type {
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
@@ -114,8 +117,9 @@ export class PulseMembershipService {
   /** 新客额度：可访问门店的额度一览（供 purelyPulse 新客额度页使用） */
   listAdminNewCustomerQuotaStores(
     user: AuthenticatedUser,
+    query: GetPulseAdminNewCustomerQuotaStoresQueryDto,
   ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
-    return this.adminService.listAdminNewCustomerQuotaStores(user);
+    return this.adminService.listAdminNewCustomerQuotaStores(user, query);
   }
 
   /**

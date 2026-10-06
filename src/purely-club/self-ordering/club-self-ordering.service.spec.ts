@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
+import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { hashSpaceQrToken } from '../../shared/space-qr-token-codec.utils';
 import { ClubSelfOrderingService } from './club-self-ordering.service';
 
@@ -20,6 +21,11 @@ describe('ClubSelfOrderingService', () => {
 
   const currentStoreContext = {
     requireCurrentContext: jest.fn(),
+    switchCurrentStore: jest.fn(),
+  };
+
+  const storeAccessService = {
+    ensureStoreMembership: jest.fn(),
   };
 
   const user = { id: 100 } as unknown as AuthenticatedUser;
@@ -67,6 +73,10 @@ describe('ClubSelfOrderingService', () => {
           provide: ClubCurrentStoreContextService,
           useValue: currentStoreContext,
         },
+        {
+          provide: ClubStoreAccessService,
+          useValue: storeAccessService,
+        },
       ],
     }).compile();
     service = module.get<ClubSelfOrderingService>(ClubSelfOrderingService);
@@ -80,6 +90,7 @@ describe('ClubSelfOrderingService', () => {
       spaceId: 7,
       spaceName: 'A03',
       storeId: 1,
+      businessMode: 'general',
     });
   });
 
@@ -143,8 +154,40 @@ describe('ClubSelfOrderingService', () => {
     ).rejects.toThrow('餐饮门店请使用扫码点餐');
   });
 
-  it('二维码不属于当前门店时拒绝', async () => {
+  it('空间码进店即入店：门店不一致时补齐会员关系并切到空间所属门店', async () => {
     mockQrCode({ storeId: 999 });
+    // 首次解析为旧门店 1，切换后解析为新门店 999
+    currentStoreContext.requireCurrentContext
+      .mockResolvedValueOnce({ store: { id: 1, businessMode: 'general' } })
+      .mockResolvedValueOnce({ store: { id: 999, businessMode: 'general' } });
+
+    await expect(
+      service.resolveSpace(user, { spaceToken: 'tok-1' }),
+    ).resolves.toMatchObject({ storeId: 999, businessMode: 'general' });
+
+    expect(storeAccessService.ensureStoreMembership).toHaveBeenCalledWith(
+      user,
+      999,
+    );
+    expect(currentStoreContext.switchCurrentStore).toHaveBeenCalledWith(
+      user,
+      999,
+    );
+  });
+
+  it('门店已对齐时不产生任何切换写入（条件式，零额外副作用）', async () => {
+    await service.resolveSpace(user, { spaceToken: 'tok-1' });
+
+    expect(currentStoreContext.switchCurrentStore).not.toHaveBeenCalled();
+    expect(storeAccessService.ensureStoreMembership).not.toHaveBeenCalled();
+  });
+
+  it('切换后门店仍不一致时拒绝（防御兜底）', async () => {
+    mockQrCode({ storeId: 999 });
+    // 切换未生效：两次解析都停在旧门店
+    currentStoreContext.requireCurrentContext.mockResolvedValue({
+      store: { id: 1, businessMode: 'general' },
+    });
 
     await expect(
       service.resolveSpace(user, { spaceToken: 'tok-1' }),

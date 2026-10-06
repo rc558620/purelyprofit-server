@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubStoreAccessService } from '../stores/club-store-access.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
@@ -58,6 +59,11 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     ensureStoreMembership: jest.fn(),
   };
 
+  /** 当前门店上下文：桌码进店即入店，建会话时必须把当前门店切到桌台所属门店 */
+  const currentStoreContextService = {
+    switchCurrentStore: jest.fn().mockResolvedValue({ id: 100 }),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -76,6 +82,10 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
         {
           provide: ClubStoreAccessService,
           useValue: storeAccessService,
+        },
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: currentStoreContextService,
         },
       ],
     }).compile();
@@ -317,6 +327,20 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
       await service.createOrRestoreSession(user, { scanToken: 'scan-token' });
 
       expect(storeAccessService.ensureStoreMembership).toHaveBeenCalledWith(
+        user,
+        100,
+      );
+    });
+
+    it('桌码进店即入店：把当前门店切到桌台所属门店', async () => {
+      prepareSessionCreation();
+      storeAccessService.ensureStoreMembership.mockResolvedValue({
+        isNewMember: true,
+      });
+
+      await service.createOrRestoreSession(user, { scanToken: 'scan-token' });
+
+      expect(currentStoreContextService.switchCurrentStore).toHaveBeenCalledWith(
         user,
         100,
       );

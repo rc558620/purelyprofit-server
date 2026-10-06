@@ -10,6 +10,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubStoreAccessService } from '../stores/club-store-access.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 import type { CreateClubScanSessionDto } from './dto/club-scan-ordering.dto';
@@ -54,6 +55,7 @@ export class ClubScanOrderingService {
     private readonly menuQueryService: ClubScanOrderingMenuQueryService,
     private readonly serviceCallQueryService: ClubScanOrderingServiceCallService,
     private readonly storeAccessService: ClubStoreAccessService,
+    private readonly currentStoreContextService: ClubCurrentStoreContextService,
   ) {}
 
   async resolveQrToken(qrToken: string): Promise<unknown> {
@@ -103,7 +105,9 @@ export class ClubScanOrderingService {
       SCAN_TOKEN_TTL_SECONDS,
     );
     return {
-      store: { id: qrCode.storeId },
+      // 带上业态：桌码已强制 catering（见上方校验），前端据此同步 TabBar 等业态消费方，
+      // 无需再为拿业态多发一次 /stores/current
+      store: { id: qrCode.storeId, businessMode: store.businessMode },
       table: {
         id: qrCode.tableId,
         tableCode: qrCode.table.tableCode,
@@ -150,6 +154,21 @@ export class ClubScanOrderingService {
     // （/club/member/account、余额支付等）返回 404 —— findAccessibleStores
     // 是按 Member.phone 匹配门店的，桌码链路此前完全没建 Member。
     await this.storeAccessService.ensureStoreMembership(
+      user,
+      scanContext.storeId,
+    );
+
+    // 桌码进店即入店：把「当前门店」切到桌台所属门店。
+    //
+    // 此前桌码链路只补会员关系、不切门店（只有门店邀请码路径会切），于是
+    // 「当前门店是 B、桌台会话在 A」成了常态错配，带来两个后果：
+    // - 点餐历史按当前门店过滤（ClubScanOrderingOrderHistoryService），
+    //   扫 A 店桌码下的单在 B 店永远看不到；
+    // - 下单时无从做门店一致性校验——拿当前门店比对必然误伤正常扫码。
+    // 切门店后两者恒等，「到店即入店」与门店邀请码路径语义一致。
+    // 必须在 ensureStoreMembership 之后：切换前会按 Member 关系校验可访问性，
+    // 会员关系还没建立时会查不到这家店。
+    await this.currentStoreContextService.switchCurrentStore(
       user,
       scanContext.storeId,
     );

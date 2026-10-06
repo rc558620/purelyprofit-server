@@ -12,10 +12,18 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { NEW_CUSTOMER_QUOTA_WARNING_THRESHOLD } from '../../purely-profit/member/new-customer-quota/new-customer-quota.constants';
 import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import type {
+  AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaStoresQueryDto,
+} from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import {
+  PULSE_ADMIN_QUOTA_STORES_DEFAULT_PAGE_SIZE,
+  PULSE_ADMIN_QUOTA_STORES_MAX_PAGE_SIZE,
+} from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import type {
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
+  PulseAdminNewCustomerQuotaStoresStatsDto,
 } from './dto/pulse-membership-admin-new-customer-quota.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
 import {
@@ -66,13 +74,29 @@ export class PulseMembershipAdminNewCustomerQuotaService {
     private readonly quotaService: NewCustomerQuotaService,
   ) {}
 
-  /** 可访问门店的新客额度一览（展示主账号身份 + 额度现状） */
+  /**
+   * 可访问门店的新客额度一览（搜索 / 健康度筛选 / 分页）。
+   *
+   * 与会员列表接口同一口径：先按 keyword / health 过滤，再切出当前页。
+   * 额度可见门店量级为商家门店数，内存过滤成本可接受，
+   * 且 keyword 匹配行为与前端原实现（toLowerCase().includes）完全一致。
+   *
+   * 统计口径不同于分页切片：**只吃 keyword 过滤、忽略 health 筛选**。
+   * 顶部「门店数 / 额度合计」是概览指标，若跟随「已耗尽」Tab 会恒为 0 而失去意义。
+   */
   async listAdminQuotaStores(
     user: AuthenticatedUser,
+    query: GetPulseAdminNewCustomerQuotaStoresQueryDto,
   ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
+    const page = query.page ?? 1;
+    const pageSize = Math.min(
+      query.pageSize ?? PULSE_ADMIN_QUOTA_STORES_DEFAULT_PAGE_SIZE,
+      PULSE_ADMIN_QUOTA_STORES_MAX_PAGE_SIZE,
+    );
+
     const storeIds = await this.resolveVisibleStoreIds(user);
     if (storeIds.length === 0) {
-      return { items: [] };
+      return this.buildEmptyPageResult(page, pageSize);
     }
 
     const stores = await this.prisma.store.findMany({
@@ -81,8 +105,25 @@ export class PulseMembershipAdminNewCustomerQuotaService {
       orderBy: { id: 'asc' },
     });
 
+    const keywordMatchedStores = stores.filter((store) =>
+      matchesQuotaKeyword(store, query.keyword),
+    );
+    const filteredStores = query.health
+      ? keywordMatchedStores.filter((store) =>
+          matchesQuotaHealth(store.membershipProfile, query.health),
+        )
+      : keywordMatchedStores;
+
     return {
-      items: stores.map((store) => this.buildQuotaStoreDto(store)),
+      items: filteredStores
+        .slice((page - 1) * pageSize, page * pageSize)
+        .map((store) => this.buildQuotaStoreDto(store)),
+      total: filteredStores.length,
+      page,
+      pageSize,
+      hasMore: page * pageSize < filteredStores.length,
+      // 统计只吃 keyword 过滤：概览指标不随「已耗尽」等 Tab 抖动
+      stats: buildQuotaStoresStats(keywordMatchedStores),
     };
   }
 
@@ -184,4 +225,101 @@ export class PulseMembershipAdminNewCustomerQuotaService {
         (overrides?.updatedAt ?? profile?.updatedAt)?.getTime() ?? null,
     };
   }
+
+  /** 无可访问门店时的空分页结果（统计归零，结构与正常分页一致） */
+  private buildEmptyPageResult(
+    page: number,
+    pageSize: number,
+  ): PulseAdminNewCustomerQuotaStoresResponseDto {
+    return {
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      hasMore: false,
+      stats: {
+        storeCount: 0,
+        totalRemaining: 0,
+        warningCount: 0,
+        exhaustedCount: 0,
+      },
+    };
+  }
+}
+
+/** 额度健康度判定：口径与前端 resolveQuotaHealth 完全一致 */
+function resolveProfileHealth(
+  profile: PulseQuotaStoreRecord['membershipProfile'],
+): 'none' | 'exhausted' | 'warning' | 'healthy' {
+  const remaining = profile?.newCustomerQuota ?? 0;
+  if (remaining <= 0) {
+    return (profile?.newCustomerQuotaConsumed ?? 0) > 0 ? 'exhausted' : 'none';
+  }
+
+  return remaining < NEW_CUSTOMER_QUOTA_WARNING_THRESHOLD
+    ? 'warning'
+    : 'healthy';
+}
+
+/** keyword 匹配：主账号昵称 / 手机号 / 门店名（大小写不敏感） */
+function matchesQuotaKeyword(
+  store: PulseQuotaStoreRecord,
+  rawKeyword: string | undefined,
+): boolean {
+  const keyword = rawKeyword?.trim().toLowerCase();
+  if (!keyword) {
+    return true;
+  }
+
+  return (
+    store.name.toLowerCase().includes(keyword) ||
+    (store.contactPhone ?? '').toLowerCase().includes(keyword) ||
+    resolveAdminMemberDisplayName(store).toLowerCase().includes(keyword) ||
+    resolveAdminMemberPhone(store).toLowerCase().includes(keyword)
+  );
+}
+
+/** health 筛选：warning / exhausted，不传为全部 */
+function matchesQuotaHealth(
+  profile: PulseQuotaStoreRecord['membershipProfile'],
+  health: 'warning' | 'exhausted' | undefined,
+): boolean {
+  if (!health) {
+    return true;
+  }
+
+  return resolveProfileHealth(profile) === health;
+}
+
+/**
+ * 基于 keyword 过滤后的完整门店集合构建统计概览。
+ *
+ * 统计必须吃**分页切片之前**的全量结果，否则「门店数 / 额度合计」会跟着页大小缩水；
+ * 且不吃 health 筛选，否则切到「已耗尽」Tab 时概览会恒为 0。
+ * 未发放（remaining=0 且 consumed=0）不计入已耗尽，与前端口径一致。
+ */
+function buildQuotaStoresStats(
+  stores: PulseQuotaStoreRecord[],
+): PulseAdminNewCustomerQuotaStoresStatsDto {
+  let totalRemaining = 0;
+  let warningCount = 0;
+  let exhaustedCount = 0;
+
+  for (const store of stores) {
+    totalRemaining += store.membershipProfile?.newCustomerQuota ?? 0;
+
+    const health = resolveProfileHealth(store.membershipProfile);
+    if (health === 'exhausted') {
+      exhaustedCount += 1;
+    } else if (health === 'warning') {
+      warningCount += 1;
+    }
+  }
+
+  return {
+    storeCount: stores.length,
+    totalRemaining,
+    warningCount,
+    exhaustedCount,
+  };
 }

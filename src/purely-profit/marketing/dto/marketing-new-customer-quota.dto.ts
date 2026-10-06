@@ -52,8 +52,13 @@ export class NewCustomerQuotaLogDto {
   @ApiProperty()
   id!: number;
 
-  /** recharge=充值 grant=会员赠送 consume=新客消耗 clear=清零 */
-  @ApiProperty({ enum: ['recharge', 'grant', 'consume', 'clear'] })
+  /**
+   * recharge=充值 grant=会员赠送 consume=新客消耗 clear=清零
+   * admin_adjust=平台运营调整（purelyPulse 代商家发放 / 回收，非商家自付、非会员赠送）
+   */
+  @ApiProperty({
+    enum: ['recharge', 'grant', 'consume', 'clear', 'admin_adjust'],
+  })
   type!: string;
 
   /** 变动数量：正数为增加，负数为消耗 */

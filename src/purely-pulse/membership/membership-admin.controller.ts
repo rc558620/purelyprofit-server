@@ -28,7 +28,10 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { AdjustMemberBeansDto } from '../../purely-profit/member/members/dto/member-beans.dto';
 import { AdjustMemberPointsDto } from '../../purely-profit/member/members/dto/member-points.dto';
 import { GetPulseAdminMemberLogsQueryDto } from './dto/pulse-membership-admin-logs.request.dto';
-import { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import {
+  AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaStoresQueryDto,
+} from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import {
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
@@ -106,8 +109,12 @@ export class PulseMembershipAdminController {
   })
   listAdminNewCustomerQuotaStores(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetPulseAdminNewCustomerQuotaStoresQueryDto,
   ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
-    return this.pulseMembershipService.listAdminNewCustomerQuotaStores(user);
+    return this.pulseMembershipService.listAdminNewCustomerQuotaStores(
+      user,
+      query,
+    );
   }
 
   @Post('new-customer-quota/stores/:storeId/adjust')

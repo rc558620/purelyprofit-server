@@ -7,7 +7,10 @@ import type {
 } from './dto/pulse-membership-admin-logs.response.dto';
 import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-admin-member-records.request.dto';
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
-import type { AdjustPulseAdminNewCustomerQuotaDto } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
+import type {
+  AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaStoresQueryDto,
+} from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import type {
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
@@ -48,11 +51,12 @@ export class PulseMembershipAdminService {
     private readonly newCustomerQuotaService: PulseMembershipAdminNewCustomerQuotaService,
   ) {}
 
-  /** 新客额度：可访问门店的额度一览 */
+  /** 新客额度：可访问门店的额度一览（搜索 / 筛选 / 分页） */
   listAdminNewCustomerQuotaStores(
     user: AuthenticatedUser,
+    query: GetPulseAdminNewCustomerQuotaStoresQueryDto,
   ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
-    return this.newCustomerQuotaService.listAdminQuotaStores(user);
+    return this.newCustomerQuotaService.listAdminQuotaStores(user, query);
   }
 
   /** 新客额度：增减单个门店的额度（正数发放 / 负数回收） */

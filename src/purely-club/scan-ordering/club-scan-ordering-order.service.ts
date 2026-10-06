@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
@@ -52,6 +54,7 @@ export class ClubScanOrderingOrderService {
     private readonly orderQueryService: ClubScanOrderingOrderQueryService,
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
+    private readonly currentStoreContextService: ClubCurrentStoreContextService,
   ) {}
 
   preview(
@@ -82,9 +85,24 @@ export class ClubScanOrderingOrderService {
 
     const session = await this.requireSession(user, dto.sessionId);
 
-    // 新客额度闸门：本店新客在额度耗尽时禁止下单，商家充值后才能继续。
+    // 门店一致性：桌台会话所属门店必须等于当前门店。
+    //
+    // 扫桌码进店时后端已把当前门店切到桌台所属门店（见 ClubScanOrderingService
+    // .createOrRestoreSession），所以正常情况下两者恒等；不等只可能是用户在别处
+    // （另一台设备、或门店选择页）切了店，而本机还握着上一家店的会话——
+    // 此时必须拦住，否则订单与新客额度都会记到用户已经离开的那家店头上。
+    // 这道校验与其它下单链路同口径：自助下单按会话 storeId 过滤、团购券与
+    // 服务商品比对 dto.storeId。
+    const currentContext =
+      await this.currentStoreContextService.requireCurrentContext(user);
+    if (session.storeId !== currentContext.store.id) {
+      throw new BadRequestException('当前门店已切换，请刷新页面后重试');
+    }
+
+    // 新客额度闸门：新客在额度耗尽时禁止下单，商家充值后才能继续。
     // 刻意放在定价之前——被拦时不必白算一轮价格与促销。
-    // 老客（本店已消耗过额度）不受限制，见 ensureAvailableForNewCustomer。
+    // 老客（**本店**已消耗过额度）不受限制，见 ensureAvailableForNewCustomer。
+    // 额度按门店独立计算：在别家店扣过不影响本店判定，本店扣过才算老客。
     await this.quotaService.assertAvailableForOrder(session.storeId, user.id);
 
     const pricedItems = await this.cartPricingService.priceCart(

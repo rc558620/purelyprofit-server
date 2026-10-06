@@ -220,6 +220,14 @@ describe('PulseMembershipService admin', () => {
       },
     ]);
 
+    context.prismaService.storeMembershipPointsLog.groupBy.mockResolvedValue([
+      { source: 'purchase_bonus', _count: { _all: 9 } },
+      { source: 'admin_adjust', _count: { _all: 2 } },
+    ]);
+    context.prismaService.storeMembershipPointsLog.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(4);
+
     const result = await context.service.listAdminPointsLogs(context.user, {
       cursor: '1747821600000_99',
       limit: 1,
@@ -230,11 +238,16 @@ describe('PulseMembershipService admin', () => {
     ).toHaveBeenCalledWith({
       where: {
         storeId: { in: [18] },
-        OR: [
-          { createdAt: { lt: new Date('2025-05-21T10:00:00.000Z') } },
+        // 游标与其他条件统一走 AND 组合，避免平铺的 OR 被相互覆盖
+        AND: [
           {
-            createdAt: new Date('2025-05-21T10:00:00.000Z'),
-            id: { lt: 99 },
+            OR: [
+              { createdAt: { lt: new Date('2025-05-21T10:00:00.000Z') } },
+              {
+                createdAt: new Date('2025-05-21T10:00:00.000Z'),
+                id: { lt: 99 },
+              },
+            ],
           },
         ],
       },
@@ -284,7 +297,118 @@ describe('PulseMembershipService admin', () => {
       ],
       hasMore: true,
       nextCursor: `${new Date('2026-05-21T10:00:00.000Z').getTime()}_21`,
+      // 统计吃「同筛选、不含游标」的完整结果集：本页只切出 1 条，概览仍是全量口径
+      stats: {
+        totalRecords: 11,
+        adminAdjustCount: 2,
+        todayChangeCount: 4,
+      },
     });
+    // 统计查询不带游标，否则概览会随翻页越数越少
+    expect(
+      context.prismaService.storeMembershipPointsLog.groupBy,
+    ).toHaveBeenCalledWith({
+      by: ['source'],
+      where: { storeId: { in: [18] } },
+      _count: { _all: true },
+    });
+    expect(
+      context.prismaService.storeMembershipPointsLog.count,
+    ).toHaveBeenNthCalledWith(1, {
+      where: { storeId: { in: [18] }, source: 'admin_adjust' },
+    });
+    expect(
+      context.prismaService.storeMembershipPointsLog.count,
+    ).toHaveBeenNthCalledWith(2, {
+      where: { storeId: { in: [18] }, createdAt: { gte: expect.any(Date) } },
+    });
+  });
+
+  it('listAdminPointsLogs 把 pointsTab 与 keyword 下推到查询层', async () => {
+    context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue([]);
+
+    await context.service.listAdminPointsLogs(context.user, {
+      pointsTab: 'earn',
+      keyword: '张三',
+      limit: 20,
+    });
+
+    expect(
+      context.prismaService.storeMembershipPointsLog.findMany,
+    ).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { notIn: ['admin_adjust', 'expire'] },
+            changeType: 'increase',
+          },
+          {
+            OR: [
+              { description: { contains: '张三' } },
+              { store: { name: { contains: '张三' } } },
+              { store: { contactPhone: { contains: '张三' } } },
+              { store: { owner: { realName: { contains: '张三' } } } },
+              { store: { owner: { name: { contains: '张三' } } } },
+              { store: { owner: { wechatPhone: { contains: '张三' } } } },
+              { store: { owner: { email: { contains: '张三' } } } },
+            ],
+          },
+        ],
+      },
+      take: 21,
+    }));
+  });
+
+  it('listAdminPointsLogs 的获得 / 消耗边界与 type 推导一致，过期记录不丢', async () => {
+    context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue([]);
+
+    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'earn' });
+    // type = source!=='expire' && increase 才算 earn，过期必须留在 spend 侧
+    expect(
+      context.prismaService.storeMembershipPointsLog.findMany,
+    ).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { notIn: ['admin_adjust', 'expire'] },
+            changeType: 'increase',
+          },
+        ],
+      },
+    }));
+
+    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'spend' });
+    expect(
+      context.prismaService.storeMembershipPointsLog.findMany,
+    ).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { not: 'admin_adjust' },
+            OR: [{ source: 'expire' }, { changeType: 'decrease' }],
+          },
+        ],
+      },
+    }));
+
+    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'admin' });
+    expect(
+      context.prismaService.storeMembershipPointsLog.findMany,
+    ).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [{ source: 'admin_adjust' }],
+      },
+    }));
   });
 
   it('listAdminBeanLogs 将 cursor 下推到查询层并返回 nextCursor', async () => {
@@ -334,6 +458,12 @@ describe('PulseMembershipService admin', () => {
           },
         },
       },
+    ]);
+
+    context.prismaService.storePartnerBeanLog.groupBy.mockResolvedValue([
+      { source: 'promo_reward', _count: { _all: 8 } },
+      { source: 'withdrawal', _count: { _all: 3 } },
+      { source: 'admin_adjust', _count: { _all: 2 } },
     ]);
 
     const result = await context.service.listAdminBeanLogs(context.user, {
@@ -393,7 +523,132 @@ describe('PulseMembershipService admin', () => {
       ],
       hasMore: true,
       nextCursor: `${new Date('2026-05-21T10:00:00.000Z').getTime()}_11`,
+      // 统计来自 groupBy 的完整结果集：即使本页只切出 1 条，概览仍是全量口径
+      stats: {
+        totalRecords: 13,
+        adminAdjustCount: 2,
+        withdrawCount: 3,
+        promoRewardCount: 8,
+      },
     });
+  });
+
+  it('listAdminBeanLogs 把 beanTab 与 keyword 下推到查询层', async () => {
+    context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    context.prismaService.storePartnerBeanLog.findMany.mockResolvedValue([]);
+    context.prismaService.storePartnerBeanLog.groupBy.mockResolvedValue([]);
+
+    await context.service.listAdminBeanLogs(context.user, {
+      beanTab: 'earn',
+      keyword: '张三',
+      limit: 20,
+    });
+
+    expect(
+      context.prismaService.storePartnerBeanLog.findMany,
+    ).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { notIn: ['admin_adjust', 'withdrawal'] },
+            changeAmount: { gt: 0 },
+          },
+          {
+            OR: [
+              { description: { contains: '张三' } },
+              { store: { name: { contains: '张三' } } },
+              { store: { contactPhone: { contains: '张三' } } },
+              { store: { owner: { realName: { contains: '张三' } } } },
+              { store: { owner: { name: { contains: '张三' } } } },
+              { store: { owner: { wechatPhone: { contains: '张三' } } } },
+              { store: { owner: { email: { contains: '张三' } } } },
+            ],
+          },
+        ],
+      },
+      take: 21,
+    }));
+  });
+
+  it('listAdminBeanLogs 的获得 / 消耗提现边界与 type 推导一致，0 金额流水不丢', async () => {
+    context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    context.prismaService.storePartnerBeanLog.findMany.mockResolvedValue([]);
+    context.prismaService.storePartnerBeanLog.groupBy.mockResolvedValue([]);
+
+    await context.service.listAdminBeanLogs(context.user, { beanTab: 'earn' });
+    // type = amount > 0 才算 earn，0 必须留在 spend 侧
+    expect(
+      context.prismaService.storePartnerBeanLog.findMany,
+    ).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { notIn: ['admin_adjust', 'withdrawal'] },
+            changeAmount: { gt: 0 },
+          },
+        ],
+      },
+    }));
+
+    await context.service.listAdminBeanLogs(context.user, { beanTab: 'spend' });
+    expect(
+      context.prismaService.storePartnerBeanLog.findMany,
+    ).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { not: 'admin_adjust' },
+            OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
+          },
+        ],
+      },
+    }));
+  });
+
+  it('listAdminBeanLogs 的消耗/提现 Tab 与关键词条件都保留，不被 OR 互相覆盖', async () => {
+    context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    context.prismaService.storePartnerBeanLog.findMany.mockResolvedValue([]);
+    context.prismaService.storePartnerBeanLog.groupBy.mockResolvedValue([]);
+
+    await context.service.listAdminBeanLogs(context.user, {
+      beanTab: 'spend',
+      keyword: '提现',
+      limit: 20,
+    });
+
+    expect(
+      context.prismaService.storePartnerBeanLog.findMany,
+    ).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        storeId: { in: [18] },
+        AND: [
+          {
+            source: { not: 'admin_adjust' },
+            OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
+          },
+          {
+            OR: [
+              { description: { contains: '提现' } },
+              { store: { name: { contains: '提现' } } },
+              { store: { contactPhone: { contains: '提现' } } },
+              { store: { owner: { realName: { contains: '提现' } } } },
+              { store: { owner: { name: { contains: '提现' } } } },
+              { store: { owner: { wechatPhone: { contains: '提现' } } } },
+              { store: { owner: { email: { contains: '提现' } } } },
+            ],
+          },
+        ],
+      },
+    }));
   });
 
   it('listAdminPointsLogs cursor 非法时抛错', async () => {

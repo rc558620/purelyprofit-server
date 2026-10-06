@@ -18,7 +18,7 @@ import { ClubPhoneBindService } from './club-phone-bind.service';
 import { ClubPhoneRebindService } from './club-phone-rebind.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
 
-/** 构造唯一约束冲突（同店同顾客重复扣减） */
+/** 构造唯一约束冲突（同一顾客重复扣减：唯一键已收紧为 clubUserId 全局唯一） */
 const buildUniqueConstraintError = (): Prisma.PrismaClientKnownRequestError =>
   new Prisma.PrismaClientKnownRequestError('duplicate key', {
     code: 'P2002',
@@ -63,12 +63,22 @@ describe('ClubAuthService 新用户额度', () => {
     scanOrderingSession: {
       findFirst: jest.fn(),
     },
+    user: {
+      findFirst: jest.fn(),
+    },
   };
+
+  /** 扣减前的事务级顾问锁（跨店并发首单串行化） */
+  const executeRaw = jest.fn();
+
+  /** 事务客户端 = delegates + 顾问锁，与事务外的 prismaService 共用同一批 mock */
+  const txClient = { ...delegates, $executeRaw: executeRaw };
 
   const prismaService = {
     ...delegates,
-    $transaction: jest.fn((fn: (tx: typeof delegates) => Promise<unknown>) =>
-      fn(delegates),
+    $executeRaw: executeRaw,
+    $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) =>
+      fn(txClient),
     ),
   };
 
@@ -146,13 +156,15 @@ describe('ClubAuthService 新用户额度', () => {
     clubCurrentStoreContextService.getCurrentStore.mockResolvedValue({
       id: 42,
     });
+    // 绑定后按 users.wechat_phone 解析最终账号：默认未触发合并，仍是当前账号
+    delegates.user.findFirst.mockResolvedValue({ id: USER_ID });
     delegates.storeMembershipProfile.findUnique.mockResolvedValue({
       newCustomerQuota: 10,
     });
     delegates.storeNewCustomerQuotaLog.aggregate.mockResolvedValue({
       _sum: { changeAmount: 0 },
     });
-    // 默认按「本店新客」：无消耗记录
+    // 默认按「尚未消耗过额度」：全局无消耗记录
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -236,7 +248,34 @@ describe('ClubAuthService 新用户额度', () => {
     );
   });
 
-  it('老客户（本店已消耗过额度）重复绑定不扣减额度', async () => {
+  it('手机号命中已有账号触发合并：额度留痕落到合并后的目标账号', async () => {
+    const MERGED_USER_ID = 2002;
+    // 绑定后 token 属于目标账号，后续所有请求用的都是它
+    delegates.user.findFirst.mockResolvedValue({ id: MERGED_USER_ID });
+    delegates.storeNewCustomerQuotaConsume.create.mockResolvedValue({ id: 1 });
+    delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 1 });
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 9,
+    });
+
+    await bindByWechatCode();
+
+    expect(delegates.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { wechatPhone: REAL_PHONE } }),
+    );
+    // 留痕必须挂在合并后的账号上：挂在被合并掉的旧 id 上，该顾客下次下单 / 换店
+    // 就会被判成新客再扣一次额度
+    expect(delegates.storeNewCustomerQuotaConsume.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          clubUserId: MERGED_USER_ID,
+          phone: REAL_PHONE,
+        }),
+      }),
+    );
+  });
+
+  it('老客户（已在任意门店消耗过额度）重复绑定不扣减额度', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue({
       id: 777,
     });
@@ -453,7 +492,7 @@ describe('ClubAuthService 新用户额度', () => {
     });
   });
 
-  it('预检接口：老客恒为 blocked=false（额度耗尽也不挡老客）', async () => {
+  it('预检接口：老客恒为 blocked=false（换店 / 额度耗尽都不挡老客）', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue({
       id: 777,
     });

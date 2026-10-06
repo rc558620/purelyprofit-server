@@ -55,9 +55,10 @@ export class ClubVoucherOrderPaymentService {
       currentContext,
       dto,
     );
-    // 新客额度闸门：本店新客在额度耗尽时禁止下单，与扫码点餐同一口径。
+    // 新客额度闸门：新客在额度耗尽时禁止下单，与扫码点餐同一口径。
     // 放在算价之前——被拦时不必白算一轮促销与积分。
-    // 额度归属取本次下单所在门店（context 已校验等于当前门店），换店即按那家店的额度判定。
+    // 额度归属取本次下单所在门店（context 已校验等于当前门店）：该顾客若尚未在
+    // 任何门店消耗过额度，就由这家门店承担额度；已在别家店认证过则直接放行。
     await this.quotaService.assertAvailableForOrder(
       context.store.id,
       currentContext.user.id,

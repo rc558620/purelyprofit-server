@@ -185,8 +185,9 @@ export class ClubAuthController {
       '若手机号已有账号，自动将微信 openid 合并到手机号账号；否则直接绑定到当前用户。' +
       '绑定成功后返回新 JWT token。' +
       '⚠️ 与 POST /club/auth/bind-phone/by-wechat-code 共用同一道新客额度闸门：' +
-      '本店新客在门店额度耗尽时返回 403 NEW_CUSTOMER_QUOTA_EXHAUSTED，' +
-      '短信不是绕过路径。扫码点餐流程请务必传 sessionId，额度按会话所属门店计。',
+      '尚未在任意门店消耗过额度的顾客，在门店额度耗尽时返回 403 ' +
+      'NEW_CUSTOMER_QUOTA_EXHAUSTED，短信不是绕过路径。' +
+      '扫码点餐流程请务必传 sessionId，额度按会话所属门店计。',
   })
   @ApiOkResponse({
     description: '绑定成功，返回新 JWT token',
@@ -259,11 +260,12 @@ export class ClubAuthController {
   @ApiOperation({
     summary: '新用户额度预检',
     description:
-      '返回当前顾客在该门店的新用户额度状态。' +
-      'blocked=true 表示「该顾客是本店新客且额度已用完」，此时下单会被后端拦截' +
+      '返回当前顾客的新用户额度状态。' +
+      'blocked=true 表示「该顾客尚未在任意门店消耗过额度，且本次下单门店的额度已用完」，' +
+      '此时下单会被后端拦截' +
       '（返回业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED），前端应阻止提交并提示' +
       '「新用户额度已用完，当前无法下单，请联系商家」。' +
-      '老顾客恒为 blocked=false——额度只限制新客。' +
+      '已在任意门店认证过手机号的顾客恒为 blocked=false——换店不会二次计费。' +
       '扫码点餐请务必带 sessionId：以会话所属门店为准，避免用「当前选中门店」算错门店。',
   })
   getNewCustomerQuotaStatus(

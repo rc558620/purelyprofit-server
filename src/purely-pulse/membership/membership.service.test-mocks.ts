@@ -85,10 +85,15 @@ export interface PulseMembershipPrismaServiceMock {
   storeMembershipPointsLog: {
     create: jest.Mock;
     findMany: jest.Mock;
+    /** 概览统计：总条数按 source 分组计数、管理员调整与今日变动各一次 count */
+    count: jest.Mock;
+    groupBy: jest.Mock;
   };
   storePartnerBeanLog: {
     create: jest.Mock;
     findMany: jest.Mock;
+    /** 概览统计：按 source 分组计数，与分页切片无关 */
+    groupBy: jest.Mock;
   };
   $executeRaw: jest.Mock;
   $transaction: jest.Mock;
@@ -253,10 +258,13 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     storeMembershipPointsLog: {
       create: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     storePartnerBeanLog: {
       create: jest.fn(),
       findMany: jest.fn(),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),

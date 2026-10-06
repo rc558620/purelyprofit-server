@@ -54,7 +54,8 @@ export class ClubAccountMergeService {
    *      并入目标档案，再**软删除**源档案并清空 phone
    *    - 同一门店下目标用户无档案 → 直接将源档案的 phone / clubUserId 改到目标用户
    * 2. 迁移源用户的 Store ownership（ownerId）到目标用户
-   * 3. 将 openid 从源用户移到目标用户，清除源用户的微信相关字段
+   * 3. 迁移源用户的新客额度消耗留痕（clubUserId）到目标用户
+   * 4. 将 openid 从源用户移到目标用户，清除源用户的微信相关字段
    *
    * 事务失败时整体回滚，不会出现中间状态。
    *
@@ -219,7 +220,46 @@ export class ClubAccountMergeService {
             );
           }
 
-          // 3. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
+          // 3. 迁移新客额度消耗留痕。
+          //
+          // `store_new_customer_quota_consumes.club_user_id` 是**全局唯一**的，
+          // 且合并后签发的 token 属于目标用户 —— 留痕若留在源账号上，目标账号
+          // 永远查不到它，下次下单 / 换店会被判成新客再扣一次额度
+          // （等于「换一家店又验证一次手机号」，正是要消除的行为）。
+          const sourceConsume =
+            await tx.storeNewCustomerQuotaConsume.findUnique({
+              where: { clubUserId: sourceUserId },
+              select: { id: true },
+            });
+
+          if (sourceConsume) {
+            const targetConsume =
+              await tx.storeNewCustomerQuotaConsume.findUnique({
+                where: { clubUserId: targetUserId },
+                select: { id: true },
+              });
+
+            if (targetConsume) {
+              // 两端都消耗过：只保留目标那条。源记录对应的额度已由源门店承担，
+              // 不做退款——顾客一生只该消耗一个额度，合并不能变成「退一个再扣一个」。
+              await tx.storeNewCustomerQuotaConsume.delete({
+                where: { id: sourceConsume.id },
+              });
+              this.logger.log(
+                `bindPhone 合并新客额度留痕：目标用户 ${targetUserId} 已消耗过，删除源记录 ${sourceConsume.id}`,
+              );
+            } else {
+              await tx.storeNewCustomerQuotaConsume.update({
+                where: { id: sourceConsume.id },
+                data: { clubUserId: targetUserId },
+              });
+              this.logger.log(
+                `bindPhone 合并新客额度留痕：源记录 ${sourceConsume.id} 由用户 ${sourceUserId} 改挂到 ${targetUserId}`,
+              );
+            }
+          }
+
+          // 4. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
           //    否则 wechat_openid 的唯一约束会导致写入目标用户时冲突
           await tx.user.update({
             where: { id: sourceUserId },

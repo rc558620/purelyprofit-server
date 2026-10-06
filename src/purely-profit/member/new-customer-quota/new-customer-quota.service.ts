@@ -27,12 +27,23 @@ import type {
 
 const DEFAULT_LOG_LIMIT = 20;
 
+/**
+ * 顾问锁命名空间：与同库其它 advisory lock 隔离（pg_advisory_xact_lock 的两参数版本）。
+ *
+ * 用它把「查留痕 → 扣额度 → 写记录」串行化：唯一键已收紧为账号全局唯一，
+ * 两个门店**同时**服务同一位新客时会各自扣减，后插入者撞 P2002，而 PostgreSQL
+ * 下这会让整笔建单事务 aborted（抛数据库错误而不是额度文案）。锁的键是
+ * clubUserId，不同顾客互不阻塞，且随事务提交/回滚自动释放，无需显式解锁。
+ */
+const QUOTA_CONSUME_LOCK_NAMESPACE = 4242;
+
 const normalizeLogType = (rawType: string): NewCustomerQuotaLogTypeValue => {
   if (
     rawType === 'recharge' ||
     rawType === 'grant' ||
     rawType === 'consume' ||
-    rawType === 'clear'
+    rawType === 'clear' ||
+    rawType === 'admin_adjust'
   ) {
     return rawType;
   }
@@ -110,28 +121,34 @@ export class NewCustomerQuotaService {
   }
 
   /**
-   * 该顾客在本店是否属于新客（尚未消耗过额度即为新客）。
+   * 该顾客是否属于新客：**全局口径**（任意门店都没有其消耗记录即为新客）。
+   *
+   * 刻意不是「本店新客」。额度的计量对象是「手机号认证」（微信 getPhoneNumber，
+   * 0.03 元/次），而一位顾客的手机号**一生只需认证一次**：在 A 店认证过之后，
+   * 换到 B / C / D 店都不该再要求验证一次手机号，自然也不该再扣一次额度。
+   * 额度记在「第一家服务该顾客的门店」头上，之后所有门店共享这个认证结果。
    *
    * 判定以 **C 端账号 ID** 为准，刻意不看 `marketingCustomer` 档案：
    * 扫码进桌即建档（占位手机号 `club_wechat:{openid}`），绑定手机号后该档案
    * 被迁移成真实号码，按手机号判定会把首单新客误判成老客，额度永不消耗。
    */
-  async isNewCustomer(storeId: number, clubUserId: number): Promise<boolean> {
+  async isNewCustomer(clubUserId: number): Promise<boolean> {
     const existing = await this.prisma.storeNewCustomerQuotaConsume.findUnique({
-      where: {
-        storeId_clubUserId: { storeId, clubUserId },
-      },
+      where: { clubUserId },
       select: { id: true },
     });
     return existing === null;
   }
 
   /**
-   * 新客下单前的额度闸门。
+   * 下单前的额度闸门。
    *
-   * - 老客（本店已消耗过额度）→ 直接放行；
-   * - 新客且额度已用完 → 抛 NEW_CUSTOMER_QUOTA_EXHAUSTED，阻止建单；
-   * - 新客且额度充足 → 放行，随后由调用方在建单成功后扣减。
+   * - 老客（已在任意门店消耗过额度）→ 直接放行；
+   * - 新客且本店额度已用完 → 抛 NEW_CUSTOMER_QUOTA_EXHAUSTED，阻止建单；
+   * - 新客且本店额度充足 → 放行，随后由调用方在建单成功后扣减。
+   *
+   * 本店额度为 0 仍拦新客：这位顾客的第一次服务发生在当前门店，
+   * 为其认证手机号的成本就该由当前门店承担。
    *
    * @returns true 表示「按新客放行」，false 表示「老客放行」
    */
@@ -139,7 +156,7 @@ export class NewCustomerQuotaService {
     storeId: number,
     clubUserId: number,
   ): Promise<boolean> {
-    const isNew = await this.isNewCustomer(storeId, clubUserId);
+    const isNew = await this.isNewCustomer(clubUserId);
     if (!isNew) return false;
 
     if (!(await this.hasRemaining(storeId))) {
@@ -205,9 +222,10 @@ export class NewCustomerQuotaService {
    * 与 `recharge`（微信支付充值）、`grantByPlan`（会员赠送）共用同一张流水表，
    * 保证 purelyProfit 额度页的「余额 + 累计赠送 + 流水」三者始终自洽。
    *
-   * 流水类型受枚举限制（recharge / grant / consume / clear）：增加按 `grant` 记，
-   * 减少按 `clear` 记；余额未发生变化时（例如已是 0 仍继续减少）不写流水，
-   * 避免产生 0 变动的噪音记录。
+   * 一律记 `admin_adjust`（平台运营调整），不再借 `grant` / `clear` 表达：
+   * 借用会让商家端「累计会员赠送」把运营发放的量也算进去，与页面宣称的
+   * 「月50 / 季100 / 年300」对不上。余额未发生变化时（例如已是 0 仍继续减少）
+   * 不写流水，避免产生 0 变动的噪音记录。
    *
    * @returns 调整后的余额
    */
@@ -226,11 +244,25 @@ export class NewCustomerQuotaService {
           update: {},
         });
 
-        const profile = await tx.storeMembershipProfile.findUnique({
-          where: { storeId },
-          select: { newCustomerQuota: true },
-        });
-        const remaining = profile?.newCustomerQuota ?? 0;
+        // 先 SELECT ... FOR UPDATE 抢行锁，再读余额、再写回。
+        //
+        // ⚠️ 不能拆成「findUnique 读 → 算出绝对值 → update 写回」：
+        // PostgreSQL 默认 READ COMMITTED，两个运营同时调同一家门店时会读到同一个
+        // 旧余额，后提交者整体覆盖先提交者（丢失更新），且输的那条流水 changeAmount
+        // 与 balanceAfter 都是按旧余额算的，余额与流水从此对不上。
+        // 加了行锁后第二个事务阻塞在 SELECT 上，等前一个提交后读到的是新余额，
+        // 两次调额才会正确累加。这里刻意不用乐观锁重试：调额是低频写操作，
+        // 一次行锁的代价远低于重试带来的复杂度。
+        const lockedRows = await tx.$queryRaw<
+          Array<{ remaining: number | bigint }>
+        >`
+          SELECT new_customer_quota AS remaining
+          FROM store_membership_profiles
+          WHERE store_id = ${storeId}
+          FOR UPDATE
+        `;
+
+        const remaining = Number(lockedRows[0]?.remaining ?? 0);
         const nextQuota = Math.max(0, remaining + safeDelta);
         const changeAmount = nextQuota - remaining;
         if (changeAmount === 0) return nextQuota;
@@ -243,7 +275,7 @@ export class NewCustomerQuotaService {
         await tx.storeNewCustomerQuotaLog.create({
           data: {
             storeId,
-            type: changeAmount > 0 ? 'grant' : 'clear',
+            type: 'admin_adjust',
             changeAmount,
             balanceAfter: nextQuota,
             description,
@@ -366,8 +398,11 @@ export class NewCustomerQuotaService {
   }
 
   /**
-   * 新客消耗额度：同一顾客（clubUserId）在同一门店只扣一次。
+   * 额度消耗：同一顾客（clubUserId）**全局只扣一次**。
    * 额度不足时抛 NEW_CUSTOMER_QUOTA_EXHAUSTED（事务回滚，不产生消耗记录）。
+   *
+   * 「全局一次」而非「每店一次」：手机号认证一位顾客只需一次，A 店认证过之后
+   * 换到 B 店不再验证、不再扣 B 店的额度，扣减只发生在第一家服务他的门店。
    *
    * `executor` 用于把扣减并入**建单事务**：闸门只是乐观预检，真正的一致性由
    * 「订单落库 + 扣减」在同一事务内提交来保证——扣不到额度就必须让建单一起回滚，
@@ -377,7 +412,8 @@ export class NewCustomerQuotaService {
    * - `updateMany` 的 `newCustomerQuota: { gt: 0 }` 条件 + PostgreSQL 行锁：
    *   两个新客争抢最后一个额度时，先到者把额度扣到 0 并提交，后到者的 UPDATE
    *   在锁释放后重新评估 WHERE（READ COMMITTED），条件不再满足 → count=0 → 抛错；
-   * - `storeNewCustomerQuotaConsume` 的唯一约束保证同一顾客不会被重复记账。
+   * - `storeNewCustomerQuotaConsume.clubUserId` 的**全局唯一**约束保证同一顾客
+   *   换多少家店都只会被记一次账。
    *
    * ⚠️ 老客必须在写入之前用查询识别出来，不能靠「insert 撞唯一约束再兜」：
    * PostgreSQL 下事务内一旦触发 P2002，整个事务进入 aborted 状态、后续语句全部
@@ -394,9 +430,17 @@ export class NewCustomerQuotaService {
     const consume = async (
       tx: PrismaExecutor,
     ): Promise<ConsumeNewCustomerQuotaResult> => {
-      // 老客（本店已消耗过额度）：直接放行，不做任何写入
+      // 同一顾客的并发扣减串行化（换店并发首单会撞全局唯一键，详见常量处说明）
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          ${QUOTA_CONSUME_LOCK_NAMESPACE}::int,
+          ${clubUserId}::int
+        )
+      `;
+
+      // 老客（任意门店已消耗过额度）：直接放行，不做任何写入
       const existing = await tx.storeNewCustomerQuotaConsume.findUnique({
-        where: { storeId_clubUserId: { storeId, clubUserId } },
+        where: { clubUserId },
         select: { id: true },
       });
       if (existing) {

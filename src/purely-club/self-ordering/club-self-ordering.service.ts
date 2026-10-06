@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
+import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { ResolveSpaceDto } from './dto/resolve-space.dto';
 import { assertGeneralStoreForSelfOrdering } from './club-self-ordering.utils';
 import { extractSpaceQrToken } from '../shared/space-qr-token.utils';
@@ -22,6 +23,8 @@ export interface ResolvedSpace {
   spaceName: string;
   /** 门店 ID */
   storeId: number;
+  /** 门店业态：恒为 general（餐饮门店已在上游被业态门禁拒绝），供前端同步 TabBar */
+  businessMode: 'catering' | 'general';
 }
 
 @Injectable()
@@ -29,6 +32,7 @@ export class ClubSelfOrderingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
+    private readonly storeAccessService: ClubStoreAccessService,
   ) {}
 
   /**
@@ -42,8 +46,28 @@ export class ClubSelfOrderingService {
     dto: ResolveSpaceDto,
   ): Promise<ResolvedSpace> {
     const qrCode = await this.resolveActiveSpaceQrCode(dto.spaceToken);
-    const currentContext =
+    let currentContext =
       await this.currentStoreContextService.requireCurrentContext(user);
+
+    // 空间码进店即入店：与桌码链路同口径（ClubScanOrderingService.createOrRestoreSession）。
+    //
+    // 此前只要当前门店与空间所属门店不一致就直接「该二维码不属于当前门店」，
+    // 多门店用户扫别家店的码根本进不去；当前门店恰好是餐饮店时还会先撞上业态门禁，
+    // 报出与事实不符的「餐饮门店请使用扫码点餐」。
+    //
+    // 刻意做成**条件式**：只在门店不一致时才补会员关系 + 切门店，对齐时
+    // 走的路径与改动前完全一致，不产生任何额外写入。
+    // ensureStoreMembership 必须在 switchCurrentStore 之前：后者按 Member 关系
+    // 校验可访问性，会员档案还没建立时会查不到这家店。
+    if (currentContext.store.id !== qrCode.storeId) {
+      await this.storeAccessService.ensureStoreMembership(user, qrCode.storeId);
+      await this.currentStoreContextService.switchCurrentStore(
+        user,
+        qrCode.storeId,
+      );
+      currentContext =
+        await this.currentStoreContextService.requireCurrentContext(user);
+    }
 
     // 自助下单面向非餐饮业态；餐饮门店走既有的扫码点餐链路
     assertGeneralStoreForSelfOrdering(currentContext.store);
@@ -67,6 +91,7 @@ export class ClubSelfOrderingService {
         ? `${qrCode.space.zone.name} · ${qrCode.space.name}`
         : qrCode.space.name,
       storeId: currentContext.store.id,
+      businessMode: currentContext.store.businessMode,
     };
   }
 

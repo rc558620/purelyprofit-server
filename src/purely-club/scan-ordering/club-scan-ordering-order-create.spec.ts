@@ -1,4 +1,8 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
@@ -13,6 +17,7 @@ import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.s
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import {
   NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
   NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
@@ -144,6 +149,13 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   } as Record<string, Record<string, jest.Mock>>;
 
   const user = { id: 7 } as AuthenticatedUser;
+
+  /** 当前门店上下文：默认与会话同店，切店场景由用例覆盖 */
+  const currentStoreContextService = {
+    requireCurrentContext: jest
+      .fn()
+      .mockResolvedValue({ user, store: { id: 1 } }),
+  };
 
   const session = {
     id: 10,
@@ -286,6 +298,11 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         { provide: ClubScanOrderingOrderQueryService, useValue: {} },
         { provide: ClubScanOrderingOrderPreviewService, useValue: {} },
         {
+          // 默认与会话同店（storeId 1）：扫桌码进店会把当前门店切到桌台所属门店
+          provide: ClubCurrentStoreContextService,
+          useValue: currentStoreContextService,
+        },
+        {
           provide: ScanOrderingPickupNumberService,
           useValue: {
             formatPickupNumber: (n: number | null | undefined) =>
@@ -313,6 +330,30 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     // 校验发生在会话查询之前，不触碰任何业务数据
     expect(prisma.scanOrderingSession.findFirst).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // ─── 门店一致性 ────────────────────────────────────────────────────
+
+  it('用户在别处切了店、本机仍握着旧会话时拒绝下单（订单与额度不能记到已离开的门店）', async () => {
+    // 当前门店 2，而会话属于门店 1
+    currentStoreContextService.requireCurrentContext.mockResolvedValueOnce({
+      user,
+      store: { id: 2 },
+    });
+
+    await expect(service.create(user, 'idem-key-0001', dto)).rejects.toThrow(
+      BadRequestException,
+    );
+
+    // 拦截必须发生在算价与建单之前，且不能碰额度
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(quotaService.assertAvailableForOrder).not.toHaveBeenCalled();
+  });
+
+  it('当前门店与会话门店一致时正常放行', async () => {
+    const result = await service.create(user, 'idem-key-0001', dto);
+
+    expect(result).toMatchObject({ id: 100, orderNo: 'SO100' });
   });
 
   it('相同幂等键重复提交返回首次响应快照（防重复支付）', async () => {

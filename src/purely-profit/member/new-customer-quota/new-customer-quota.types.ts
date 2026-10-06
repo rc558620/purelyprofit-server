@@ -25,12 +25,17 @@ export interface NewCustomerQuotaTier {
   quotaCount: number;
 }
 
-/** 流水类型 */
+/**
+ * 流水类型。
+ * `admin_adjust` = 平台运营在 purelyPulse 代商家发放 / 回收，
+ * 与商家自付的 `recharge`、会员赠送的 `grant` 分属三个不同来源。
+ */
 export type NewCustomerQuotaLogTypeValue =
   | 'recharge'
   | 'grant'
   | 'consume'
-  | 'clear';
+  | 'clear'
+  | 'admin_adjust';
 
 /** 额度流水条目 */
 export interface NewCustomerQuotaLogItem {
@@ -46,9 +51,9 @@ export interface NewCustomerQuotaLogItem {
   createdAt: string;
 }
 
-/** 新客消耗额度结果 */
+/** 额度消耗结果 */
 export interface ConsumeNewCustomerQuotaResult {
-  /** 是否实际扣减；false 表示该顾客在本店已扣过（重复下单 / 重复绑定） */
+  /** 是否实际扣减；false 表示该顾客此前已在任意门店扣过（重复下单 / 换店 / 重复绑定） */
   consumed: boolean;
   /** 扣减后的余额 */
   remaining: number;
@@ -56,10 +61,10 @@ export interface ConsumeNewCustomerQuotaResult {
 
 /** C 端额度预检结果：供 purelyClub 在下单前判断是否放行 */
 export interface NewCustomerQuotaCheckResult {
-  /** 当前顾客在该门店是否为新客（尚未消耗过额度） */
+  /** 当前顾客是否为新客（全局口径：任意门店都未消耗过额度） */
   isNewCustomer: boolean;
-  /** 是否阻止下单：仅新客且在额度耗尽时为 true，老客恒为 false */
+  /** 是否阻止下单：仅新客且本店额度耗尽时为 true，老客恒为 false */
   blocked: boolean;
-  /** 剩余额度（位新客） */
+  /** 本店剩余额度（位新客） */
   remaining: number;
 }

@@ -176,16 +176,45 @@ export class ClubAuthService {
       dto.phone,
     );
 
-    // 3. 绑定成功后扣减：同一顾客在同一门店只扣一次（consume 内部按 clubUserId 幂等）
+    // 3. 绑定成功后扣减：同一顾客全局只扣一次（consume 内部按 clubUserId 幂等）
     if (storeId !== null) {
       await this.consumeQuotaForNewCustomer(
         storeId,
-        currentUser?.id ?? userId,
+        await this.resolveBoundUserId(dto.phone, currentUser?.id ?? userId),
         dto.phone,
       );
     }
 
     return result;
+  }
+
+  /**
+   * 绑定完成后解析**最终**账号 ID。
+   *
+   * 手机号若已属于另一个账号，`bindVerifiedPhone` 会把当前微信账号**合并**到那个
+   * 账号上并为其签发 token —— 此后所有请求携带的都是目标账号 ID。额度留痕若按
+   * 绑定前的 ID 记账，合并后的账号永远查不到它，下次下单 / 换店又会被判成新客
+   * 再扣一次额度（合并事务虽会把旧留痕搬过来，但本次扣减仍可能写到废弃 ID 上）。
+   *
+   * `users.wechat_phone` 唯一，绑定完成后它就是最终账号的标识；查不到（理论上
+   * 不该发生）时回退到调用方传入的 ID，不阻断绑定主流程。
+   */
+  private async resolveBoundUserId(
+    phone: string,
+    fallbackUserId: number,
+  ): Promise<number> {
+    try {
+      const boundUser = await this.prisma.user.findFirst({
+        where: { wechatPhone: phone },
+        select: { id: true },
+      });
+      return boundUser?.id ?? fallbackUserId;
+    } catch (error) {
+      this.logger.warn(
+        `绑定后解析账号 ID 失败，回退到 ${fallbackUserId}：${String(error)}`,
+      );
+      return fallbackUserId;
+    }
   }
 
   /**
@@ -225,7 +254,8 @@ export class ClubAuthService {
     // 新用户额度预检：必须在调用微信 getPhoneNumber 之前完成。
     // 微信按次计费（0.03 元/次），先扣量再调接口才能避免无意义的成本支出。
     //
-    // 仅对「本店新客」生效：老顾客换设备 / 重新绑定不应被额度拦住。
+    // 仅对尚未消耗过额度的顾客生效：老顾客换设备 / 重新绑定 / 换店都不该被拦住，
+    // 也不该被要求再验证一次手机号。
     const storeId = await this.assertQuotaAvailableForBind(
       currentUser,
       dto.sessionId,
@@ -251,11 +281,12 @@ export class ClubAuthService {
       phone,
     );
 
-    // 绑定成功后扣减：同一顾客在同一门店只扣一次（consume 内部按 clubUserId 幂等）。
+    // 绑定成功后扣减：同一顾客全局只扣一次（consume 内部按 clubUserId 幂等）。
+    // 手机号若命中已有账号会触发合并，扣减必须落到合并后的最终账号上。
     if (storeId !== null) {
       await this.consumeQuotaForNewCustomer(
         storeId,
-        currentUser?.id ?? userId,
+        await this.resolveBoundUserId(phone, currentUser?.id ?? userId),
         phone,
       );
     }
@@ -264,10 +295,10 @@ export class ClubAuthService {
   }
 
   /**
-   * C 端新用户额度预检：告知前端「当前顾客是否本店新客」以及「额度是否阻止其下单」。
+   * C 端额度预检：告知前端「当前顾客是否新客」以及「额度是否阻止其下单」。
    *
-   * 关键语义：blocked **只对新客为真**。老顾客已在消耗表中留痕，不应被额度拦住，
-   * 否则门店额度一旦耗尽，老客也会被一并挡在门外。
+   * 关键语义：blocked **只对新客为真**。新客是**全局口径**——手机号认证一位顾客
+   * 只需一次，已在任意门店消耗过额度的顾客换到哪家店都不该被额度挡住。
    *
    * @param sessionId 扫码点餐会话 ID。传了就以会话所属门店为准——
    *   「当前选中门店」与「扫码进的那家店」是两回事，用错会把额度算到别的门店。
@@ -283,10 +314,7 @@ export class ClubAuthService {
       return { isNewCustomer: false, blocked: false, remaining: 0 };
     }
 
-    const isNewCustomer = await this.quotaService.isNewCustomer(
-      storeId,
-      user.id,
-    );
+    const isNewCustomer = await this.quotaService.isNewCustomer(user.id);
     const overview = await this.quotaService.getOverview(storeId);
     return {
       isNewCustomer,
@@ -345,7 +373,8 @@ export class ClubAuthService {
   /**
    * 绑定前的额度闸门：两条绑定链路（短信 / 微信 getPhoneNumber）共用。
    *
-   * 仅对「本店新客」生效，老顾客换设备 / 重新绑定不会被额度拦住。
+   * 仅对尚未消耗过额度的顾客生效：老顾客换设备 / 重新绑定 / 换店都不该被
+   * 额度拦住，更不该被要求再验证一次手机号。
    *
    * @returns 额度归属门店，供绑定成功后扣减复用；null 表示定位不到门店，
    *   按「不拦截也不扣减」处理（绑定本身是账号级操作，不能因为额度查不到就拒绝）
@@ -368,7 +397,8 @@ export class ClubAuthService {
 
   /**
    * 新客扣减：由 `consumeForNewCustomer` 按 clubUserId 保证幂等，
-   * 老顾客重复绑定 / 重复下单都不会重复扣；额度意外耗尽时只记日志，不阻断主流程。
+   * 老顾客重复绑定 / 重复下单 / 换店都不会重复扣；额度意外耗尽时只记日志，
+   * 不阻断主流程。
    */
   private async consumeQuotaForNewCustomer(
     storeId: number,

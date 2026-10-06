@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -9,7 +10,10 @@ import {
   Min,
 } from 'class-validator';
 import {
+  PULSE_ADMIN_MEMBER_BEAN_TAB_VALUES,
+  PULSE_ADMIN_MEMBER_LOG_MAX_KEYWORD_LENGTH,
   PULSE_ADMIN_MEMBER_LOG_MAX_LIMIT,
+  PULSE_ADMIN_MEMBER_POINTS_TAB_VALUES,
   trimString,
 } from './pulse-membership-admin-logs.shared.dto';
 
@@ -41,4 +45,46 @@ export class GetPulseAdminMemberLogsQueryDto {
     message: `limit 不能超过 ${PULSE_ADMIN_MEMBER_LOG_MAX_LIMIT}`,
   })
   limit?: number;
+
+  @ApiPropertyOptional({
+    enum: PULSE_ADMIN_MEMBER_POINTS_TAB_VALUES,
+    example: 'all',
+    description:
+      '积分流水 Tab 筛选（仅 points/logs 生效）：all=全部，admin=管理员调整，' +
+      'earn=获得（业务性获得，不含管理员调整），spend=消耗（抵扣 / 过期，不含管理员调整）',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsIn(PULSE_ADMIN_MEMBER_POINTS_TAB_VALUES, {
+    message: 'pointsTab 只能是 all / admin / earn / spend',
+  })
+  pointsTab?: (typeof PULSE_ADMIN_MEMBER_POINTS_TAB_VALUES)[number];
+
+  @ApiPropertyOptional({
+    enum: PULSE_ADMIN_MEMBER_BEAN_TAB_VALUES,
+    example: 'all',
+    description:
+      '纯利豆流水 Tab 筛选（仅 beans/logs 生效）：all=全部，admin=管理员调整，' +
+      'earn=获得（业务性获得，不含管理员调整），spend=消耗/提现（不含管理员调整）',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsIn(PULSE_ADMIN_MEMBER_BEAN_TAB_VALUES, {
+    message: 'beanTab 只能是 all / admin / earn / spend',
+  })
+  beanTab?: (typeof PULSE_ADMIN_MEMBER_BEAN_TAB_VALUES)[number];
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description:
+      '关键词：模糊匹配流水说明、门店名、门店联系电话、会员姓名与手机号；' +
+      'points/logs 与 beans/logs 共用同一组匹配字段',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString({ message: 'keyword 必须是字符串' })
+  @MaxLength(PULSE_ADMIN_MEMBER_LOG_MAX_KEYWORD_LENGTH, {
+    message: `keyword 最长 ${PULSE_ADMIN_MEMBER_LOG_MAX_KEYWORD_LENGTH} 位`,
+  })
+  keyword?: string;
 }

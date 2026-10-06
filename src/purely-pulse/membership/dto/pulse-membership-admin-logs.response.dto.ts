@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -81,6 +82,23 @@ export class PulseAdminMemberPointsLogDto {
   expireAt?: number | null;
 }
 
+export class PulseAdminMemberPointsLogsStatsDto {
+  @ApiProperty({ example: 128, description: '当前筛选下的流水总条数（与分页无关）' })
+  @IsInt()
+  @Min(0)
+  totalRecords: number;
+
+  @ApiProperty({ example: 12, description: '管理员调整条数' })
+  @IsInt()
+  @Min(0)
+  adminAdjustCount: number;
+
+  @ApiProperty({ example: 8, description: '今日（自然日 00:00 起）变动条数' })
+  @IsInt()
+  @Min(0)
+  todayChangeCount: number;
+}
+
 export class PulseAdminMemberPointsLogsResponseDto {
   @ApiProperty({
     type: [PulseAdminMemberPointsLogDto],
@@ -100,6 +118,15 @@ export class PulseAdminMemberPointsLogsResponseDto {
   })
   @IsOptional()
   nextCursor: string | null;
+
+  @ApiProperty({
+    type: PulseAdminMemberPointsLogsStatsDto,
+    description:
+      '当前筛选下的流水统计（与分页无关，由后端按完整结果集计数，供 memberPoints 概览卡展示）',
+  })
+  @ValidateNested()
+  @Type(() => PulseAdminMemberPointsLogsStatsDto)
+  stats: PulseAdminMemberPointsLogsStatsDto;
 }
 
 export class PulseAdminMemberBeanLogDto {
@@ -167,6 +194,28 @@ export class PulseAdminMemberBeanLogDto {
   createdAt: number;
 }
 
+export class PulseAdminMemberBeanLogsStatsDto {
+  @ApiProperty({ example: 128, description: '当前筛选下的流水总条数（与分页无关）' })
+  @IsInt()
+  @Min(0)
+  totalRecords: number;
+
+  @ApiProperty({ example: 12, description: '管理员调整条数' })
+  @IsInt()
+  @Min(0)
+  adminAdjustCount: number;
+
+  @ApiProperty({ example: 8, description: '提现条数' })
+  @IsInt()
+  @Min(0)
+  withdrawCount: number;
+
+  @ApiProperty({ example: 64, description: '推广奖励条数' })
+  @IsInt()
+  @Min(0)
+  promoRewardCount: number;
+}
+
 export class PulseAdminMemberBeanLogsResponseDto {
   @ApiProperty({
     type: [PulseAdminMemberBeanLogDto],
@@ -186,4 +235,13 @@ export class PulseAdminMemberBeanLogsResponseDto {
   })
   @IsOptional()
   nextCursor: string | null;
+
+  @ApiProperty({
+    type: PulseAdminMemberBeanLogsStatsDto,
+    description:
+      '当前筛选下的流水统计（与分页无关，由后端按完整结果集计数，供 partnerBeans 概览卡展示）',
+  })
+  @ValidateNested()
+  @Type(() => PulseAdminMemberBeanLogsStatsDto)
+  stats: PulseAdminMemberBeanLogsStatsDto;
 }

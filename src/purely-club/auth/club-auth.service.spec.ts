@@ -32,6 +32,7 @@ describe('ClubAuthService', () => {
   const prismaService = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
     },
     member: {
@@ -49,6 +50,12 @@ describe('ClubAuthService', () => {
     store: {
       findMany: jest.fn(),
       updateMany: jest.fn(),
+    },
+    // 合并链路会把源账号的新客额度留痕改挂到目标账号（换店不二次计费）
+    storeNewCustomerQuotaConsume: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
     $transaction: jest.fn(),
   };

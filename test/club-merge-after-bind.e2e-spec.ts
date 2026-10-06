@@ -31,6 +31,7 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
   const createdUserIds: number[] = [];
   const createdMemberIds: number[] = [];
   const createdCustomerIds: number[] = [];
+  const createdQuotaConsumeIds: number[] = [];
 
   const configService = {
     get: (key: string): unknown => {
@@ -123,6 +124,11 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
   });
 
   afterAll(async () => {
+    if (createdQuotaConsumeIds.length > 0) {
+      await prisma.storeNewCustomerQuotaConsume.deleteMany({
+        where: { id: { in: createdQuotaConsumeIds } },
+      });
+    }
     if (createdCustomerIds.length > 0) {
       await prisma.marketingCustomer.deleteMany({
         where: { id: { in: createdCustomerIds } },
@@ -309,6 +315,34 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
     });
     expect(mergedMember?.phone).toBe(targetPhone);
     expect(mergedMember?.beanBalance).toBe(7);
+  });
+
+  it('合并后新客额度留痕改挂到目标账号：换店不再被判成新客二次扣费', async () => {
+    const storeId = await requireStoreId();
+    const { id: sourceUserId } = await createWechatUser();
+    const targetPhone = '13800139915';
+    const targetUserId = await createPhoneUser(targetPhone);
+
+    // 源账号（微信账号）已经下过单 → 消耗留痕挂在它名下
+    const consume = await prisma.storeNewCustomerQuotaConsume.create({
+      data: { storeId, clubUserId: sourceUserId, phone: null },
+      select: { id: true },
+    });
+    createdQuotaConsumeIds.push(consume.id);
+
+    mockTargetUser(targetUserId, targetPhone);
+    await service.bindPhone(sourceUserId, {
+      phone: targetPhone,
+      code: '123456',
+    });
+
+    // 留痕必须跟着账号走：留在被合并掉的源账号上，目标账号永远查不到它，
+    // 之后下单 / 换店又会被判成新客再扣一次额度
+    const migrated = await prisma.storeNewCustomerQuotaConsume.findUnique({
+      where: { id: consume.id },
+      select: { clubUserId: true },
+    });
+    expect(migrated?.clubUserId).toBe(targetUserId);
   });
 
   it('同门店双方都有档案时资产并入目标、源档案软删除，且不触发唯一约束冲突', async () => {

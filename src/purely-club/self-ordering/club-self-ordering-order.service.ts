@@ -142,9 +142,10 @@ export class ClubSelfOrderingOrderService {
       session.createdAt,
     );
 
-    // 新客额度闸门：本店新客在额度耗尽时禁止下单，与扫码点餐同一口径。
-    // 额度归属取本次下单所在门店（会话已校验属于当前门店），切到别的门店即按
-    // 那家店的额度重新判定：A 店有额度可下单，B 店额度为 0 就该被拦住。
+    // 新客额度闸门：新客在额度耗尽时禁止下单，与扫码点餐同一口径。
+    // 额度归属取本次下单所在门店（会话已校验属于当前门店）——这位顾客若是新客，
+    // 为其认证手机号的成本就由这家门店承担；他若已在别家店认证过，
+    // 则不再扣额度、也不受本店额度是否为 0 影响。
     await this.quotaService.assertAvailableForOrder(storeId, user.id);
 
     const priced = await this.priceItems(storeId, dto.items);

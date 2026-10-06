@@ -12,6 +12,9 @@ import { NewCustomerQuotaService } from './new-customer-quota.service';
 describe('NewCustomerQuotaService', () => {
   let service: NewCustomerQuotaService;
 
+  /** 扣减前按 clubUserId 加事务级顾问锁（跨店并发首单串行化） */
+  const executeRaw = jest.fn();
+
   /** 事务内外共用同一批 delegate：事务内传入的就是这份 mock */
   const delegates = {
     storeMembershipProfile: {
@@ -29,12 +32,17 @@ describe('NewCustomerQuotaService', () => {
       create: jest.fn(),
       findUnique: jest.fn(),
     },
+    $executeRaw: executeRaw,
   };
+
+  /** adjustQuota 用 $queryRaw 下发带 FOR UPDATE 的加锁查询，事务内外同样复用 */
+  const queryRaw = jest.fn();
 
   const prismaService = {
     ...delegates,
-    $transaction: jest.fn((fn: (tx: typeof delegates) => Promise<unknown>) =>
-      fn(delegates),
+    $queryRaw: queryRaw,
+    $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ ...delegates, $queryRaw: queryRaw }),
     ),
   };
 
@@ -219,6 +227,82 @@ describe('NewCustomerQuotaService', () => {
     expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
   });
 
+  // ─── 运营调额（adjustQuota） ────────────────────────────────────────
+
+  it('运营发放额度：记 admin_adjust 流水，不污染「会员赠送」统计', async () => {
+    queryRaw.mockResolvedValue([{ remaining: 100 }]);
+    delegates.storeMembershipProfile.update.mockResolvedValue({
+      newCustomerQuota: 150,
+    });
+
+    await expect(service.adjustQuota(42, 50, '平台运营调整新客额度')).resolves.toBe(
+      150,
+    );
+
+    expect(delegates.storeMembershipProfile.update).toHaveBeenCalledWith({
+      where: { storeId: 42 },
+      data: { newCustomerQuota: 150 },
+    });
+    expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          storeId: 42,
+          type: 'admin_adjust',
+          changeAmount: 50,
+          balanceAfter: 150,
+        }),
+      }),
+    );
+  });
+
+  it('运营回收额度超过余额时只扣到 0，流水按实际变动量记', async () => {
+    queryRaw.mockResolvedValue([{ remaining: 30 }]);
+
+    await expect(service.adjustQuota(42, -80, '平台运营调整新客额度')).resolves.toBe(
+      0,
+    );
+
+    expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: 'admin_adjust',
+          changeAmount: -30,
+          balanceAfter: 0,
+        }),
+      }),
+    );
+  });
+
+  it('余额已是 0 仍继续回收时不写流水（避免 0 变动噪音记录）', async () => {
+    queryRaw.mockResolvedValue([{ remaining: 0 }]);
+
+    await expect(service.adjustQuota(42, -10, '平台运营调整新客额度')).resolves.toBe(
+      0,
+    );
+
+    expect(delegates.storeMembershipProfile.update).not.toHaveBeenCalled();
+    expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
+  });
+
+  it('读余额必须先加锁：并发调额不能基于同一个旧余额各自写回', async () => {
+    queryRaw.mockResolvedValue([{ remaining: 100 }]);
+
+    await service.adjustQuota(42, 50, '平台运营调整新客额度');
+
+    const sql = String(queryRaw.mock.calls[0]?.[0] ?? '');
+    // FOR UPDATE 是关键：没有它，两次并发调额会互相覆盖（丢失更新）
+    expect(sql.replace(/\s+/g, ' ').toUpperCase()).toContain('FOR UPDATE');
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('档案不存在时加锁查询回空，按余额 0 处理', async () => {
+    queryRaw.mockResolvedValue([]);
+
+    await expect(service.adjustQuota(42, 20, '平台运营调整新客额度')).resolves.toBe(
+      20,
+    );
+  });
+
   it('新客扣减：余额充足时扣 1 并写消耗流水', async () => {
     delegates.storeNewCustomerQuotaConsume.create.mockResolvedValue({ id: 1 });
     delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 1 });
@@ -276,6 +360,34 @@ describe('NewCustomerQuotaService', () => {
     expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
   });
 
+  it('换店不二次计费：已在别家店消耗过的顾客，本店下单不扣额度', async () => {
+    // 手机号认证一位顾客只需一次：A 店认证过之后换到 B 店不再验证、不再扣额度。
+    // 判定必须是全局的（只按 clubUserId），否则每换一家店就多扣一个额度。
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue({
+      id: 9,
+    });
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 30,
+    });
+
+    await expect(
+      service.consumeForNewCustomer(99, 1001, '13800000000'),
+    ).resolves.toEqual({
+      consumed: false,
+      remaining: 30,
+    });
+
+    expect(
+      delegates.storeNewCustomerQuotaConsume.findUnique,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { clubUserId: 1001 } }),
+    );
+    expect(delegates.storeMembershipProfile.updateMany).not.toHaveBeenCalled();
+    expect(
+      delegates.storeNewCustomerQuotaConsume.create,
+    ).not.toHaveBeenCalled();
+  });
+
   it('传入事务客户端时复用连接，不再嵌套开事务', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
     delegates.storeNewCustomerQuotaConsume.create.mockResolvedValue({ id: 1 });
@@ -300,6 +412,26 @@ describe('NewCustomerQuotaService', () => {
         where: { storeId: 42, newCustomerQuota: { gt: 0 } },
       }),
     );
+  });
+
+  it('扣减前按 clubUserId 加事务级顾问锁：跨店并发首单不会撞唯一键', async () => {
+    delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
+    delegates.storeNewCustomerQuotaConsume.create.mockResolvedValue({ id: 1 });
+    delegates.storeMembershipProfile.updateMany.mockResolvedValue({ count: 1 });
+    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
+      newCustomerQuota: 7,
+    });
+
+    await service.consumeForNewCustomer(42, 1001, null);
+
+    // 唯一键是账号全局唯一：两个门店同时服务同一位新客时，没有这把锁就会
+    // 各自扣减、后插入者撞 P2002，进而让整笔建单事务 aborted（抛库错误而非额度文案）
+    const sql = String(executeRaw.mock.calls[0]?.[0] ?? '');
+    expect(sql.replace(/\s+/g, ' ').toUpperCase()).toContain(
+      'PG_ADVISORY_XACT_LOCK',
+    );
+    // xact 版本随事务提交/回滚自动释放，不需要显式解锁
+    expect(executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('额度耗尽时抛业务码 NEW_CUSTOMER_QUOTA_EXHAUSTED，且不写消耗流水', async () => {
@@ -331,26 +463,25 @@ describe('NewCustomerQuotaService', () => {
     );
   });
 
-  it('新客判定：本店无该顾客的消耗记录即为新客（按账号，不看手机号档案）', async () => {
+  it('新客判定：全局无该顾客的消耗记录即为新客（按账号，不看手机号档案）', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValueOnce(
       null,
     );
-    await expect(service.isNewCustomer(42, 1001)).resolves.toBe(true);
+    await expect(service.isNewCustomer(1001)).resolves.toBe(true);
+    // 唯一键只有账号：换店不再产生第二条消耗记录
     expect(
       delegates.storeNewCustomerQuotaConsume.findUnique,
     ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { storeId_clubUserId: { storeId: 42, clubUserId: 1001 } },
-      }),
+      expect.objectContaining({ where: { clubUserId: 1001 } }),
     );
 
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValueOnce({
       id: 9,
     });
-    await expect(service.isNewCustomer(42, 1001)).resolves.toBe(false);
+    await expect(service.isNewCustomer(1001)).resolves.toBe(false);
   });
 
-  it('下单闸门：老客直接放行，不查余额', async () => {
+  it('下单闸门：老客（已在任意门店消耗过额度）直接放行，不查余额', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue({
       id: 9,
     });
@@ -364,7 +495,7 @@ describe('NewCustomerQuotaService', () => {
     expect(delegates.storeMembershipProfile.findUnique).not.toHaveBeenCalled();
   });
 
-  it('下单闸门：新客且额度已用完 → 抛 NEW_CUSTOMER_QUOTA_EXHAUSTED 阻止建单', async () => {
+  it('下单闸门：新客且本店额度已用完 → 抛 NEW_CUSTOMER_QUOTA_EXHAUSTED 阻止建单', async () => {
     delegates.storeNewCustomerQuotaConsume.findUnique.mockResolvedValue(null);
     delegates.storeMembershipProfile.findUnique.mockResolvedValue({
       newCustomerQuota: 0,
