@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { mapConcurrent } from '../../../shared/concurrency.utils';
 import type {
   HandoverRecordListItemDto,
   HandoverRecordSummaryDto,
@@ -58,10 +57,9 @@ export class HandoverRecordsDetailService {
   }
 
   /**
-   * 批量版本：批量预加载所有 record 的 shift/employee 数据后并行计算营收，
-   * 避免每条 record 触发独立的 N 次数据库查询。
-   * 营收计算（countRecordRevenue）依赖各自的 shiftRange，仍需并行执行，
-   * 但 viewContext 预加载已从 O(N) DB 查询降为 O(1)。
+   * 批量版本：批量预加载所有 record 的 shift/employee 数据，
+   * 并用 countRecordRevenueBatch 一次性下推 N 个 shiftRange 做 3 次聚合查询，
+   * DB 往返从 3N 降为 3（viewContext 预加载另计）。
    */
   async buildRecordSummaryBatch(
     storeId: number,
@@ -78,16 +76,15 @@ export class HandoverRecordsDetailService {
         records,
       );
 
-    // 营收计算仍需并行（各 record 的 shiftRange 不同），但控制并发防止打满连接池
-    return mapConcurrent(records, async (record, i) => {
-      const context = contexts[i];
-      const totalRevenue =
-        await this.handoverRecordsRevenueService.countRecordRevenue(
-          storeId,
-          context.shiftRange,
-          context.operatorStaffId,
-        );
+    // 批量计算营收：3 次 raw SQL 替代 N×3 次 Prisma aggregate
+    const totalRevenues =
+      await this.handoverRecordsRevenueService.countRecordRevenueBatch(
+        storeId,
+        contexts.map((c) => c.shiftRange),
+      );
 
+    return records.map((record, i) => {
+      const context = contexts[i];
       return buildRecordSummaryDto({
         id: record.id,
         operatorName: context.operatorName,
@@ -98,7 +95,7 @@ export class HandoverRecordsDetailService {
         ),
         startTime: context.shiftRecord?.startTime ?? null,
         endTime: context.shiftRecord?.endTime ?? null,
-        totalRevenue,
+        totalRevenue: totalRevenues[i],
         operatorAvatar: context.operatorAvatar,
         status: record.status,
         handoverAt: record.handoverAt,

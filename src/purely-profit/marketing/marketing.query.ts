@@ -117,6 +117,11 @@ export async function queryCustomerRowById(
   prisma: PrismaService,
   customerId: number,
 ): Promise<MarketingCustomerRow | null> {
+  // 改写：原 LEFT JOIN users ON (3 路 OR + 字符串拼接) 无法走 users
+  // @unique 索引（wechat_phone / email），随 users 表增长退化为全表扫描。
+  // 改为 LEFT JOIN LATERAL 子查询，在子查询中按优先级 LIMIT 1 取第一个
+  // 匹配的 user。PG 优化器可对每个 OR 分支独立走索引扫描 + 早期终止，
+  // 避免对 users 全表扫描。优先级不变：wechat_phone > club email > legacy email。
   const rows = await prisma.$queryRaw<MarketingCustomerRow[]>`
     SELECT
       c.id,
@@ -136,19 +141,22 @@ export async function queryCustomerRowById(
       c.created_at AS "createdAt",
       c.updated_at AS "updatedAt"
     FROM marketing_customers c
-    LEFT JOIN users u ON (
-      u.wechat_phone = c.phone
-      OR u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
-      OR u.email = ${LEGACY_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
-    )
+    LEFT JOIN LATERAL (
+      SELECT u.avatar, u.wechat_avatar
+      FROM users u
+      WHERE u.wechat_phone = c.phone
+         OR u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
+         OR u.email = ${LEGACY_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
+      ORDER BY
+        CASE
+          WHEN u.wechat_phone = c.phone THEN 1
+          WHEN u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX} THEN 2
+          ELSE 3
+        END
+      LIMIT 1
+    ) u ON true
     WHERE c.id = ${customerId}
       AND c.deleted_at IS NULL
-    ORDER BY
-      CASE
-        WHEN u.wechat_phone = c.phone THEN 1
-        WHEN u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX} THEN 2
-        ELSE 3
-      END
     LIMIT 1
   `;
 

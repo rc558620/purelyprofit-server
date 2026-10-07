@@ -1026,6 +1026,71 @@ describe('EmployeesService', () => {
     });
   });
 
+  it('update 改名时用 $executeRaw 批量更新 cost_records.title（替代逐条 update）', async () => {
+    const joinDate = new Date('2026-05-01T00:00:00.000Z');
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T11:00:00.000Z');
+
+    const previousEmployee = {
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate,
+      baseSalary: 450000,
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const updatedEmployee = {
+      ...previousEmployee,
+      name: '李明',
+      updatedAt,
+    };
+    employeesAccessService.findManageableEmployeeOrThrow
+      .mockResolvedValueOnce(previousEmployee)
+      .mockResolvedValueOnce(updatedEmployee);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([]);
+    prismaService.staff.findMany.mockResolvedValue([]);
+    prismaService.employee.update.mockResolvedValue({
+      ...updatedEmployee,
+    });
+    prismaService.employeeLeave.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeeShift.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    // $queryRaw 返回 2 条需更新 title 的 cost_record
+    prismaService.$queryRaw.mockResolvedValue([
+      { id: 101, title: '张三-5月工资' },
+      { id: 102, title: '张三-6月工资' },
+    ]);
+    prismaService.$executeRaw.mockResolvedValue(2);
+
+    const result = await service.update(user, 12, { name: '李明' });
+
+    // 验证 $executeRaw 被调用（批量 UPDATE...CASE WHEN），而非逐条 update
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
+    expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      id: '12',
+      name: '李明',
+    });
+  });
+  
   it('updateDepartment 会同步更新关联员工的部门名称', async () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:20:00.000Z');

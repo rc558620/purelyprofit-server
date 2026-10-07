@@ -87,15 +87,30 @@ describe('FinanceCashFlowService', () => {
   });
 
   it('getCashFlowStats 不受 directionFilter 影响，始终返回全量统计', async () => {
-    prismaService.financeCashFlowRecord.findMany
+    prismaService.financeCashFlowRecord.groupBy
       .mockResolvedValueOnce([
-        { direction: 'income', amount: new Prisma.Decimal('100.00') },
-        { direction: 'income', amount: new Prisma.Decimal('50.00') },
-        { direction: 'expense', amount: new Prisma.Decimal('30.00') },
+        {
+          direction: 'income',
+          _sum: { amount: new Prisma.Decimal('150.00') },
+          _count: { _all: 2 },
+        },
+        {
+          direction: 'expense',
+          _sum: { amount: new Prisma.Decimal('30.00') },
+          _count: { _all: 1 },
+        },
       ])
       .mockResolvedValueOnce([
-        { direction: 'income', amount: new Prisma.Decimal('80.00') },
-        { direction: 'expense', amount: new Prisma.Decimal('20.00') },
+        {
+          direction: 'income',
+          _sum: { amount: new Prisma.Decimal('80.00') },
+          _count: { _all: 1 },
+        },
+        {
+          direction: 'expense',
+          _sum: { amount: new Prisma.Decimal('20.00') },
+          _count: { _all: 1 },
+        },
       ]);
 
     await expect(
@@ -112,7 +127,7 @@ describe('FinanceCashFlowService', () => {
     });
     // 统计查询不应包含 direction 筛选
     expect(
-      prismaService.financeCashFlowRecord.findMany,
+      prismaService.financeCashFlowRecord.groupBy,
     ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -124,10 +139,11 @@ describe('FinanceCashFlowService', () => {
   });
 
   it('getCashFlowStats 在上一周期被裁剪为空时不计算环比', async () => {
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([
+    prismaService.financeCashFlowRecord.groupBy.mockResolvedValueOnce([
       {
         direction: 'income',
-        amount: new Prisma.Decimal('100.00'),
+        _sum: { amount: new Prisma.Decimal('100.00') },
+        _count: { _all: 1 },
       },
     ]);
     platformMembershipAccessService.clampHistoryRange
@@ -152,7 +168,7 @@ describe('FinanceCashFlowService', () => {
       recordCount: 1,
       compareLastPeriod: null,
     });
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledTimes(
+    expect(prismaService.financeCashFlowRecord.groupBy).toHaveBeenCalledTimes(
       1,
     );
     expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(

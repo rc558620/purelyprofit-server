@@ -67,6 +67,124 @@ export class HandoverRecordsRevenueService {
     return additionalRevenueAmount.add(spaceRevenueAmount).toOutputYuan();
   }
 
+  /**
+   * 批量版本：用 3 次 raw SQL（UNNEST + LATERAL）替代 N×3 次 Prisma aggregate，
+   * DB 往返从 3N 降为 3。口径与 countRecordRevenue 完全一致：
+   * totalRevenue = additionalRevenue + spaceRevenue(timeCost + itemsCost) + scanOrderingRevenue
+   * 退款不在此处扣减。
+   */
+  async countRecordRevenueBatch(
+    storeId: number,
+    shiftRanges: ShiftDateRange[],
+  ): Promise<number[]> {
+    if (shiftRanges.length === 0) {
+      return [];
+    }
+
+    const startAtArray = shiftRanges.map((r) => r.startAt);
+    const endAtArray = shiftRanges.map((r) => r.endAt);
+
+    // 3 次并行 raw SQL，每次返回 N 行聚合结果（按 idx 对齐）
+    const [additionalRows, spaceRows, scanOrderingRows] = await Promise.all([
+      // additionalRevenue: 非空间销售 + 非扫码点餐订单的 total_revenue 之和
+      this.prisma.$queryRaw<
+        Array<{ idx: number; total: bigint | null }>
+      >`
+        WITH ranges AS (
+          SELECT idx, start_at, end_at
+          FROM UNNEST(
+            ${startAtArray}::timestamptz[],
+            ${endAtArray}::timestamptz[]
+          ) WITH ORDINALITY AS t(start_at, end_at, idx)
+        )
+        SELECT r.idx,
+          COALESCE(SUM(so.total_revenue), 0)::bigint AS total
+        FROM ranges r
+        LEFT JOIN LATERAL (
+          SELECT total_revenue
+          FROM sale_orders
+          WHERE store_id = ${storeId}
+            AND date >= r.start_at
+            AND date <= r.end_at
+            AND scan_order_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM space_sessions ss WHERE ss.sale_order_id = sale_orders.id
+            )
+        ) so ON true
+        GROUP BY r.idx
+        ORDER BY r.idx
+      `,
+      // spaceRevenue: 空间会话 time_cost + items_cost 之和
+      this.prisma.$queryRaw<
+        Array<{ idx: number; total: bigint | null }>
+      >`
+        WITH ranges AS (
+          SELECT idx, start_at, end_at
+          FROM UNNEST(
+            ${startAtArray}::timestamptz[],
+            ${endAtArray}::timestamptz[]
+          ) WITH ORDINALITY AS t(start_at, end_at, idx)
+        )
+        SELECT r.idx,
+          COALESCE(SUM(ss.time_cost), 0) + COALESCE(SUM(ss.items_cost), 0)::bigint AS total
+        FROM ranges r
+        LEFT JOIN LATERAL (
+          SELECT time_cost, items_cost
+          FROM space_sessions
+          WHERE store_id = ${storeId}
+            AND status = ${SpaceSessionStatus.settled}::text
+            AND end_time IS NOT NULL
+            AND end_time >= r.start_at
+            AND end_time <= r.end_at
+        ) ss ON true
+        GROUP BY r.idx
+        ORDER BY r.idx
+      `,
+      // scanOrderingRevenue: 扫码点餐订单（scan_order_id 非空）的 total_revenue 之和
+      this.prisma.$queryRaw<
+        Array<{ idx: number; total: bigint | null }>
+      >`
+        WITH ranges AS (
+          SELECT idx, start_at, end_at
+          FROM UNNEST(
+            ${startAtArray}::timestamptz[],
+            ${endAtArray}::timestamptz[]
+          ) WITH ORDINALITY AS t(start_at, end_at, idx)
+        )
+        SELECT r.idx,
+          COALESCE(SUM(so.total_revenue), 0)::bigint AS total
+        FROM ranges r
+        LEFT JOIN LATERAL (
+          SELECT total_revenue
+          FROM sale_orders
+          WHERE store_id = ${storeId}
+            AND date >= r.start_at
+            AND date <= r.end_at
+            AND scan_order_id IS NOT NULL
+            AND total_revenue > 0
+        ) so ON true
+        GROUP BY r.idx
+        ORDER BY r.idx
+      `,
+    ]);
+
+    // 按 idx 对齐三组结果，与 countRecordRevenue 同口径计算
+    return shiftRanges.map((_, i) => {
+      const additionalCents = Number(additionalRows[i]?.total ?? 0);
+      const spaceCents = Number(spaceRows[i]?.total ?? 0);
+      const scanOrderingCents = Number(scanOrderingRows[i]?.total ?? 0);
+
+      const additionalRevenueAmount = Money.fromInputYuan(
+        dbCentsToOutputYuan(additionalCents),
+      );
+      const spaceRevenueAmount = Money.fromInputYuan(
+        dbCentsToOutputYuan(spaceCents + scanOrderingCents),
+      );
+
+      return additionalRevenueAmount.add(spaceRevenueAmount).toOutputYuan();
+    });
+  }
+
   async buildRecordRevenueDetail(
     storeId: number,
     shiftRange: ShiftDateRange,
@@ -86,9 +204,10 @@ export class HandoverRecordsRevenueService {
     );
     const cashFlowWhere = buildCashFlowWhere(storeId, shiftRange);
 
+    // 合并两次 findMany 为一次：原 paymentOrderItems（全量无 orderBy）和 orderItems（orderBy + take LIMIT）
+    // where 和 select 完全相同，合并为一次带 orderBy 的全量查询后内存切片，DB 往返 2→1
     const [
-      paymentOrderItems,
-      orderItems,
+      allOrderItems,
       orderCount,
       spaceRevenue,
       scanOrderingRevenue,
@@ -103,16 +222,7 @@ export class HandoverRecordsRevenueService {
           order: orderWhere,
         },
         select: SALE_ORDER_ITEM_SELECT,
-      }),
-      this.prisma.saleOrderItem.findMany({
-        where: {
-          storeId,
-          // 与实时交班页口径一致：不排除已退款订单，退款单的下单行与退款行同时展示
-          order: orderWhere,
-        },
-        select: SALE_ORDER_ITEM_SELECT,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: ORDER_ITEMS_LIMIT,
       }),
       this.prisma.saleOrder.count({
         where: orderWhere,
@@ -208,6 +318,10 @@ export class HandoverRecordsRevenueService {
         ),
       )
       .toOutputYuan();
+
+    // paymentOrderItems 用全量做支付方式聚合；orderItems 取前 ORDER_ITEMS_LIMIT 条做展示
+    const paymentOrderItems = allOrderItems;
+    const orderItems = allOrderItems.slice(0, ORDER_ITEMS_LIMIT);
 
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);

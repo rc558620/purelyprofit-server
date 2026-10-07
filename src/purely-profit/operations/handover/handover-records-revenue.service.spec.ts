@@ -115,3 +115,82 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
     expect(result).toBe(0);
   });
 });
+
+describe('HandoverRecordsRevenueService.countRecordRevenueBatch', () => {
+  let prisma: Record<string, jest.Mock>;
+  let service: HandoverRecordsRevenueService;
+
+  const shiftRanges: ShiftDateRange[] = [
+    {
+      startAt: new Date('2026-07-12T00:00:00.000Z'),
+      endAt: new Date('2026-07-12T23:59:59.000Z'),
+    },
+    {
+      startAt: new Date('2026-07-13T00:00:00.000Z'),
+      endAt: new Date('2026-07-13T23:59:59.000Z'),
+    },
+  ];
+
+  beforeEach(() => {
+    prisma = {
+      $queryRaw: jest.fn(),
+    };
+    service = new HandoverRecordsRevenueService(
+      prisma as unknown as PrismaService,
+    );
+  });
+
+  it('空数组时返回空数组', async () => {
+    const result = await service.countRecordRevenueBatch(100, []);
+    expect(result).toEqual([]);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('批量返回各 shiftRange 的 totalRevenue，口径与 countRecordRevenue 一致', async () => {
+    // 3 次 $queryRaw 分别对应 additional / space / scanOrdering
+    prisma.$queryRaw
+      // record 0: additional=50000(500元), record 1: additional=30000(300元)
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(50000) },
+        { idx: 2, total: BigInt(30000) },
+      ])
+      // record 0: space(timeCost+itemsCost)=65000(650元), record 1: space=0
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(65000) },
+        { idx: 2, total: BigInt(0) },
+      ])
+      // record 0: scanOrdering=0, record 1: scanOrdering=10000(100元)
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(0) },
+        { idx: 2, total: BigInt(10000) },
+      ]);
+
+    const result = await service.countRecordRevenueBatch(100, shiftRanges);
+
+    // record 0: 500 + 650 = 1150
+    expect(result[0]).toBe(1150);
+    // record 1: 300 + 100 = 400
+    expect(result[1]).toBe(400);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+  });
+
+  it('所有营收为 null/0 时返回 0', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(0) },
+        { idx: 2, total: BigInt(0) },
+      ])
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(0) },
+        { idx: 2, total: BigInt(0) },
+      ])
+      .mockResolvedValueOnce([
+        { idx: 1, total: BigInt(0) },
+        { idx: 2, total: BigInt(0) },
+      ]);
+
+    const result = await service.countRecordRevenueBatch(100, shiftRanges);
+    expect(result[0]).toBe(0);
+    expect(result[1]).toBe(0);
+  });
+});

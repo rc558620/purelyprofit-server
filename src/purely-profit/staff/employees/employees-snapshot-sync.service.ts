@@ -205,16 +205,21 @@ export class EmployeesSnapshotSyncService {
       return;
     }
 
-    // 逐条更新：使用 Prisma 参数化查询避免 SQL 注入风险
-    // 记录数量通常很少（单员工关联的工资单成本记录），逐条更新性能可接受
-    await Promise.all(
-      recordsToUpdate.map((r) =>
-        transaction.costRecord.update({
-          where: { id: r.id },
-          data: { title: r.updatedTitle },
-        }),
-      ),
+    // 批量更新：单条 raw SQL UPDATE...CASE WHEN 替代 N 次逐条 update，DB 往返 N→1
+    // 使用 Prisma.sql 参数化，避免 SQL 注入
+    const idList = recordsToUpdate.map((r) => r.id);
+    const caseWhens = recordsToUpdate.map(
+      (r) => Prisma.sql`WHEN ${r.id} THEN ${r.updatedTitle}`,
     );
+
+    await transaction.$executeRaw`
+      UPDATE cost_records
+      SET title = CASE id
+        ${Prisma.join(caseWhens, ' ')}
+        ELSE title
+      END
+      WHERE id IN (${Prisma.join(idList, ',')})
+    `;
   }
 
   private async syncLinkedStaffIdentity(

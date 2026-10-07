@@ -4,8 +4,17 @@ import type {
   FinanceCashFlowDirectionValue,
   FinanceCashFlowFilterRange,
   FinanceCashFlowRecordWithAmount,
-  FinanceCashFlowStatsRow,
 } from './finance.types';
+
+/**
+ * SQL groupBy 聚合结果：按 direction 分组的金额合计与行数。
+ * 替代原来全量 findMany 后内存遍历的方式，DB 侧完成聚合。
+ */
+export interface FinanceCashFlowStatsAggregate {
+  direction: string;
+  totalAmount: number; // 数据库分
+  rowCount: number;
+}
 
 const CASH_FLOW_RECORD_PAGE_SELECT = {
   id: true,
@@ -45,6 +54,11 @@ export async function queryCashFlowRecordPage(
  * 查询区间内流水用于统计。
  * 刻意不提供 directionFilter：统计口径恒为全量收支，不跟随列表的方向筛选
  * （统计卡需同时展示收入与支出，跟随筛选会让另一侧恒为 0）。
+ *
+ * 改写：原全量 findMany 拉取所有流水行到内存遍历累加，
+ * 档B year 周期单店 ~1.5 万行有退化风险。
+ * 改为 SQL groupBy 聚合，只返回 2 行（income/expense），
+ * DB→App 传输量从 N 行降到 ≤2 行。
  */
 export async function queryCashFlowStatsRows(
   prisma: PrismaService,
@@ -52,7 +66,7 @@ export async function queryCashFlowStatsRows(
     storeId: number;
     range: FinanceCashFlowFilterRange | { start: number; end: number };
   },
-): Promise<FinanceCashFlowStatsRow[]> {
+): Promise<FinanceCashFlowStatsAggregate[]> {
   const where: Prisma.FinanceCashFlowRecordWhereInput = {
     storeId: params.storeId,
     date: {
@@ -61,13 +75,18 @@ export async function queryCashFlowStatsRows(
     },
   };
 
-  return prisma.financeCashFlowRecord.findMany({
+  const rows = await prisma.financeCashFlowRecord.groupBy({
+    by: ['direction'],
     where,
-    select: {
-      direction: true,
-      amount: true,
-    },
+    _sum: { amount: true },
+    _count: { _all: true },
   });
+
+  return rows.map((row) => ({
+    direction: row.direction,
+    totalAmount: Number(row._sum.amount ?? 0),
+    rowCount: row._count._all,
+  }));
 }
 
 export async function createCashFlowRecordEntity(

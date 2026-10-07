@@ -8,6 +8,10 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 export const createHandoverPrismaMock = () => {
   const prisma = {
     $executeRaw: jest.fn(),
+    // $queryRaw 默认返回空数组；需要真实聚合结果的测试用 mockResolvedValueOnce 覆盖。
+    // countRecordRevenueBatch 会并行调用 3 次 $queryRaw，分别返回
+    // additionalRevenue / spaceRevenue / scanOrderingRevenue 的 { idx, total } 数组。
+    $queryRaw: jest.fn().mockResolvedValue([]),
     employee: {
       findUnique: jest.fn(),
       findMany: jest.fn(),

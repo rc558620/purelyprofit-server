@@ -31,7 +31,11 @@ export async function aggregateOrderStats(
   storeId: number,
   range: SalesPeriodRange,
 ): Promise<SalesStatsAggregation> {
-  // 从 sale_order_items 聚合，排除预付款行，只算实际消费
+  // 从 sale_order_items 聚合，排除预付款行，只算实际消费。
+  // 改写：原 SQL 用 SUM(DISTINCT sor.amount) 去重退款金额，语义有误
+  //（相同金额的退款行会被错误去重），且三表 JOIN 在 sale_order_items
+  // 大表上产生笛卡尔积。改为子查询预聚合：先按 order_id 聚合 items
+  // 和 refunds，再在主查询中做加减，消除 DISTINCT 语义风险。
   const result = await prisma.$queryRaw<
     [
       {
@@ -41,19 +45,33 @@ export async function aggregateOrderStats(
       },
     ]
   >`
+    WITH soi_agg AS (
+      SELECT order_id,
+             SUM(sale_price * quantity) AS item_revenue,
+             SUM(profit * quantity) AS item_profit
+      FROM sale_order_items
+      WHERE product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+      GROUP BY order_id
+    ),
+    sor_agg AS (
+      SELECT sale_order_id,
+             SUM(amount) AS refund_amount,
+             SUM(profit) AS refund_profit
+      FROM sale_order_refunds
+      GROUP BY sale_order_id
+    )
     SELECT
-      COALESCE(SUM(soi.sale_price * soi.quantity), 0)
-        - COALESCE(SUM(DISTINCT sor.amount), 0) AS revenue,
-      COALESCE(SUM(soi.profit * soi.quantity), 0)
-        - COALESCE(SUM(DISTINCT sor.profit), 0) AS profit,
-      COUNT(DISTINCT so.id) FILTER (WHERE sor.id IS NULL) AS order_count
+      COALESCE(SUM(soi_agg.item_revenue), 0)
+        - COALESCE(SUM(sor_agg.refund_amount), 0) AS revenue,
+      COALESCE(SUM(soi_agg.item_profit), 0)
+        - COALESCE(SUM(sor_agg.refund_profit), 0) AS profit,
+      COUNT(*) FILTER (WHERE sor_agg.sale_order_id IS NULL) AS order_count
     FROM sale_orders so
-    LEFT JOIN sale_order_items soi ON soi.order_id = so.id
-    LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
+    LEFT JOIN soi_agg ON soi_agg.order_id = so.id
+    LEFT JOIN sor_agg ON sor_agg.sale_order_id = so.id
     WHERE so.store_id = ${storeId}
       AND so.date >= ${new Date(range.start)}
       AND so.date <= ${new Date(range.end)}
-      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
   `;
 
   return {

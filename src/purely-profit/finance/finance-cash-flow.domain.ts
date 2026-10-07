@@ -9,7 +9,6 @@ import {
   FINANCE_REPORT_PAYMENT_LABELS,
   type FinanceCashFlowCategoryRule,
 } from './finance.constants';
-import type { FinanceCashFlowStatsRow } from './finance.types';
 import { formatReportDateTimeLabel } from './finance-date.utils';
 import { Money } from '../../shared/money.utils';
 
@@ -72,14 +71,16 @@ export function mapCashFlowRecord(record: {
 }
 
 export function buildCashFlowBaseStats(
-  records: FinanceCashFlowStatsRow[],
+  aggregates: { direction: string; totalAmount: number; rowCount: number }[],
 ): FinanceCashFlowStatsDto {
   let totalIncome = Money.zero();
   let totalExpense = Money.zero();
+  let recordCount = 0;
 
-  for (const record of records) {
-    const amount = Money.fromDbCents(record.amount);
-    if (record.direction === 'income') {
+  for (const agg of aggregates) {
+    const amount = Money.fromDbCents(agg.totalAmount);
+    recordCount += agg.rowCount;
+    if (agg.direction === 'income') {
       totalIncome = totalIncome.add(amount);
     } else {
       totalExpense = totalExpense.add(amount);
@@ -90,7 +91,7 @@ export function buildCashFlowBaseStats(
     totalIncome: totalIncome.toOutputYuan(),
     totalExpense: totalExpense.toOutputYuan(),
     netFlow: totalIncome.subtract(totalExpense).toOutputYuan(),
-    recordCount: records.length,
+    recordCount,
     compareLastPeriod: null,
   };
 }

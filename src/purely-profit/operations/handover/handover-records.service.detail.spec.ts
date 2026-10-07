@@ -2,6 +2,9 @@ import { NotFoundException } from '@nestjs/common';
 import { EmployeeShiftType, HandoverStatus, Prisma } from '@prisma/client';
 import { setupHandoverRecordsSpec } from './handover-records.spec-helpers';
 import { aDateOrObject } from '../../../spec-matchers';
+import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
+import { buildShiftDateRange } from './handover.shared';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 describe('HandoverRecordsService - 详情与摘要', () => {
   const ctx = setupHandoverRecordsSpec();
@@ -466,6 +469,8 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       ]);
       // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
+      // 注意：listHandoverRecordSummaries 走 buildRecordSummaryBatch → countRecordRevenueBatch（$queryRaw），
+      // 不再消费 saleOrder.aggregate 链；此处保留是为了下方"批量与逐条一致"断言复用相同 mock 语义。
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
           _sum: { totalRevenue: null },
@@ -476,6 +481,15 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         .mockResolvedValueOnce({
           _sum: { totalRevenue: null },
         });
+      // $queryRaw 调用顺序（countRecordRevenueBatch 内 Promise.all）：
+      // ① additionalRevenue（非空间非扫码订单 total_revenue 之和）
+      // ② spaceRevenue（space_sessions time_cost + items_cost 之和）
+      // ③ scanOrderingRevenue（扫码订单 total_revenue 之和）
+      // total 以 bigint 分返回；1005 分 = 10.05 元，与逐条口径（Decimal 1004.65 → round 1005 分）一致。
+      prismaService.$queryRaw
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(1005) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
 
       const result = await ctx.service.listHandoverRecordSummaries(ownerUser, {
         preset: 'today',
@@ -506,6 +520,34 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           skip: 0,
         }),
       );
+
+      // ── 断言：countRecordRevenueBatch（批量 $queryRaw）与 countRecordRevenue（逐条 aggregate）口径完全一致 ──
+      // 金额属仓库红线，必须验证批量优化未改变统计口径。
+      const revenueService = new HandoverRecordsRevenueService(
+        prismaService as unknown as PrismaService,
+      );
+      const shiftRange = buildShiftDateRange('09:00', '17:00', new Date('2026-06-05'));
+
+      // 重新设置逐条 aggregate mock（与上方 $queryRaw 数据对应：additional=1005 分, space=0, scanOrdering=0）
+      prismaService.saleOrder.aggregate.mockReset();
+      prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({ _sum: { totalRevenue: new Prisma.Decimal('1005') } }) // additionalRevenue
+        .mockResolvedValueOnce({ _sum: { totalRevenue: null } }); // scanOrderingRevenue
+      prismaService.spaceSession.aggregate.mockResolvedValue({
+        _sum: { timeCost: null, itemsCost: null },
+      });
+
+      const singleResult = await revenueService.countRecordRevenue(100, shiftRange, null);
+      // 批量 $queryRaw mock 已被消费，重新设置
+      prismaService.$queryRaw.mockReset();
+      prismaService.$queryRaw
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(1005) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
+      const batchResult = await revenueService.countRecordRevenueBatch(100, [shiftRange]);
+
+      expect(batchResult).toEqual([singleResult]);
+      expect(batchResult[0]).toBe(10.05);
     });
 
     it('排班被删除后摘要列表也应展示交班时的快照班次', async () => {
@@ -541,6 +583,8 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       ]);
       // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
+      // 注意：listHandoverRecordSummaries 走 buildRecordSummaryBatch → countRecordRevenueBatch（$queryRaw），
+      // 不再消费 saleOrder.aggregate 链；此处保留是为了下方"批量与逐条一致"断言复用相同 mock 语义。
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
           _sum: { totalRevenue: null },
@@ -551,6 +595,13 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         .mockResolvedValueOnce({
           _sum: { totalRevenue: null },
         });
+      // $queryRaw 调用顺序（countRecordRevenueBatch 内 Promise.all）：
+      // ① additionalRevenue ② spaceRevenue ③ scanOrderingRevenue
+      // 567 分 = 5.67 元，与逐条口径（Decimal 567.00 → round 567 分）一致。
+      prismaService.$queryRaw
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(567) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
 
       const result = await ctx.service.listHandoverRecordSummaries(ownerUser, {
         date: '2026-06-05',
@@ -567,6 +618,34 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         totalRevenue: 5.67,
       });
       expect(result.items[0].timeDesc).toContain('16:01–17:03');
+
+      // ── 断言：countRecordRevenueBatch（批量 $queryRaw）与 countRecordRevenue（逐条 aggregate）口径完全一致 ──
+      // 金额属仓库红线，必须验证批量优化未改变统计口径。
+      const revenueService = new HandoverRecordsRevenueService(
+        prismaService as unknown as PrismaService,
+      );
+      const shiftRange = buildShiftDateRange('16:01', '17:03', new Date('2026-06-05'));
+
+      // 重新设置逐条 aggregate mock（与上方 $queryRaw 数据对应：additional=567 分, space=0, scanOrdering=0）
+      prismaService.saleOrder.aggregate.mockReset();
+      prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({ _sum: { totalRevenue: new Prisma.Decimal('567') } }) // additionalRevenue
+        .mockResolvedValueOnce({ _sum: { totalRevenue: null } }); // scanOrderingRevenue
+      prismaService.spaceSession.aggregate.mockResolvedValue({
+        _sum: { timeCost: null, itemsCost: null },
+      });
+
+      const singleResult = await revenueService.countRecordRevenue(100, shiftRange, null);
+      // 批量 $queryRaw mock 已被消费，重新设置
+      prismaService.$queryRaw.mockReset();
+      prismaService.$queryRaw
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(567) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
+        .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
+      const batchResult = await revenueService.countRecordRevenueBatch(100, [shiftRange]);
+
+      expect(batchResult).toEqual([singleResult]);
+      expect(batchResult[0]).toBe(5.67);
     });
 
     it('未完成交班不应进入历史摘要列表', async () => {
