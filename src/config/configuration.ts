@@ -155,6 +155,41 @@ export default () => ({
       process.env.APP_SQL_METRICS_SAMPLE_RATE ?? '1',
       10,
     ),
+    /**
+     * sale_order_items 归档任务开关。
+     * 启用后每 archiveSaleOrderItemsIntervalMs 毫秒执行一次，
+     * 将超过保留窗口的冷数据迁移到 sale_order_items_archive 表。
+     * 对应环境变量：APP_ARCHIVE_SALE_ORDER_ITEMS_ENABLED
+     */
+    archiveSaleOrderItemsEnabled:
+      (process.env.APP_ARCHIVE_SALE_ORDER_ITEMS_ENABLED ?? 'true') === 'true',
+    /**
+     * sale_order_items 归档任务执行间隔（毫秒），默认 24h。
+     * 对应环境变量：APP_ARCHIVE_SALE_ORDER_ITEMS_INTERVAL_MS
+     */
+    archiveSaleOrderItemsIntervalMs: parseInt(
+      process.env.APP_ARCHIVE_SALE_ORDER_ITEMS_INTERVAL_MS ?? '86400000',
+      10,
+    ),
+    /**
+     * sale_order_items 热表保留天数，默认 365 天（12 个月）。
+     * 超过该天数的行将被迁移到归档表（归档表为长期存储，不做自动清理）。
+     * 注意：保留窗口从 12 个月起，归档表增长会加快，需关注磁盘容量。
+     * 对应环境变量：APP_ARCHIVE_SALE_ORDER_ITEMS_RETENTION_DAYS
+     */
+    archiveSaleOrderItemsRetentionDays: parseInt(
+      process.env.APP_ARCHIVE_SALE_ORDER_ITEMS_RETENTION_DAYS ?? '365',
+      10,
+    ),
+    /**
+     * sale_order_items 归档任务每批迁移行数，默认 5000。
+     * 每批一个事务，批间 sleep 100ms。
+     * 对应环境变量：APP_ARCHIVE_SALE_ORDER_ITEMS_BATCH_SIZE
+     */
+    archiveSaleOrderItemsBatchSize: parseInt(
+      process.env.APP_ARCHIVE_SALE_ORDER_ITEMS_BATCH_SIZE ?? '5000',
+      10,
+    ),
   },
 
   database: {

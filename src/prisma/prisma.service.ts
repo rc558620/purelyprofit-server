@@ -50,15 +50,19 @@ function resolveEffectivePoolMax(
     Math.floor(pgMaxConnections / workerCount) - 2,
   );
 
-  if (autoPoolMax < configuredPoolMax) {
+  // 集群模式下，每 worker 池上限 = min(PG 预算推导值, 用户配置的 poolMax)。
+  // 不取 min 会导致 pgMax 调大时每 worker 池远超 DATABASE_POOL_MAX 的配置意图。
+  const effectivePoolMax = Math.min(autoPoolMax, configuredPoolMax);
+
+  if (effectivePoolMax < configuredPoolMax) {
     PrismaService.logger.warn(
       `[prisma] 集群模式自动调整 poolMax: ` +
-        `configured=${configuredPoolMax} → effective=${autoPoolMax} ` +
+        `configured=${configuredPoolMax} → effective=${effectivePoolMax} ` +
         `(workers=${workerCount}, pgMaxConnections=${pgMaxConnections})`,
     );
   }
 
-  return autoPoolMax;
+  return effectivePoolMax;
 }
 
 @Injectable()

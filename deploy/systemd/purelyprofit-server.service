@@ -10,12 +10,15 @@ Group=purelyprofit
 WorkingDirectory=/opt/purelyprofit-server
 EnvironmentFile=/etc/purelyprofit-server/production.env
 # 多 Worker 前先按 PostgreSQL 最大连接数核算 DATABASE_POOL_MAX × CLUSTER_WORKERS。
+# 当前组合：CLUSTER_WORKERS=4 × poolMax=20 = 80 连接 < PG max_connections=100，余量 20 条给运维/备份/监控。
 # Redis 既承载原生 WebSocket 事件广播，也承载 Socket.IO Redis adapter；Redis 不可用时 /api/readyz 会返回 error。
 Environment=NODE_ENV=production
-Environment=CLUSTER_WORKERS=2
+Environment=CLUSTER_WORKERS=4
 # 业务日/月/周边界统一按上海时区计算，进程时区必须固定，禁止依赖宿主机默认时区。
 Environment=TZ=Asia/Shanghai
-ExecStart=/usr/bin/node dist/cluster-main.js
+# --max-old-space-size=1024：限制 V8 老生代堆上限为 1GB，4 worker 共 4GB，
+# 配合 PG shared_buffers=3GB + Redis maxmemory=1GB + OS/Nginx ~2GB，总计 ~10GB < 16GB 物理内存。
+ExecStart=/usr/bin/node --max-old-space-size=1024 dist/cluster-main.js
 Restart=always
 RestartSec=5
 TimeoutStopSec=45
