@@ -8,7 +8,8 @@ import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
 /**
  * 自助下单菜单查询测试：
  * - 商品库直接作为菜单数据源（与空间管理追加商品同源）
- * - specGroups 恒为空数组；库存直取商品库 Product.stock，按 finite 下发
+ * - 未配置规格的商品 specGroups 为空数组；已配置的下发真实规格组（含 isDefault）
+ * - 库存直取商品库 Product.stock，按 finite 下发
  * - 无归属商品归入「其他」兜底分类；空分类被过滤
  */
 describe('ClubSelfOrderingMenuService', () => {
@@ -45,7 +46,7 @@ describe('ClubSelfOrderingMenuService', () => {
     );
   });
 
-  it('正常返回：分类分组 + specGroups 恒为空 + 商品库库存按 finite 下发', async () => {
+  it('正常返回：分类分组 + 未配置规格商品 specGroups 为空 + 商品库库存按 finite 下发', async () => {
     // 真实 Prisma 按 id asc 返回，mock 保持同一顺序
     prisma.productCategory.findMany.mockResolvedValue([
       { id: 1, name: '酒水饮料' },
@@ -134,6 +135,7 @@ describe('ClubSelfOrderingMenuService', () => {
                     id: 111,
                     name: '大杯',
                     extraPrice: 200,
+                    isDefault: true,
                     isActive: true,
                     updatedAt: new Date('2026-09-05'),
                   },
@@ -160,6 +162,7 @@ describe('ClubSelfOrderingMenuService', () => {
             id: 111,
             name: '大杯',
             extraPrice: 200,
+            isDefault: true,
             isActive: true,
             stockQuantity: null,
           },

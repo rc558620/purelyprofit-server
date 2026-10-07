@@ -216,7 +216,14 @@ export class ClubScanOrderingService {
             orders: {
               some: {
                 deletedAt: null,
-                status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+                status: {
+                  in: [
+                    'pending_payment',
+                    'pending_acceptance',
+                    'preparing',
+                    'served',
+                  ],
+                },
               },
             },
           },
@@ -239,6 +246,7 @@ export class ClubScanOrderingService {
   async updateCurrentSession(
     user: AuthenticatedUser,
     dto: UpdateClubScanSessionDto,
+    tableId?: number,
   ): Promise<unknown> {
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
@@ -246,7 +254,13 @@ export class ClubScanOrderingService {
         status: 'active',
         expiresAt: { gt: new Date() },
         deletedAt: null,
+        // 与 getCurrentSession 同口径：指定桌台时只改该桌台的会话。
+        // 用户可能同时持有多个桌台会话（先在 A01 下单、再扫 A02），
+        // 不限定桌台会把人数改到另一桌的会话上。
+        ...(tableId ? { tableId } : {}),
       },
+      // findFirst 无 orderBy 时返回顺序不确定，多会话下会随机命中一个
+      orderBy: { lastActiveAt: 'desc' },
       include: { table: true },
     });
     if (!session) throw new ConflictException('不存在有效点餐会话');
@@ -266,14 +280,20 @@ export class ClubScanOrderingService {
     return this.toSessionResponse(updated, updated.table);
   }
 
-  async leaveCurrentSession(user: AuthenticatedUser): Promise<void> {
+  async leaveCurrentSession(
+    user: AuthenticatedUser,
+    tableId?: number,
+  ): Promise<void> {
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
         clubUserId: user.id,
         status: 'active',
         expiresAt: { gt: new Date() },
         deletedAt: null,
+        // 同 updateCurrentSession：不限定桌台会误退到另一桌的会话
+        ...(tableId ? { tableId } : {}),
       },
+      orderBy: { lastActiveAt: 'desc' },
     });
     if (!session) throw new ConflictException('不存在有效点餐会话');
     await this.prisma.scanOrderingSession.update({

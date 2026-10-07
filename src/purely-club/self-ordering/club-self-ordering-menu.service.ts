@@ -10,6 +10,12 @@ export interface SelfOrderingMenuSpecOptionDto {
   name: string;
   /** 相对基准价加价（分） */
   extraPrice: number;
+  /**
+   * 是否默认选中。
+   * ⚠️ 不能省略：C 端 menu.mapper 原样透传给规格弹窗，缺失会让默认预选失效，
+   * 必选组打开时呈未选态（价格 ¥--、加入按钮禁用），顾客必须手动逐组点选。
+   */
+  isDefault: boolean;
   isActive: boolean;
   /**
    * 规格级库存：非餐饮不做（决策见 §3），恒为 null 表示不限。
@@ -145,6 +151,7 @@ export class ClubSelfOrderingMenuService {
                       id: true,
                       name: true,
                       extraPrice: true,
+                      isDefault: true,
                       isActive: true,
                       updatedAt: true,
                     },
@@ -183,6 +190,7 @@ export class ClubSelfOrderingMenuService {
             id: option.id,
             name: option.name,
             extraPrice: option.extraPrice,
+            isDefault: option.isDefault,
             isActive: option.isActive,
             stockQuantity: null,
           })),

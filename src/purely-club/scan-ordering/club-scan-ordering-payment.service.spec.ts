@@ -7,6 +7,8 @@ import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.ser
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 
 describe('ClubScanOrderingPaymentService', () => {
@@ -52,6 +54,15 @@ describe('ClubScanOrderingPaymentService', () => {
     getShanghaiBusinessDate: jest.fn(),
   };
 
+  const marketingCustomerService = {
+    resolveActiveCustomer: jest.fn(),
+    settlePaidOrder: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidateMarketingCustomerDerived: jest.fn(),
+  };
+
   const baseSettlement: ClubPaymentCallbackSettlementParams = {
     amountFen: 5000,
     transactionId: '4200001234202606101234567890',
@@ -77,6 +88,17 @@ describe('ClubScanOrderingPaymentService', () => {
     prismaService.scanOrderStatusHistory.create.mockResolvedValue({});
     refundService.createRefundTaskInTransaction.mockResolvedValue(undefined);
     saleOrderBridgeService.createForPaidOrder.mockResolvedValue(undefined);
+    marketingCustomerService.resolveActiveCustomer.mockResolvedValue({
+      id: 9001,
+      balance: 0,
+      phone: null,
+    });
+    marketingCustomerService.settlePaidOrder.mockResolvedValue({
+      earnedPoints: 0,
+    });
+    cacheInvalidatorService.invalidateMarketingCustomerDerived.mockResolvedValue(
+      undefined,
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -95,6 +117,14 @@ describe('ClubScanOrderingPaymentService', () => {
         {
           provide: ScanOrderingPickupNumberService,
           useValue: pickupNumberService,
+        },
+        {
+          provide: ClubScanOrderingMarketingCustomerService,
+          useValue: marketingCustomerService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();
@@ -236,6 +266,67 @@ describe('ClubScanOrderingPaymentService', () => {
       );
 
       expect(saleOrderBridgeService.createForPaidOrder).not.toHaveBeenCalled();
+    });
+
+    // 回归：payableAmount 存的是「积分抵扣后」的金额，微信支付若只收钱不扣分，
+    // 顾客勾选积分抵扣后等于白拿抵扣，可无限重复。
+    it('微信支付同样扣减积分抵扣（不得白拿抵扣）', async () => {
+      prismaService.scanOrders.findUnique
+        .mockReset()
+        .mockResolvedValueOnce({
+          ...orderPending,
+          clubUserId: 7001,
+          marketingSnapshot: { pointsUsed: 120, pointsDeductAmount: 1200 },
+        })
+        .mockResolvedValueOnce(orderPaid);
+
+      await service.confirmOrderPaidByCallback(
+        'SO20260723120000ABCD-1A2B3C4D',
+        baseSettlement,
+      );
+
+      expect(
+        marketingCustomerService.resolveActiveCustomer,
+      ).toHaveBeenCalledWith(11, 7001);
+      expect(marketingCustomerService.settlePaidOrder).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          storeId: 11,
+          orderId: 1001,
+          customerId: 9001,
+          paidAmountFen: 5000,
+          pointsUsed: 120,
+          pointsDeductAmount: 1200,
+          payType: 'wechat',
+        }),
+      );
+      expect(prismaService.scanOrders.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            marketingSnapshot: expect.objectContaining({
+              pointsSettlementStatus: 'settled',
+            }),
+          }),
+        }),
+      );
+    });
+
+    // 回归：手工补录单没有 clubUserId，不应凭空创建一个 userId=0 的会员档案
+    it('手工补录单不落会员积分账', async () => {
+      prismaService.scanOrders.findUnique
+        .mockReset()
+        .mockResolvedValueOnce({ ...orderPending, clubUserId: null })
+        .mockResolvedValueOnce(orderPaid);
+
+      await service.confirmOrderPaidByCallback(
+        'SO20260723120000ABCD-1A2B3C4D',
+        baseSettlement,
+      );
+
+      expect(
+        marketingCustomerService.resolveActiveCustomer,
+      ).not.toHaveBeenCalled();
+      expect(marketingCustomerService.settlePaidOrder).not.toHaveBeenCalled();
     });
 
     it('重复回调保持幂等', async () => {

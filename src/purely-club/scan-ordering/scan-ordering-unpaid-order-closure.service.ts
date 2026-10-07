@@ -170,7 +170,12 @@ export class ScanOrderingUnpaidOrderClosureService {
             version: { increment: 1 },
           },
         });
-        if (item.menuProduct.productId !== null) {
+        // 只有 finite 商品才真正扣过库存：unlimited / sold_out 商品的共享库存
+        // 从未参与扣减，回补会让库存凭空变多。
+        if (
+          item.menuProduct.productId !== null &&
+          item.menuProduct.stockMode === 'finite'
+        ) {
           await tx.product.updateMany({
             where: {
               id: item.menuProduct.productId,

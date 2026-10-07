@@ -12,6 +12,7 @@ import {
   MembershipDowngradeService,
   SCAN_ORDER_BLOCKED_MESSAGE,
 } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { computeCartVersion } from './club-scan-ordering-cart-pricing.utils';
 import type {
   AddClubScanCartItemDto,
   UpdateClubScanCartItemDto,
@@ -31,7 +32,14 @@ export class ClubScanOrderingCartService {
       orderBy: { updatedAt: 'asc' },
       include: { specs: true },
     });
-    return { sessionId: session.id, version: this.cartVersion(items), items };
+    return {
+      sessionId: session.id,
+      // 行级乐观锁版本之和：只用于粗粒度变更检测，不能当 cartVersion 用
+      version: this.cartVersion(items),
+      // 与 preview / create 同口径的购物车版本，可直接用于下单校验
+      cartVersion: computeCartVersion(items),
+      items,
+    };
   }
 
   async quoteCartItem(
@@ -42,11 +50,8 @@ export class ClubScanOrderingCartService {
     >,
   ): Promise<{ unitPriceAmount: number }> {
     const session = await this.requireSession(user, dto.sessionId);
-    const product = await this.findAvailableProduct(
-      session.storeId,
-      dto.productId,
-      1,
-    );
+    const product = await this.loadProduct(session.storeId, dto.productId);
+    this.assertPurchasable(product, 1);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
     return {
       unitPriceAmount:
@@ -68,11 +73,14 @@ export class ClubScanOrderingCartService {
       session.createdAt,
     );
 
-    const product = await this.findAvailableProduct(
-      session.storeId,
-      dto.productId,
-      dto.quantity,
+    const product = await this.loadProduct(session.storeId, dto.productId);
+    // 同一商品的不同规格会落在多条购物车行，库存必须按「该商品在购物车中的总量」校验，
+    // 与下单时的 ClubScanOrderingInventoryReservationService 聚合口径保持一致。
+    const cartQuantity = await this.resolveCartProductQuantity(
+      session.id,
+      product.id,
     );
+    this.assertPurchasable(product, cartQuantity + dto.quantity);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
     const specSignature = this.hash(
       [...dto.specOptionIds].sort((a, b) => a - b).join(','),
@@ -80,23 +88,57 @@ export class ClubScanOrderingCartService {
     const unitPriceAmount =
       product.basePrice +
       options.reduce((sum, item) => sum + item.extraPrice, 0);
-    const existing = await this.prisma.scanOrderingCartItem.findFirst({
-      where: {
-        sessionId: session.id,
-        menuProductId: product.id,
-        specSignature,
-        status: 'active',
-        deletedAt: null,
-      },
-    });
+
+    // 并发首次加购同一规格会撞 (sessionId, menuProductId, specSignature) 的部分唯一
+    // 索引：这里捕获 P2002 重试一次，重试时已能查到对方提交的行并走累加分支。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.writeCartItem(
+          session.id,
+          product.id,
+          specSignature,
+          dto.quantity,
+          unitPriceAmount,
+          options.map((option) => ({
+            specOptionId: option.id,
+            extraPriceSnapshot: option.extraPrice,
+          })),
+        );
+        break;
+      } catch (error) {
+        if (attempt === 0 && this.isUniqueViolation(error)) continue;
+        throw error;
+      }
+    }
+    return this.getCart(user, session.id);
+  }
+
+  /** 购物车行写入：同规格已存在则累加，否则新建。 */
+  private async writeCartItem(
+    sessionId: number,
+    menuProductId: number,
+    specSignature: string,
+    quantity: number,
+    unitPriceAmount: number,
+    specs: Array<{ specOptionId: number; extraPriceSnapshot: number }>,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.scanOrderingCartItem.findFirst({
+        where: {
+          sessionId,
+          menuProductId,
+          specSignature,
+          status: 'active',
+          deletedAt: null,
+        },
+      });
       if (existing) {
-        const quantity = existing.quantity + dto.quantity;
+        const nextQuantity = existing.quantity + quantity;
         await tx.scanOrderingCartItem.update({
           where: { id: existing.id },
           data: {
-            quantity,
-            lineTotalAmount: quantity * unitPriceAmount,
+            quantity: nextQuantity,
+            lineTotalAmount: nextQuantity * unitPriceAmount,
             unitPriceAmount,
             version: { increment: 1 },
           },
@@ -105,22 +147,25 @@ export class ClubScanOrderingCartService {
       }
       await tx.scanOrderingCartItem.create({
         data: {
-          sessionId: session.id,
-          menuProductId: product.id,
+          sessionId,
+          menuProductId,
           specSignature,
-          quantity: dto.quantity,
+          quantity,
           unitPriceAmount,
-          lineTotalAmount: dto.quantity * unitPriceAmount,
-          specs: {
-            create: options.map((option) => ({
-              specOptionId: option.id,
-              extraPriceSnapshot: option.extraPrice,
-            })),
-          },
+          lineTotalAmount: quantity * unitPriceAmount,
+          specs: { create: specs },
         },
       });
     });
-    return this.getCart(user, session.id);
+  }
+
+  /** Prisma 唯一约束冲突（P2002）判定。 */
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: unknown }).code === 'P2002'
+    );
   }
 
   async updateCartItem(
@@ -134,6 +179,18 @@ export class ClubScanOrderingCartService {
     });
     if (!item) throw new NotFoundException('购物车商品不存在');
     this.ensureSessionOwner(user, item.session);
+    // 改量同样要校验库存：否则用户把步进器点到大数量也能成功，直到提交订单才被
+    // 库存预留打回。口径＝本行新数量 + 该商品其它规格行已占数量。
+    const product = await this.loadProduct(
+      item.session.storeId,
+      item.menuProductId,
+    );
+    const otherLineQuantity = await this.resolveCartProductQuantity(
+      item.sessionId,
+      item.menuProductId,
+      item.id,
+    );
+    this.assertPurchasable(product, otherLineQuantity + dto.quantity);
     const result = await this.prisma.scanOrderingCartItem.updateMany({
       where: { id: itemId, version: dto.version, status: 'active' },
       data: {
@@ -171,29 +228,75 @@ export class ClubScanOrderingCartService {
     return this.getCart(user, item.sessionId);
   }
 
-  private async findAvailableProduct(
-    storeId: number,
-    productId: number,
-    quantity: number,
-  ) {
+  /** 读取菜单商品（含共享商品库存），不存在或不可售时抛错。 */
+  private async loadProduct(storeId: number, productId: number) {
     const product = await this.prisma.scanOrderingMenuProduct.findFirst({
       where: { id: productId, storeId, isActive: true, deletedAt: null },
       include: {
+        product: {
+          select: { isActive: true, deletedAt: true, stock: true },
+        },
         specGroups: {
           where: { isActive: true },
           include: { options: { where: { isActive: true } } },
         },
       },
     });
+    if (!product) throw new ConflictException('商品已售罄或库存不足');
+    return product;
+  }
+
+  /**
+   * 校验该商品在购物车中的目标总量是否可满足。
+   *
+   * 可用库存口径必须与下单时一致：总库存 − 已预留量（未接单订单占用的预留），
+   * 且共享商品（product.stock）停用/删除时同样不可售。
+   */
+  private assertPurchasable(
+    product: {
+      stockMode: string;
+      stockQuantity: number | null;
+      reservedQuantity: number | null;
+      product: {
+        isActive: boolean;
+        deletedAt: Date | null;
+        stock: number;
+      } | null;
+    },
+    requiredTotal: number,
+  ): void {
+    const inventoryProduct = product.product;
+    const baseStock = inventoryProduct
+      ? inventoryProduct.stock
+      : (product.stockQuantity ?? 0);
+    const availableStock = baseStock - (product.reservedQuantity ?? 0);
     if (
-      !product ||
       product.stockMode === 'sold_out' ||
-      (product.stockMode === 'finite' &&
-        (product.stockQuantity ?? 0) < quantity)
+      (inventoryProduct &&
+        (!inventoryProduct.isActive || inventoryProduct.deletedAt)) ||
+      (product.stockMode === 'finite' && availableStock < requiredTotal)
     ) {
       throw new ConflictException('商品已售罄或库存不足');
     }
-    return product;
+  }
+
+  /** 该商品在购物车中的活跃行数量合计（可排除指定行）。 */
+  private async resolveCartProductQuantity(
+    sessionId: number,
+    menuProductId: number,
+    excludeCartItemId?: number,
+  ): Promise<number> {
+    const items = await this.prisma.scanOrderingCartItem.findMany({
+      where: {
+        sessionId,
+        menuProductId,
+        status: 'active',
+        deletedAt: null,
+        ...(excludeCartItemId ? { id: { not: excludeCartItemId } } : {}),
+      },
+      select: { quantity: true },
+    });
+    return items.reduce((sum, item) => sum + item.quantity, 0);
   }
 
   private async requireSession(

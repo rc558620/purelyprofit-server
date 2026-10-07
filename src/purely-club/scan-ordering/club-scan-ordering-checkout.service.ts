@@ -15,10 +15,6 @@ import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
-import {
-  awardPointsForSettlement,
-  deductPointsForSettlement,
-} from '../orders/club-order-settlement-points.utils';
 
 /** 在途支付尝试回收阈值：超过该时长仍处 created/paying 的尝试视为已放弃 */
 const SCAN_PAYMENT_ATTEMPT_TTL_MS = 5 * 60 * 1000;
@@ -189,25 +185,19 @@ export class ClubScanOrderingCheckoutService {
         data: { balance: { decrement: order.payableAmount } },
       });
       if (debited.count === 0) throw new ConflictException('储值余额不足');
-      await deductPointsForSettlement(
-        tx,
-        {
+      // 积分扣减 / 消费送积分 / 消费记录统一在此落账：应付金额已是积分抵扣后的值，
+      // 不扣 pointsUsed 就等于让顾客白拿抵扣。三条支付路径都必须走这里。
+      const { earnedPoints } =
+        await this.marketingCustomerService.settlePaidOrder(tx, {
           storeId: order.storeId,
-          description: `扫码点餐订单 ${order.orderNo}`,
+          orderId: order.id,
+          orderNo: order.orderNo,
+          customerId: customer.id,
           paidAmountFen: order.payableAmount,
-        },
-        customer.id,
-        pointsUsed,
-      );
-      const earnedPoints = await awardPointsForSettlement(
-        tx,
-        {
-          storeId: order.storeId,
-          description: `扫码点餐订单 ${order.orderNo}`,
-          paidAmountFen: order.payableAmount,
-        },
-        customer.id,
-      );
+          pointsUsed,
+          pointsDeductAmount,
+          payType: 'balance',
+        });
       const updated = await tx.scanOrders.updateMany({
         where: {
           id: order.id,
@@ -247,19 +237,6 @@ export class ClubScanOrderingCheckoutService {
           status: 'succeeded',
           paidAt,
           providerTransactionId: `marketing-balance-${order.id}`,
-        },
-      });
-      await tx.marketingConsumption.create({
-        data: {
-          storeId: order.storeId,
-          customerId: customer.id,
-          amount: order.payableAmount + pointsDeductAmount,
-          balancePaid: order.payableAmount,
-          pointsDeducted: pointsDeductAmount,
-          // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
-          actualPointsDeducted: pointsUsed,
-          payType: 'balance',
-          itemsSummary: `扫码点餐订单 ${order.orderNo}`,
         },
       });
       await tx.scanOrderBalanceTransaction.create({
@@ -330,6 +307,17 @@ export class ClubScanOrderingCheckoutService {
         },
       });
       if (!order) throw new ConflictException('订单不可确认支付');
+      const customer =
+        await this.marketingCustomerService.resolveActiveCustomer(
+          order.storeId,
+          user.id,
+        );
+      const pointsSnapshot = (order.marketingSnapshot ?? {}) as {
+        pointsUsed?: number;
+        pointsDeductAmount?: number;
+      };
+      const pointsUsed = pointsSnapshot.pointsUsed ?? 0;
+      const pointsDeductAmount = pointsSnapshot.pointsDeductAmount ?? 0;
       const paymentAttempt = await tx.scanOrderPaymentAttempt.findFirst({
         where: { orderId, status: { in: ['created', 'paying'] } },
         orderBy: { createdAt: 'desc' },
@@ -345,6 +333,19 @@ export class ClubScanOrderingCheckoutService {
         });
       }
       const paidAt = new Date();
+      // 与余额支付同口径落账：openid 缺省时微信链路会 fallback 到本接口，
+      // 不补这一步就会出现「用了积分抵扣但积分没扣、也没有消费记录」。
+      const { earnedPoints } =
+        await this.marketingCustomerService.settlePaidOrder(tx, {
+          storeId: order.storeId,
+          orderId: order.id,
+          orderNo: order.orderNo,
+          customerId: customer.id,
+          paidAmountFen: order.payableAmount,
+          pointsUsed,
+          pointsDeductAmount,
+          payType: 'wechat',
+        });
       await tx.scanOrders.update({
         where: { id: order.id },
         data: {
@@ -352,6 +353,11 @@ export class ClubScanOrderingCheckoutService {
           paymentStatus: 'paid',
           paidAmount: order.payableAmount,
           paidAt,
+          marketingSnapshot: {
+            ...(order.marketingSnapshot as object),
+            pointsSettlementStatus: 'settled',
+            earnedPoints,
+          },
           version: { increment: 1 },
         },
       });
@@ -377,6 +383,12 @@ export class ClubScanOrderingCheckoutService {
       // 事务内重新读取，保证发布事件携带最新取餐号字段
       return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });
+
+    // 余额/积分已落账：失效营销衍生缓存，避免商家端要等 TTL 才看到变化
+    await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+      updated.storeId,
+    );
+
     this.realtimeService.publishOrderStatusChanged({
       storeId: updated.storeId,
       orderId: updated.id,

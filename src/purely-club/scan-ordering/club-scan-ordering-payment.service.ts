@@ -15,6 +15,8 @@ import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 
 /**
  * 异常支付处理结果。
@@ -38,6 +40,8 @@ export class ClubScanOrderingPaymentService {
     private readonly refundService: ScanOrderingRefundService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
+    private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async confirmOrderPaidByCallback(
@@ -106,6 +110,18 @@ export class ClubScanOrderingPaymentService {
           ) {
             throw new ConflictException('扫码点餐订单状态不允许确认支付');
           }
+          // 手工补录单没有 clubUserId，不参与会员积分/消费落账。
+          const clubUserId = order.clubUserId;
+          const customer = clubUserId
+            ? await this.marketingCustomerService.resolveActiveCustomer(
+                order.storeId,
+                clubUserId,
+              )
+            : null;
+          const pointsSnapshot = (order.marketingSnapshot ?? {}) as {
+            pointsUsed?: number;
+            pointsDeductAmount?: number;
+          };
           await tx.scanOrderPaymentAttempt.update({
             where: { id: paymentAttempt.id },
             data: {
@@ -114,6 +130,22 @@ export class ClubScanOrderingPaymentService {
               paidAt: new Date(params.paidAtMs),
             },
           });
+          // 积分与消费落账：payableAmount 已是积分抵扣后的金额，微信支付同样必须
+          // 扣掉 pointsUsed，否则顾客勾选积分抵扣后用微信支付等于白拿抵扣。
+          const earnedPoints = customer
+            ? (
+                await this.marketingCustomerService.settlePaidOrder(tx, {
+                  storeId: order.storeId,
+                  orderId: order.id,
+                  orderNo: order.orderNo,
+                  customerId: customer.id,
+                  paidAmountFen: params.amountFen,
+                  pointsUsed: pointsSnapshot.pointsUsed ?? 0,
+                  pointsDeductAmount: pointsSnapshot.pointsDeductAmount ?? 0,
+                  payType: 'wechat',
+                })
+              ).earnedPoints
+            : 0;
           await tx.scanOrders.update({
             where: { id: order.id },
             data: {
@@ -121,6 +153,15 @@ export class ClubScanOrderingPaymentService {
               paymentStatus: 'paid',
               paidAmount: params.amountFen,
               paidAt: new Date(params.paidAtMs),
+              ...(customer
+                ? {
+                    marketingSnapshot: {
+                      ...(order.marketingSnapshot as object),
+                      pointsSettlementStatus: 'settled',
+                      earnedPoints,
+                    },
+                  }
+                : {}),
               version: { increment: 1 },
             },
           });
@@ -183,7 +224,12 @@ export class ClubScanOrderingPaymentService {
         pickupCompletedAt: true,
       },
     });
-    if (order)
+    if (order) {
+      // 积分/消费已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
+      // 否则商家端要等 TTL 才看得到会员数据变化
+      await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+        order.storeId,
+      );
       this.realtimeService.publishOrderStatusChanged({
         orderId: order.id,
         storeId: order.storeId,
@@ -200,6 +246,7 @@ export class ClubScanOrderingPaymentService {
         pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
         pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
       });
+    }
     return result;
   }
 

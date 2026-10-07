@@ -1,9 +1,82 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  awardPointsForSettlement,
+  deductPointsForSettlement,
+} from '../orders/club-order-settlement-points.utils';
+
+/** 支付成功后的积分与消费落账入参。 */
+export interface ScanOrderPointsSettlementInput {
+  storeId: number;
+  orderId: number;
+  orderNo: string;
+  customerId: number;
+  /** 实付金额（分）：积分抵扣后的应付额。 */
+  paidAmountFen: number;
+  /** 本次抵扣的积分个数。 */
+  pointsUsed: number;
+  /** 本次抵扣对应的金额（分）。 */
+  pointsDeductAmount: number;
+  /** 支付渠道，决定 MarketingConsumption.payType。 */
+  payType: 'balance' | 'wechat';
+}
+
+/** 支付成功后的积分与消费落账结果。 */
+export interface ScanOrderPointsSettlementResult {
+  earnedPoints: number;
+}
 
 @Injectable()
 export class ClubScanOrderingMarketingCustomerService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 支付成功后统一落账：扣减抵扣积分、按实付金额赠送积分、写入消费记录。
+   *
+   * 必须与支付方式无关：订单 payableAmount 存的已经是「积分抵扣后」的金额
+   * （见 ClubScanOrderingOrderService.create），因此无论余额还是微信支付，
+   * 只要收的是 payableAmount，就必须扣掉 pointsUsed，否则顾客可无限白拿抵扣。
+   * 三条支付路径（余额 / 微信回调 / 开发态确认）都必须调用本方法。
+   */
+  async settlePaidOrder(
+    tx: Prisma.TransactionClient,
+    input: ScanOrderPointsSettlementInput,
+  ): Promise<ScanOrderPointsSettlementResult> {
+    const context = {
+      storeId: input.storeId,
+      description: `扫码点餐订单 ${input.orderNo}`,
+      paidAmountFen: input.paidAmountFen,
+    };
+
+    await deductPointsForSettlement(
+      tx,
+      context,
+      input.customerId,
+      input.pointsUsed,
+    );
+    const earnedPoints = await awardPointsForSettlement(
+      tx,
+      context,
+      input.customerId,
+    );
+
+    await tx.marketingConsumption.create({
+      data: {
+        storeId: input.storeId,
+        customerId: input.customerId,
+        amount: input.paidAmountFen + input.pointsDeductAmount,
+        balancePaid: input.payType === 'balance' ? input.paidAmountFen : 0,
+        pointsDeducted: input.pointsDeductAmount,
+        // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
+        actualPointsDeducted: input.pointsUsed,
+        payType: input.payType,
+        itemsSummary: context.description,
+      },
+    });
+
+    return { earnedPoints };
+  }
 
   async resolveActiveCustomer(
     storeId: number,

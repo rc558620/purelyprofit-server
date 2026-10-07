@@ -68,7 +68,8 @@ export class ClubScanOrderingController {
   @ApiBearerAuth()
   @Get('sessions/current')
   @ApiOperation({
-    summary: '获取当前用户有效桌台会话（可选按桌台过滤，避免多桌台会话互相判失效）',
+    summary:
+      '获取当前用户有效桌台会话（可选按桌台过滤，避免多桌台会话互相判失效）',
   })
   getCurrentSession(
     @CurrentUser() user: AuthenticatedUser,
@@ -80,22 +81,28 @@ export class ClubScanOrderingController {
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
   @Patch('sessions/current')
-  @ApiOperation({ summary: '更新当前会话就餐人数' })
+  @ApiOperation({
+    summary: '更新当前会话就餐人数（可选按桌台指定，避免误改另一桌会话）',
+  })
   updateCurrentSession(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateClubScanSessionDto,
+    @Query('tableId', new ParseIntPipe({ optional: true })) tableId?: number,
   ): Promise<unknown> {
-    return this.service.updateCurrentSession(user, dto);
+    return this.service.updateCurrentSession(user, dto, tableId);
   }
 
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
   @Post('sessions/current/leave')
-  @ApiOperation({ summary: '退出当前桌台会话' })
+  @ApiOperation({
+    summary: '退出当前桌台会话（可选按桌台指定，避免误退另一桌会话）',
+  })
   async leaveCurrentSession(
     @CurrentUser() user: AuthenticatedUser,
+    @Query('tableId', new ParseIntPipe({ optional: true })) tableId?: number,
   ): Promise<void> {
-    await this.service.leaveCurrentSession(user);
+    await this.service.leaveCurrentSession(user, tableId);
   }
 
   @UseGuards(ClubJwtAuthGuard)

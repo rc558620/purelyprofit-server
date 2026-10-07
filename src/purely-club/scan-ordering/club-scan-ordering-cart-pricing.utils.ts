@@ -146,36 +146,86 @@ export const buildPreviewBreakdownItems = (
 };
 
 /**
- * 按行金额比例分摊商品级优惠（分），余数分配到最后一个订单项，
- * 确保各订单项 discountAmount 之和精确等于总商品级优惠。
+ * 按行金额比例分摊商品级优惠（分）。
+ *
+ * 两条硬约束：
+ * 1. 各行 discountAmount 之和尽可能精确等于总商品级优惠（余数由末行承担）；
+ * 2. 单行 discountAmount 不得超过该行 lineTotalAmount —— 否则 payableLineAmount
+ *    被 clamp 成 0，Σ 行应付会与订单级 payableAmount 对不上。
+ *    因此按「剩余优惠 / 剩余行金额」比例分摊并逐行封顶，封顶挤出来的余额
+ *    再回补给仍有余量的行。
  */
 export const allocateLineDiscounts = (
   items: PricedCartItem[],
   productDiscountAmount: number,
 ): number[] => {
-  const totalDiscount = Money.fromDbCents(productDiscountAmount);
-  const totalLineAmount = Money.sum(
-    items.map((item) => Money.fromDbCents(item.lineTotalAmount)),
-  );
-  let allocatedDiscount = Money.zero();
+  if (items.length === 0) return [];
 
-  return items.map((item, index) => {
-    // 最后一个订单项承担余数，确保总额精确
-    if (index === items.length - 1) {
-      return totalDiscount.subtract(allocatedDiscount).toDbCents();
-    }
-    if (totalLineAmount.toDbCents() <= 0) return 0;
-    const itemDiscount = Money.fromDbCents(
-      Math.floor(
-        (item.lineTotalAmount * totalDiscount.toDbCents()) /
-          totalLineAmount.toDbCents(),
-      ),
+  const totalDiscount = Money.max(
+    Money.fromDbCents(productDiscountAmount),
+    Money.zero(),
+  );
+  const lineTotals = items.map((item) =>
+    Money.max(Money.fromDbCents(item.lineTotalAmount), Money.zero()),
+  );
+  const totalLineAmount = Money.sum(lineTotals);
+
+  // 行金额合计为 0：无从按比例分摊，全部记 0 优惠
+  if (totalLineAmount.isZero()) return items.map(() => 0);
+
+  const allocations = items.map(() => Money.zero());
+  let allocatedDiscount = Money.zero();
+  let remainingLineAmount = totalLineAmount;
+
+  items.forEach((item, index) => {
+    const lineTotal = lineTotals[index];
+    const remainingDiscount = totalDiscount.subtract(allocatedDiscount);
+    const proportional =
+      index === items.length - 1
+        ? remainingDiscount
+        : Money.fromDbCents(
+            Math.floor(
+              remainingLineAmount.isZero()
+                ? 0
+                : (lineTotal.toDbCents() * remainingDiscount.toDbCents()) /
+                    remainingLineAmount.toDbCents(),
+            ),
+          );
+    allocations[index] = Money.min(
+      Money.max(proportional, Money.zero()),
+      lineTotal,
     );
-    allocatedDiscount = allocatedDiscount.add(itemDiscount);
-    return itemDiscount.toDbCents();
+    allocatedDiscount = allocatedDiscount.add(allocations[index]);
+    remainingLineAmount = remainingLineAmount.subtract(lineTotal);
   });
+
+  // 封顶挤出来的余额回补给仍有余量的行，保证总额精确
+  let leftover = totalDiscount.subtract(Money.sum(allocations));
+  for (
+    let index = items.length - 1;
+    index >= 0 && leftover.isPositive();
+    index--
+  ) {
+    const headroom = lineTotals[index].subtract(allocations[index]);
+    if (!headroom.isPositive()) continue;
+    const delta = Money.min(headroom, leftover);
+    allocations[index] = allocations[index].add(delta);
+    leftover = leftover.subtract(delta);
+  }
+
+  return allocations.map((value) => value.toDbCents());
 };
 
-/** 购物车版本：各行的「数量 + 单价」之和，用于校验前端快照是否过期。 */
-export const computeCartVersion = (items: PricedCartItem[]): number =>
+/**
+ * 购物车版本：各行的「数量 + 单价」之和，用于校验前端快照是否过期。
+ *
+ * 与 `cartVersion` 的另两种含义区分开：
+ * - `ScanOrderingCartItem.version` 是单行乐观锁版本（改量/删除时做 CAS）；
+ * - 购物车整体 `version` 是各行乐观锁版本之和；
+ * - **本函数**的结果才是 preview / create 校验用的 cartVersion。
+ * 三者不可混用，否则下单会永久 409。
+ */
+export const computeCartVersion = (
+  items: Array<{ quantity: number; unitPriceAmount: number }>,
+): number =>
   items.reduce((sum, item) => sum + item.quantity + item.unitPriceAmount, 0);
