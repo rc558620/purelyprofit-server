@@ -10,8 +10,8 @@ model ProductCategory {
   store     Store     @relation(fields: [storeId], references: [id])
   products  Product[]
 
-  @@index([storeId, name])
-  @@index([storeId, updatedAt])
+  @@index([storeId, name], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@map("product_categories")
 }
 
@@ -42,9 +42,9 @@ model Product {
   salesItems               SaleOrderItem[]
   scanOrderingMenuProducts ScanOrderingMenuProduct[]
 
-  @@index([storeId, code])
-  @@index([storeId, category, updatedAt])
-  @@index([storeId, isActive, updatedAt])
+  @@index([storeId, code], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, category, updatedAt], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, isActive, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@index([categoryId, updatedAt])
   @@map("products")
 }

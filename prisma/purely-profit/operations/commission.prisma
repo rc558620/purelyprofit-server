@@ -18,7 +18,7 @@ model CommissionService {
   store             Store     @relation(fields: [storeId], references: [id])
 
   @@unique([storeId, name], map: "commission_services_store_id_name_key_active", where: raw("(deleted_at IS NULL)"))
-  @@index([storeId, enabled, sortOrder])
+  @@index([storeId, enabled, sortOrder], where: raw("(deleted_at IS NULL)"))
   @@map("commission_services")
 }
 

@@ -77,6 +77,8 @@ model SaleOrderItem {
   @@index([storeId, createdAt])
   @@index([productId, createdAt])
   @@index([categoryName, createdAt])
+  /// 覆盖 business-analysis raw SQL 从 soi 侧 store_id + product_name NOT IN 过滤的查询路径
+  @@index([storeId, orderId], where: raw("(product_name NOT IN ('预付抵扣', '预付款', '续费抵扣'))"))
   @@map("sale_order_items")
 }
 

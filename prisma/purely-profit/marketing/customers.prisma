@@ -40,11 +40,11 @@ model MarketingCustomer {
   member             Member?                 @relation("MemberCustomer")
 
   @@unique([storeId, clubUserId], map: "uq_marketing_customers_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
-  @@index([storeId, phone])
-  @@index([storeId, externalIdentifier])
-  @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)])
-  @@index([storeId, tier, updatedAt])
-  @@index([storeId, lastVisitAt])
+  @@index([storeId, phone], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, externalIdentifier], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, tier, updatedAt], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, lastVisitAt], where: raw("(deleted_at IS NULL)"))
   @@map("marketing_customers")
 }
 

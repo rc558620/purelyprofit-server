@@ -26,7 +26,6 @@ model StorePartner {
   store               Store                        @relation(fields: [storeId], references: [id])
 
   @@index([storeId, status, updatedAt])
-  @@index([status, updatedAt])
   @@map("store_partners")
 }
 

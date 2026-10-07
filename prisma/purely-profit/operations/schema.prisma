@@ -10,7 +10,6 @@ model ScanOrderingArea {
   tables    ScanOrderingTable[]
 
   @@unique([storeId, name])
-  @@index([storeId])
   @@map("scan_ordering_areas")
 }
 
@@ -25,7 +24,6 @@ model ScanOrderingType {
   tables    ScanOrderingTable[]
 
   @@unique([storeId, name])
-  @@index([storeId])
   @@map("scan_ordering_types")
 }
 
@@ -52,7 +50,6 @@ model ScanOrderingTable {
   orders       ScanOrders[]
 
   @@unique([storeId, tableCode], map: "uq_scan_ordering_table_store_code_active", where: raw("(deleted_at IS NULL)"))
-  @@index([storeId])
   @@index([storeId, status])
   @@map("scan_ordering_tables")
 }
@@ -191,13 +188,11 @@ model ScanOrders {
 
   @@unique([storeId, orderNo])
   @@unique([storeId, idempotencyKey], map: "uq_scan_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
-  @@index([storeId])
   @@index([storeId, status])
   @@index([storeId, tableId])
   @@index([storeId, manualEntry])
   @@index([storeId, createdAt])
   @@index([clubUserId, createdAt(sort: Desc)])
-  @@index([paymentExpiresAt])
   @@index([paymentExpiresAt], map: "idx_scan_orders_payment_expiry", where: raw("((payment_status = 'unpaid'::\"ScanOrderPaymentStatus\") AND (deleted_at IS NULL))"))
   @@index([storeId, status, createdAt(sort: Desc)], map: "idx_scan_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, tableId, status, createdAt(sort: Desc)], map: "idx_scan_orders_table_active", where: raw("((status = ANY (ARRAY['pending_payment'::\"ScanOrderStatus\", 'pending_acceptance'::\"ScanOrderStatus\", 'preparing'::\"ScanOrderStatus\", 'served'::\"ScanOrderStatus\"])) AND (deleted_at IS NULL))"))
@@ -216,7 +211,6 @@ model ScanOrderingPickupSequence {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@unique([storeId, businessDate])
-  @@index([storeId, businessDate], map: "scan_ordering_pickup_sequences_store_date_idx")
   @@map("scan_ordering_pickup_sequences")
 }
 
@@ -385,7 +379,6 @@ model ScanOrderingTableQrCode {
 
   @@index([tableId])
   @@index([storeId])
-  @@index([tokenHash])
   @@index([tokenHash], map: "idx_qr_token_hash_active", where: raw("(status = 'active'::\"ScanOrderingQrCodeStatus\")"))
   @@map("scan_ordering_table_qr_codes")
 }
@@ -579,7 +572,6 @@ model PrintAgent {
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
   @@unique([storeId, deviceId])
-  @@index([storeId])
   @@map("print_agents")
 }
 
@@ -775,7 +767,6 @@ model SelfOrder {
 
   @@unique([storeId, orderNo])
   @@unique([storeId, idempotencyKey], map: "uq_self_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
-  @@index([storeId])
   @@index([sessionId, status])
   @@index([spaceId, status])
   @@index([clubUserId, createdAt(sort: Desc)])

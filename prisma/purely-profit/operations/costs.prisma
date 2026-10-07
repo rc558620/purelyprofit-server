@@ -22,6 +22,8 @@ model CostRecord {
   @@index([storeId, type, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, category, date])
   @@index([operatorStaffId, createdAt])
+  /// 重建被误 DROP 的 partial 索引，覆盖 upsertPayrollCostRecord.findFirst 查询
+  @@index([storeId, sourceType, payrollId], where: raw("(payroll_id IS NOT NULL)"))
   @@map("cost_records")
 }
 

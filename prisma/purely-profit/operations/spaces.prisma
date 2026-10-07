@@ -49,10 +49,10 @@ model Space {
   zone            SpaceZone?         @relation(fields: [zoneId], references: [id])
   qrCode          SpaceQrCode?
 
-  @@index([storeId, name])
-  @@index([storeId, sortOrder])
-  @@index([storeId, typeId, sortOrder])
-  @@index([storeId, zoneId, sortOrder])
+  @@index([storeId, name], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, sortOrder], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, typeId, sortOrder], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, zoneId, sortOrder], where: raw("(deleted_at IS NULL)"))
   @@map("spaces")
 }
 

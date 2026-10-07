@@ -21,6 +21,8 @@ model FinanceAccountRecord {
   @@index([storeId, type, updatedAt])
   @@index([storeId, dueDate])
   @@index([operatorStaffId, createdAt])
+  /// 覆盖派生开户状态查询（overdue/partial/pending 均含 remaining > 0），不走 DB status 列
+  @@index([storeId, remaining], where: raw("(remaining > 0)"))
   @@map("finance_account_records")
 }
 
