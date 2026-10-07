@@ -22,6 +22,25 @@ PROMPTS="${OUT}/prompts"
 INPUTS="${OUT}/inputs"
 ASSEMBLED="${OUT}/assembled"
 
+# 实施阶段的目录与任务卡（与「分析阶段」并列，互不影响）
+IMPL_OUT="${OUT}/实施"
+IMPL_PROMPTS="${IMPL_OUT}/prompts"
+IMPL_ASSEMBLED="${IMPL_OUT}/assembled"
+
+IMPL_CARD_IDS=(
+  "01-repo-config"
+  "02-pg-server"
+  "03-partition-decision"
+  "04-index-disposal"
+  "05-index-add"
+  "06-code-rewrite"
+  "07-cache-cleanup"
+  "08-loadtest-launch"
+  "09-archive-job"
+  "10-config-finalize"
+  "11-server-runbook"
+)
+
 # 调用 8 需要逐个模块执行，此处定义遍历顺序
 MODULES=(operations member marketing finance goods staff stores club pulse)
 
@@ -117,24 +136,62 @@ gen_assembled() {
   log "共生成 $(find "${ASSEMBLED}" -name '*.full.md' | wc -l | tr -d ' ') 个完整 Prompt。"
 }
 
+# 拼接「实施前置块 + 实施任务卡」
+gen_impl_assembled() {
+  mkdir -p "${IMPL_ASSEMBLED}"
+  find "${IMPL_ASSEMBLED}" -maxdepth 1 -name '*.full.md' -delete
+
+  local preamble="${IMPL_PROMPTS}/preamble.md"
+  require_file "${preamble}"
+
+  local id card
+  for id in "${IMPL_CARD_IDS[@]}"; do
+    card="${IMPL_PROMPTS}/${id}.md"
+    require_file "${card}"
+    cat "${preamble}" > "${IMPL_ASSEMBLED}/${id}.full.md"
+    printf '\n---\n\n' >> "${IMPL_ASSEMBLED}/${id}.full.md"
+    cat "${card}" >> "${IMPL_ASSEMBLED}/${id}.full.md"
+    log "已拼接 实施/${id}.full.md"
+  done
+}
+
+# 摘要便签由 docs/db-optimization/实施/notes.md 手工维护，此处仅做存在性提醒
+check_impl_notes() {
+  if [[ ! -f "${IMPL_OUT}/notes.md" ]]; then
+    printf '[pack] 提示：%s 不存在，请先创建（各任务卡的「文件操作」会写入该文件）。\n' \
+      "${IMPL_OUT}/notes.md" >&2
+  fi
+}
+
 main() {
   local target="${1:-all}"
 
   case "${target}" in
     inputs) gen_inputs ;;
     assemble) gen_assembled ;;
+    impl)
+      gen_impl_assembled
+      check_impl_notes
+      ;;
     all)
       gen_inputs
       gen_assembled
+      gen_impl_assembled
+      check_impl_notes
       ;;
     *)
-      printf '用法：%s [all|inputs|assemble]\n' "$0" >&2
+      printf '用法：%s [all|inputs|assemble|impl]\n' "$0" >&2
+      printf '  all       全部分析阶段 + 实施阶段\n' >&2
+      printf '  inputs    只生成三份输入清单\n' >&2
+      printf '  assemble  只拼接分析阶段的完整 Prompt\n' >&2
+      printf '  impl      只拼接实施阶段的完整 Prompt\n' >&2
       exit 1
       ;;
   esac
 
   log "完成。产物目录：${OUT}"
-  log "下一步：打开 docs/db-optimization/README.md 按流程粘贴。"
+  log "分析阶段：docs/db-optimization/跟着做.md"
+  log "实施阶段：docs/db-optimization/实施/跟着做.md"
 }
 
 main "$@"
