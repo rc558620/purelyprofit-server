@@ -78,6 +78,7 @@ export class ScanOrderingPromotionAdapter {
     const result = await this.marketingPreviewService.previewMarketingLines(
       input.storeId,
       customer.id,
+      input.clubUserId,
       customer.phone ?? '',
       input.items.map((item) => ({
         unitAmountFen: item.unitPriceAmount,

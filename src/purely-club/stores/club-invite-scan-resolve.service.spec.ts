@@ -110,8 +110,16 @@ describe('ClubInviteScanResolveService', () => {
       expect(result.protocolVersion).toBe('legacy');
       expect(result.status).toBe('active');
       expect(result.nextAction).toBe('already_bound');
+      // 与门店访问同一套两层语义：clubUserId 权威 + 无主档案按手机号认领
       expect(prismaService.member.findFirst).toHaveBeenCalledWith({
-        where: { storeId: 18, phone: '13800138000', deletedAt: null },
+        where: {
+          storeId: 18,
+          OR: [
+            { clubUserId: 201 },
+            { phone: '13800138000', clubUserId: null },
+          ],
+          deletedAt: null,
+        },
         select: { id: true },
       });
     });

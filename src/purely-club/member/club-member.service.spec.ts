@@ -229,9 +229,10 @@ describe('ClubMemberService', () => {
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: '13800138000',
         status: { not: 'banned' },
         deletedAt: null,
+        // 两层锚定：clubUserId 权威 + 无主档案按手机号认领
+        OR: [{ clubUserId: 201 }, { phone: '13800138000', clubUserId: null }],
       },
       select: {
         id: true,
@@ -241,8 +242,8 @@ describe('ClubMemberService', () => {
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: '13800138000',
         deletedAt: null,
+        OR: [{ clubUserId: 201 }, { phone: '13800138000', clubUserId: null }],
       },
       select: {
         id: true,
@@ -312,12 +313,16 @@ describe('ClubMemberService', () => {
       totalConsume: 1260,
       heldLevel: 'gold',
     });
+    // 微信用户（未绑真实手机号）：占位手机号全局唯一，但认人仍走 clubUserId 权威锚点
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: 'club_wechat:oOPENID123',
         status: { not: 'banned' },
         deletedAt: null,
+        OR: [
+          { clubUserId: 301 },
+          { phone: 'club_wechat:oOPENID123', clubUserId: null },
+        ],
       },
       select: {
         id: true,
@@ -327,8 +332,11 @@ describe('ClubMemberService', () => {
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: 'club_wechat:oOPENID123',
         deletedAt: null,
+        OR: [
+          { clubUserId: 301 },
+          { phone: 'club_wechat:oOPENID123', clubUserId: null },
+        ],
       },
       select: {
         id: true,

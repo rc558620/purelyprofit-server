@@ -65,12 +65,17 @@ export class ClubPointsQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * 按门店 ID + 手机号查询顾客记录（积分余额）。
-   * 逻辑与 ClubRecordQueryService.findCustomerByStoreAndPhone 保持一致。
+   * 按门店查询顾客记录（积分余额）。
    *
-   * 优先级：storeId + phone 精确匹配 → clubUserId 精确定位，落空则返回 null。
-   * 不再做「门店 + phone IS NULL」的模糊兜底——那必然可能命中同店他人档案，
-   * 把别人的积分当成自己的；返回空列表比展示他人数据安全。
+   * 优先级：`(storeId, clubUserId)` 权威锚点 → 按手机号认领**无主**档案，落空则返回 null。
+   *
+   * 锚点在前：手机号会变（换绑后旧号可能被他人注册），单靠它匹配在档案错乱时
+   * 会把别人的积分当成自己的。
+   *
+   * 兜底必须带 `clubUserId: null` 限定：同一门店可能存在两条相同手机号的档案，
+   * 其中一条已归属他人，不限定的话 `findFirst` 命中哪条并不确定。
+   * 也不做「门店 + phone IS NULL」的模糊兜底——那同样可能命中同店他人档案，
+   * 返回空列表比展示他人数据安全。
    *
    * @param clubUserId 当前用户 ID，必填。未绑手机号用户的档案 phone 可能为 null，
    *   此时它是唯一可靠的认人依据。
@@ -80,22 +85,17 @@ export class ClubPointsQueryService {
     phone: string,
     clubUserId: number,
   ): Promise<ClubPointsCustomerRecord | null> {
-    const exact = await this.prisma.marketingCustomer.findFirst({
-      where: {
-        storeId,
-        phone,
-        deletedAt: null,
-      },
+    const bound = await this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, deletedAt: null },
       select: { id: true, points: true },
     });
 
-    if (exact) {
-      return exact;
+    if (bound) {
+      return bound;
     }
 
-    // 按 clubUserId 精确定位（稳定键，不依赖 phone 处于真实号 / club_wechat 占位值 / null 哪种形态）
     return this.prisma.marketingCustomer.findFirst({
-      where: { storeId, clubUserId, deletedAt: null },
+      where: { storeId, phone, clubUserId: null, deletedAt: null },
       select: { id: true, points: true },
     });
   }

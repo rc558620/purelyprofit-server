@@ -1,0 +1,128 @@
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/auth/auth-register-store.service.ts:66:    const store = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/auth/auth-staff-activation.service.ts:21:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:43:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:131:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:45:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:98:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:138:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:190:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:244:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:285:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.test-setup.ts:29:  $transaction: jest.Mock;
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.test-setup.ts:89:    $transaction: jest.fn(),
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.test-setup.ts:195:  prismaService.$transaction.mockImplementation(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.ts:167:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.ts:204:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.ts:243:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.service.ts:277:    const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:186:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:239:    return this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:341:    // 已经在事务里就直接复用连接，事务客户端没有 $transaction 可嵌套
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:343:      await this.prisma.$transaction(writeGrant, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:392:      await this.prisma.$transaction(writeClear, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:496:    // 已经在事务里就直接复用连接，事务客户端没有 $transaction 可嵌套
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:498:      return this.prisma.$transaction(consume, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.service.ts:100:      member = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.service.ts:232:      member = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.service.ts:282:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members-points.service.ts:317:    const result = await this.prisma.$transaction((transaction) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/stores/store-invite-code.service.ts:85:    const newCode = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/stores/store-invite-code.service.ts:138:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/stores/stores-write.service.ts:34:    const store = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:40:    const result = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-order.service.ts:189:    return this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:36:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-session-archive.service.ts:45:    return this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:282:      qrCode = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:320:        qrCode = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:138:    return this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:196:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-wechat.service.ts:60:    const updated = await this.prisma.$transaction((tx) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-wechat.service.ts:102:      const updated = await this.prisma.$transaction((tx) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund.service.ts:61:    const updated = await this.prisma.$transaction((tx) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-transition.service.ts:218:    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service.ts:73:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service.ts:126:    const closed = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service.ts:182:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/purchases/purchases.service.ts:202:    const created = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/purchases/purchases.service.ts:252:    await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-create-flow.service.ts:318:      : await this.prisma.$transaction(createRecordWithinTransaction);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-write.service.ts:152:    await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-confirm.service.ts:119:      const record = (await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/hover.spec-helpers.ts:64:    $transaction: jest.fn((input: unknown) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-settlement.service.ts:68:      const updated = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-status.service.ts:36:    const result = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:85:    const reservation = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:204:    const updated = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:316:    const updated = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-renew.service.ts:84:      const result = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-write.service.ts:94:    const updated = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:95:      created = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:193:    const updated = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:263:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-open.service.ts:169:    const session = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-transfer.service.ts:140:    const result = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-write.service.ts:128:    const order = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-write.service.ts:222:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-pickup.service.ts:184:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/subscriptions/subscriptions.service.ts:68:    return this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-member-level-settings.store.service.ts:58:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-customers.service.ts:238:      const updated = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing.service.test-setup.ts:105:  $transaction: jest.Mock;
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing.service.test-setup.ts:203:    $transaction: jest.fn(),
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing.service.test-setup.ts:210:  prismaService.$transaction.mockImplementation(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-customer-points.service.ts:46:    const updated = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-invite-qr-issue.service.ts:98:    const [records, total] = await this.prisma.$transaction([
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-recharges.service.ts:242:    const [rechargeRecord] = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/marketing/marketing-consumptions.service.ts:144:    const [consumptionRecord] = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/finance/finance.spec-helpers.ts:123:    $transaction: jest.fn(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/finance/finance-account.service.ts:157:    const updatedRecord = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-sub-account.service.ts:39:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-profile-write.service.ts:71:    const employee = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-profile-write.service.ts:137:    const updated = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-profile-write.service.ts:189:    const resigned = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-profile-write.service.ts:229:    await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-payroll.service.ts:145:    const payroll = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-payroll.service.ts:256:    const confirmed = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-payroll.service.ts:354:    const updated = await this.prisma.$transaction(async (transaction) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-dictionary.service.ts:92:    const updated = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/staff/employees/employees-dictionary.service.ts:191:    const updated = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/goods/products/products-scan-ordering-sync.service.ts:71:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/goods/inventory/inventory.service.ts:87:    const adjustment = await this.prisma.$transaction((transaction) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/goods/categories/categories-write.service.ts:55:    const category = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/goods/categories/categories-write.service.ts:88:    const updated = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/goods/categories/categories-write.service.ts:124:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/prisma/prisma.service.ts:239: * Prisma $transaction 的 timeout 选项控制整个事务的最大执行时间，
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/prisma/prisma.service.ts:242: * - $transaction timeout 限制整个事务，防止事务长时间持有锁
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/prisma/prisma.service.ts:246: * await prisma.$transaction(fn, { timeout: TX_TIMEOUT_SHORT });
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/growth/growth-admin-payout.service.ts:54:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/growth/growth-admin-payout.service.ts:117:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership-admin-renewal-price.service.ts:142:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership-admin-points-mutation.service.ts:28:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership.service.test-mocks.ts:99:  $transaction: jest.Mock;
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership.service.test-mocks.ts:270:    $transaction: jest.fn(),
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership.service.test-mocks.ts:273:  prismaService.$transaction.mockImplementation(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership-admin-beans-mutation.service.ts:26:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-pulse/membership/membership-admin-membership-mutation.service.ts:113:    const membershipProfile = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/payments/club-payment-settlement.template.ts:58:      await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/voucher-orders/club-voucher-order-refund.service.ts:107:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/voucher-orders/club-voucher-order-refund.service.ts:213:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/voucher-orders/club-voucher-order-payment.service.ts:112:    const created = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/voucher-orders/club-voucher-order-payment.service.ts:210:    const { view, paidOrder } = await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/scan-ordering-refund.service.ts:62:    return this.prisma.$transaction(create);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-cart.service.ts:125:    await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-checkout.service.ts:176:    const result = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-checkout.service.ts:299:    const updated = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-payment.service.ts:62:        return this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/scan-ordering-unpaid-order-closure.service.ts:37:    const closed = await this.prisma.$transaction((tx) =>
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-marketing-customer.service.ts:85:    const customer = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/scan-ordering/club-scan-ordering-order.service.ts:136:      const result = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/auth/club-account-merge.service.ts:83:      await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/auth/club-phone-bind.service.ts:101:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/auth/club-phone-rebind.service.ts:122:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/stores/club-member-binding.service.ts:38:    await this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/self-ordering/club-self-ordering-order.service.ts:155:      const response = await this.prisma.$transaction(async (tx) => {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/self-ordering/club-self-ordering-payment.service.ts:73:        this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/self-ordering/club-self-ordering-payment.service.ts:177:        this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/self-ordering/club-self-ordering-payment.service.ts:226:        this.prisma.$transaction(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-club/custody/club-custody-write.service.ts:70:    await this.prisma.$transaction(async (tx) => {

@@ -476,8 +476,11 @@ model ServiceCall {
   @@index([spaceId])
   @@index([clubUserId, storeId, type, requestedAt(sort: Desc)])
   @@index([status, expiresAt])
-  @@index([storeId, status, requestedAt], map: "idx_service_calls_store_open", where: raw("(status = ANY (ARRAY['pending'::\"ServiceCallStatus\", 'processing'::\"ServiceCallStatus\"]))"))
-  @@unique([clubUserId, storeId, type], map: "uq_service_calls_club_user_store_type_open", where: raw("(status = ANY (ARRAY['pending'::\"ServiceCallStatus\", 'processing'::\"ServiceCallStatus\"]))"))
+  // 谓词刻意用 IN 而非 `= ANY (ARRAY[...])`：prisma migrate diff 渲染后者时
+  // 会吞掉 ARRAY 的闭合 `]`，生成语法错误的 SQL，并让 diff 永远判定索引不一致。
+  // 两者在 Postgres 中语义等价。
+  @@index([storeId, status, requestedAt], map: "idx_service_calls_store_open", where: raw("(\"status\" IN ('pending', 'processing'))"))
+  @@unique([clubUserId, storeId, type], map: "uq_service_calls_club_user_store_type_open", where: raw("(\"status\" IN ('pending', 'processing'))"))
   @@map("service_calls")
 }
 
@@ -537,7 +540,8 @@ model ScanOrderRefundTask {
   @@index([storeId, status])
   @@index([triggerType, status])
   @@index([customerId, createdAt(sort: Desc)])
-  @@unique([orderId], map: "uq_scan_order_refund_task_active", where: raw("(status = ANY (ARRAY['pending'::\"ScanOrderRefundTaskStatus\", 'refunding'::\"ScanOrderRefundTaskStatus\", 'manual_pending'::\"ScanOrderRefundTaskStatus\"))"))
+  // 同 service_calls：用 IN 规避 prisma migrate diff 对 `= ANY (ARRAY[...])` 的渲染缺陷
+  @@unique([orderId], map: "uq_scan_order_refund_task_active", where: raw("(\"status\" IN ('pending', 'refunding', 'manual_pending'))"))
   @@map("scan_order_refund_tasks")
 }
 

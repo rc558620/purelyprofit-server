@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MemberStatus } from '@prisma/client';
+import { MemberStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { buildClubMemberDisplayName } from '../../purely-profit/auth/auth.utils';
 import { resolveStoreInviteQrPayload } from '../../purely-profit/stores/store-invite-code-qr.utils';
@@ -40,6 +40,35 @@ export class ClubStoreAccessService {
     private readonly memberBindingService: ClubMemberBindingService,
   ) {}
 
+  /**
+   * 会员身份匹配条件：认出「当前登录者本人」在本店的会员档案。
+   *
+   * 两层语义，顺序不能反：
+   *
+   * 1. `clubUserId` —— 权威锚点。会员档案与账号一一对应，不受手机号变化影响
+   *    （换绑后旧号码可能被他人注册，继续按 phone 匹配会命中**别人**的档案，
+   *    门店与会员数据随之串号）。
+   * 2. `(phone, clubUserId: null)` —— 历史无主档案的认领通道。
+   *
+   * 第 2 层的 `clubUserId: null` 限定是关键：同一门店可能存在两条相同手机号的
+   * 会员档案，其中一条已归属他人。不限定的话 `some` 会把它一起命中，等于拿着
+   * 别人的会员身份进店。宁可让无主档案继续无主，也不能认错人。
+   *
+   * 历史数据靠回填迁移（20261007000100）补齐 clubUserId；
+   * 新数据由建档流程直接写入，终态全部收敛到第 1 层。
+   */
+  private buildMemberIdentityWhere(
+    user: AuthenticatedUser,
+  ): Prisma.MemberWhereInput {
+    return {
+      OR: [
+        { clubUserId: user.id },
+        { phone: this.resolveMemberPhone(user), clubUserId: null },
+      ],
+      status: { not: MemberStatus.banned },
+    };
+  }
+
   async findAccessibleStores(
     user: AuthenticatedUser,
   ): Promise<ClubAccessibleStoreRecord[]> {
@@ -54,10 +83,7 @@ export class ClubStoreAccessService {
       where: {
         deletedAt: null,
         members: {
-          some: {
-            phone: this.resolveMemberPhone(user),
-            status: { not: MemberStatus.banned },
-          },
+          some: this.buildMemberIdentityWhere(user),
         },
       },
       select: clubAccessibleStoreSelect,
@@ -81,10 +107,7 @@ export class ClubStoreAccessService {
         id: storeId,
         deletedAt: null,
         members: {
-          some: {
-            phone: this.resolveMemberPhone(user),
-            status: { not: MemberStatus.banned },
-          },
+          some: this.buildMemberIdentityWhere(user),
         },
       },
       select: clubAccessibleStoreSelect,

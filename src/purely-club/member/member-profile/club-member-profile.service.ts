@@ -38,8 +38,9 @@ export class ClubMemberProfileService {
   async getCurrentSnapshot(
     currentContext: ClubCurrentContext,
   ): Promise<ClubMemberSnapshot> {
-    const snapshot = await this.getSnapshotByStoreAndPhone(
+    const snapshot = await this.getSnapshotByStoreIdentity(
       currentContext.store.id,
+      currentContext.user.id,
       currentContext.user.phone,
     );
     if (!snapshot) {
@@ -49,15 +50,76 @@ export class ClubMemberProfileService {
     return snapshot;
   }
 
+  /**
+   * 定位**当前登录者本人**在本店的会员与顾客档案快照。
+   *
+   * 查询语义与 ClubStoreAccessService.buildMemberIdentityWhere 一致（两层）：
+   * 1. `(storeId, clubUserId)` 权威锚点；
+   * 2. 锚点落空才按手机号认领**无主**（clubUserId 为 null）档案。
+   *
+   * 缺第 2 层限定的话，同门店两条同号档案时 findFirst 命中谁并不确定，
+   * 会把别人的余额/积分当成自己的。
+   */
+  async getSnapshotByStoreIdentity(
+    storeId: number,
+    clubUserId: number,
+    phone: string,
+  ): Promise<ClubMemberSnapshot | null> {
+    const [member, marketingCustomer] = await Promise.all([
+      this.findCurrentMember(storeId, clubUserId, phone),
+      this.findMarketingCustomer(storeId, clubUserId, phone),
+    ]);
+    return this.buildSnapshot(storeId, member, marketingCustomer);
+  }
+
+  /**
+   * 商家侧（purelyProfit 营销场景）按顾客手机号查询快照。
+   *
+   * 与 getSnapshotByStoreIdentity 的区别：这里的 phone 是**查询输入**而非
+   * 登录者身份凭据——商家本就可见全部顾客，不存在越权问题，因此不做两层锚定。
+   * 顾客本人的接口一律走 getSnapshotByStoreIdentity。
+   */
   async getSnapshotByStoreAndPhone(
     storeId: number,
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
     const [member, marketingCustomer] = await Promise.all([
-      this.findCurrentMember(storeId, phone),
-      this.findMarketingCustomer(storeId, phone),
+      this.prisma.member.findFirst({
+        where: {
+          storeId,
+          phone,
+          status: { not: MemberStatus.banned },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.marketingCustomer.findFirst({
+        where: {
+          storeId,
+          phone,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          balance: true,
+          points: true,
+          tier: true,
+          createdAt: true,
+        },
+      }),
     ]);
+    return this.buildSnapshot(storeId, member, marketingCustomer);
+  }
 
+  /** 组装快照：会员记录是门槛（无会员即视为非本店会员），顾客档案提供资产事实源 */
+  private async buildSnapshot(
+    storeId: number,
+    member: ClubMemberAccountRecord | null,
+    marketingCustomer: ClubMarketingCustomerRecord | null,
+  ): Promise<ClubMemberSnapshot | null> {
     if (!member) {
       return null;
     }
@@ -91,14 +153,18 @@ export class ClubMemberProfileService {
 
   private async findCurrentMember(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<ClubMemberAccountRecord | null> {
     return this.prisma.member.findFirst({
       where: {
         storeId,
-        phone,
         status: { not: MemberStatus.banned },
         deletedAt: null,
+        OR: [
+          { clubUserId },
+          { phone, clubUserId: null },
+        ],
       },
       select: {
         id: true,
@@ -109,13 +175,17 @@ export class ClubMemberProfileService {
 
   private async findMarketingCustomer(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<ClubMarketingCustomerRecord | null> {
     return this.prisma.marketingCustomer.findFirst({
       where: {
         storeId,
-        phone,
         deletedAt: null,
+        OR: [
+          { clubUserId },
+          { phone, clubUserId: null },
+        ],
       },
       select: {
         id: true,

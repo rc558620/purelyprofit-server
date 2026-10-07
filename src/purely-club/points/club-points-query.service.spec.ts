@@ -30,8 +30,8 @@ describe('ClubPointsQueryService', () => {
   });
 
   describe('findCustomerByStoreAndPhone', () => {
-    it('按门店与手机号查询顾客积分余额', async () => {
-      prismaService.marketingCustomer.findFirst.mockResolvedValue({
+    it('优先按 clubUserId 命中本人档案，不依赖手机号', async () => {
+      prismaService.marketingCustomer.findFirst.mockResolvedValueOnce({
         id: 98,
         points: 580,
       });
@@ -42,17 +42,19 @@ describe('ClubPointsQueryService', () => {
         id: 98,
         points: 580,
       });
+      // 锚点命中即收手，不会再退化到手机号匹配
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(1);
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
         where: {
           storeId: 11,
-          phone: '13800138000',
+          clubUserId: 201,
           deletedAt: null,
         },
         select: { id: true, points: true },
       });
     });
 
-    it('精确查询无结果时按 clubUserId 稳定键定位', async () => {
+    it('锚点落空时按手机号认领无主档案（必须带 clubUserId: null 限定）', async () => {
       prismaService.marketingCustomer.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -69,10 +71,15 @@ describe('ClubPointsQueryService', () => {
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
         2,
       );
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
-        2,
+      // 少了 clubUserId: null 限定，同门店里属于他人的同号档案会被当作自己的
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenLastCalledWith(
         {
-          where: { storeId: 11, clubUserId: 215, deletedAt: null },
+          where: {
+            storeId: 11,
+            phone: 'club_wechat:oOPENID123',
+            clubUserId: null,
+            deletedAt: null,
+          },
           select: { id: true, points: true },
         },
       );

@@ -115,10 +115,17 @@ export class ClubInviteScanResolveService {
       };
     }
 
+    // 「是否已是会员」的判定同样不能只看手机号：
+    // 换绑释放的号码可能已被他人注册进这家店，按 phone 单独匹配会误判成
+    // 「已加入」（进而把别人的会员身份当成自己的）。与门店访问
+    // （ClubStoreAccessService.buildMemberIdentityWhere）保持同一套两层语义。
     const existingMember = await this.prisma.member.findFirst({
       where: {
         storeId: store.id,
-        phone: user.phone,
+        OR: [
+          { clubUserId: user.id },
+          { phone: user.phone, clubUserId: null },
+        ],
         deletedAt: null,
       },
       select: { id: true },

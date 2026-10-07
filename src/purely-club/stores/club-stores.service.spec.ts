@@ -223,7 +223,12 @@ describe('ClubStoresService', () => {
         deletedAt: null,
         members: {
           some: {
-            phone: '13800138000',
+            // 门店访问凭据已从 phone 收敛为 clubUserId（权威）+ 无主档案认领（兜底）：
+            // 单独按 phone 匹配会命中换绑后注册了该号码的其他用户
+            OR: [
+              { clubUserId: 201 },
+              { phone: '13800138000', clubUserId: null },
+            ],
             status: { not: 'banned' },
           },
         },

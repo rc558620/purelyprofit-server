@@ -57,7 +57,6 @@ export class ClubOrderServiceCreationService {
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
-      currentContext.user.phone,
       context.product.price,
       { skipReduce: true },
     );

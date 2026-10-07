@@ -84,6 +84,7 @@ describe('ClubAuthService', () => {
   const authSessionServiceMock = {
     signToken: jest.fn(),
     bumpTokenVersion: jest.fn(),
+    removeAllSessions: jest.fn(),
   };
 
   const clubStoreAccessServiceMock = {
@@ -479,6 +480,75 @@ describe('ClubAuthService', () => {
       expect(result).toEqual({ access_token: 'merged_token', userId: 99 });
     });
 
+    it('合并时同样吊销两端 refresh token —— 只 bump 会被 refresh 绕过', async () => {
+      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
+        undefined,
+      );
+      prismaService.user.findUnique
+        .mockResolvedValueOnce(currentUserBase)
+        .mockResolvedValueOnce({ wechatOpenid: null })
+        .mockResolvedValueOnce({
+          email: 'club_phone_13800138000@purelyprofit.local',
+        });
+      authAccountLookupService.findUserByPhone.mockResolvedValue({
+        id: 99,
+        email: 'club_phone_13800138000@purelyprofit.local',
+        password: 'hash',
+        phone: '13800138000',
+        accountScope: 'purely_club',
+      });
+      prismaService.marketingCustomer.findMany.mockResolvedValue([]);
+      prismaService.store.findMany.mockResolvedValue([]);
+      authSessionService.signToken.mockResolvedValue({
+        access_token: 'merged_token',
+        userId: 99,
+      });
+
+      await service.bindPhone(42, { phone: '13800138000', code: '123456' });
+
+      // bump 只让 access_token 失效；refresh_token 在 Redis 里还有 30 天 TTL，
+      // 不吊销的话客户端拿它照样能换出新 token，把「两端失效」的意图完全绕过。
+      expect(authSessionService.removeAllSessions).toHaveBeenCalledWith(42);
+      expect(authSessionService.removeAllSessions).toHaveBeenCalledWith(99);
+    });
+
+    it('合并时作废严格早于重新签发，否则新 token 会被自己连带废掉', async () => {
+      authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
+        undefined,
+      );
+      prismaService.user.findUnique
+        .mockResolvedValueOnce(currentUserBase)
+        .mockResolvedValueOnce({ wechatOpenid: null })
+        .mockResolvedValueOnce({
+          email: 'club_phone_13800138000@purelyprofit.local',
+        });
+      authAccountLookupService.findUserByPhone.mockResolvedValue({
+        id: 99,
+        email: 'club_phone_13800138000@purelyprofit.local',
+        password: 'hash',
+        phone: '13800138000',
+        accountScope: 'purely_club',
+      });
+      prismaService.marketingCustomer.findMany.mockResolvedValue([]);
+      prismaService.store.findMany.mockResolvedValue([]);
+      authSessionService.signToken.mockResolvedValue({
+        access_token: 'merged_token',
+        userId: 99,
+      });
+
+      await service.bindPhone(42, { phone: '13800138000', code: '123456' });
+
+      const bumpOrder =
+        authSessionService.bumpTokenVersion.mock.invocationCallOrder[0];
+      const removeOrder =
+        authSessionService.removeAllSessions.mock.invocationCallOrder[0];
+      const signOrder =
+        authSessionService.signToken.mock.invocationCallOrder[0];
+
+      expect(bumpOrder).toBeLessThan(signOrder);
+      expect(removeOrder).toBeLessThan(signOrder);
+    });
+
     it('合并时源用户有 Member 记录：迁移到目标用户手机号', async () => {
       authCodeVerifyService.ensureRegisterCodeValid.mockResolvedValue(
         undefined,
@@ -547,7 +617,7 @@ describe('ClubAuthService', () => {
 
       // 按查询条件而非调用顺序返回结果：顺序耦合会让「实现换了但用例照样绿」
       prismaService.marketingCustomer.findMany.mockImplementation(
-        async (args: { where?: { clubUserId?: number } }) =>
+        (args: { where?: { clubUserId?: number } }) =>
           args?.where?.clubUserId === 42
             ? [
                 {
@@ -563,7 +633,7 @@ describe('ClubAuthService', () => {
       );
 
       prismaService.member.findMany.mockImplementation(
-        async (args: { where?: { phone?: unknown } }) => {
+        (args: { where?: { phone?: unknown } }) => {
           const phone = args?.where?.phone;
           // 「门店范围 + 候选手机号」定位：已迁到真实号码的档案只能这样找到
           if (phone && typeof phone === 'object' && 'in' in phone) {
@@ -615,7 +685,7 @@ describe('ClubAuthService', () => {
       });
 
       prismaService.marketingCustomer.findMany.mockImplementation(
-        async (args: { where?: { clubUserId?: number } }) =>
+        (args: { where?: { clubUserId?: number } }) =>
           args?.where?.clubUserId === 42
             ? [
                 {
@@ -665,7 +735,7 @@ describe('ClubAuthService', () => {
       });
 
       prismaService.marketingCustomer.findMany.mockImplementation(
-        async (args: { where?: { clubUserId?: number } }) => {
+        (args: { where?: { clubUserId?: number } }) => {
           if (args?.where?.clubUserId === 42) {
             return [
               {
@@ -683,7 +753,7 @@ describe('ClubAuthService', () => {
       );
 
       prismaService.member.findMany.mockImplementation(
-        async (args: { where?: { phone?: unknown } }) => {
+        (args: { where?: { phone?: unknown } }) => {
           const phone = args?.where?.phone;
           if (phone && typeof phone === 'object' && 'in' in phone) {
             return [{ id: 1, storeId: 5, beanBalance: 7 }];
@@ -961,7 +1031,7 @@ describe('ClubAuthService', () => {
       // 按查询条件而非调用顺序返回：换绑内部会分别查「已绑定门店」与「孤儿档案」
       // 两次 findMany，按顺序 mock 会让实现偷偷变化也照样绿。
       prismaService.marketingCustomer.findMany.mockImplementation(
-        async (args: { where?: Record<string, unknown> }) => {
+        (args: { where?: Record<string, unknown> }) => {
           const where = args?.where ?? {};
           if (where.clubUserId === 42) {
             return [...storeIds, ...claimedStoreIds].map((storeId) => ({
@@ -977,7 +1047,7 @@ describe('ClubAuthService', () => {
       // 门店侧手机号唯一性检查：默认无冲突
       prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
       prismaService.marketingCustomer.updateMany.mockImplementation(
-        async (args: { where?: Record<string, unknown> }) => {
+        (args: { where?: Record<string, unknown> }) => {
           const where = args?.where ?? {};
           if (typeof where.id === 'number' && where.clubUserId === null) {
             const claimed = unboundCustomers.find(
@@ -1155,6 +1225,35 @@ describe('ClubAuthService', () => {
       expect(
         clubStoreAccessService.invalidateAccessibleStoresCache,
       ).toHaveBeenCalledWith(42);
+    });
+
+    it('作废旧登录态：吊销 refresh token（其 payload 冻结着旧手机号）', async () => {
+      prepareHappyPath();
+
+      await service.rebindPhone(42, dto);
+
+      // 只 bump 版本号挡不住 refresh 这条路：refreshAccessToken 会用 Redis payload
+      // 里签发那一刻的 phone 重新签出一个「带旧号」的 access_token。
+      expect(authSessionService.bumpTokenVersion).toHaveBeenCalledWith(42);
+      expect(authSessionService.removeAllSessions).toHaveBeenCalledWith(42);
+    });
+
+    it('作废严格早于重新签发，否则新 token 会被自己连带废掉', async () => {
+      prepareHappyPath();
+
+      await service.rebindPhone(42, dto);
+
+      // 晚于 signToken 的 bump 会让新 access_token 签发即失效（sessionVersion 落后）；
+      // 晚于 signToken 的 removeAllSessions 会把刚签发的 refresh_token 一并删除。
+      const bumpOrder =
+        authSessionService.bumpTokenVersion.mock.invocationCallOrder[0];
+      const removeOrder =
+        authSessionService.removeAllSessions.mock.invocationCallOrder[0];
+      const signOrder =
+        authSessionService.signToken.mock.invocationCallOrder[0];
+
+      expect(bumpOrder).toBeLessThan(signOrder);
+      expect(removeOrder).toBeLessThan(signOrder);
     });
 
     it('返回携带新手机号的 token：JWT 的 phone 参与可访问门店匹配', async () => {

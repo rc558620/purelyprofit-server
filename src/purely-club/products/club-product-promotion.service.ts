@@ -25,15 +25,20 @@ export class ClubProductPromotionService {
     private readonly clubPromotionRepository: ClubPromotionRepository,
   ) {}
 
+  /**
+   * 商品定价上下文。`clubUserId` 参与顾客档案定位（两层锚定）——
+   * 只按 phone 匹配时，档案错乱场景下会把别人的首单资格/余额当成自己的。
+   */
   async resolvePricingContext(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<ClubProductPricingContext> {
     const customer = await this.prisma.marketingCustomer.findFirst({
       where: {
         storeId,
-        phone,
         deletedAt: null,
+        OR: [{ clubUserId }, { phone, clubUserId: null }],
       },
       select: {
         id: true,
@@ -42,7 +47,7 @@ export class ClubProductPromotionService {
 
     const [memberDiscountRate, promotions, consumptionCount] =
       await Promise.all([
-        this.resolveMemberDiscountRate(storeId, phone),
+        this.resolveMemberDiscountRate(storeId, clubUserId, phone),
         this.clubPromotionRepository.loadActivePromotions(storeId),
         customer
           ? this.prisma.marketingConsumption.count({
@@ -136,11 +141,13 @@ export class ClubProductPromotionService {
 
   private async resolveMemberDiscountRate(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<number | null> {
     const snapshot =
-      await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+      await this.clubMemberProfileService.getSnapshotByStoreIdentity(
         storeId,
+        clubUserId,
         phone,
       );
     if (!snapshot) {

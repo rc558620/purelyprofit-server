@@ -167,7 +167,7 @@ describe('ClubProductsService', () => {
 
     expect(
       clubProductPromotionService.resolvePricingContext,
-    ).toHaveBeenCalledWith(11, user.phone);
+    ).toHaveBeenCalledWith(11, user.id, user.phone);
     // 无 featured 无 cursor：走分页首屏路径，查询层以 limit+1 探测
     expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
       11,

@@ -85,7 +85,6 @@ export class ClubOrderPromotionsService {
   async resolvePricing(
     storeId: number,
     customerId: number,
-    phone: string,
     amountFen: number,
     options?: { skipReduce?: boolean },
   ): Promise<ClubServicePricingResolution> {
@@ -220,13 +219,20 @@ export class ClubOrderPromotionsService {
     return { totalReduceFen, reduceRules };
   }
 
+  /**
+   * 会员等级折扣率。`clubUserId` 参与顾客档案定位（两层锚定，见
+   * ClubMemberProfileService.getSnapshotByStoreIdentity）——只按 phone 匹配时，
+   * 档案错乱场景下会把别人的会员等级当成自己的。
+   */
   async resolveMemberDiscountRate(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<number | null> {
     const snapshot =
-      await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+      await this.clubMemberProfileService.getSnapshotByStoreIdentity(
         storeId,
+        clubUserId,
         phone,
       );
     if (!snapshot) {

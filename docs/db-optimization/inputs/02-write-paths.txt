@@ -1,0 +1,255 @@
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/voucher-orders/voucher-order-voice-settings.service.ts:52:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/voucher-orders/voucher-orders.service.ts:143:    await this.prisma.clubVoucherOrder.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:60:    const created = await this.prisma.costRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:129:    await transaction.costRecord.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:153:      return transaction.costRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:166:      return await transaction.costRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:194:          return transaction.costRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:215:      await transaction.costRecord.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:265:      await transaction.costRecord.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:303:      return transaction.costRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:318:      return await transaction.costRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/costs/costs-write.service.ts:346:          return transaction.costRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-stock.service.ts:51:    const result = await this.prisma.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.controller.ts:85:    const result = await this.areaService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.controller.ts:101:    const result = await this.areaService.update(user, areaId, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.controller.ts:136:    return this.typeService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.controller.ts:147:    return this.typeService.update(user, typeId, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:49:      const order = await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:73:      await tx.marketingCustomer.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:77:      await tx.scanOrderBalanceTransaction.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:101:        await tx.marketingCustomer.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:105:        await tx.marketingPointsRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:130:          await tx.marketingCustomer.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:134:          await tx.marketingPointsRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:158:      await tx.scanOrderPaymentAttempt.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:184:        await tx.scanOrderRefundTask.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:192:      await tx.scanOrderCouponUsage.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service.ts:204:      await tx.scanOrderStatusHistory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-product.service.ts:56:    const product = await this.prisma.scanOrderingMenuProduct.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-product.service.ts:88:    const result = await this.prisma.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-product.service.ts:111:    const result = await this.prisma.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-product.service.ts:133:    const result = await this.prisma.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-scan-order-writer.service.ts:81:    const scanOrder = await tx.scanOrders.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-scan-order-writer.service.ts:121:    await tx.scanOrderStatusHistory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-scan-order-writer.service.ts:168:      await tx.scanOrderItem.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-order.service.ts:197:      return this.writer.create(tx, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-idempotency.service.ts:53:    return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-idempotency.service.ts:86:    await tx.idempotencyRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-idempotency.service.ts:105:    await tx.idempotencyRecord.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry.controller.ts:77:    return this.orderService.create(user, idempotencyKey, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-stock.service.ts:88:    const updated = await tx.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/manual-entry/manual-entry-stock.service.ts:134:    const updated = await tx.scanOrderingSpecOption.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:231:    await tx.scanOrderingCartItem.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:235:    await tx.scanOrderingSession.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:240:    await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:248:    await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-clear.service.ts:258:    await tx.scanOrderingTable.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:43:    const group = await this.prisma.scanOrderingSpecGroup.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:72:    const option = await this.prisma.scanOrderingSpecOption.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:95:    const result = await this.prisma.scanOrderingSpecGroup.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:112:    const result = await this.prisma.scanOrderingSpecGroup.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:129:    const result = await this.prisma.scanOrderingSpecOption.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-spec.service.ts:158:    const result = await this.prisma.scanOrderingSpecOption.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-type.service.ts:76:    const type = await this.prisma.scanOrderingType.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-type.service.ts:111:      const result = await this.prisma.scanOrderingType.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-type.service.ts:156:      const result = await this.prisma.scanOrderingType.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-service-call.service.ts:63:    const updated = await this.prisma.serviceCall.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-session-archive.service.ts:73:      const updated = await tx.scanOrderingSession.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-session-archive.service.ts:82:      await tx.scanOrderingCartItem.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-session-archive.service.ts:89:      await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-session-archive.service.ts:109:        await tx.scanOrderingTable.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-stock.service.ts:39:        const menuUpdated = await tx.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-stock.service.ts:58:          const productUpdated = await tx.product.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-stock.service.ts:97:          await tx.scanOrderingSpecOption.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:205:    const result = await this.prisma.scanOrderingTableQrCode.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:278:    const tokenHash = createHash('sha256').update(token).digest('hex');
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:289:          await tx.scanOrderingTableQrCode.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:295:        return tx.scanOrderingTableQrCode.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:314:        await this.prisma.scanOrderingTableQrCode.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:327:          return tx.scanOrderingTableQrCode.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:381:      cipher.update(token, 'utf8'),
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:417:          decipher.update(encrypted),
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-qr.service.ts:491:      .update(`scan-ordering-qr-token:${jwtSecret}`)
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:92:      return await this.prisma.scanOrderingTable.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:139:      await tx.scanOrderingTableQrCode.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:143:      return tx.scanOrderingTable.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:168:    const result = await this.prisma.scanOrderingTable.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:197:      const result = await tx.scanOrderingTable.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table.service.ts:208:      await tx.scanOrderingTableQrCode.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-wechat.service.ts:76:    const updatedTask = await this.prisma.scanOrderRefundTask.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-wechat.service.ts:166:    await this.prisma.scanOrderRefundTask.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/feie-print.service.ts:124:      .update(`${this.config.user}${this.config.ukey}${stime}`)
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-table-qr-poster.service.ts:57:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/print-agent.service.ts:107:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/print-agent.service.ts:141:      await this.prisma.printAgent.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/print-agent.service.ts:148:      await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-category.service.ts:58:    const category = await this.prisma.scanOrderingMenuCategory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-category.service.ts:81:    const result = await this.prisma.scanOrderingMenuCategory.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-menu-category.service.ts:106:    const result = await this.prisma.scanOrderingMenuCategory.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-transition.service.ts:219:      const result = await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-transition.service.ts:237:      await tx.scanOrderStatusHistory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:61:    const result = await this.prisma.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:91:    return tx.scanOrderStatusHistory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:104:    const result = await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:141:    await tx.scanOrderPaymentAttempt.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:145:    await tx.scanOrderCouponUsage.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service.ts:205:    return this.prisma.scanOrderStatusHistory.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-print-settings.service.ts:85:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service.ts:75:      const result = await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service.ts:127:      const result = await tx.scanOrders.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service.ts:49:        const released = await tx.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service.ts:63:        await tx.scanOrderingMenuProduct.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service.ts:76:          await tx.product.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service.ts:99:        const released = await tx.scanOrderingSpecOption.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service.ts:108:        await tx.scanOrderingSpecOption.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-area.service.ts:69:    return this.prisma.scanOrderingArea.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-area.service.ts:96:      const result = await this.prisma.scanOrderingArea.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/scan-ordering/scan-ordering-area.service.ts:154:      const result = await this.prisma.scanOrderingArea.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/purchases/purchases.controller.ts:87:    return this.purchasesService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/purchases/purchases.query.ts:134:  return transaction.purchaseOrder.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-services.controller.ts:60:    return this.commissionServicesService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-services.controller.ts:72:    return this.commissionServicesService.update(user, serviceId, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-core.service.ts:224:    const result = await db.commissionRecord.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-services.service.ts:67:    const created = await this.prisma.commissionService.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-services.service.ts:113:    const updated = await this.prisma.commissionService.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/commission/commission-services.service.ts:147:    await this.prisma.commissionService.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers.service.ts:31:    return this.suppliersWriteService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers.service.ts:39:    return this.suppliersWriteService.update(user, supplierId, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers-write.service.ts:45:      supplier = await this.prisma.supplier.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers-write.service.ts:106:      updated = await this.prisma.supplier.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers.controller.ts:63:    return this.suppliersService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/suppliers/suppliers.controller.ts:75:    return this.suppliersService.update(user, supplierId, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-create-flow.service.ts:64:      const createdOrder = await transaction.saleOrder.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-create-flow.service.ts:294:        await transaction.financeCashFlowRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record.service.ts:82:    return this.salesRecordWriteService.create(user, dto, options);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-write.service.ts:157:      await transaction.financeCashFlowRecord.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record.controller.ts:122:    return this.salesRecordService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record.controller.ts:209:    return this.salesRecordService.create(user, dto, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-refund.service.ts:28:    const refund = await transaction.saleOrderRefund.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/sales-record/sales-record-refund.service.ts:39:    await transaction.financeCashFlowRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/service-call/service-call-management.service.ts:98:    const serviceCall = await this.prisma.serviceCall.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/service-call/service-call-voice-settings.service.ts:53:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-confirm.service.ts:128:          return tx.storeHandoverRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-records.service.ts:67:    const record = await this.prisma.storeHandoverRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-records.service.ts:186:    const updated = await this.prisma.storeHandoverRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-records.service.ts:226:    const updated = await this.prisma.storeHandoverRecord.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-additional-items.service.ts:62:      const created = await this.prisma.storeHandoverAdditionalItem.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/handover/handover-additional-items.service.ts:93:      const updated = await this.prisma.storeHandoverAdditionalItem.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-zones.service.ts:82:      item = await this.prisma.spaceZone.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-zones.service.ts:138:    const updated = await this.prisma.spaceZone.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-settlement.service.ts:152:          const createdOrder = await this.saleOrderService.create(
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-settlement.service.ts:218:          await transaction.spaceSessionItem.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-settlement.service.ts:276:          const nextSession = await transaction.spaceSession.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-types.service.ts:85:      item = await this.prisma.spaceType.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-types.service.ts:141:    const updated = await this.prisma.spaceType.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-print-settings.service.ts:68:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-qr-code.service.ts:117:    await this.prisma.spaceQrCode.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-qr-code.service.ts:176:    const qrCode = await this.prisma.spaceQrCode.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-status.service.ts:74:        await transaction.space.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-state.service.ts:196:    await transaction.spaceReservation.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:124:      const created = await transaction.spaceReservation.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:264:      const nextReservation = await transaction.spaceReservation.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-reservations-write.service.ts:346:      const nextReservation = await transaction.spaceReservation.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-renew.service.ts:183:          await transaction.spaceSessionRenewRecord.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-renew.service.ts:220:          const updated = await transaction.spaceSession.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces.query.ts:67:  await transaction.space.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces.query.ts:107:    await transaction.space.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces.query.ts:134:  await transaction.space.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces.query.ts:273:  await transaction.space.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-management-voice-settings.service.ts:54:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-write.service.ts:140:        await transaction.spaceSessionItem.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-write.service.ts:205:        return transaction.spaceSession.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-voucher.shared.ts:153:  const bound = await tx.clubVoucherOrder.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-qr-poster.service.ts:53:    await this.prisma.store.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:115:          const space = await transaction.space.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:131:          await transaction.spaceQrCode.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:219:        return transaction.space.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/spaces-write.service.ts:298:        await transaction.space.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-open.service.ts:221:            await transaction.spaceReservation.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-open.service.ts:243:        const created = await transaction.spaceSession.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-transfer.service.ts:272:      const updatedSession = await transaction.spaceSession.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/spaces/space-session-sale-order.service.ts:100:    return this.salesRecordService.create(user, dto, {
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-settings.service.ts:62:    const record = await this.prisma.custodySetting.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-write.service.ts:224:      const updated = await tx.custodyOrder.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-pickup.service.ts:186:      const result = await tx.custodyOrder.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-pickup.service.ts:203:      await tx.custodyPickup.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/operations/custody/custody-order-record.ts:26:      return await prisma.custodyOrder.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/membership-plan-resolver.ts:116:    .update(JSON.stringify(signature))
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:44:      await tx.storeMembershipProfile.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:57:      await tx.storeSubAccountQuotaAudit.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:119:    await this.prisma.storeSubAccount.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:181:      await tx.storeSubAccount.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-slot.service.ts:223:    await tx.storeSubAccount.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership.query.ts:27:  return prismaExecutor.storeMembershipProfile.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership.query.ts:284:  const byPlanId = Object.create(null) as Record<
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership.query.ts:316:    const created = await prismaExecutor.membershipPlanSetting.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:173:        const updateResult = await tx.storePartner.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:189:        await tx.storePartnerBeanLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:223:      const updatedProfile = await tx.storeMembershipProfile.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:247:        await tx.storeMembershipPointsLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:260:        await tx.storeMembershipPointsLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-order.service.ts:272:      const order = await tx.storeMembershipOrder.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:310:    const claimed = await executor.storeMembershipLockedPrice.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:406:    await executor.storeMembershipLockedPrice.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:455:    const revoked = await this.prisma.storeMembershipLockedPrice.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:464:    const deleted = await this.prisma.storeMembershipLockedPrice.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:498:    const result = await this.prisma.storeMembershipLockedPrice.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:575:    const result = await executor.storeMembershipLockedPrice.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-membership-locked-price.service.ts:799:    await executor.storeMembershipLockedPrice.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo-bean-reconciliation.service.ts:60:      await this.prisma.storePartnerBeanLog.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo-bean-reconciliation.service.ts:91:      await this.prisma.storePartner.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo-bean-reconciliation.service.ts:171:        await this.prisma.storePartner.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:78:      await tx.storePartnerApplication.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:109:      const updateResult = await tx.storePartnerApplication.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:153:      const updateResult = await tx.storePartnerApplication.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:205:      const updateResult = await tx.storePartnerApplication.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:222:      await tx.storePartnerApplicationNote.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:258:      const deleteResult = await tx.storePartnerApplication.deleteMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner.service.ts:288:      await tx.storePartnerApplicationNote.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner-application.domain.ts:112:    await params.prismaExecutor.storePartner.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-partner-application.domain.ts:124:  await params.prismaExecutor.storePartner.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:124:        await db.staff.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:140:        await db.staff.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:195:      await db.staff.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:204:      await db.employee.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:208:      await db.employee.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:227:      await db.employee.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:232:      await db.staff.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:244:      await db.employee.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:252:      const newStaff = await db.staff.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:267:      await db.employee.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:329:    await db.staff.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:340:    await db.employee.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:382:      return await db.user.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/store-sub-account-login.service.ts:411:    await db.user.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:142:        await this.prisma.storeMembershipPromoRecord.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:179:        await this.prisma.storePartner.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:187:        await this.prisma.storePartnerBeanLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:303:        await this.prisma.storeMembershipPromoRecord.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:320:        await this.prisma.storePartner.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/platform-membership/platform-membership-promo.service.ts:329:        await this.prisma.storePartnerBeanLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:49:  const partnerUpdateResult = await tx.storePartner.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:68:  const createdRecord = await tx.partnerWithdrawal.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:83:  await tx.storePartnerBeanLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:101:  const updateResult = await tx.partnerWithdrawal.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:128:  const partnerUpdateResult = await tx.storePartner.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/withdrawals/withdrawals.utils.ts:144:  await tx.storePartnerBeanLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:188:        await tx.storeMembershipProfile.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:194:        const updated = await tx.storeMembershipProfile.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:200:        await tx.storeNewCustomerQuotaLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:241:        await tx.storeMembershipProfile.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:270:        await tx.storeMembershipProfile.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:275:        await tx.storeNewCustomerQuotaLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:316:      await tx.storeMembershipProfile.upsert({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:322:      const updated = await tx.storeMembershipProfile.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:328:      await tx.storeNewCustomerQuotaLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:374:        await tx.storeMembershipProfile.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:379:        await tx.storeNewCustomerQuotaLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:455:      const updated = await tx.storeMembershipProfile.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:470:      await tx.storeNewCustomerQuotaConsume.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/new-customer-quota/new-customer-quota.service.ts:480:      await tx.storeNewCustomerQuotaLog.create({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.service.ts:291:        await tx.marketingCustomer.update({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.service.ts:296:        await tx.marketingCustomer.updateMany({
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.controller.ts:85:    return this.membersService.create(user, dto);
+/Users/f0rest/Mac/project/React/purelyprofit-server/src/purely-profit/member/members/members.controller.ts:322:    return this.membersService.update(user, memberId, dto);

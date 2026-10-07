@@ -82,6 +82,7 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
   const authSessionService = {
     signToken: jest.fn(),
     bumpTokenVersion: jest.fn(),
+    removeAllSessions: jest.fn(),
   };
   // 契约本身就是「换绑后必须清缓存」，因此这里用真的 spy 断言，
   // 不接真实 Redis（e2e 只验证数据库侧结果）
@@ -214,7 +215,9 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
 
     await expect(
       service.rebindPhone(userId, { phone: nextPhone, code: '123456' }),
-    ).resolves.toEqual(expect.objectContaining({ access_token: 'e2e-rebind-token' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ access_token: 'e2e-rebind-token' }),
+    );
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -346,5 +349,30 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
     expect(
       clubStoreAccessService.invalidateAccessibleStoresCache,
     ).toHaveBeenCalledWith(userId);
+  });
+
+  it('换绑后作废旧登录态：bump 版本号 + 吊销 refresh token，且都早于重新签发', async () => {
+    const [storeId] = await requireStoreIds(1);
+    const userId = await createBoundUser('13800139951');
+    await createProfiles(userId, storeId, '13800139951', '纯利会员9951');
+
+    await service.rebindPhone(userId, { phone: '13800139950', code: '123456' });
+
+    // bumpTokenVersion 让带着旧手机号的 access_token 立刻失效（sessionVersion 落后），
+    // removeAllSessions 吊销 Redis 里的 refresh_token —— 后者的 payload 冻结着旧手机号，
+    // 不删的话 refreshAccessToken 会据此签出一个「带旧号」的新 access_token。
+    expect(authSessionService.bumpTokenVersion).toHaveBeenCalledWith(userId);
+    expect(authSessionService.removeAllSessions).toHaveBeenCalledWith(userId);
+
+    // 顺序必须严格「先作废、再签发」：反过来的 bump 会让新 token 签发即失效，
+    // 反过来的 removeAllSessions 会把刚签发的 refresh_token 一起删掉。
+    const bumpOrder =
+      authSessionService.bumpTokenVersion.mock.invocationCallOrder[0];
+    const removeOrder =
+      authSessionService.removeAllSessions.mock.invocationCallOrder[0];
+    const signOrder = authSessionService.signToken.mock.invocationCallOrder[0];
+
+    expect(bumpOrder).toBeLessThan(signOrder);
+    expect(removeOrder).toBeLessThan(signOrder);
   });
 });

@@ -20,7 +20,9 @@ export interface ClubVoucherOrderContext {
   store: { id: number; name: string };
   /** 顾客档案（balance：储值余额，分；用于余额支付充足性判断） */
   customer: { id: number; balance: number };
-  /** 用户手机号（会员等级折扣率查询用） */
+  /** 当前登录者 ID（会员等级折扣的顾客档案定位用，两层锚定的权威层） */
+  clubUserId: number;
+  /** 用户手机号（会员等级折扣率查询用，作为锚点落空时的无主档案认领依据） */
   phone: string;
   product: {
     id: number;
@@ -83,6 +85,50 @@ export class ClubVoucherOrderContextService {
     private readonly clubOrderPromotionsService: ClubOrderPromotionsService,
   ) {}
 
+  /**
+   * 定位**当前登录者本人**在本店的顾客档案。
+   *
+   * 两步都不能少，顺序也不能反：
+   *
+   * 1. `(storeId, clubUserId)` —— 权威锚点。账号与档案一一对应，不受手机号变化
+   *    （换绑后旧号可能被他人注册）影响。
+   * 2. 锚点落空才降级到手机号，且**必须限定该档案 `clubUserId` 为 null**。
+   *
+   * 第 2 步的 null 限定是关键：同一门店可能存在两条相同手机号的档案，其中一条
+   * 属于他人。不限定的话 `findFirst` 命中哪条并不确定，会把别人的储值余额当成
+   * 自己的。宁可让无主档案继续无主，也不能认错人。
+   *
+   * 兜底面向的是历史无主档案（早期建档未写入 clubUserId 的那一批），
+   * 新数据都会带 clubUserId，终态会全部收敛到第 1 步。
+   */
+  private async resolveOwnCustomer(params: {
+    storeId: number;
+    clubUserId: number;
+    phone: string;
+  }): Promise<{ id: number; balance: number } | null> {
+    const bound = await this.prisma.marketingCustomer.findFirst({
+      where: {
+        storeId: params.storeId,
+        clubUserId: params.clubUserId,
+        deletedAt: null,
+      },
+      select: { id: true, balance: true },
+    });
+    if (bound) {
+      return bound;
+    }
+
+    return this.prisma.marketingCustomer.findFirst({
+      where: {
+        storeId: params.storeId,
+        phone: params.phone,
+        clubUserId: null,
+        deletedAt: null,
+      },
+      select: { id: true, balance: true },
+    });
+  }
+
   /** 校验当前门店与下单门店一致，并加载团购券商品（type=voucher）与顾客档案 */
   async resolveContext(
     currentContext: ClubVoucherOrderContextInput,
@@ -93,13 +139,10 @@ export class ClubVoucherOrderContextService {
     }
 
     const [customer, product] = await Promise.all([
-      this.prisma.marketingCustomer.findFirst({
-        where: {
-          storeId: currentContext.store.id,
-          phone: currentContext.user.phone,
-          deletedAt: null,
-        },
-        select: { id: true, balance: true },
+      this.resolveOwnCustomer({
+        storeId: currentContext.store.id,
+        clubUserId: currentContext.user.id,
+        phone: currentContext.user.phone,
       }),
       this.prisma.marketingProduct.findFirst({
         where: {
@@ -139,6 +182,7 @@ export class ClubVoucherOrderContextService {
         name: currentContext.store.name,
       },
       customer,
+      clubUserId: currentContext.user.id,
       phone: currentContext.user.phone,
       product: {
         id: product.id,
@@ -163,13 +207,13 @@ export class ClubVoucherOrderContextService {
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
-      context.phone,
       context.product.price,
       { skipReduce: true },
     );
     const memberDiscountRate =
       await this.clubOrderPromotionsService.resolveMemberDiscountRate(
         context.store.id,
+        context.clubUserId,
         context.phone,
       );
     // 竞争模型（与 purelyClub 服务订单预览一致）：会员等级折扣 vs 活动折扣，取更低者生效

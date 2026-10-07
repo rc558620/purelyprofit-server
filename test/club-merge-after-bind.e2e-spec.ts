@@ -82,6 +82,7 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
   const authSessionService = {
     signToken: jest.fn(),
     bumpTokenVersion: jest.fn(),
+    removeAllSessions: jest.fn(),
   };
   const clubStoreAccessService = {
     invalidateAccessibleStoresCache: jest.fn(),
@@ -389,7 +390,12 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
     createdMemberIds.push(sourceMember.id);
 
     const targetMember = await prisma.member.create({
-      data: { storeId, name: 'E2E 目标顾客', phone: targetPhone, beanBalance: 3 },
+      data: {
+        storeId,
+        name: 'E2E 目标顾客',
+        phone: targetPhone,
+        beanBalance: 3,
+      },
       select: { id: true },
     });
     createdMemberIds.push(targetMember.id);

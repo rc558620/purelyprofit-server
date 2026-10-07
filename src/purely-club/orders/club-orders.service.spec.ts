@@ -460,10 +460,11 @@ describe('ClubOrdersService', () => {
         productName: '黄金焕肤疗程',
       }),
     );
+    // 顾客档案定位已收敛到 clubUserId 权威锚点（占位手机号不参与认人）
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: 'club_wechat:oOPENID123',
+        clubUserId: 301,
         deletedAt: null,
       },
       select: {

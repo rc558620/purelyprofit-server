@@ -7,6 +7,17 @@ model Member {
   name               String
   /// 手机号（可为 null）
   phone              String?
+  /// Club 用户 ID：会员档案与 club 账号之间的身份锚点
+  ///
+  /// 此前门店查询只能按 phone 定位 Member（`members.some({ phone })`），而 phone
+  /// 既会变（换绑手机号）又可能在同一门店重复（历史重复导入），两种情况下查询都
+  /// 会命中**不属于当前登录者**的会员档案。加上本列后改为按
+  /// (storeId, clubUserId) 定位，与 MarketingCustomer 的
+  /// uq_marketing_customers_store_club_user 保持同样的部分唯一语义。
+  ///
+  /// 可为 null：Member 并非总由 club 用户产生（商家手工建档、历史数据），
+  /// 部分唯一索引也只对非 null 值生效。
+  clubUserId         Int?                @map("club_user_id")
   /// 性别
   gender             MemberGender        @default(unknown)
   /// 标签数组
@@ -36,6 +47,9 @@ model Member {
   store              Store               @relation(fields: [storeId], references: [id])
 
   @@index([storeId, phone])
+  /// 同一 club 用户在一家门店最多一条会员档案。
+  /// 部分唯一（仅约束非 null）：没有 club 账号的会员记录不受影响。
+  @@unique([storeId, clubUserId], map: "uq_members_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
   @@index([storeId, updatedAt])
   @@index([storeId, status, updatedAt])
   @@index([storeId, isPartner, updatedAt])

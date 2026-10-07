@@ -300,10 +300,22 @@ export class ClubAccountMergeService {
       throw new ConflictException('账号合并失败，请重试或联系客服');
     }
 
-    // 失效两端的旧登录态，确保合并后旧 token 立即无效
+    // 失效两端的旧登录态，确保合并后旧 token 立即无效。
+    //
+    // `bumpTokenVersion` 只让旧 access_token 立刻失效，而 refresh_token 在 Redis 里
+    // 还有 30 天 TTL，客户端拿它照样能换出新 token——等于把这次失效绕过去了。
+    // 因此两步缺一不可（换绑路径 ClubPhoneRebindService 也是同样的两步）。
     await Promise.all([
       this.authSessionService.bumpTokenVersion(sourceUserId),
       this.authSessionService.bumpTokenVersion(targetUserId),
+    ]);
+    // 两步都必须严格早于下面的 signToken：
+    // - 晚于 signToken 的 bump，会让新 access_token 签发即失效；
+    // - removeAllSessions 按 userId 删 Redis 里的 refresh_token，晚于 signToken
+    //   执行会把刚签发的那份一并删除，用户从此再无法续期。
+    await Promise.all([
+      this.authSessionService.removeAllSessions(sourceUserId),
+      this.authSessionService.removeAllSessions(targetUserId),
     ]);
 
     // 签发新 token（以手机号账号身份登录）

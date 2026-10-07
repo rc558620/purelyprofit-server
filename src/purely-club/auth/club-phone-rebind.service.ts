@@ -59,7 +59,8 @@ export class ClubPhoneRebindService {
    * | `MarketingCustomer.phone` | 商家端（purelyProfit）仍展示、检索旧号 |
    *
    * 另外 JWT 的 `phone` 参与 `Member` 匹配，因此成功后必须**重新签发 token**，
-   * 否则旧 token 仍带旧号，上面的「失去门店访问权」照样发生。
+   * 并把旧的 access_token / refresh_token 一并作废 —— 只换发新的话，旧的那份
+   * 仍能在剩余有效期内带旧号访问（见 `invalidatePreviousSessions` 的说明）。
    */
   async rebindPhone(
     userId: number,
@@ -146,12 +147,39 @@ export class ClubPhoneRebindService {
     // 6. 清「可访问门店」缓存：其内容是按旧手机号匹配 Member 得到的
     await this.storeAccessService.invalidateAccessibleStoresCache(userId);
 
-    // 7. 重新签发 token（见方法注释末段）
+    // 7. 作废旧登录态，再签发新 token（顺序不能颠倒，理由见方法注释）
+    await this.invalidatePreviousSessions(userId);
+
     return this.authSessionService.signToken(userId, {
       phone: dto.phone,
       email: currentUser.email,
       accountScope: 'purely_club',
     });
+  }
+
+  /**
+   * 作废旧登录态，为第 7 步的重新签发腾干净场地。
+   *
+   * JWT 的 `phone` 参与 `Member` 匹配，换绑前的旧 token 带着旧手机号，两条路都要堵：
+   *
+   * | 遗留物 | 不处理的后果 | 失效手段 |
+   * |---|---|---|
+   * | 旧 access_token | 7 天内仍带旧号查门店 | `bumpTokenVersion` → JwtStrategy 判定 `sessionVersion` 落后即失效 |
+   * | 旧 refresh_token | Redis payload 冻结的是**签发那一刻**的 phone，`refreshAccessToken` 会据此签出一个带旧号的 access_token | `removeAllSessions` → 连同会话一起从 Redis 抹掉 |
+   *
+   * 只 bump 版本挡不住第二条路：用户会在 access_token 过期后「refresh 成功了，
+   * 但依然查不到门店」，而且是静默的——前端 local token 明明已经换成新的。
+   * 封禁成员（membership-access.service）面对同样的问题，也是这两步一起做。
+   *
+   * ⚠️ 顺序必须严格是「先作废、再签发」，反过来会把刚签出来的新 token 连带废掉：
+   * - 晚于 `signToken` 的 bump，会让新 access_token 的 `sessionVersion` 落后于
+   *   最新版本号，签发出来的瞬间即失效；
+   * - `removeAllSessions` 按 userId 删 Redis 里的 refresh_token，晚于 `signToken`
+   *   执行会把新的那份一并删除，用户从此再无法续期。
+   */
+  private async invalidatePreviousSessions(userId: number): Promise<void> {
+    await this.authSessionService.bumpTokenVersion(userId);
+    await this.authSessionService.removeAllSessions(userId);
   }
 
   /**

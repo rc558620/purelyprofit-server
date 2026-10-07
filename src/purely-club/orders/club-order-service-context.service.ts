@@ -50,6 +50,7 @@ export class ClubOrderServiceContextService {
     const [customer, product] = await Promise.all([
       this.findCurrentStoreCustomer(
         currentContext.store.id,
+        currentContext.user.id,
         currentContext.user.phone,
       ),
       this.findActiveStoreProduct(currentContext.store.id, dto.productId),
@@ -99,19 +100,30 @@ export class ClubOrderServiceContextService {
     };
   }
 
+  /**
+   * 定位**当前登录者本人**在本店的顾客档案（语义与 ClubVoucherOrderContextService.resolveOwnCustomer 一致）：
+   *
+   * 1. `(storeId, clubUserId)` 权威锚点 —— 不受手机号变化影响；
+   * 2. 锚点落空才按手机号认领，且必须限定 `clubUserId: null`（无主档案）——
+   *    同门店可能存在两条同号档案，其中一条属于他人，不限定的话
+   *    `findFirst` 命中哪条并不确定。
+   */
   private async findCurrentStoreCustomer(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<ClubOrderCustomerSummary | null> {
+    const bound = await this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, deletedAt: null },
+      select: { id: true },
+    });
+    if (bound) {
+      return bound;
+    }
+
     return this.prisma.marketingCustomer.findFirst({
-      where: {
-        storeId,
-        phone,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-      },
+      where: { storeId, phone, clubUserId: null, deletedAt: null },
+      select: { id: true },
     });
   }
 

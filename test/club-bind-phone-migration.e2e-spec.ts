@@ -90,6 +90,9 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
   const authSessionService = {
     signToken: jest.fn(),
     bumpTokenVersion: jest.fn(),
+    // 本用例当前只覆盖「不合并」分支，但 providers 里有 ClubAccountMergeService，
+    // 一旦新增触发合并的用例就会用到，先补齐免得那天才炸
+    removeAllSessions: jest.fn(),
   };
   // 本用例只覆盖 bindPhone，不涉及换绑，因此只需满足构造器注入
   const clubStoreAccessService = {
@@ -126,8 +129,12 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
           useValue: {
             hasRemaining: jest.fn().mockResolvedValue(true),
             isNewCustomer: jest.fn().mockResolvedValue(false),
-            consumeForNewCustomer: jest.fn().mockResolvedValue({ consumed: false, remaining: 0 }),
-            getOverview: jest.fn().mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+            consumeForNewCustomer: jest
+              .fn()
+              .mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest
+              .fn()
+              .mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
           },
         },
         {
@@ -291,7 +298,9 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
     // marketing_customers 的 uq_marketing_customers_store_club_user 会直接抛错
     await expect(
       service.bindPhone(userId, { phone: realPhone, code: '123456' }),
-    ).resolves.toEqual(expect.objectContaining({ access_token: 'e2e-new-token' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ access_token: 'e2e-new-token' }),
+    );
 
     // 已绑定门店：仅同步 phone，保留原有绑定关系
     const afterBound = await prisma.marketingCustomer.findUnique({
@@ -373,7 +382,9 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
 
     await service.bindPhoneByWechatCode(userId, { code: 'wx-phone-code' });
 
-    expect(authCodeVerifyService.ensureRegisterCodeValid).not.toHaveBeenCalled();
+    expect(
+      authCodeVerifyService.ensureRegisterCodeValid,
+    ).not.toHaveBeenCalled();
 
     const updatedUser = await prisma.user.findUnique({
       where: { id: userId },

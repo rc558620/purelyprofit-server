@@ -72,12 +72,12 @@ export class ClubOrderPreviewService {
       this.clubOrderPromotionsService.resolvePricing(
         context.store.id,
         context.customer.id,
-        currentContext.user.phone,
         context.product.price,
         { skipReduce: true },
       ),
       this.clubOrderPromotionsService.resolveMemberDiscountRate(
         context.store.id,
+        currentContext.user.id,
         currentContext.user.phone,
       ),
     ]);

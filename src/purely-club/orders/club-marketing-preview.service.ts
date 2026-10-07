@@ -39,6 +39,7 @@ export class ClubMarketingPreviewService {
   async previewMarketingLines(
     storeId: number,
     customerId: number,
+    clubUserId: number,
     phone: string,
     lines: ClubMarketingPreviewLine[],
     usePoints: boolean,
@@ -46,6 +47,7 @@ export class ClubMarketingPreviewService {
     const memberDiscountRate =
       await this.clubOrderPromotionsService.resolveMemberDiscountRate(
         storeId,
+        clubUserId,
         phone,
       );
     const {
@@ -57,7 +59,6 @@ export class ClubMarketingPreviewService {
     } = await this.resolveLinesPricing(
       storeId,
       customerId,
-      phone,
       lines,
       memberDiscountRate,
     );
@@ -96,7 +97,6 @@ export class ClubMarketingPreviewService {
   private async resolveLinesPricing(
     storeId: number,
     customerId: number,
-    phone: string,
     lines: ClubMarketingPreviewLine[],
     memberDiscountRate: number | null,
   ): Promise<ClubLinesPricingResult> {
@@ -105,7 +105,6 @@ export class ClubMarketingPreviewService {
         this.clubOrderPromotionsService.resolvePricing(
           storeId,
           customerId,
-          phone,
           line.unitAmountFen,
           { skipReduce: true },
         ),

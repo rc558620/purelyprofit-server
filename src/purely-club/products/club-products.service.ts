@@ -30,6 +30,7 @@ export class ClubProductsService {
     const pricingContextPromise =
       this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
+        currentContext.user.id,
         currentContext.user.phone,
       );
 
@@ -115,6 +116,7 @@ export class ClubProductsService {
     const pricingContext =
       await this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
+        currentContext.user.id,
         currentContext.user.phone,
       );
 
