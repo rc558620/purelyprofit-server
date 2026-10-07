@@ -6,8 +6,9 @@
 
 ```
 docs/db-optimization/
-├─ README.md                    本文件：操作流程
-├─ notes.md                     摘要便签，每轮的 S{n} 摘要存这里
+├─ README.md                    本文件：目录说明与依赖关系
+├─ 跟着做.md                    傻瓜式 17 次粘贴操作手册（干活时开这个）
+├─ notes.md                     摘要落盘处，每轮的 S{n} 摘要存这里
 ├─ prompts/                     源文件，可直接编辑
 │  ├─ preamble.md               前置块（每轮都粘，内容不变）
 │  ├─ 01-capacity.md            调用 1：容量建模
@@ -20,8 +21,16 @@ docs/db-optimization/
 │  ├─ 08-module-template.md     调用 8：模块级优化（模板，每模块一次）
 │  └─ 09-verify-launch.md       调用 9：验证、压测与上线清单
 ├─ inputs/                      脚本生成的输入清单（供调用 3、4、6 粘贴）
-└─ assembled/                   脚本拼接好的完整 Prompt（直接全选复制即可）
+├─ assembled/                   脚本拼接好的完整 Prompt（直接全选复制即可）
+└─ 实施/                         ★ 实施阶段（分析跑完后才用）
+   ├─ 跟着做.md                 8 批实施操作手册
+   ├─ notes.md                  实施阶段的 I1~I8 摘要落盘处
+   ├─ prompts/                  实施任务卡源文件
+   └─ assembled/                实施阶段拼好的完整 Prompt（8 个）
 ```
+
+> **两个阶段的关系**：`docs/db-optimization/` 下这一层是**分析阶段**（只出方案，不改代码）；
+> `实施/` 是**落地阶段**（真正改文件、出迁移）。分析阶段的结论是实施阶段的输入。
 
 ## 生成产物
 
@@ -64,7 +73,12 @@ bash scripts/db-optimization-pack.sh assemble   # 只重新拼接 Prompt
 | 8 | `assembled/08-module-<模块名>.full.md` | `<S3 摘要>`、`<S4 摘要>`、`<S5 摘要>` | `notes.md` |
 | 9 | `assembled/09-verify-launch.full.md` | 全部摘要 | `notes.md` |
 
-**每轮结束后**：把 AI 输出末尾的 `【S{n} 摘要】` 复制进 `notes.md` 对应小节。
+**每轮结束后**：摘要会落到 `notes.md` 对应小节。
+
+- 用 **IDE 里的 Agent**（有文件读写权限，如 CodeBuddy）：卡里已内置「文件操作」指令，它会**自动替换写入** `notes.md`，你零操作。首次跑完建议打开文件扫一眼确认位置对不对。
+- 用 **网页版 AI**（无文件权限）：它会忽略该指令，你需要手动把输出末尾的 `【S{n} 摘要】` 复制进 `notes.md`。
+
+> 内置指令用的是「替换」语义，重复跑同一轮不会在文件里堆出两份摘要。
 
 ## 执行顺序与依赖
 

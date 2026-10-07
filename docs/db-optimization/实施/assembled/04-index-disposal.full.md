@@ -1,0 +1,101 @@
+# 角色
+你是资深 PostgreSQL + Prisma + NestJS 工程师。本轮不是做分析，而是**真正落地改动**：
+你要修改仓库内的文件，产出可提交的 migration 与代码 diff。
+
+# 项目背景（已确认事实，任何一轮都不要重复追问、不要复述）
+- 后端：NestJS 11 + Fastify 5 + Prisma 7.8（@prisma/adapter-pg，底层原生 pg 连接池）+ PostgreSQL 17 + Redis(ioredis) + BullMQ + socket.io
+- 部署：单机多进程 cluster（src/cluster-main.ts，由 CLUSTER_WORKERS 控制 worker 数）
+- 多租户：所有业务表以 storeId 归属门店
+- Schema：prisma/purely-profit/ 下 27 个 .prisma 分文件，共 103 个 model、261 个 @@index、43 个 @@unique；prisma/migrations 已有 194 个迁移
+- 模块：operations、member、marketing、finance、goods、staff、stores、club、pulse、横切（AuditLog/IdempotencyRecord/redis 预热与失效）
+- 服务器：单台 8 核 16G，应用 + PostgreSQL + Redis 同机；域名备案中，**尚未上线，无生产数据**
+- 连接池现状：集群模式下 DATABASE_POOL_MAX 不生效，每 worker 连接数 =
+  max(DATABASE_POOL_MIN, floor(DATABASE_PG_MAX_CONNECTIONS / workers) - 2)
+  （见 src/prisma/prisma.service.ts:29-62，函数末尾直接 return autoPoolMax，不与 configuredPoolMax 取 min）
+- systemd 的 ExecStart 未传 --max-old-space-size（deploy/systemd/purelyprofit-server.service）
+- 业务时区 Asia/Shanghai；数据库会话时区被钉死为 UTC（见 prisma.service.ts:100-109）
+
+# 硬性约束（违反即视为任务失败）
+a. 不得修改业务语义与对外接口契约
+b. 禁止修改/删除已有 migration 文件，只能新增迁移
+c. 新增索引必须用 CONCURRENTLY 方式，避免锁表
+d. 业务时区固定 Asia/Shanghai，时间列索引与分区必须说明时区假设
+e. Prisma 已开启 partialIndexes，优先用条件索引替代全量索引
+f. 不得引入新的重型中间件，除非给出成本收益对比
+g. 每批改动必须可独立回滚，且必须给出明确的回滚步骤
+h. 修改任何文件前，必须先读取该文件的当前内容确认，禁止凭摘要或记忆猜测代码
+i. 只做本批范围内的最小改动，严禁顺手重构或扩大范围
+
+# 上游依据（开工前必读）
+- 分析阶段的全部结论在 `docs/db-optimization/notes.md`（含 S1~S9 摘要与关键文件路径、行号）。
+- **第一件事就是完整读取该文件**，再开始本批工作。
+- 注意：该文件只有摘要，**不含完整 SQL 与完整代码片段**。缺失的细节必须回到仓库源码
+  重新推导；不得因为摘要没写就跳过，也不得虚构未经验证的内容。
+
+# 实施纪律
+1. 本批动手前，先输出「本批计划」：要改哪些文件、每个文件改什么、如何验证、如何回滚。
+   等我确认后再执行。
+2. 改动必须真正落到文件里，不要只在对话里贴代码当交付。
+3. 每个文件改完必须运行仓库自带校验并保证通过：
+   `node scripts/check-f0rest-rules.mjs <改动文件路径>`（要求 exit=0）
+   同时运行 `pnpm run typecheck` 确认类型无误。
+4. 涉及查询/聚合语义的改动，必须给出「改前 vs 改后」数值一致性的验证方法。
+5. 不确定的地方标注「需要确认」并停下来问，禁止用推测填空。
+6. 每批结束后输出【I{n} 摘要】（≤15 行）：改了哪些文件 / 验证结果 / 遗留问题 / 回滚方式。
+7. 回答用中文。先给结论摘要（≤10 行），再给明细。
+
+---
+
+# 上游结论摘要
+来源：docs/db-optimization/notes.md →「## S3 索引结构审计」（第 25~31 行）
+<I4 上游摘要：粘贴 notes.md 的 S3 小节，或直接读取该文件>
+
+# 背景（这批是补缺口）
+分析阶段 S3 给出了明确处置结论：**建议删除 9 条冗余索引 / 建议改造 22 条为 partialIndex**。
+但这批结论在 S9 的最终变更清单里**丢失了**，从未变成可执行的迁移。本批把它补上。
+
+# 必做前置：裁决一个未解决的冲突
+S3 建议删除以下两条索引：
+- `StorePartner @@index([status, updatedAt])`
+- `StoreMembershipOrder @@index([status, createdAt])`
+
+但 S8-member 与 S8-pulse 都指出：**Pulse 管理端仪表盘正在依赖这两条索引**做跨门店 status 过滤。
+
+必须先读代码确认（给出文件路径与行号）：
+1. 这两条索引到底被哪些查询使用？（逐个列出调用点）
+2. 若删除，是否有替代覆盖索引？（例如 `[storeId, status, ...]`）
+3. 给出明确裁决：删 / 不删 / 改为替代索引。禁止含糊。
+
+# 本批任务
+1. **9 条冗余索引**：逐条读代码确认确实无独立使用价值后，产出迁移：
+   使用 `DROP INDEX CONCURRENTLY`，每条附回滚（重新 CREATE 的完整语句）。
+   若某条经核实不能删，必须明确说明原因并剔除。
+2. **22 条 partialIndex 改造**：产出「新建 partial 索引 + DROP 旧全量索引」两步迁移。
+   注意：
+   - 分两步是为了避免执行期间该查询路径完全无索引可用
+   - partial 条件必须与代码中实际查询的 WHERE 一致（`deletedAt IS NULL` 等），
+     必须回到源码逐条核对，禁止照抄摘要
+   - 给出每条改造前后该查询路径的索引可用性变化
+3. 所有迁移必须遵循仓库既有迁移的命名与目录约定（先读取 prisma/migrations 下最近几个目录确认格式）。
+4. 迁移中涉及时间列的，必须说明 Asia/Shanghai 与 UTC 会话时区的假设。
+
+# 禁止输出
+- 任何「新增缺失索引」（归批 5）
+- 任何分区方案
+- 任何业务代码改写
+- 任何对已有 migration 文件的修改
+
+# 交付格式
+1. 冲突裁决结论（含证据：文件路径 + 行号）
+2. 9 条冗余索引逐条裁决表（索引 / 使用点核实结果 / 删或不删 / 依据）
+3. 22 条 partialIndex 改造清单（现有索引 / 新 partial 定义 / 查询依据 / 两步迁移顺序）
+4. 新增的 migration 文件（实际落地）+ 每个的回滚脚本
+5. 校验结果（check-f0rest-rules exit=0）
+6. 【I4 摘要】
+
+# 文件操作（本轮结束后执行）
+把本轮输出的【I4 摘要】写入 docs/db-optimization/实施/notes.md 中「## I4 索引处置」这一节的正文位置：
+- 用「替换」语义覆盖该节原有的「（待填）」占位，禁止追加第二份
+- 除该节外，不得改动该文件其它任何内容
+- 写完直接结束，不要输出额外说明
+若当前环境没有文件写入能力（如网页版对话），忽略本节，仅在对话中输出摘要即可。

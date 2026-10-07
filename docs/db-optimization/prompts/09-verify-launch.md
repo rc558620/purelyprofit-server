@@ -1,11 +1,19 @@
 # 上游结论摘要
+来源：docs/db-optimization/notes.md →「## S1 容量建模」
 <S1 摘要>
+来源：docs/db-optimization/notes.md →「## S2 服务器 / PG 参数基线」
 <S2 摘要>
+来源：docs/db-optimization/notes.md →「## S3 索引结构审计」
 <S3 摘要>
+来源：docs/db-optimization/notes.md →「## S4 写热点与大表治理」
 <S4 摘要>
+来源：docs/db-optimization/notes.md →「## S5 退化查询与 N+1」
 <S5 摘要>
+来源：docs/db-optimization/notes.md →「## S6 连接与事务边界」
 <S6 摘要>
+来源：docs/db-optimization/notes.md →「## S7 幂等与审计表增长」
 <S7 摘要>
+来源：docs/db-optimization/notes.md →「## S8 模块级优化」下 9 个小节，逐个列出
 <S8 各模块摘要（逐个列出）>
 
 # 本轮任务
@@ -28,3 +36,10 @@
 表 4：上线检查清单
 表 5：上线后观测指标与告警阈值
 + 【S9 摘要】
+
+# 文件操作（本轮结束后执行）
+把本轮输出的【S9 摘要】写入 docs/db-optimization/notes.md 中「## S9 验证与上线」这一节的正文位置：
+- 用「替换」语义覆盖该节原有的「（待填）」占位，禁止追加第二份
+- 除该节外，不得改动该文件其它任何内容
+- 写完直接结束，不要输出额外说明
+若当前环境没有文件写入能力（如网页版对话），忽略本节，仅在对话中输出摘要即可。
