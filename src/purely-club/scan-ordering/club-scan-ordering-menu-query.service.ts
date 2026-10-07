@@ -1,11 +1,18 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import { buildClubMenuCacheKey } from '../../redis/keys/club-cache-keys';
 import { createHash } from 'node:crypto';
+
+const CLUB_MENU_CACHE_TTL_SECONDS = 30;
 
 @Injectable()
 export class ClubScanOrderingMenuQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async getMenu(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
     const session = await this.prisma.scanOrderingSession.findFirst({
@@ -19,6 +26,30 @@ export class ClubScanOrderingMenuQueryService {
     });
     if (!session)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+
+    // 轻量查询：仅取分类 id+version 计算 menuVersion（不拉 products/specs/options）
+    const versionRows = await this.prisma.scanOrderingMenuCategory.findMany({
+      where: {
+        storeId: session.storeId,
+        isActive: true,
+        deletedAt: null,
+        products: { some: { deletedAt: null } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true, version: true },
+    });
+    const menuVersion = createHash('sha256')
+      .update(JSON.stringify(versionRows.map((item) => [item.id, item.version])))
+      .digest('hex');
+
+    // 缓存命中检查：menuVersion 不变即命中
+    const cacheKey = buildClubMenuCacheKey(session.storeId, menuVersion);
+    const cached = await this.redisService.getJson<unknown>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // 未命中：查完整 categories 数据
     const categories = await this.prisma.scanOrderingMenuCategory.findMany({
       where: {
         storeId: session.storeId,
@@ -54,12 +85,8 @@ export class ClubScanOrderingMenuQueryService {
         },
       },
     });
-    return {
-      menuVersion: createHash('sha256')
-        .update(
-          JSON.stringify(categories.map((item) => [item.id, item.version])),
-        )
-        .digest('hex'),
+    const result = {
+      menuVersion,
       categories: categories.map((category) => ({
         ...category,
         products: category.products.map((product) => {
@@ -94,5 +121,14 @@ export class ClubScanOrderingMenuQueryService {
         }),
       })),
     };
+
+    // 写缓存（TTL 30s，menuVersion 变更后旧 key 自然过期）
+    await this.redisService.setJson(
+      cacheKey,
+      result,
+      CLUB_MENU_CACHE_TTL_SECONDS,
+    );
+
+    return result;
   }
 }

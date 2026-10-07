@@ -1,5 +1,6 @@
 import {
   buildBusinessAnalysisPattern,
+  buildClubPromotionsCacheKey,
   buildMarketingOverviewCacheKey,
   buildMembersListPattern,
   buildMembersMetaCacheKey,
@@ -105,7 +106,10 @@ const providerCases: readonly ProviderCase[] = [
       marketingOverviewCacheInvalidatorProvider({
         redisService,
       }).invalidateMarketingOverview(18),
-    expectedDelCalls: [buildMarketingOverviewCacheKey(18)],
+    expectedDelCalls: [
+      buildMarketingOverviewCacheKey(18),
+      buildClubPromotionsCacheKey(18),
+    ],
   },
   {
     description: 'salesRead provider 会清理销售统计与报表缓存',

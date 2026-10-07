@@ -9,7 +9,12 @@ import { RedisModule } from '../redis/redis.module';
 import { SpacesModule } from '../purely-profit/operations/spaces/spaces.module';
 import { ScanOrderingModule } from '../purely-profit/operations/scan-ordering/scan-ordering.module';
 import { ScanOrderingSessionArchiveProcessor } from './scan-ordering-session-archive.processor';
+import { RetentionCleanupProcessor } from './retention-cleanup.processor';
+import { RetentionCleanupService } from './retention-cleanup.service';
+import { SaleOrderItemsArchiveProcessor } from './sale-order-items-archive.processor';
+import { SaleOrderItemsArchiveService } from './sale-order-items-archive.service';
 import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 /**
  * 消息队列模块
@@ -22,6 +27,9 @@ import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-pay
  * 当前队列：
  * - `cache-prewarm`：定时预热首页、经营分析等热点缓存（每 15s）
  * - `space-auto-checkout`：定时扫描并自动结账超时空间会话（每 60s）
+ * - `scan-ordering-session-archive`：定时归档过期扫码会话（每 5min）
+ * - `retention-cleanup`：定时清理无界增长表（idempotency 每 6h / audit_logs 每 24h）
+ * - `sale-order-items-archive`：定时归档 sale_order_items 冷数据到归档表（每 24h）
  * - `club-payment-callback`：异步处理微信支付成功回调
  */
 @Global()
@@ -63,16 +71,27 @@ import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-pay
       {
         name: 'scan-ordering-session-archive',
       },
+      {
+        name: 'retention-cleanup',
+      },
+      {
+        name: 'sale-order-items-archive',
+      },
     ),
     ClubPaymentCallbackQueueModule,
     RedisModule, // 提供 CachePrewarmCycleService
     SpacesModule, // 提供 SpaceSessionAutoCheckoutService
     ScanOrderingModule,
+    PrismaModule, // 提供 PrismaService（RetentionCleanupService / SaleOrderItemsArchiveService 依赖）
   ],
   providers: [
     CachePrewarmProcessor,
     SpaceAutoCheckoutProcessor,
     ScanOrderingSessionArchiveProcessor,
+    RetentionCleanupProcessor,
+    RetentionCleanupService,
+    SaleOrderItemsArchiveProcessor,
+    SaleOrderItemsArchiveService,
     QueueSchedulerService,
   ],
   exports: [],

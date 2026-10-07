@@ -2,10 +2,20 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
+import { buildClubMemberSnapshotCacheKey } from '../../../redis/keys/club-cache-keys';
 import type { ClubCurrentContext } from '../../stores/club-stores.types';
 import type { ClubMemberHeldLevelValue } from '../dto/club-member-account.dto';
 
 const CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE = '当前门店暂无会员账户信息';
+
+/** 会员快照缓存 TTL（秒） */
+const CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS = 15;
+/** null 快照缓存 TTL（秒）：防穿透，比正常 TTL 更短 */
+const CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS = 5;
+
+/** 缓存 null 哨兵：JSON.stringify(null) === 'null'，getJson 会解析回 null */
+const NULL_SENTINEL = null;
 
 interface ClubMemberAccountRecord {
   id: number;
@@ -33,7 +43,10 @@ export interface ClubMemberSnapshot {
 
 @Injectable()
 export class ClubMemberProfileService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async getCurrentSnapshot(
     currentContext: ClubCurrentContext,
@@ -65,11 +78,39 @@ export class ClubMemberProfileService {
     clubUserId: number,
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
+    // 读缓存：门店+用户粒度，TTL 15s
+    const cacheKey = buildClubMemberSnapshotCacheKey(storeId, clubUserId);
+    const cached = await this.redisService.getJson<ClubMemberSnapshot | null>(
+      cacheKey,
+    );
+    if (cached !== null) {
+      return cached;
+    }
+    // 区分「缓存了 null 哨兵」与「未命中」：getJson 返回 null 有两种含义
+    // —— 已缓存 null（哨兵）或 key 不存在。用 exists 做二次确认。
+    const hasNullSentinel = await this.redisService.exists(cacheKey);
+    if (hasNullSentinel) {
+      return NULL_SENTINEL;
+    }
+
     const [member, marketingCustomer] = await Promise.all([
       this.findCurrentMember(storeId, clubUserId, phone),
       this.findMarketingCustomer(storeId, clubUserId, phone),
     ]);
-    return this.buildSnapshot(storeId, member, marketingCustomer);
+    const snapshot = await this.buildSnapshot(
+      storeId,
+      member,
+      marketingCustomer,
+    );
+
+    // 写缓存：非 null 写 15s，null 写 5s 防穿透
+    const ttl =
+      snapshot !== null
+        ? CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS
+        : CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS;
+    await this.redisService.setJson(cacheKey, snapshot, ttl);
+
+    return snapshot;
   }
 
   /**

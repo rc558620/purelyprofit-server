@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubRecordsService } from '../records/club-records.service';
 import { ClubMemberService } from './club-member.service';
@@ -31,6 +32,12 @@ describe('ClubMemberService', () => {
 
   const clubRecordsService = {
     list: jest.fn(),
+  };
+
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    exists: jest.fn().mockResolvedValue(false),
+    setJson: jest.fn().mockResolvedValue(undefined),
   };
 
   const authService = {
@@ -99,6 +106,7 @@ describe('ClubMemberService', () => {
         ClubMemberService,
         { provide: AuthService, useValue: authService },
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: ClubRecordsService, useValue: clubRecordsService },
       ],
     }).compile();

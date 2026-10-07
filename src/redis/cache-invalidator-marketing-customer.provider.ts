@@ -3,6 +3,7 @@ import {
   buildMarketingCustomersListPattern,
   buildMarketingOverviewCacheKey,
 } from './cache-keys';
+import { buildClubMemberSnapshotPattern } from './keys/club-cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
   ProfitReadCacheInvalidatorInput,
@@ -10,11 +11,11 @@ import type {
 } from './cache-invalidator-profit-read.providers';
 
 /**
- * 顾客维度营销缓存失效：营销概览 + 顾客列表 + 顾客详情。
+ * 顾客维度营销缓存失效：营销概览 + 顾客列表 + 顾客详情 + club 会员快照。
  *
- * 单删概览是不够的——顾客列表缓存 60s、详情缓存 15s，C 端刚落账的余额/积分
- * 在商家端要等 TTL 自然过期才可见。C 端落账路径（扫码点餐 / 团购券 / 充值 /
- * 服务订单）应统一调这个，而不是各自只删概览。
+ * 单删概览是不够的——顾客列表缓存 60s、详情缓存 15s、club 会员快照 15s，
+ * C 端刚落账的余额/积分在商家端要等 TTL 自然过期才可见。C 端落账路径
+ * （扫码点餐 / 团购券 / 充值 / 服务订单）应统一调这个，而不是各自只删概览。
  */
 export const marketingCustomerDerivedCacheInvalidatorProvider: CacheInvalidatorProvider<
   ProfitReadCacheInvalidatorInput,
@@ -30,6 +31,10 @@ export const marketingCustomerDerivedCacheInvalidatorProvider: CacheInvalidatorP
       ),
       input.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
+      ),
+      // club 会员快照缓存（club:member-snapshot:store:{storeId}:user:*）
+      input.redisService.delByPattern(
+        buildClubMemberSnapshotPattern(storeId),
       ),
     ]);
   },

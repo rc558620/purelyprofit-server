@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { CachePrewarmJobData } from './cache-prewarm.processor';
+import type { RetentionCleanupJobData } from './retention-cleanup.processor';
+import type { SaleOrderItemsArchiveJobData } from './sale-order-items-archive.processor';
 
 /**
  * 队列调度服务
@@ -28,12 +30,18 @@ export class QueueSchedulerService implements OnModuleInit {
     private readonly spaceAutoCheckoutQueue: Queue<void>,
     @InjectQueue('scan-ordering-session-archive')
     private readonly scanOrderingSessionArchiveQueue: Queue<void>,
+    @InjectQueue('retention-cleanup')
+    private readonly retentionCleanupQueue: Queue<RetentionCleanupJobData>,
+    @InjectQueue('sale-order-items-archive')
+    private readonly saleOrderItemsArchiveQueue: Queue<SaleOrderItemsArchiveJobData>,
   ) {}
 
   async onModuleInit(): Promise<void> {
     await this.registerCachePrewarmJob();
     await this.registerSpaceAutoCheckoutJob();
     await this.registerScanOrderingSessionArchiveJob();
+    await this.registerRetentionCleanupJobs();
+    await this.registerSaleOrderItemsArchiveJob();
   }
 
   /**
@@ -127,6 +135,77 @@ export class QueueSchedulerService implements OnModuleInit {
     });
     this.logger.log(
       '[queue-scheduler] scan-ordering-session-archive registered intervalMs=300000',
+    );
+  }
+
+  /**
+   * 注册无界增长表保留期清理定时任务
+   *
+   * - idempotency_records：每 6h 执行一次，保留 7 天
+   * - audit_logs：每 24h 执行一次，保留 90 天，分批 DELETE
+   */
+  private async registerRetentionCleanupJobs(): Promise<void> {
+    // idempotency_records 清理：每 6h
+    await this.retentionCleanupQueue.add(
+      'cleanup',
+      { taskType: 'idempotency' },
+      {
+        repeat: { every: 6 * 60 * 60_000 },
+        jobId: 'retention-cleanup-idempotency',
+      },
+    );
+    this.logger.log(
+      '[queue-scheduler] retention-cleanup idempotency registered intervalMs=21600000',
+    );
+
+    // audit_logs 清理：每 24h
+    await this.retentionCleanupQueue.add(
+      'cleanup',
+      { taskType: 'audit_logs' },
+      {
+        repeat: { every: 24 * 60 * 60_000 },
+        jobId: 'retention-cleanup-audit-logs',
+      },
+    );
+    this.logger.log(
+      '[queue-scheduler] retention-cleanup audit_logs registered intervalMs=86400000',
+    );
+  }
+
+  /**
+   * 注册 sale_order_items 归档定时任务
+   *
+   * 每 24h 执行一次，将超过保留窗口（默认 180 天）的冷数据
+   * 迁移到 sale_order_items_archive 表。
+   */
+  private async registerSaleOrderItemsArchiveJob(): Promise<void> {
+    const enabled =
+      this.configService.get<boolean>(
+        'app.archiveSaleOrderItemsEnabled',
+      ) ?? true;
+
+    if (!enabled) {
+      this.logger.log(
+        '[queue-scheduler] sale-order-items-archive disabled',
+      );
+      return;
+    }
+
+    const intervalMs =
+      this.configService.get<number>(
+        'app.archiveSaleOrderItemsIntervalMs',
+      ) ?? 86_400_000;
+
+    await this.saleOrderItemsArchiveQueue.add(
+      'archive',
+      { taskType: 'archive' },
+      {
+        repeat: { every: intervalMs },
+        jobId: 'sale-order-items-archive-cycle',
+      },
+    );
+    this.logger.log(
+      `[queue-scheduler] sale-order-items-archive registered intervalMs=${intervalMs}`,
     );
   }
 }

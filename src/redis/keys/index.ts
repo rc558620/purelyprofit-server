@@ -31,6 +31,16 @@ export {
 // Redis 域级键 — purelyClub 邀请码映射
 export { buildClubInviteCodeMapCacheKey } from './club.cache-keys';
 
+// Redis 域级键 — purelyClub 读缓存（菜单 / 会员快照 / 活动促销）
+export {
+  buildClubMenuCacheKey,
+  buildClubMenuPattern,
+  buildClubMemberSnapshotCacheKey,
+  buildClubMemberSnapshotPattern,
+  buildClubPromotionsCacheKey,
+  buildClubPromotionsPattern,
+} from './club-cache-keys';
+
 // Redis 域级键 — Marketing
 export {
   buildMarketingOverviewCacheKey,
