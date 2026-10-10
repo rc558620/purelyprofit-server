@@ -33,6 +33,21 @@ describe('stream-export.utils', () => {
     it('escapes field with comma and double quote', () => {
       expect(escapeCsvField('a,"b",c')).toBe('"a,""b"",c"');
     });
+
+    it('neutralizes leading formula characters in text fields', () => {
+      expect(escapeCsvField('=1+1')).toBe("'=1+1");
+      expect(escapeCsvField('+1+1')).toBe("'+1+1");
+      expect(escapeCsvField('@SUM(A1)')).toBe("'@SUM(A1)");
+    });
+
+    it('keeps negative numbers untouched', () => {
+      expect(escapeCsvField(-3)).toBe('-3');
+      expect(escapeCsvField('-12.5')).toBe('-12.5');
+    });
+
+    it('quotes and neutralizes formula text containing comma', () => {
+      expect(escapeCsvField('=cmd,a')).toBe('"\'=cmd,a"');
+    });
   });
 
   describe('toCsvLine', () => {

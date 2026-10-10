@@ -53,6 +53,17 @@ export class ClubScanOrderingCartService {
     const product = await this.loadProduct(session.storeId, dto.productId);
     this.assertPurchasable(product, 1);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
+    // 报价同样要校验规格库存，否则弹窗会给出「可加购」的价格却加不进去
+    const quotedSpecQuantities = await this.resolveCartSpecOptionQuantities(
+      session.id,
+    );
+    for (const option of options) {
+      quotedSpecQuantities.set(
+        option.id,
+        (quotedSpecQuantities.get(option.id) ?? 0) + 1,
+      );
+    }
+    this.assertSpecOptionsPurchasable(options, quotedSpecQuantities);
     return {
       unitPriceAmount:
         product.basePrice +
@@ -82,6 +93,17 @@ export class ClubScanOrderingCartService {
     );
     this.assertPurchasable(product, cartQuantity + dto.quantity);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
+    // 规格库存必须与商品库存同口径：本次数量 + 购物车中该规格已占数量
+    const specQuantities = await this.resolveCartSpecOptionQuantities(
+      session.id,
+    );
+    for (const option of options) {
+      specQuantities.set(
+        option.id,
+        (specQuantities.get(option.id) ?? 0) + dto.quantity,
+      );
+    }
+    this.assertSpecOptionsPurchasable(options, specQuantities);
     const specSignature = this.hash(
       [...dto.specOptionIds].sort((a, b) => a - b).join(','),
     );
@@ -336,15 +358,78 @@ export class ClubScanOrderingCartService {
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
   }
 
+  /**
+   * 会话购物车中各规格选项的已占数量（specOptionId → 数量）。
+   * 与商品级库存同口径：同一规格可能散落在多行购物车记录里（不同商品共用同一
+   * 规格宿主时），必须按选项聚合后再与可用库存比较。
+   */
+  private async resolveCartSpecOptionQuantities(
+    sessionId: number,
+  ): Promise<Map<number, number>> {
+    const rows = await this.prisma.scanOrderingCartItem.findMany({
+      where: { sessionId, status: 'active', deletedAt: null },
+      select: {
+        quantity: true,
+        specs: { select: { specOptionId: true } },
+      },
+    });
+    const quantities = new Map<number, number>();
+    for (const row of rows) {
+      for (const spec of row.specs) {
+        quantities.set(
+          spec.specOptionId,
+          (quantities.get(spec.specOptionId) ?? 0) + row.quantity,
+        );
+      }
+    }
+    return quantities;
+  }
+
+  /**
+   * 规格选项库存校验：stockQuantity 为 null 表示不限，否则
+   * 可用库存 = 总库存 − 预留量，必须 >= 目标数量。
+   * 与下单时 reserveFiniteSpecStock 的口径保持一致，避免「加进购物车才被告知没货」。
+   */
+  private assertSpecOptionsPurchasable(
+    options: Array<{
+      id: number;
+      name: string;
+      stockQuantity: number | null;
+      reservedQuantity: number | null;
+    }>,
+    requiredByOption: Map<number, number>,
+  ): void {
+    for (const option of options) {
+      if (option.stockQuantity === null) continue;
+      const required = requiredByOption.get(option.id) ?? 0;
+      const available = option.stockQuantity - (option.reservedQuantity ?? 0);
+      if (available < required) {
+        throw new ConflictException(`规格【${option.name}】已售罄或库存不足`);
+      }
+    }
+  }
+
   private validateOptions(
     groups: Array<{
       id: number;
       minSelections: number;
       maxSelections: number | null;
-      options: Array<{ id: number; extraPrice: number }>;
+      options: Array<{
+        id: number;
+        name: string;
+        extraPrice: number;
+        stockQuantity: number | null;
+        reservedQuantity: number | null;
+      }>;
     }>,
     selectedIds: number[],
-  ): Array<{ id: number; extraPrice: number }> {
+  ): Array<{
+    id: number;
+    name: string;
+    extraPrice: number;
+    stockQuantity: number | null;
+    reservedQuantity: number | null;
+  }> {
     const selected = new Set(selectedIds);
     const options = groups.flatMap((group) =>
       group.options.filter((option) => selected.has(option.id)),

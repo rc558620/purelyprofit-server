@@ -11,6 +11,15 @@ import {
 export const COST_PERIOD_VALUES = PURCHASE_PERIOD_VALUES;
 export type CostPeriodValue = PurchasePeriodValue;
 
+/**
+ * 单条成本记录的金额上限（单位：元）。
+ *
+ * cost_records.amount 是 INT（分），PostgreSQL int4 上限 2_147_483_647，
+ * 换算为元即 21_474_836.47。超过该值会在写入时抛 integer out of range（500），
+ * 因此必须在 DTO 层用 @Max 拦下并返回 400。
+ */
+export const COST_MAX_AMOUNT_YUAN = 21_474_836.47;
+
 export const COST_TYPE_VALUES = [
   'fixed',
   'variable',

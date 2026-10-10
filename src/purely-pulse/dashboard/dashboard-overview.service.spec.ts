@@ -193,4 +193,57 @@ describe('PulseDashboardOverviewService', () => {
     expect(dashboardAggregatorService.aggregateSales).toHaveBeenCalledTimes(2);
     expect(dashboardAggregatorService.aggregateCosts).toHaveBeenCalledTimes(2);
   });
+
+  it('getAnalysis 会把子账号标识透传给经营分析，避免被会员历史窗口裁剪', async () => {
+    pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      address: '深圳市南山区',
+      contactPhone: null,
+      ownerId: 301,
+      ownerName: '张三',
+    });
+    businessAnalysisService.getAnalysisByStoreId.mockResolvedValue({
+      heroSummary: {},
+      dailyTrend: [],
+      categoryShares: [],
+      costRateItems: [],
+      rankProducts: [],
+    });
+
+    const subAccountUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        staffId: 9,
+        storeId: 18,
+        role: 'staff',
+        permissions: ['report:view'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 5,
+        subAccountId: 77,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: false,
+      },
+    };
+
+    await service.getAnalysis(subAccountUser, { period: 'month' });
+    expect(businessAnalysisService.getAnalysisByStoreId).toHaveBeenCalledWith(
+      18,
+      expect.objectContaining({ period: 'month', storeId: 18 }),
+      true,
+    );
+
+    await service.getAnalysis(user, { period: 'month' });
+    expect(
+      businessAnalysisService.getAnalysisByStoreId,
+    ).toHaveBeenLastCalledWith(
+      18,
+      expect.objectContaining({ period: 'month', storeId: 18 }),
+      false,
+    );
+  });
 });

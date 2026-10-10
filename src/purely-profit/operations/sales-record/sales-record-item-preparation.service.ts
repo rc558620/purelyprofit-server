@@ -3,13 +3,16 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import { deriveProductProfit } from '../../goods/products/products.domain';
-import type { CreateSalesRecordDto } from './dto/sales-record.dto';
+import type {
+  CreateSalesRecordDto,
+  SalesRecordItemInputDto,
+} from './dto/sales-record.dto';
 import {
   normalizeSignedMoney,
   parseNumericProductId,
 } from './sales-record.utils';
 
-interface CatalogProductRecord {
+export interface CatalogProductRecord {
   id: number;
   name: string;
   category: string;
@@ -85,41 +88,104 @@ export interface CreateSalesRecordOptions {
 export class SalesRecordItemPreparationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async prepareItems(
+  /**
+   * 按明细中的商品 ID 批量加载门店商品目录。
+   *
+   * preview 与 create 共用，保证两侧拿到的目录快照口径一致。
+   */
+  async loadProductMap(
     storeId: number,
-    dto: CreateSalesRecordDto,
-    options: CreateSalesRecordOptions = {},
-  ): Promise<PreparedSalesItem[]> {
+    items: SalesRecordItemInputDto[],
+  ): Promise<Map<number, CatalogProductRecord>> {
     const numericProductIds = Array.from(
       new Set(
-        dto.items
+        items
           .map((item) => parseNumericProductId(item.productId))
           .filter((item): item is number => item !== null),
       ),
     );
 
-    const products: CatalogProductRecord[] = numericProductIds.length
-      ? await this.prisma.product.findMany({
-          where: {
-            storeId,
-            deletedAt: null,
-            id: { in: numericProductIds },
-          },
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            code: true,
-            price: true,
-            profit: true,
-            costPrice: true,
-            stock: true,
-            isActive: true,
-            image: true,
-          },
-        })
-      : [];
-    const productMap = new Map(products.map((item) => [item.id, item]));
+    if (numericProductIds.length === 0) {
+      return new Map();
+    }
+
+    const products: CatalogProductRecord[] = await this.prisma.product.findMany(
+      {
+        where: {
+          storeId,
+          deletedAt: null,
+          id: { in: numericProductIds },
+        },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          code: true,
+          price: true,
+          profit: true,
+          costPrice: true,
+          stock: true,
+          isActive: true,
+          image: true,
+        },
+      },
+    );
+
+    return new Map(products.map((item) => [item.id, item]));
+  }
+
+  /**
+   * 解析单条明细的权威单价与单件利润。
+   *
+   * ⚠️ preview 与 create **必须**共用此方法：早期 preview 直接用调用方传入的
+   * salePrice/profit，而 create 用商品目录价格，导致「预览金额 ≠ 实际入账金额」
+   * （商品在录入期间被改价时必现）。现在两条链路统一从这里取价。
+   *
+   * 目录商品的利润一律以目录（或 preserveCallerSalePrices 下按成本价推导）为准，
+   * 手动项则忽略调用方 profit、由售价推导，杜绝金额篡改。
+   */
+  resolveItemPrices(
+    matchedProduct: CatalogProductRecord | null,
+    item: SalesRecordItemInputDto,
+    options: CreateSalesRecordOptions = {},
+  ): { salePrice: Money; profit: Money } {
+    if (matchedProduct) {
+      const salePrice =
+        options.preserveCallerPrices || options.preserveCallerSalePrices
+          ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
+          : Money.fromDbCents(matchedProduct.price);
+
+      const profit = options.preserveCallerPrices
+        ? normalizeSignedMoney(item.profit, '单件利润格式不正确')
+        : options.preserveCallerSalePrices
+          ? deriveProductProfit(
+              salePrice,
+              matchedProduct.costPrice == null
+                ? null
+                : Money.fromDbCents(matchedProduct.costPrice),
+            )
+          : Money.fromDbCents(matchedProduct.profit);
+
+      return { salePrice, profit };
+    }
+
+    // ⚠️ 手动项利润由服务端从售价推导（无成本价时利润 = 售价），
+    //    前端传入的 profit 字段一律忽略，杜绝金额篡改风险。
+    //    与商品目录 deriveProductProfit(price, costPrice) 语义一致。
+    const salePrice = normalizeSignedMoney(
+      item.salePrice,
+      '销售单价格式不正确',
+    );
+
+    return { salePrice, profit: deriveProductProfit(salePrice, null) };
+  }
+
+  async prepareItems(
+    storeId: number,
+    dto: CreateSalesRecordDto,
+    options: CreateSalesRecordOptions = {},
+  ): Promise<PreparedSalesItem[]> {
+    const productMap = await this.loadProductMap(storeId, dto.items);
 
     return dto.items.map((item, index) => {
       const numericProductId = parseNumericProductId(item.productId);
@@ -148,20 +214,11 @@ export class SalesRecordItemPreparationService {
           );
         }
 
-        const salePrice =
-          options.preserveCallerPrices || options.preserveCallerSalePrices
-            ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
-            : Money.fromDbCents(matchedProduct.price);
-        const profit = options.preserveCallerPrices
-          ? normalizeSignedMoney(item.profit, '单件利润格式不正确')
-          : options.preserveCallerSalePrices
-            ? deriveProductProfit(
-                salePrice,
-                matchedProduct.costPrice == null
-                  ? null
-                  : Money.fromDbCents(matchedProduct.costPrice),
-              )
-            : Money.fromDbCents(matchedProduct.profit);
+        const { salePrice, profit } = this.resolveItemPrices(
+          matchedProduct,
+          item,
+          options,
+        );
 
         return {
           productId: matchedProduct.id,
@@ -177,15 +234,6 @@ export class SalesRecordItemPreparationService {
 
       const productName = item.productName.trim();
       const categoryName = item.categoryName.trim();
-      const salePrice = normalizeSignedMoney(
-        item.salePrice,
-        '销售单价格式不正确',
-      );
-
-      // ⚠️ 手动项利润由服务端从售价推导（无成本价时利润 = 售价），
-      //    前端传入的 profit 字段一律忽略，杜绝金额篡改风险。
-      //    与商品目录 deriveProductProfit(price, costPrice) 语义一致。
-      const profit = deriveProductProfit(salePrice, null);
 
       if (productName === '') {
         throw new BadRequestException(`第 ${index + 1} 条商品名称不能为空`);
@@ -193,6 +241,12 @@ export class SalesRecordItemPreparationService {
       if (categoryName === '') {
         throw new BadRequestException(`第 ${index + 1} 条商品分类不能为空`);
       }
+
+      const { salePrice, profit } = this.resolveItemPrices(
+        matchedProduct,
+        item,
+        options,
+      );
 
       // P2b fix: 非数值型 productId 保留为 systemProductId
       const rawProductId = item.productId?.trim();

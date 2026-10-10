@@ -51,7 +51,13 @@ export class ClubScanOrderingCartPricingService {
         product: {
           select: { image: true, isActive: true, deletedAt: true, stock: true },
         },
-        specGroups: { include: { options: true } },
+        // 必须与加购（loadProduct）和菜单查询同口径过滤 isActive，
+        // 否则已停用的规格组仍会参与 minSelections 校验，把老购物车行判成
+        // 「规格已更新」，而加购时却根本看不到这些组——前后口径打架。
+        specGroups: {
+          where: { isActive: true },
+          include: { options: { where: { isActive: true } } },
+        },
       },
     });
     // 同一商品的不同规格会形成多条购物车行，但菜单商品查询按 ID 去重。

@@ -62,7 +62,7 @@ export function resolvePurchaseStatsRanges(
       storeId,
       ...(currentRange ? { date: currentRange } : {}),
     },
-    previousRange: buildPreviousPurchaseDateRange(currentRange),
+    previousRange: buildPreviousPurchaseDateRange(currentRange, query.period),
   };
 }
 

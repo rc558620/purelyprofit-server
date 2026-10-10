@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import type { PermissionCode } from '../../access-control/access-control.constants';
 import type {
   CreateSalesRecordDto,
   ListSalesProductsQueryDto,
@@ -25,10 +27,29 @@ export class SalesRecordService {
     private readonly salesRecordReadService: SalesRecordReadService,
     private readonly salesRecordWriteService: SalesRecordWriteService,
     private readonly salesRecordPreviewService: SalesRecordPreviewService,
+    private readonly commerceAccessService: CommerceAccessService,
   ) {}
 
-  preview(dto: CreateSalesRecordDto): PreviewSalesRecordResponseDto {
-    return this.salesRecordPreviewService.preview(dto);
+  /**
+   * 预览金额（不落库）。
+   *
+   * 需要门店上下文：金额以商品目录价格为准（与 create 同源），
+   * 因此必须先解析出 storeId 才能查目录。
+   */
+  async preview(
+    user: AuthenticatedUser,
+    dto: CreateSalesRecordDto,
+    permission: PermissionCode,
+    options: CreateSalesRecordOptions = {},
+  ): Promise<PreviewSalesRecordResponseDto> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      dto.storeId,
+      permission,
+      '无权操作该门店销售记录',
+    );
+
+    return this.salesRecordPreviewService.preview(storeId, dto, options);
   }
 
   listProducts(

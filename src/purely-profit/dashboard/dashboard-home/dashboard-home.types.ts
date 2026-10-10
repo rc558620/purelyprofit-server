@@ -357,6 +357,8 @@ export interface ActivityDraft {
 
 export interface BuildDashboardHomeActivitiesParams {
   period: DashboardHomePeriodValue;
+  /** 本次响应的时间基准；必须与 meta.generatedAt 同源，避免与缓存数据时间漂移 */
+  now: number;
   currentSales: AggregatedSalesResult;
   compareSales: AggregatedSalesResult;
   lowStockProducts: ProductAlertRow[];

@@ -362,7 +362,7 @@ export async function loadDashboardHomeActivitiesData(
         storeId,
         status: EmployeePayrollStatus.draft,
         month: {
-          gte: buildRecentPayrollMonthFilter(),
+          gte: buildRecentPayrollMonthFilter(now),
         },
       },
       select: DASHBOARD_HOME_DRAFT_PAYROLL_SELECT,
@@ -414,8 +414,7 @@ export async function loadDashboardHomeActivitiesData(
  * EmployeePayroll.month 已改为 DateTime 类型（存储每月 1 日的时间戳），
  * 因此这里返回 Date 而非 string，确保 Prisma where 条件类型匹配。
  */
-function buildRecentPayrollMonthFilter(): Date {
-  const nowMs = Date.now();
+function buildRecentPayrollMonthFilter(nowMs: number): Date {
   // 「当前月份」按上海时区判定，避免 UTC 下月初/月末误判
   const year = getShanghaiYear(nowMs);
   const month = getShanghaiMonth(nowMs) - DRAFT_PAYROLL_MAX_MONTHS_AGO;

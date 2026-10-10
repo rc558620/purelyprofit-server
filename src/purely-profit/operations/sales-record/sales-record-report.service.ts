@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { isDeductionProductName } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { isNonQuantitySalesRecordRow } from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -19,6 +19,7 @@ import {
   buildScanOrderingEnrichment,
   buildSpaceSessionSpecsEnrichment,
 } from './sales-record-enrichment';
+import { listVisibleSaleOrderItems } from './sales-record-item-aggregation';
 import { aggregateReportRows } from './sales-record-report-aggregation';
 import {
   streamSalesReportCsv,
@@ -116,23 +117,20 @@ export class SalesRecordReportService {
       range: { start: range.start, end: range.end },
     });
 
-    // 从 items 重新聚合 totalQuantity，排除预付款行
-    const totalQuantity = orders.reduce(
-      (sum, order) =>
-        sum +
-        order.items
-          .filter((item) => !isDeductionProductName(item.productName))
-          .reduce((acc, item) => acc + item.quantity, 0),
+    // 从「可见商品行」重新聚合，口径与列表 / CSV 导出完全一致：
+    // 排除预付款/续费抵扣行，自助下单已支付商品只由抵扣行承载一次。
+    const visibleItems = orders.flatMap((order) =>
+      listVisibleSaleOrderItems(order).map(({ item }) => item),
+    );
+    const totalQuantity = visibleItems.reduce(
+      // 抵扣行 / 台位费行不是真实销量，计入会虚高
+      (sum, item) =>
+        sum + (isNonQuantitySalesRecordRow(item.productName) ? 0 : item.quantity),
       0,
     );
-    // 从 items 重新聚合 totalRevenue，排除预付款行
     const totalRevenue = Money.sum(
-      orders.flatMap((order) =>
-        order.items
-          .filter((item) => !isDeductionProductName(item.productName))
-          .map((item) =>
-            Money.fromDbCents(item.salePrice).multiply(item.quantity),
-          ),
+      visibleItems.map((item) =>
+        Money.fromDbCents(item.salePrice).multiply(item.quantity),
       ),
     ).toOutputYuan();
     const dailySales = aggregateReportRows(orders);

@@ -121,11 +121,16 @@ export function resolveProfitQueryRange(
   currentRange: ProfitAccessibleRange,
   previousRange: ProfitAccessibleRange,
 ): ProfitDateRange {
+  // end 取两侧最大值（与 business-analysis 的 resolveAnalysisQueryRange 对齐）：
+  // 仅取 currentRange.end 时，一旦历史裁剪让上期末端超出当期，上期尾部的销售/成本行
+  // 会被整体漏查，导致 previousRevenue/previousCost 偏小、环比虚高。
   return {
     start: previousRange.empty
       ? currentRange.start
       : Math.min(currentRange.start, previousRange.start),
-    end: currentRange.end,
+    end: previousRange.empty
+      ? currentRange.end
+      : Math.max(currentRange.end, previousRange.end),
   };
 }
 

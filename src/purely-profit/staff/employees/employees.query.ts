@@ -127,14 +127,20 @@ export async function queryEmployeesOverviewMetrics(
   return {
     activeCount,
     resignedCount,
-    leaveRows: leaveRows.map((r) => {
+    leaveRows: leaveRows.flatMap((r) => {
       // 跨月请假：按落入本月内的实际天数计算
       const effectiveStart = Math.max(r.startDate.getTime(), ms.getTime());
       const effectiveEnd = Math.min(
         r.endDate.getTime(),
         nextMonthStart.getTime(),
       );
-      return { days: calculateLeaveDays(effectiveStart, effectiveEnd) };
+      // 边界请假（如 endDate 恰好等于本月月初零点）与本月无有效交集，
+      // 直接丢弃而非交给 calculateLeaveDays —— 后者会因 start >= end 抛异常，
+      // 导致整条概览请求失败。
+      if (effectiveEnd <= effectiveStart) {
+        return [];
+      }
+      return [{ days: calculateLeaveDays(effectiveStart, effectiveEnd) }];
     }),
     pendingPayrollCount,
     resignedThisMonth,

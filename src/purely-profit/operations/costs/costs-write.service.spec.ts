@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CostsWriteService } from './costs-write.service';
 import {
+  createCostsCacheInvalidatorServiceMock,
   createCostsCommerceAccessServiceMock,
   createCostsPrismaMock,
   createCostsSpecUser,
@@ -13,6 +14,7 @@ describe('CostsWriteService', () => {
 
   const prismaService = createCostsPrismaMock();
   const commerceAccessService = createCostsCommerceAccessServiceMock();
+  const cacheInvalidatorService = createCostsCacheInvalidatorServiceMock();
   const user = createCostsSpecUser();
 
   beforeEach(async () => {
@@ -22,6 +24,7 @@ describe('CostsWriteService', () => {
       providers: createCostsWriteProviders(
         prismaService,
         commerceAccessService,
+        cacheInvalidatorService,
       ),
     }).compile();
 
@@ -64,6 +67,51 @@ describe('CostsWriteService', () => {
     });
   });
 
+  it('createRecord 会同步失效经营分析缓存', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.costRecord.create.mockResolvedValue({
+      id: 2,
+      title: '营销物料',
+      type: 'variable',
+      category: 'marketing',
+      sourceType: 'manual',
+      amount: 8850,
+      note: null,
+      date: new Date('2026-05-14T00:00:00.000Z'),
+      createdAt: new Date('2026-05-14T10:00:00.000Z'),
+    });
+
+    await service.createRecord(user, {
+      title: '营销物料',
+      type: 'variable',
+      category: 'marketing',
+      amount: 88.5,
+      date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+    });
+
+    // 经营分析聚合 cost_records，成本写入后必须一起失效，否则要等 TTL 才刷新
+    expect(
+      cacheInvalidatorService.invalidateBusinessAnalysis,
+    ).toHaveBeenCalledWith(18);
+  });
+
+  it('deleteRecord 会同步失效经营分析缓存', async () => {
+    prismaService.costRecord.findUnique.mockResolvedValue({
+      id: 9,
+      storeId: 18,
+      sourceType: 'manual',
+    });
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    prismaService.costRecord.delete.mockResolvedValue({ id: 9 });
+
+    await service.deleteRecord(user, 9);
+
+    expect(
+      cacheInvalidatorService.invalidateBusinessAnalysis,
+    ).toHaveBeenCalledWith(18);
+  });
+
   it('createRecord 在金额非法时抛错', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
@@ -77,6 +125,61 @@ describe('CostsWriteService', () => {
         date: new Date('2026-05-14T00:00:00.000Z').getTime(),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('createRecord 允许上海今天内晚于当前时刻的日期', async () => {
+    const nowSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(new Date('2026-05-14T15:30:00.000Z').getTime());
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.costRecord.create.mockResolvedValue({
+      id: 3,
+      title: '当日成本',
+      type: 'variable',
+      category: 'other',
+      sourceType: 'manual',
+      amount: 10000,
+      note: null,
+      date: new Date('2026-05-14T15:45:00.000Z'),
+      createdAt: new Date('2026-05-14T15:30:00.000Z'),
+    });
+
+    try {
+      await expect(
+        service.createRecord(user, {
+          title: '当日成本',
+          type: 'variable',
+          category: 'other',
+          amount: 100,
+          date: new Date('2026-05-14T15:45:00.000Z').getTime(),
+        }),
+      ).resolves.toBeDefined();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('createRecord 拒绝晚于上海今天的日期', async () => {
+    const nowSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(new Date('2026-05-14T15:30:00.000Z').getTime());
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+
+    try {
+      await expect(
+        service.createRecord(user, {
+          title: '次日成本',
+          type: 'variable',
+          category: 'other',
+          amount: 100,
+          date: new Date('2026-05-14T16:00:00.000Z').getTime(),
+        }),
+      ).rejects.toThrow('成本发生日期不能晚于今天');
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('deleteRecord 会阻止删除自动沉淀记录', async () => {

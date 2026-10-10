@@ -5,8 +5,9 @@ import {
   calcPercentChangeWithFallback,
 } from '../../../shared/money.utils';
 import {
+  addShanghaiMonths,
+  addShanghaiYears,
   formatShanghaiYearMonth,
-  getShanghaiDayOfMonth,
   getShanghaiDayStartMs,
   getShanghaiMonth,
   getShanghaiMonthStartMs,
@@ -28,6 +29,8 @@ import type {
   CostReportSummaryDto,
   CostStatsResponseDto,
 } from './dto/costs-response.dto';
+
+const DAY_MS = 86_400_000;
 
 export function buildEmptyCostStatsResponse(): CostStatsResponseDto {
   return {
@@ -245,57 +248,57 @@ export function buildPreviousCostReportRange(
 
   switch (resolvedPeriod) {
     case 'today':
-    case 'custom_month':
+      // 本期 = [今天 00:00, now]；上期对齐为 [昨天 00:00, 昨天同一时刻]
       return {
-        start: getDayStart(currentRange.start - 24 * 60 * 60 * 1000),
+        start: getDayStart(currentRange.start - DAY_MS),
+        end: currentRange.end - DAY_MS,
+        period: resolvedPeriod,
+      };
+    case 'custom_month':
+      // 本期是完整一天，上期 = 完整前一天，天然对称
+      return {
+        start: getDayStart(currentRange.start - DAY_MS),
         end: currentRange.start - 1,
         period: resolvedPeriod,
       };
     case 'week':
       return {
-        start: currentRange.start - 7 * 24 * 60 * 60 * 1000,
-        end: currentRange.start - 1,
+        start: currentRange.start - 7 * DAY_MS,
+        end: currentRange.end - 7 * DAY_MS,
         period: resolvedPeriod,
       };
-    case 'month': {
+    case 'month':
       return {
         start: makeShanghaiMs(
           getShanghaiYear(currentRange.start),
           getShanghaiMonth(currentRange.start) - 1,
           1,
         ),
-        end: currentRange.start - 1,
+        // 月末钳制：3/31 -> 2/28，上期会比本期少 1~3 天，属已知接受项
+        end: addShanghaiMonths(currentRange.end, -1),
         period: resolvedPeriod,
       };
-    }
-    case 'quarter': {
+    case 'quarter':
       return {
         start: makeShanghaiMs(
           getShanghaiYear(currentRange.start),
           getShanghaiMonth(currentRange.start) - 3,
           1,
         ),
-        end: currentRange.start - 1,
+        end: addShanghaiMonths(currentRange.end, -3),
         period: resolvedPeriod,
       };
-    }
-    case 'year': {
-      // 对称口径：上一年使用与当前年份相同的月/日终点（YTD vs YTD）
-      const year = getShanghaiYear(currentRange.start) - 1;
+    case 'year':
+      // 同期口径：上期终点 = 本期终点 - 1 年（严格同时刻，比原「去年同日日末」更精确）
       return {
-        start: makeShanghaiMs(year, 0, 1),
-        // 取上一年同月同日的上海日末：次日零点 -1ms
-        end:
-          makeShanghaiMs(
-            year,
-            getShanghaiMonth(currentRange.end),
-            getShanghaiDayOfMonth(currentRange.end) + 1,
-          ) - 1,
+        start: makeShanghaiMs(getShanghaiYear(currentRange.start) - 1, 0, 1),
+        end: addShanghaiYears(currentRange.end, -1),
         period: resolvedPeriod,
       };
-    }
     case 'custom_range': {
-      const duration = currentRange.end - currentRange.start;
+      // 结束日 >= 今天时本期会被 now 截断，上期须按相同进度取等长，否则不对称
+      const effectiveEnd = Math.min(currentRange.end, Date.now());
+      const duration = Math.max(effectiveEnd - currentRange.start, 0);
       return {
         start: currentRange.start - duration - 1,
         end: currentRange.start - 1,

@@ -1,6 +1,7 @@
 import {
   buildBusinessAnalysisPattern,
   buildClubPromotionsCacheKey,
+  buildProfitDashboardHomeActivitiesCacheKey,
   buildMarketingOverviewCacheKey,
   buildMembersListPattern,
   buildMembersMetaCacheKey,
@@ -87,6 +88,7 @@ const providerCases: readonly ProviderCase[] = [
       profitDashboardHomeCacheInvalidatorProvider({
         redisService,
       }).invalidateProfitDashboardHome(18),
+    expectedDelCalls: [buildProfitDashboardHomeActivitiesCacheKey(18)],
     expectedDelByPatternCalls: [
       buildProfitDashboardHomePattern(18),
       buildProfitDashboardHomeChunkPattern(18),

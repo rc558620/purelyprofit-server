@@ -267,7 +267,7 @@ describe('cache prewarm observability helpers', () => {
       lastFailedKeyByCategory: {
         dashboardHome: 'profit:dashboard:home:store:18:period:today',
         businessAnalysis:
-          'profit:business-analysis:store:18:period:month:start:na:end:na',
+          'profit:business-analysis:store:18:period:month:start:na:end:na:rank:profit',
         financeOverview: null,
         marketingOverview: null,
         membersMeta: null,
@@ -289,7 +289,7 @@ describe('cache prewarm observability helpers', () => {
         businessAnalysis: {
           capturedAt: '2026-06-08T10:01:00.000Z',
           cacheKey:
-            'profit:business-analysis:store:18:period:month:start:na:end:na',
+            'profit:business-analysis:store:18:period:month:start:na:end:na:rank:profit',
           durationMs: 210,
           errorTag: 'Error',
           failedReason: 'timeout',
@@ -355,7 +355,7 @@ describe('cache prewarm observability helpers', () => {
             {
               category: 'businessAnalysis',
               cacheKey:
-                'profit:business-analysis:store:18:period:month:start:na:end:na',
+                'profit:business-analysis:store:18:period:month:start:na:end:na:rank:profit',
               durationMs: 210,
               status: 'failed',
               errorTag: 'Error',

@@ -152,13 +152,15 @@ export class CostsReadDashboardService {
     // 仅沿用 storeId 与 typeFilter，不再叠加 period 的日期上/下界，
     // 否则自定义历史区间（如过去的 custom_range）会与 gte=近7日 无交集而返回空趋势。
     // 上海时区的「今天零点」向前推 6 天，保证与前端展示的日历日一致
-    const sevenDaysAgo = new Date(
-      addShanghaiDays(getShanghaiDayStartMs(Date.now()), -6),
-    );
+    const shanghaiTodayStart = getShanghaiDayStartMs(Date.now());
+    const sevenDaysAgo = new Date(addShanghaiDays(shanghaiTodayStart, -6));
+    // 必须同时给出上界：只写 gte 会连带丢掉 currentWhere 的 lte（含历史窗口上界夹持），
+    // 使 date 晚于今天的记录也落进趋势桶。
+    const shanghaiTodayEnd = new Date(shanghaiTodayStart + 86_400_000 - 1);
 
     const trendWhere: typeof currentWhere = {
       ...currentWhere,
-      date: { gte: sevenDaysAgo },
+      date: { gte: sevenDaysAgo, lte: shanghaiTodayEnd },
     };
 
     const trendRows = await this.prisma.costRecord.findMany({

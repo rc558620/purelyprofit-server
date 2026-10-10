@@ -69,7 +69,7 @@ export class DashboardHomeSalesTrendDto {
   title: string;
 
   @ApiProperty({
-    example: ['08:00', '10:00', '12:00', '14:00'],
+    example: ['00:00', '10:00', '12:00', '14:00'],
     description: '横轴标签',
   })
   @IsArray({ message: '横轴标签必须是数组' })
@@ -346,6 +346,22 @@ export class DashboardHomeQuotaDto {
   @ApiProperty({ description: '预警阈值（位新客），低于该值时提醒' })
   @IsInt()
   warningThreshold!: number;
+
+  /**
+   * 累计充值/赠送/消耗。前端据此判断门店是否真的用过额度：
+   * 从未有过流水的门店 remaining 天然为 0，不能当成「额度已用完」告警。
+   */
+  @ApiProperty({ description: '累计充值获得（位新客）' })
+  @IsInt()
+  totalRecharged!: number;
+
+  @ApiProperty({ description: '累计会员赠送（位新客）' })
+  @IsInt()
+  totalGranted!: number;
+
+  @ApiProperty({ description: '累计已服务新客（位新客）' })
+  @IsInt()
+  totalConsumed!: number;
 }
 
 export class DashboardHomeOverviewResponseDto {

@@ -2,7 +2,12 @@
 // 增强数据（扫码点餐 / 空间会话规格）见 sales-record-enrichment；
 // 报表行聚合见 sales-record-report-aggregation。
 import { Prisma, StaffRole } from '@prisma/client';
-import { toOptionalText, toTimestampMs } from '../../commerce/commerce.utils';
+import {
+  isNonQuantitySalesRecordRow,
+  toOptionalText,
+  toTimestampMs,
+  TABLE_FEE_NAME_RE,
+} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   buildGrouponLabel,
@@ -181,7 +186,9 @@ export function mapSalesRecordResponse(
     salePrice: Money.fromDbCents(item.salePrice),
     profit: Money.fromDbCents(item.profit),
     quantity: item.quantity,
-    countsTowardTotalQuantity: true,
+    // 抵扣行与台位费行不计入销售件数，否则会把金额冲减行 / 计时行
+    // 当成一件商品，导致销量统计虚高（与空间结账 totalQuantity 同口径）
+    countsTowardTotalQuantity: !isNonQuantitySalesRecordRow(item.productName),
     image: undefined as string | undefined,
   }));
 
@@ -286,12 +293,6 @@ export function mapSalesRecordItemResponse(
 // ---------------------------------------------------------------------------
 // 台位费展示名（列表 / 报表 / CSV 共用）
 // ---------------------------------------------------------------------------
-
-/**
- * 台位费行命名：兼容「台位费（固定）/ 台位费（按单价）」与
- * 「台位费 2小时30分钟」（计时模式已去掉括号）两种形式。
- */
-const TABLE_FEE_NAME_RE = /^台位费(（|\s|$)/;
 
 function shouldPrefixReportSpaceName(productName: string): boolean {
   return TABLE_FEE_NAME_RE.test(productName);

@@ -1,11 +1,15 @@
 // 销售报表行聚合：按「营业日 + 商品」汇总数量与营业额（排除抵扣行）
-import { isDeductionProductName } from '../../commerce/commerce.utils';
+import { isNonQuantitySalesRecordRow } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   formatShanghaiDayLabel,
   getShanghaiDayStartMs,
 } from '../../../shared/shanghai-time.utils';
 import type { SalesDailyRowDto } from './dto/sales-record-response.dto';
+import {
+  isSelfOrderDeductionRow,
+  listVisibleSaleOrderItems,
+} from './sales-record-item-aggregation';
 import {
   resolveReportProductName,
   type SaleOrderWithItems,
@@ -29,10 +33,9 @@ function getDayStart(timestamp: number): number {
 
 function buildReportRowId(
   dayStart: number,
-  order: SaleOrderWithItems,
   item: SaleOrderWithItems['items'][number],
+  displayName: string,
 ): string {
-  const displayName = resolveReportProductName(order, item);
   if (displayName !== item.productName) {
     return `${dayStart}-space_${displayName}`;
   }
@@ -59,20 +62,24 @@ export function aggregateReportRows(
     const dayStart = getDayStart(order.date.getTime());
     const dateLabel = formatReportMonthDay(dayStart);
 
-    for (const item of order.items) {
-      // 排除抵扣行（预付款 + 续费抵扣），报表只展示实际消费
-      if (isDeductionProductName(item.productName)) {
-        continue;
-      }
-
-      const productName = resolveReportProductName(order, item);
-      const rowId = buildReportRowId(dayStart, order, item);
+    // 与列表 / CSV 导出同口径：listVisibleSaleOrderItems 已排除
+    // 预付款/续费抵扣行，并把自助下单已支付的原商品行收敛到唯一的抵扣行，
+    // 避免同一笔消费同时计入「商品行 + 抵扣行」导致件数与营业额重复。
+    for (const { item } of listVisibleSaleOrderItems(order)) {
+      // 抵扣行保留完整名（「XX · 自助下单抵扣」），与 CSV 导出保持一致
+      const productName = isSelfOrderDeductionRow(item.productName)
+        ? item.productName
+        : resolveReportProductName(order, item);
+      const rowId = buildReportRowId(dayStart, item, productName);
       const revenue = Money.fromDbCents(item.salePrice)
         .multiply(item.quantity)
         .toOutputYuan();
       const existing = rows.get(rowId);
       if (existing) {
-        existing.quantity += item.quantity;
+        // 抵扣行 / 台位费行不是真实销量，累加数量会虚高
+        existing.quantity += isNonQuantitySalesRecordRow(item.productName)
+          ? 0
+          : item.quantity;
         existing.revenue = Money.fromInputYuan(existing.revenue)
           .add(Money.fromInputYuan(revenue))
           .toOutputYuan();
@@ -82,7 +89,10 @@ export function aggregateReportRows(
         id: rowId,
         dateLabel,
         productName,
-        quantity: item.quantity,
+        // 抵扣行 / 台位费行不是真实销量，需要展示但件数计 0
+        quantity: isNonQuantitySalesRecordRow(item.productName)
+          ? 0
+          : item.quantity,
         revenue,
       });
     }

@@ -1,5 +1,5 @@
 import {
-  isDeductionProductName,
+  isDeductionItem,
   toOptionalMediaText,
   toOptionalText,
 } from '../../commerce/commerce.utils';
@@ -62,8 +62,12 @@ export function aggregateSales(
   const seenOrderIds = new Set<number>();
 
   for (const row of rows) {
-    // 排除抵扣行（预付款 + 续费抵扣），利润明细只算实际消费
-    if (isDeductionProductName(row.productName)) {
+    // 排除抵扣行（预付款 + 续费抵扣 + 自助下单抵扣），利润明细只算实际消费。
+    // 走 isDeductionItem 而非 isDeductionProductName：前者在 systemProductId 存在时
+    // 优先按系统商品 ID 判定，商品被改名也不会漏判。
+    // 当前 sale_order_items 表尚无 systemProductId 列，故这里只传 productName（等价回退）；
+    // 该列上线后只要在 PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT 里补上 select 即可自动生效。
+    if (isDeductionItem({ productName: row.productName })) {
       continue;
     }
 

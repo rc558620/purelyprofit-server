@@ -204,9 +204,15 @@ export class PulseDashboardOverviewService {
       endTime: queryDto.endTime,
     };
 
+    // 与 profit 端经营分析保持一致的会员历史窗口语义：子账号不受历史窗口裁剪。
+    // 早期实现不传该标识，恒按老板口径裁剪，子账号调用方会拿到被裁剪的数据。
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
+
     return this.businessAnalysisService.getAnalysisByStoreId(
       targetStore.id,
       proxyQuery,
+      callerIsSubAccount,
     );
   }
 

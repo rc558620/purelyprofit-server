@@ -1090,7 +1090,7 @@ describe('EmployeesService', () => {
       name: '李明',
     });
   });
-  
+
   it('updateDepartment 会同步更新关联员工的部门名称', async () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:20:00.000Z');
@@ -1589,7 +1589,9 @@ describe('EmployeesService', () => {
           gte: new Date(makeShanghaiMs(2026, 0, 1)),
           lt: new Date(makeShanghaiMs(2027, 0, 1)),
         },
+        // 已删除员工的历史工资单不再出现在列表中
         employee: {
+          deletedAt: null,
           department: { equals: '前厅', mode: 'insensitive' },
         },
       },
@@ -2130,7 +2132,9 @@ describe('EmployeesService', () => {
           gte: new Date(makeShanghaiMs(2026, 4, 1)),
           lt: new Date(makeShanghaiMs(2026, 5, 1)),
         },
+        // 已删除员工的历史排班不再出现在报表与列表中
         employee: {
+          deletedAt: null,
           department: { equals: '前厅', mode: 'insensitive' },
         },
       },

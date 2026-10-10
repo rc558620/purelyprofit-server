@@ -1,12 +1,17 @@
 import type { InventoryAdjustType } from '@prisma/client';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
 import {
+  addShanghaiMonths,
+  addShanghaiYears,
   formatShanghaiDayLabel,
   getShanghaiDayStartMs,
+  getShanghaiMonth,
   getShanghaiMonthStartMs,
   getShanghaiQuarterStartMs,
   getShanghaiWeekStartMs,
+  getShanghaiYear,
   getShanghaiYearStartMs,
+  makeShanghaiMs,
 } from '../../shared/shanghai-time.utils';
 
 const DAY_MS = 86_400_000;
@@ -47,6 +52,33 @@ export const RENEW_DEDUCTION_PRODUCT_NAME = '续费抵扣';
  */
 export const SELF_ORDER_DEDUCTION_PRODUCT_ID = 'SYS_SELF_ORDER_DEDUCTION';
 export const SELF_ORDER_DEDUCTION_PRODUCT_NAME = '自助下单抵扣';
+
+/**
+ * 台位费展示名正则：兼容「台位费（固定）/ 台位费（按单价）」
+ * 与「台位费 2小时30分钟」（计时模式已去掉括号）两种形式。
+ * 列表 / 报表 / CSV / 件数统计共用，避免各处复制正则导致判定漂移。
+ */
+export const TABLE_FEE_NAME_RE = /^台位费(（|\s|$)/;
+
+/**
+ * 是否为「不计入销售件数」的系统虚拟行。
+ *
+ * 与空间结账的 isNonQuantitySystemItem(productId) 同一口径，但落库后
+ * 系统行的 product_id 一律为 null（SYS_ 前缀 ID 非数字，写入 Int 列被置空），
+ * 因此读取侧只能按 productName 反向识别：
+ * - 抵扣行（预付/续费/自助下单）：负数金额行，不表示真实销售件数；
+ * - 台位费行（计时/一口价）：按时间计费，不是商品销量。
+ *
+ * ⚠️ 金额（营业额/利润）不在此排除——抵扣行必须与它对应的商品行配对后才能
+ * 互相冲抵。单独剔除任一侧都会导致金额重复计算（详见 listVisibleSaleOrderItems）。
+ */
+export function isNonQuantitySalesRecordRow(productName: string): boolean {
+  return (
+    isDeductionProductName(productName) ||
+    productName.endsWith(` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`) ||
+    TABLE_FEE_NAME_RE.test(productName)
+  );
+}
 
 /**
  * 判断商品行是否为抵扣行（预付款/续费抵扣/自助下单抵扣），
@@ -340,18 +372,66 @@ export function buildPurchaseDateRange(
 
 export function buildPreviousPurchaseDateRange(
   currentRange: { gte: Date; lte: Date } | undefined,
+  period?: PurchasePeriodValue,
 ): { gte: Date; lte: Date } | undefined {
-  if (!currentRange) {
-    return undefined;
-  }
+  if (!currentRange) return undefined;
+  const start = currentRange.gte.getTime();
+  const end = currentRange.lte.getTime();
+  const duration = end - start;
+  if (duration < 0) return undefined;
 
-  const duration = currentRange.lte.getTime() - currentRange.gte.getTime();
-  if (duration < 0) {
-    return undefined;
+  switch (period) {
+    case 'week':
+      return {
+        gte: new Date(start - 7 * DAY_MS),
+        lte: new Date(end - 7 * DAY_MS),
+      };
+    case 'month':
+      return {
+        gte: new Date(
+          makeShanghaiMs(
+            getShanghaiYear(start),
+            getShanghaiMonth(start) - 1,
+            1,
+          ),
+        ),
+        // 月末按目标月最后一天钳制，属已知接受项
+        lte: new Date(addShanghaiMonths(end, -1)),
+      };
+    case 'quarter':
+      return {
+        gte: new Date(
+          makeShanghaiMs(
+            getShanghaiYear(start),
+            getShanghaiMonth(start) - 3,
+            1,
+          ),
+        ),
+        lte: new Date(addShanghaiMonths(end, -3)),
+      };
+    case 'year':
+      // 闰年 2/29 偏移后钳制到 2/28，属已知接受项
+      return {
+        gte: new Date(makeShanghaiMs(getShanghaiYear(start) - 1, 0, 1)),
+        lte: new Date(addShanghaiYears(end, -1)),
+      };
+    case 'custom_month':
+      return {
+        gte: new Date(getShanghaiDayStartMs(start - DAY_MS)),
+        lte: new Date(start - 1),
+      };
+    case 'custom_range': {
+      const effective = Math.max(Math.min(end, Date.now()) - start, 0);
+      return {
+        gte: new Date(start - effective - 1),
+        lte: new Date(start - 1),
+      };
+    }
+    default:
+      // all / undefined：无周期概念，保持紧邻等长段
+      return {
+        gte: new Date(start - duration - 1),
+        lte: new Date(start - 1),
+      };
   }
-
-  return {
-    gte: new Date(currentRange.gte.getTime() - duration - 1),
-    lte: new Date(currentRange.gte.getTime() - 1),
-  };
 }

@@ -65,6 +65,16 @@ export class ProfitDetailService {
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
 
+    // 与 getReport 对齐：export 是「导出动作」标记，必须过套餐导出门控。
+    // 此前 getProfitDetail 只看 export 决定是否绕过缓存、不做权限校验，
+    // 与 /profit-detail/report 的口径不一致（同为 report:view 却有两套门控）。
+    if (queryDto.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+        callerIsSubAccount,
+      );
+    }
+
     // 导出模式或子账号直接查库，不走缓存
     if (queryDto.export || callerIsSubAccount) {
       const snapshot = await this.buildProfitSnapshot(
@@ -218,7 +228,11 @@ export class ProfitDetailService {
   }
 
   /**
-   * 流式导出利润报表 CSV，O(1) 内存占用。
+   * 导出利润报表 CSV。
+   *
+   * 注意：这里是「一次性物化 rows 再逐行 write」，内存占用是 O(n)，不是 O(1)。
+   * 真正的 O(1) 需要让查询侧改用游标分页边读边写。当前商品行数规模下可接受，
+   * 但不要再按 O(1) 去估算大店铺的内存峰值。
    */
   async streamReportCsv(
     reply: ServerResponse,

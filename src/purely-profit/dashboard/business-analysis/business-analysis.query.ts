@@ -10,6 +10,11 @@ import type {
   BusinessAnalysisRankRow,
   BusinessAnalysisSalesSummaryRow,
   BusinessAnalysisRange,
+  BusinessAnalysisRankSort,
+} from './business-analysis.types';
+import {
+  BUSINESS_ANALYSIS_RANK_LIMIT,
+  DEFAULT_BUSINESS_ANALYSIS_RANK_SORT,
 } from './business-analysis.types';
 import { resolveAnalysisQueryRange } from './business-analysis.utils';
 
@@ -114,13 +119,31 @@ function buildQueryRange(
   return resolveAnalysisQueryRange(currentRange, previousRange);
 }
 
+/**
+ * 排行排序子句：由前端透传的排序维度决定，服务端排序后再截断，
+ * 避免「按利润截断后前端再按收入/销量排序」导致的排名错误。
+ * 末级统一用商品名兜底，保证同值行的顺序稳定。
+ */
+function buildRankOrderSql(rankSort: BusinessAnalysisRankSort): Prisma.Sql {
+  switch (rankSort) {
+    case 'revenue':
+      return Prisma.sql`"totalRevenue" DESC, "totalProfit" DESC, soi.product_name ASC`;
+    case 'quantity':
+      return Prisma.sql`quantity DESC, "totalProfit" DESC, soi.product_name ASC`;
+    default:
+      return Prisma.sql`"totalProfit" DESC, "totalRevenue" DESC, soi.product_name ASC`;
+  }
+}
+
 export async function fetchBusinessAnalysisMetrics(
   prisma: PrismaService,
   storeId: number,
   currentRange: BusinessAnalysisAccessibleRange,
   previousRange: BusinessAnalysisAccessibleRange,
+  rankSort: BusinessAnalysisRankSort = DEFAULT_BUSINESS_ANALYSIS_RANK_SORT,
 ): Promise<BusinessAnalysisMetricsRows> {
   const queryRange = buildQueryRange(currentRange, previousRange);
+  const rankOrderSql = buildRankOrderSql(rankSort);
   const salesPreviousRevenueSql = buildSalesPreviousRevenueSql(previousRange);
   const salesPreviousCountSql = buildSalesPreviousCountSql(previousRange);
   const salesPreviousProfitSql = buildSalesPreviousProfitSql(previousRange);
@@ -218,7 +241,8 @@ export async function fetchBusinessAnalysisMetrics(
         AND so.date <= ${new Date(currentRange.end)}
         AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
       GROUP BY soi.product_id, soi.product_name, soi.category_name
-      ORDER BY "totalProfit" DESC, "totalRevenue" DESC, soi.product_name ASC
+      ORDER BY ${rankOrderSql}
+      LIMIT ${BUSINESS_ANALYSIS_RANK_LIMIT}
     `,
     prisma.$queryRaw<BusinessAnalysisCostSummaryRow[]>`
       SELECT

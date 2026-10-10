@@ -11,7 +11,11 @@ import {
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
-import type { BusinessAnalysisAccessibleRange } from './business-analysis.types';
+import type {
+  BusinessAnalysisAccessibleRange,
+  BusinessAnalysisRankSort,
+} from './business-analysis.types';
+import { DEFAULT_BUSINESS_ANALYSIS_RANK_SORT } from './business-analysis.types';
 import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import {
   buildCostAggregation,
@@ -113,7 +117,7 @@ export class BusinessAnalysisService {
     storeId: number,
     query: Pick<
       GetBusinessAnalysisQueryDto,
-      'period' | 'startTime' | 'endTime'
+      'period' | 'startTime' | 'endTime' | 'rankSort'
     >,
   ): Promise<BusinessAnalysisResponseDto> {
     const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
@@ -167,11 +171,15 @@ export class BusinessAnalysisService {
         callerIsSubAccount,
       );
 
+    const rankSort: BusinessAnalysisRankSort =
+      query.rankSort ?? DEFAULT_BUSINESS_ANALYSIS_RANK_SORT;
+
     const metricsRows = await fetchBusinessAnalysisMetrics(
       this.prisma,
       storeId,
       effectiveCurrentRange,
       clampedPreviousRange,
+      rankSort,
     );
     const currentSales = buildSalesAggregation({
       revenue: Number(metricsRows.salesSummaryRow.currentRevenue ?? 0),

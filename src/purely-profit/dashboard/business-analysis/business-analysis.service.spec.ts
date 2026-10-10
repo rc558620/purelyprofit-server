@@ -251,6 +251,167 @@ describe('BusinessAnalysisService', () => {
     expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
   });
 
+  it('getAnalysis 会把同一商品的不同名称分组累加，避免改名导致排行数据丢失', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('2200'),
+          currentOrderCount: 2,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+          currentProfit: new Prisma.Decimal('800'),
+          previousProfit: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      // 同一 productId=1 的商品改过名，SQL 返回两行
+      .mockResolvedValueOnce([
+        {
+          productId: 1,
+          productName: '可口可乐 330ml',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('1300'),
+          totalProfit: new Prisma.Decimal('500'),
+          quantity: 2,
+          image: null,
+        },
+        {
+          productId: 1,
+          productName: '可乐 330ml',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('900'),
+          totalProfit: new Prisma.Decimal('300'),
+          quantity: 1,
+          image: 'https://example.com/coke.png',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('0'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const response = await service.getAnalysis(user, {
+      period: 'custom_range',
+      startTime: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+    });
+
+    expect(response.rankProducts).toEqual([
+      {
+        id: '1',
+        // 沿用利润最高的分组名称（SQL 已按 totalProfit DESC 排序）
+        name: '可口可乐 330ml',
+        category: '饮品',
+        profitRate: 36.36,
+        totalProfit: 8,
+        totalRevenue: 22,
+        quantity: 3,
+        image: 'https://example.com/coke.png',
+      },
+    ]);
+  });
+
+  it('getAnalysis 保留服务端按 rankSort 返回的排序，且缓存键区分排序维度', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('200'),
+          currentOrderCount: 2,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+          currentProfit: new Prisma.Decimal('50'),
+          previousProfit: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      // 模拟 SQL 按销量维度排序后的返回顺序（销量 9 > 3，但利润 2 < 3）
+      .mockResolvedValueOnce([
+        {
+          productId: 2,
+          productName: '雪碧',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('120'),
+          totalProfit: new Prisma.Decimal('20'),
+          quantity: 9,
+          image: null,
+        },
+        {
+          productId: 1,
+          productName: '可乐',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('80'),
+          totalProfit: new Prisma.Decimal('30'),
+          quantity: 3,
+          image: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('0'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const response = await service.getAnalysis(user, {
+      period: 'custom_range',
+      startTime: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+      rankSort: 'quantity',
+    });
+
+    // 若前端/Mapper 仍按利润重排，顺序会被翻转
+    expect(response.rankProducts.map((item) => item.id)).toEqual(['2', '1']);
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: expect.stringContaining(':rank:quantity'),
+      }),
+    );
+  });
+
+  it('getAnalysis 默认按利润排序，rankSort 缺省时缓存键回落到 profit', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('0'),
+          currentOrderCount: 0,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+          currentProfit: new Prisma.Decimal('0'),
+          previousProfit: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('0'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await service.getAnalysis(user, { period: 'today' });
+
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: expect.stringContaining(':rank:profit'),
+      }),
+    );
+  });
+
   it('getAnalysis 在导出模式下会校验报表导出权限', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(

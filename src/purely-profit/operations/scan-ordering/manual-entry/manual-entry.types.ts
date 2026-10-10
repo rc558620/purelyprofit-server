@@ -10,6 +10,8 @@ export interface ManualEntrySpecOptionResponse {
   extraPrice: number;
   /** 是否默认选中 */
   isDefault: boolean;
+  /** 是否在售；菜单接口只下发在售选项，保留字段供前端判定停用态 */
+  isActive: boolean;
 }
 
 /** 录入订单规格组（对齐前端 ManualEntrySpecGroup 语义） */

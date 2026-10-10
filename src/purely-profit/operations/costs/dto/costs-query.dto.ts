@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -17,6 +18,7 @@ import {
 import { PaginationQueryDto } from '../../../stores/dto/store-response.dto';
 import {
   COST_CATEGORY_VALUES,
+  COST_MAX_AMOUNT_YUAN,
   COST_PERIOD_VALUES,
   COST_REPORT_CATEGORY_FILTER_VALUES,
   COST_REPORT_PERIOD_VALUES,
@@ -182,6 +184,10 @@ export class CreateCostRecordDto {
   @Type(() => Number)
   @IsNumber({}, { message: '成本金额必须是数字' })
   @Min(0.01, { message: '成本金额必须大于 0' })
+  // 库表 amount 为 INT（分），超出 int4 上限会直接 500，必须在入参层拦成 400
+  @Max(COST_MAX_AMOUNT_YUAN, {
+    message: `成本金额不能超过 ${COST_MAX_AMOUNT_YUAN} 元`,
+  })
   amount: number;
 
   @ApiProperty({ example: 1747180800000, description: '发生时间戳（毫秒）' })

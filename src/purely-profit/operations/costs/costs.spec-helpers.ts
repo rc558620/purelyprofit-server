@@ -129,25 +129,28 @@ export function createCostsReadProviders(
   ];
 }
 
+export function createCostsCacheInvalidatorServiceMock() {
+  return {
+    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+    invalidatePulseDashboardOverview: jest.fn().mockResolvedValue(undefined),
+    invalidateCostsCaches: jest.fn().mockResolvedValue(undefined),
+    invalidateBusinessAnalysis: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 export function createCostsWriteProviders(
   prismaService: ReturnType<typeof createCostsPrismaMock>,
   commerceAccessService: ReturnType<
     typeof createCostsCommerceAccessServiceMock
   >,
+  cacheInvalidatorService: ReturnType<
+    typeof createCostsCacheInvalidatorServiceMock
+  > = createCostsCacheInvalidatorServiceMock(),
 ): Provider[] {
   return [
     CostsWriteService,
     { provide: PrismaService, useValue: prismaService },
-    {
-      provide: CacheInvalidatorService,
-      useValue: {
-        invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
-        invalidatePulseDashboardOverview: jest
-          .fn()
-          .mockResolvedValue(undefined),
-        invalidateCostsCaches: jest.fn().mockResolvedValue(undefined),
-      },
-    },
+    { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
     { provide: CommerceAccessService, useValue: commerceAccessService },
   ];
 }

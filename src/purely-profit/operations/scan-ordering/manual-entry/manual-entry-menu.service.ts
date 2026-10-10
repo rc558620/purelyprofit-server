@@ -87,6 +87,7 @@ export class ManualEntryMenuService {
           name: string;
           extraPrice: number;
           isDefault: boolean;
+          isActive: boolean;
         }>;
       }>;
     }>;
@@ -124,6 +125,7 @@ export class ManualEntryMenuService {
               name: option.name,
               extraPrice: Money.fromDbCents(option.extraPrice).toOutputYuan(),
               isDefault: option.isDefault,
+              isActive: option.isActive,
             })),
           })),
         })),

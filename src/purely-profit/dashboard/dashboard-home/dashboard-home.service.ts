@@ -68,11 +68,14 @@ export class DashboardHomeService {
   ): Promise<DashboardHomeOverviewResponseDto> {
     const query = buildDashboardHomeQueryInput(queryDto);
     const period = query.period ?? 'today';
-    const capabilitySnapshot = await this.buildCapabilitySnapshot(
+    const preliminaryStoreId =
+      user.currentMembership?.storeId ?? query.storeId ?? 0;
+    // 权限裁决只依赖身份维度，先按登录态自带的门店 ID 取一次能力快照。
+    const preliminaryCapability = await this.buildCapabilitySnapshot(
       user,
-      user.currentMembership?.storeId ?? query.storeId ?? 0,
+      preliminaryStoreId,
     );
-    const requiredPermission = capabilitySnapshot.canAccessDashboardOverview
+    const requiredPermission = preliminaryCapability.canAccessDashboardOverview
       ? 'operation-entry:view'
       : 'report:view';
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
@@ -81,6 +84,24 @@ export class DashboardHomeService {
       requiredPermission,
       '无权查看该门店首页概览',
     );
+    // 真实门店 ID 与预估不一致时按真实值重算：否则会用 storeId=0 算出空能力，
+    // 导致业态能力（餐饮/空间/扫码点单）被错误降级为 false。
+    const capabilitySnapshot =
+      storeId === preliminaryStoreId
+        ? preliminaryCapability
+        : await this.buildCapabilitySnapshot(user, storeId);
+
+    const cacheKey = buildProfitDashboardHomeCacheKey(storeId, period);
+    // 概览主体（不含 capability）按门店+周期整包缓存，命中即直接返回。
+    // capability 与登录用户相关，必须实时计算，不能进缓存。
+    const cachedOverview =
+      await this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
+        cacheKey,
+      );
+    if (cachedOverview) {
+      return { ...cachedOverview, capability: capabilitySnapshot };
+    }
+
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
     const now = Date.now();
@@ -88,26 +109,46 @@ export class DashboardHomeService {
       await Promise.all([
         this.loadStatsCache(storeId, period, currentRange, compareRange),
         this.loadTrendCache(storeId, period, currentRange),
-        this.loadActivitiesCache(storeId, period, now),
+        this.loadActivitiesCache(storeId, now),
         this.quotaService.getOverview(storeId),
       ]);
+    const overview = this.buildOverviewResponse(
+      period,
+      storeId,
+      currentRange,
+      compareRange,
+      now,
+      statsData,
+      salesTrend,
+      activitiesData,
+      this.toQuotaDto(quotaOverview),
+    );
+
+    await this.redisService.setJson(
+      cacheKey,
+      overview,
+      PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS,
+    );
 
     return {
-      ...this.buildOverviewResponse(
-        period,
-        storeId,
-        currentRange,
-        compareRange,
-        now,
-        statsData,
-        salesTrend,
-        activitiesData,
-        {
-          remaining: quotaOverview.remaining,
-          warningThreshold: quotaOverview.warningThreshold,
-        },
-      ),
+      ...overview,
       capability: capabilitySnapshot,
+    };
+  }
+
+  private toQuotaDto(quotaOverview: {
+    remaining: number;
+    warningThreshold: number;
+    totalRecharged: number;
+    totalGranted: number;
+    totalConsumed: number;
+  }): DashboardHomeQuotaDto {
+    return {
+      remaining: quotaOverview.remaining,
+      warningThreshold: quotaOverview.warningThreshold,
+      totalRecharged: quotaOverview.totalRecharged,
+      totalGranted: quotaOverview.totalGranted,
+      totalConsumed: quotaOverview.totalConsumed,
     };
   }
 
@@ -123,7 +164,7 @@ export class DashboardHomeService {
       await Promise.all([
         this.refreshStatsCache(storeId, period, currentRange, compareRange),
         this.refreshTrendCache(storeId, period, currentRange),
-        this.refreshActivitiesCache(storeId, period, now),
+        this.refreshActivitiesCache(storeId, now),
         this.quotaService.getOverview(storeId),
       ]);
     const response = this.buildOverviewResponse(
@@ -135,10 +176,7 @@ export class DashboardHomeService {
       statsData,
       salesTrend,
       activitiesData,
-      {
-        remaining: quotaOverview.remaining,
-        warningThreshold: quotaOverview.warningThreshold,
-      },
+      this.toQuotaDto(quotaOverview),
     );
 
     await this.redisService.setJson(
@@ -235,15 +273,15 @@ export class DashboardHomeService {
     return data;
   }
 
+  /**
+   * 动态数据只与门店和当前时间有关（与 period 无关），缓存键不带 period，
+   * 否则同一份数据会被复制 5 份并回源 5 次。
+   */
   private async loadActivitiesCache(
     storeId: number,
-    period: DashboardHomePeriodValue,
     now: number,
   ): Promise<DashboardHomeActivitiesData> {
-    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(
-      storeId,
-      period,
-    );
+    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(storeId);
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
@@ -256,13 +294,9 @@ export class DashboardHomeService {
 
   private async refreshActivitiesCache(
     storeId: number,
-    period: DashboardHomePeriodValue,
     now: number,
   ): Promise<DashboardHomeActivitiesData> {
-    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(
-      storeId,
-      period,
-    );
+    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(storeId);
     const data = await loadDashboardHomeActivitiesData(this.prisma, {
       storeId,
       now,

@@ -33,7 +33,8 @@ export function buildDashboardHomeActivities(
 ): DashboardHomeActivityDto[] {
   const drafts: ActivityDraft[] = [];
   const periodMeta = PERIOD_META[params.period];
-  const now = Date.now();
+  // 与 meta.generatedAt 同源：动态数据可能来自缓存，用 Date.now() 会与时间基准漂移
+  const now = params.now;
   const salesDiff = Money.fromInputYuan(params.currentSales.revenue)
     .subtract(Money.fromInputYuan(params.compareSales.revenue))
     .toOutputYuan();

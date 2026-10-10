@@ -19,6 +19,8 @@ export const COSTS_RECORDS_CACHE_TTL_SECONDS = 30;
 export const COSTS_RECORDS_REFRESH_AFTER_MS = 10_000;
 export const COSTS_DASHBOARD_CACHE_TTL_SECONDS = 60;
 export const COSTS_DASHBOARD_REFRESH_AFTER_MS = 15_000;
+/** 上期金额低于该值时百分比会被放大到无意义，直接不展示环比 */
+export const MIN_COMPARABLE_PREVIOUS_YUAN = 100;
 
 // ── Caller helpers ──
 
@@ -70,8 +72,12 @@ export async function calculatePreviousPeriodChange(
     _sum: { amount: true },
   });
 
-  return calculateCostCompareLastPeriod(
-    total,
-    Money.fromDbCents(previousAggregate._sum.amount ?? 0).toOutputYuan(),
-  );
+  // 上期样本过小（如月初刚过零点）时百分比会放大到无意义，直接不展示
+  const previousYuan = Money.fromDbCents(
+    previousAggregate._sum.amount ?? 0,
+  ).toOutputYuan();
+  if (previousYuan > 0 && previousYuan < MIN_COMPARABLE_PREVIOUS_YUAN) {
+    return null;
+  }
+  return calculateCostCompareLastPeriod(total, previousYuan);
 }

@@ -192,21 +192,22 @@ function buildCostRateItems(
 function buildRankProducts(
   rankMap: Map<string, AggregatedRankProduct>,
 ): BusinessAnalysisRankProductDto[] {
-  return Array.from(rankMap.values())
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      profitRate: calcPercentOfTotal(
-        item.totalProfit.toOutputYuan(),
-        item.totalRevenue.toOutputYuan(),
-      ),
-      totalProfit: item.totalProfit.toOutputYuan(),
-      totalRevenue: item.totalRevenue.toOutputYuan(),
-      quantity: item.quantity,
-      ...(item.image ? { image: item.image } : {}),
-    }))
-    .sort((left, right) => right.totalProfit - left.totalProfit);
+  // 不再在 JS 侧重排：SQL 已按前端透传的 rankSort 维度排序并截断，
+  // 此处重排会覆盖服务端排序（例如按销量排序时被改回按利润排）。
+  // Map 保持 SQL 返回顺序（插入序），直接映射即可。
+  return Array.from(rankMap.values()).map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    profitRate: calcPercentOfTotal(
+      item.totalProfit.toOutputYuan(),
+      item.totalRevenue.toOutputYuan(),
+    ),
+    totalProfit: item.totalProfit.toOutputYuan(),
+    totalRevenue: item.totalRevenue.toOutputYuan(),
+    quantity: item.quantity,
+    ...(item.image ? { image: item.image } : {}),
+  }));
 }
 
 function buildCompare(

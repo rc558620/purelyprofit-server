@@ -36,31 +36,22 @@ export const isSelfOrderDeductionRow = (productName: string): boolean =>
 
 /**
  * 列出订单中「可见」的商品行（含在 order.items 中的原始索引）：
- * 1. 排除抵扣行（预付款 + 续费 + 自助下单抵扣），销售记录只展示实际消费；
- * 2. 自助下单已在线支付的商品行由「商品名 · 自助下单抵扣」抵扣行承载展示，
- *    原商品行排除，避免同一笔消费出现「商品行 + 抵扣行」两行（金额重复）。
+ * 仅排除预付/续费抵扣行（这两类抵扣没有对应的正向商品行，是纯粹的负向冲减），
+ * 销售记录只展示实际消费。
+ *
+ * ⚠️ 切勿在此剔除「自助下单抵扣」行及其对应的正向商品行：
+ * 二者金额必然等值反号（+N 与 −N），成对出现时净差为 0，正是空间结账
+ * `buildSpaceSessionSettlement` 的记账设计——该笔消费已在小程序侧单独生成
+ * 销售单（createForPaidOrder），本单不能再计一次营业额。
+ * 早期实现只剔除了正向商品行、保留了负向抵扣行，等于把这笔消费减了两遍
+ * （本单营业额被多扣 N 元），此处必须成对保留。
  */
 export function listVisibleSaleOrderItems(
   order: SaleOrderWithItems,
 ): Array<{ item: SaleOrderWithItems['items'][number]; index: number }> {
-  // 抵扣行名字 = 「对应商品行的展示名（或去掉规格后缀的基础名） · 自助下单抵扣」
-  const deductionNames = new Set(
-    order.items
-      .filter((item) => isSelfOrderDeductionRow(item.productName))
-      .map((item) => item.productName),
-  );
-  const suffix = ` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`;
-  const isShadowedBySelfOrderDeduction = (productName: string): boolean =>
-    deductionNames.has(`${productName}${suffix}`) ||
-    deductionNames.has(`${productName.replace(/（[^）]*）$/, '')}${suffix}`);
-
   return order.items
     .map((item, index) => ({ item, index }))
-    .filter(
-      ({ item }) =>
-        !isDeductionProductName(item.productName) &&
-        !isShadowedBySelfOrderDeduction(item.productName),
-    );
+    .filter(({ item }) => !isDeductionProductName(item.productName));
 }
 
 /**

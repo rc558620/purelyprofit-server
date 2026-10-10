@@ -4,21 +4,41 @@ import type { ServerResponse } from 'node:http';
  * CSV 特殊字符转义：字段内含逗号、双引号或换行时用双引号包裹。
  * 符合 RFC 4180 规范。
  */
+/**
+ * CSV 公式注入防护：以 = + - @ 开头且第二个字符不是数字的文本字段，
+ * 在 Excel/WPS 中会被当作公式执行。仅对字符串生效，避免把负数金额
+ * （number 类型的 -3）误伤成文本。
+ */
+function neutralizeCsvFormula(str: string, isTextValue: boolean): string {
+  if (!isTextValue) {
+    return str;
+  }
+  if (!/^[=+\-@]/.test(str)) {
+    return str;
+  }
+  // "-3" / "-2.5" 这类本身就是数字文本，不需要处理
+  if (/^-[0-9]/.test(str)) {
+    return str;
+  }
+  return `'${str}`;
+}
+
 export function escapeCsvField(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
 
+  const isTextValue = typeof value === 'string';
   const str =
     typeof value === 'object'
       ? JSON.stringify(value)
       : String(value as string | number | boolean);
 
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
+    return `"${neutralizeCsvFormula(str, isTextValue).replace(/"/g, '""')}"`;
   }
 
-  return str;
+  return neutralizeCsvFormula(str, isTextValue);
 }
 
 /**

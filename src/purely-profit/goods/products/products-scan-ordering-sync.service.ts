@@ -102,8 +102,13 @@ export class ProductsScanOrderingSyncService {
         where: { menuProductId: menuProduct.id },
       });
       if (groups.length === 0) return;
+      // 按 sort 显式升序：下面靠「位置下标」把选项挂回规格组，
+      // 若入参数组顺序与落库后的排序不一致，选项会被写到别的规格组下。
+      const sortedGroups = [...groups].sort(
+        (left, right) => left.sort - right.sort,
+      );
       await tx.scanOrderingSpecGroup.createMany({
-        data: groups.map((group) => ({
+        data: sortedGroups.map((group) => ({
           menuProductId: menuProduct.id,
           name: group.name.trim(),
           selectionType: group.selectMode === 'multi' ? 'multiple' : 'single',
@@ -115,11 +120,13 @@ export class ProductsScanOrderingSyncService {
       });
       const dbGroups = await tx.scanOrderingSpecGroup.findMany({
         where: { menuProductId: menuProduct.id },
-        orderBy: { sortOrder: 'asc' },
+        // id 次级排序：sortOrder 重复（历史脏数据）时保证顺序确定，
+        // 否则 dbGroups[groupIndex] 可能指向另一个规格组。
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
       await tx.scanOrderingSpecOption.createMany({
-        data: groups.flatMap((group, groupIndex) =>
+        data: sortedGroups.flatMap((group, groupIndex) =>
           group.options.map((option, optionIndex) => ({
             groupId: dbGroups[groupIndex].id,
             name: option.name.trim(),

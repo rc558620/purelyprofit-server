@@ -19,6 +19,10 @@ describe('SalesRecordWriteService', () => {
     saleOrder: {
       delete: jest.fn(),
     },
+    saleOrderRefund: {
+      findUnique: jest.fn(),
+      delete: jest.fn(),
+    },
     financeCashFlowRecord: {
       deleteMany: jest.fn(),
     },
@@ -793,6 +797,45 @@ describe('SalesRecordWriteService', () => {
     ).toHaveBeenCalledWith({
       where: { storeId: 18, saleOrderId: 11 },
     });
+    expect(transactionClient.saleOrder.delete).toHaveBeenCalledWith({
+      where: { id: 11 },
+    });
+  });
+
+  it('remove 会先清理退款流水与退款行，再删除已退款订单', async () => {
+    prismaService.saleOrder.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+    });
+    transactionClient.saleOrderRefund.findUnique.mockResolvedValue({ id: 77 });
+
+    await service.remove(user, 11);
+
+    expect(transactionClient.saleOrderRefund.findUnique).toHaveBeenCalledWith({
+      where: { saleOrderId: 11 },
+      select: { id: true },
+    });
+    expect(
+      transactionClient.financeCashFlowRecord.deleteMany,
+    ).toHaveBeenCalledWith({ where: { saleOrderRefundId: 77 } });
+    expect(transactionClient.saleOrderRefund.delete).toHaveBeenCalledWith({
+      where: { id: 77 },
+    });
+    expect(transactionClient.saleOrder.delete).toHaveBeenCalledWith({
+      where: { id: 11 },
+    });
+  });
+
+  it('remove 在无退款记录时不触碰退款表', async () => {
+    prismaService.saleOrder.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+    });
+    transactionClient.saleOrderRefund.findUnique.mockResolvedValue(null);
+
+    await service.remove(user, 11);
+
+    expect(transactionClient.saleOrderRefund.delete).not.toHaveBeenCalled();
     expect(transactionClient.saleOrder.delete).toHaveBeenCalledWith({
       where: { id: 11 },
     });

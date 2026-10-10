@@ -105,10 +105,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '预览销售记录金额（不落库）' })
   @ApiOkResponse({ type: PreviewSalesRecordResponseDto })
   preview(
-    @CurrentUser() _user: AuthenticatedUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
-  ): PreviewSalesRecordResponseDto {
-    return this.salesRecordService.preview(dto);
+  ): Promise<PreviewSalesRecordResponseDto> {
+    return this.salesRecordService.preview(user, dto, 'sales:create');
   }
 
   @Post()
@@ -192,10 +192,10 @@ export class SalesOrdersCompatController {
   })
   @ApiOkResponse({ type: PreviewSalesRecordResponseDto })
   preview(
-    @CurrentUser() _user: AuthenticatedUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
-  ): PreviewSalesRecordResponseDto {
-    return this.salesRecordService.preview(dto);
+  ): Promise<PreviewSalesRecordResponseDto> {
+    return this.salesRecordService.preview(user, dto, 'operation-entry:create');
   }
 
   @Post()

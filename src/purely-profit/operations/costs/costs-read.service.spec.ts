@@ -126,6 +126,34 @@ describe('CostsReadService', () => {
     });
   });
 
+  it('getStats 在上期金额低于最小可比阈值时不展示环比', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: 50000 },
+        _count: { _all: 1 },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: 9900 },
+      });
+    prismaService.costRecord.groupBy.mockResolvedValue([
+      {
+        type: 'fixed',
+        _sum: { amount: 50000 },
+      },
+    ]);
+
+    await expect(
+      service.getStats(user, { period: 'month', typeFilter: 'all' }),
+    ).resolves.toEqual({
+      total: 500,
+      fixed: 500,
+      variable: 0,
+      compareLastPeriod: null,
+      recordCount: 1,
+    });
+  });
+
   it('getStats 在自定义日期模式下不返回上期对比', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.costRecord.aggregate.mockResolvedValue({

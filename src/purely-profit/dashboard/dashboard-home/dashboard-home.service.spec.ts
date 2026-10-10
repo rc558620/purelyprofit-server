@@ -64,6 +64,7 @@ describe('DashboardHomeService', () => {
   };
 
   const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
   };
 

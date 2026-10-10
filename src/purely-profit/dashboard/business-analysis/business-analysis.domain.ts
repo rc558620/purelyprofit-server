@@ -87,6 +87,25 @@ export function buildSalesAggregation(input: {
         ? String(row.productId)
         : `snapshot:${row.productName}`;
     const image = toOptionalMediaText(row.image);
+    // SQL 按 (product_id, product_name, category_name) 分组，同一商品改名后会
+    // 产生多行同 productId 的结果。早期实现直接用 set 覆盖，导致改名商品的
+    // 收入/利润/销量被静默丢弃，这里改为按 key 累加聚合。
+    // SQL 已按 totalProfit DESC 排序，先出现的分组利润最高，名称/分类沿用之。
+    const existingRank = result.rankMap.get(rankKey);
+    if (existingRank) {
+      existingRank.totalRevenue = existingRank.totalRevenue.add(
+        safeDbCents(row.totalRevenue),
+      );
+      existingRank.totalProfit = existingRank.totalProfit.add(
+        safeDbCents(row.totalProfit),
+      );
+      existingRank.quantity += row.quantity;
+      if (!existingRank.image && image) {
+        existingRank.image = image;
+      }
+      continue;
+    }
+
     result.rankMap.set(rankKey, {
       id: rankKey,
       name: row.productName,

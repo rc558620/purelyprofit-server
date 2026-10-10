@@ -12,6 +12,26 @@ export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
 export type BusinessAnalysisPeriod =
   (typeof BUSINESS_ANALYSIS_PERIOD_VALUES)[number];
 
+/** 商品利润排行支持的排序维度（由前端透传，服务端按维度排序并截断）。 */
+export const BUSINESS_ANALYSIS_RANK_SORT_VALUES = [
+  'profit',
+  'revenue',
+  'quantity',
+] as const;
+
+export type BusinessAnalysisRankSort =
+  (typeof BUSINESS_ANALYSIS_RANK_SORT_VALUES)[number];
+
+export const DEFAULT_BUSINESS_ANALYSIS_RANK_SORT: BusinessAnalysisRankSort =
+  'profit';
+
+/**
+ * 商品排行榜返回条数上限。
+ * 排行在服务端按 rankSort 排序后截断：页面只展示 Top5，CSV 导出最多导出该条数。
+ * 若不截断，长周期下会返回店内全部历史商品行，聚合与传输成本随 SKU 数线性增长。
+ */
+export const BUSINESS_ANALYSIS_RANK_LIMIT = 100;
+
 export const BUSINESS_ANALYSIS_COST_CATEGORY_META = {
   purchase: { label: '进货成本', color: '#f97316' },
   salary: { label: '人力成本', color: '#3b82f6' },

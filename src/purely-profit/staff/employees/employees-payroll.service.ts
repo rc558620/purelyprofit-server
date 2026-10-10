@@ -79,19 +79,23 @@ export class EmployeesPayrollService {
     const targetMonth = resolvePayrollMonthFilter(query.year, query.month);
     const where: Prisma.EmployeePayrollWhereInput = {
       storeId,
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(targetMonth ? { month: targetMonth } : {}),
-      ...(query.department
-        ? {
-            employee: {
+      // 员工档案软删除后，其历史工资单不应再出现在列表中。
+      // 部门过滤必须写进同一个 employee 对象：若两者各自展开出一个 employee key，
+      // 后者会整体覆盖前者，软删除过滤会被静默丢弃。
+      employee: {
+        deletedAt: null,
+        ...(query.department
+          ? {
               department: {
                 equals: query.department,
                 mode: 'insensitive' as const,
               },
-            },
-          }
-        : {}),
+            }
+          : {}),
+      },
+      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(targetMonth ? { month: targetMonth } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.employeePayroll.findMany({

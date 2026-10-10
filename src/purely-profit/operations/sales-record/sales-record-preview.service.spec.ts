@@ -1,14 +1,45 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
-import { SalesRecordPreviewService } from './sales-record-preview.service';
 import type { CreateSalesRecordDto } from './dto/sales-record.dto';
+import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
+import { SalesRecordPreviewService } from './sales-record-preview.service';
+
+const STORE_ID = 18;
+
+/** 目录商品行（price / profit / costPrice 为分） */
+const catalogProduct = (
+  id: number,
+  price: number,
+  profit: number,
+  overrides: Partial<Record<string, unknown>> = {},
+) => ({
+  id,
+  name: `商品${id}`,
+  category: '饮品',
+  code: `C${id}`,
+  price,
+  profit,
+  costPrice: null,
+  stock: 999,
+  isActive: true,
+  image: null,
+  ...overrides,
+});
 
 describe('SalesRecordPreviewService', () => {
   let service: SalesRecordPreviewService;
+  let prisma: { product: { findMany: jest.Mock } };
 
   beforeEach(async () => {
+    prisma = { product: { findMany: jest.fn().mockResolvedValue([]) } };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [SalesRecordPreviewService],
+      providers: [
+        SalesRecordPreviewService,
+        SalesRecordItemPreparationService,
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     service = module.get<SalesRecordPreviewService>(SalesRecordPreviewService);
@@ -21,7 +52,12 @@ describe('SalesRecordPreviewService', () => {
   /**
    * 【核心测试】/preview 必须返回总金额、每个 item 小计
    */
-  it('should return totalRevenue, totalProfit, totalQuantity and item subtotals', () => {
+  it('should return totalRevenue, totalProfit, totalQuantity and item subtotals', async () => {
+    prisma.product.findMany.mockResolvedValue([
+      catalogProduct(1, 650, 250),
+      catalogProduct(2, 1200, 400),
+    ]);
+
     const dto: CreateSalesRecordDto = {
       items: [
         {
@@ -45,7 +81,7 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'business',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
     // 总金额验证
     // item1: 6.5 * 2 = 13.0
@@ -77,7 +113,7 @@ describe('SalesRecordPreviewService', () => {
    * 【关键验证】preview 与 create 应该使用同一个 domain 计算
    * 这个测试验证了金额一致性的关键原则
    */
-  it('should use SalesRecordAmountsDomain for calculation (same as create)', () => {
+  it('should use SalesRecordAmountsDomain for calculation (same as create)', async () => {
     const dto: CreateSalesRecordDto = {
       items: [
         {
@@ -93,11 +129,12 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'profit',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
-    // 验证金额是否通过 SalesRecordAmountsDomain 计算
-    // 利润模式下，totalProfit 应该是 8.5 * 3 = 25.5
-    const expectedProfit = Money.fromInputYuan(8.5).multiply(3).toOutputYuan();
+    // 非目录商品（手动项）走与 create 完全相同的规则：
+    // 利润由售价推导（无成本价时利润 = 售价），调用方传入的 profit 被忽略。
+    // 因此 28.0 * 3 = 84.0，而非调用方声明的 8.5 * 3 = 25.5。
+    const expectedProfit = Money.fromInputYuan(28.0).multiply(3).toOutputYuan();
     expect(result.totalProfit).toBe(expectedProfit);
 
     // 验证 item 小计是否正确
@@ -105,9 +142,73 @@ describe('SalesRecordPreviewService', () => {
   });
 
   /**
+   * 【回归测试】目录商品必须以商品目录价格为准，
+   * 忽略调用方传入的 salePrice / profit —— 否则商品改价后
+   * 会出现「预览金额 ≠ 实际入账金额」。
+   */
+  it('should ignore caller prices and use catalog prices for catalog products', async () => {
+    prisma.product.findMany.mockResolvedValue([catalogProduct(1, 650, 250)]);
+
+    const dto: CreateSalesRecordDto = {
+      items: [
+        {
+          productId: '1',
+          productName: '可口可乐',
+          categoryName: '饮品',
+          // 调用方伪造的高价，必须被目录价 6.5 / 2.5 覆盖
+          salePrice: 99.9,
+          profit: 88.8,
+          quantity: 2,
+        },
+      ],
+      paymentMethod: 'cash',
+      calcMode: 'business',
+    };
+
+    const result = await service.preview(STORE_ID, dto);
+
+    expect(result.items[0].revenueSubtotal).toBe(13.0); // 6.5 * 2
+    expect(result.items[0].profitSubtotal).toBe(5.0); // 2.5 * 2
+    expect(result.totalRevenue).toBe(13.0);
+    expect(result.totalProfit).toBe(5.0);
+  });
+
+  /**
+   * 【回归测试】preview 只回答「金额是多少」，不拦截库存不足 / 已下架，
+   * 避免用户在录入过程中被硬错误打断；拦截发生在 create。
+   */
+  it('should still return amounts for out-of-stock or inactive products', async () => {
+    prisma.product.findMany.mockResolvedValue([
+      catalogProduct(1, 650, 250, { stock: 0, isActive: false }),
+    ]);
+
+    const dto: CreateSalesRecordDto = {
+      items: [
+        {
+          productId: '1',
+          productName: '可口可乐',
+          categoryName: '饮品',
+          salePrice: 6.5,
+          profit: 2.5,
+          quantity: 2,
+        },
+      ],
+      paymentMethod: 'cash',
+      calcMode: 'business',
+    };
+
+    await expect(service.preview(STORE_ID, dto)).resolves.toMatchObject({
+      totalRevenue: 13.0,
+      totalProfit: 5.0,
+    });
+  });
+
+  /**
    * 【边界测试】0 金额也应该被正确返回
    */
-  it('should correctly return 0 when amount is zero', () => {
+  it('should correctly return 0 when amount is zero', async () => {
+    prisma.product.findMany.mockResolvedValue([catalogProduct(1, 0, 0)]);
+
     const dto: CreateSalesRecordDto = {
       items: [
         {
@@ -123,7 +224,7 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'business',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
     expect(result.totalRevenue).toBe(0);
     expect(result.totalProfit).toBe(0);
@@ -134,11 +235,16 @@ describe('SalesRecordPreviewService', () => {
   /**
    * 【业务验证】抵扣项（负数金额）也应该正确计算
    */
-  it('should correctly handle negative amounts (deduction items)', () => {
+  it('should correctly handle negative amounts (deduction items)', async () => {
+    prisma.product.findMany.mockResolvedValue([
+      catalogProduct(1, 650, 250),
+      catalogProduct(2, -130, -50),
+    ]);
+
     const dto: CreateSalesRecordDto = {
       items: [
         {
-          productId: 'normal_1',
+          productId: '1',
           productName: '可乐',
           categoryName: '饮品',
           salePrice: 6.5,
@@ -146,7 +252,7 @@ describe('SalesRecordPreviewService', () => {
           quantity: 2,
         },
         {
-          productId: 'deduction_1',
+          productId: '2',
           productName: '9折优惠',
           categoryName: '优惠',
           salePrice: -1.3, // 负数
@@ -158,7 +264,7 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'business',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
     // 总金额应该是 13.0 - 1.3 = 11.7
     // 总利润应该是 5.0 - 0.5 = 4.5
@@ -171,7 +277,12 @@ describe('SalesRecordPreviewService', () => {
   /**
    * 【一致性验证】preview 返回的 items 应该能完整重建总金额
    */
-  it('should ensure items subtotals can reconstruct totalRevenue and totalProfit', () => {
+  it('should ensure items subtotals can reconstruct totalRevenue and totalProfit', async () => {
+    prisma.product.findMany.mockResolvedValue([
+      catalogProduct(1, 1550, 400),
+      catalogProduct(2, 1800, 500),
+    ]);
+
     const dto: CreateSalesRecordDto = {
       items: [
         {
@@ -195,7 +306,7 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'business',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
     // 通过 items 重新计算总金额
     const reconstructedRevenue = result.items.reduce(
@@ -219,7 +330,12 @@ describe('SalesRecordPreviewService', () => {
   /**
    * 【完整场景】模拟实际 additional 页面场景
    */
-  it('should handle realistic additional page scenario', () => {
+  it('should handle realistic additional page scenario', async () => {
+    prisma.product.findMany.mockResolvedValue([
+      catalogProduct(1, 1550, 400),
+      catalogProduct(2, 1800, 500),
+    ]);
+
     // 模拟用户在 additional 页面选择的商品和数量
     const dto: CreateSalesRecordDto = {
       items: [
@@ -244,7 +360,7 @@ describe('SalesRecordPreviewService', () => {
       calcMode: 'profit',
     };
 
-    const result = service.preview(dto);
+    const result = await service.preview(STORE_ID, dto);
 
     // 利润模式下，验证总利润
     // item1 profit: 4.0 * 2 = 8.0

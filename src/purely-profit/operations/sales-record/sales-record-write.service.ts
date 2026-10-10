@@ -154,6 +154,20 @@ export class SalesRecordWriteService {
         storeId: record.storeId,
         saleOrderId: salesRecordId,
       });
+      // SaleOrderRefund → SaleOrder 是 Restrict 外键，必须先清理退款流水与退款记录，
+      // 否则删除「已退款订单」会触发外键约束错误，连带回滚库存回退。
+      const refund = await transaction.saleOrderRefund.findUnique({
+        where: { saleOrderId: salesRecordId },
+        select: { id: true },
+      });
+      if (refund) {
+        await transaction.financeCashFlowRecord.deleteMany({
+          where: { saleOrderRefundId: refund.id },
+        });
+        await transaction.saleOrderRefund.delete({
+          where: { id: refund.id },
+        });
+      }
       await transaction.financeCashFlowRecord.deleteMany({
         where: {
           storeId: record.storeId,

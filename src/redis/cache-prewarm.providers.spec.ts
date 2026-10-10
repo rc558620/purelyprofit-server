@@ -87,6 +87,7 @@ describe('cache prewarm providers', () => {
       period: 'month',
       startTime: undefined,
       endTime: undefined,
+      rankSort: 'profit',
     });
     expect(result.hitCount).toBe(1);
     expect(result.refreshedCount).toBe(1);

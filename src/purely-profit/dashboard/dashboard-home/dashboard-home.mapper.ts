@@ -55,6 +55,7 @@ export function buildDashboardHomeOverviewResponse(params: {
     salesTrend,
     activities: buildDashboardHomeActivities({
       period,
+      now,
       currentSales: statsData.currentSales,
       compareSales: statsData.compareSales,
       lowStockProducts: activitiesData.lowStockProducts,

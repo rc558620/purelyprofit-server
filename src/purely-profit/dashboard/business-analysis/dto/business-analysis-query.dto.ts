@@ -7,7 +7,9 @@ import {
 } from '../../../stores/dto/store-response.dto';
 import {
   BUSINESS_ANALYSIS_PERIOD_VALUES,
+  BUSINESS_ANALYSIS_RANK_SORT_VALUES,
   type BusinessAnalysisPeriod,
+  type BusinessAnalysisRankSort,
 } from '../business-analysis.types';
 
 export { BUSINESS_ANALYSIS_PERIOD_VALUES } from '../business-analysis.types';
@@ -83,6 +85,17 @@ export class GetBusinessAnalysisQueryDto {
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })
   export?: boolean;
+
+  @ApiPropertyOptional({
+    enum: BUSINESS_ANALYSIS_RANK_SORT_VALUES,
+    example: 'profit',
+    description: '商品利润排行排序维度，默认 profit（利润）',
+  })
+  @IsOptional()
+  @IsIn(BUSINESS_ANALYSIS_RANK_SORT_VALUES, {
+    message: '排行排序维度不合法',
+  })
+  rankSort?: BusinessAnalysisRankSort;
 
   @ApiPropertyOptional({
     enum: ['json', 'csv'],

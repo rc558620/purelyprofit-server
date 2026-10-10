@@ -50,8 +50,11 @@ export class ProfitSummaryDto {
   @IsNumber({}, { message: '成本较上期变化必须是数字' })
   costCompareLastPeriod: number | null;
 
-  @ApiProperty({ example: 56, description: '销量总数' })
-  @IsInt({ message: '销量总数必须是整数' })
+  @ApiProperty({
+    example: 56,
+    description: '独立订单数（按订单去重，非售出件数）',
+  })
+  @IsInt({ message: '订单数必须是整数' })
   orderCount: number;
 }
 

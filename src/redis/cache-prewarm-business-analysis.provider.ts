@@ -23,6 +23,7 @@ export const businessAnalysisCachePrewarmProvider: CachePrewarmProfitReadCategor
             period: parsed.period,
             startTime: parsed.startTime,
             endTime: parsed.endTime,
+            rankSort: parsed.rankSort,
           }),
         options,
       ),

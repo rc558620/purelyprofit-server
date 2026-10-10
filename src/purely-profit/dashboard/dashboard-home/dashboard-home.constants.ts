@@ -2,8 +2,13 @@ import { EmployeeLeaveType } from '@prisma/client';
 import type { DashboardHomePeriodValue } from './dashboard-home.types';
 
 export const DAY_MS = 86_400_000;
+/**
+ * 今日趋势横轴标签，同时代表各桶的起始时刻。
+ * 首桶必须从 00:00 起：getTodayBucketIndex 把 0–9 点都归到首桶，
+ * 若标签写成 08:00，08:00 之前的营业额会被「未来时段清零」逻辑误删。
+ */
 export const TODAY_BUCKET_LABELS = [
-  '08:00',
+  '00:00',
   '10:00',
   '12:00',
   '14:00',

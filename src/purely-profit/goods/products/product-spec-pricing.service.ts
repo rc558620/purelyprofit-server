@@ -58,8 +58,14 @@ export class ProductSpecPricingService {
     const basePriceMoney = Money.fromDbCents(product.price);
     const costPriceCents = product.costPrice ?? 0;
     const selectedIds = normalizeOptionIds(input.specOptionIds);
+    const menuProduct = product.scanOrderingMenuProducts[0] ?? null;
 
-    if (selectedIds.length === 0) {
+    // 未配置任何规格组时才按「无规格商品」定价；此时若仍传入选项 ID，说明
+    // 客户端缓存了已删除的规格，必须拒绝而不是静默忽略加价。
+    if (!menuProduct || menuProduct.specGroups.length === 0) {
+      if (selectedIds.length > 0) {
+        throw new BadRequestException('商品规格已更新，请重新选择');
+      }
       return this.buildResult({
         productName: product.name,
         categoryName: product.category ?? null,
@@ -70,11 +76,9 @@ export class ProductSpecPricingService {
       });
     }
 
-    const menuProduct = product.scanOrderingMenuProducts[0] ?? null;
-    if (!menuProduct || menuProduct.specGroups.length === 0) {
-      throw new BadRequestException('商品规格已更新，请重新选择');
-    }
-
+    // 关键：只要商品配置了规格组，即使本次未选任何选项也必须执行
+    // ensureSelectionsWithinRange。否则传空 specOptionIds 就能绕过
+    // minSelections>0 的必选规格，按基础价成交（自助下单 / 追加点单共用本服务）。
     const selectedOptions = this.resolveSelectedOptions(
       menuProduct.specGroups,
       selectedIds,

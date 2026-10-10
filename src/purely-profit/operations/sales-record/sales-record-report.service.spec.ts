@@ -484,26 +484,15 @@ describe('SalesRecordReportService', () => {
       }),
     ).resolves.toEqual({
       summary: {
-        totalQuantity: 3,
+        // 只统计真实商品销量：台位费行与「预付款」负向行均不计件
+        totalQuantity: 1,
         totalRevenue: 42,
         orderCount: 3,
         avgOrderValue: 14,
       },
+      // 台位费是计时收入，不计入销售件数（与空间结账落库的
+      // SaleOrder.totalQuantity 同口径：isNonQuantitySystemItem 排除 SYS_TIME_BILLING）
       dailySales: [
-        {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02 台位费（固定）`,
-          dateLabel: '05/14',
-          productName: '大厅A02 台位费（固定）',
-          quantity: 1,
-          revenue: 8,
-        },
-        {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01 台位费（固定）`,
-          dateLabel: '05/14',
-          productName: '大厅A01 台位费（固定）',
-          quantity: 1,
-          revenue: 10,
-        },
         {
           id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-401`,
           dateLabel: '05/14',
@@ -511,8 +500,90 @@ describe('SalesRecordReportService', () => {
           quantity: 1,
           revenue: 24,
         },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02 台位费（固定）`,
+          dateLabel: '05/14',
+          productName: '大厅A02 台位费（固定）',
+          quantity: 0,
+          revenue: 8,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01 台位费（固定）`,
+          dateLabel: '05/14',
+          productName: '大厅A01 台位费（固定）',
+          quantity: 0,
+          revenue: 10,
+        },
       ],
     });
+  });
+
+  /**
+   * 空间结账 + 自助下单场景的落库形态：
+   * 台位费 68（计时行）、可乐 24（已达单数之一）、可乐 · 自助下单抵扣 -24。
+   * 可乐是顾客在小程序侧已在线支付的商品，营收已计入其自身的销售单，
+   * 因此本单必须 +24 与 -24 成对出现。
+   */
+  const buildSelfOrderDeductionFixture = () => ({
+    id: 41,
+    date: new Date('2026-05-14T11:00:00.000Z'),
+    spaceSession: null as null,
+    items: [
+      {
+        id: 501,
+        productId: null,
+        productName: '台位费（固定）',
+        categoryName: '场地费',
+        salePrice: new Prisma.Decimal('6800'),
+        profit: new Prisma.Decimal('6800'),
+        quantity: 1,
+      },
+      {
+        id: 502,
+        productId: 401,
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: new Prisma.Decimal('2400'),
+        profit: new Prisma.Decimal('2400'),
+        quantity: 1,
+      },
+      {
+        id: 503,
+        productId: null,
+        productName: '可乐 · 自助下单抵扣',
+        categoryName: '自助下单',
+        salePrice: new Prisma.Decimal('-2400'),
+        profit: new Prisma.Decimal('-2400'),
+        quantity: 1,
+      },
+    ],
+  });
+
+  it('自助下单抵扣行与对应商品行成对计入：营业额不重复扣减、件数不重复累加', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      buildSelfOrderDeductionFixture(),
+    ]);
+
+    const result = await service.getReport(user, {
+      storeId: 18,
+      period: 'month',
+    });
+
+    // 台位费 68 + 可乐 24 - 可乐抵扣 24 = 68：这笔消费已在小程序侧单独
+    // 生成销售单，本单只计 0，剔除任一侧都会导致金额重复计算
+    expect(result.summary.totalRevenue).toBe(68);
+    // 只有真实商品计入件数（可乐 1 件）；抵扣行与台位费行均不计件，
+    // 否则同一件商品会被算成 2 件
+    expect(result.summary.totalQuantity).toBe(1);
+    expect(
+      result.dailySales.find((row) => row.productName === '可乐'),
+    ).toMatchObject({ quantity: 1, revenue: 24 });
+    expect(
+      result.dailySales.find(
+        (row) => row.productName === '可乐 · 自助下单抵扣',
+      ),
+    ).toMatchObject({ quantity: 0, revenue: -24 });
   });
 
   it('getReport 支持 year 周期并按整年范围查询', async () => {

@@ -36,6 +36,9 @@ export async function aggregateOrderStats(
   //（相同金额的退款行会被错误去重），且三表 JOIN 在 sale_order_items
   // 大表上产生笛卡尔积。改为子查询预聚合：先按 order_id 聚合 items
   // 和 refunds，再在主查询中做加减，消除 DISTINCT 语义风险。
+  // 笔数与列表分页 COUNT(*) 同口径（含退款单），否则 meta.total 条数与
+  // 「订单数」会不一致；且部分退款单的剩余营收已计入 revenue，
+  // 再把它从笔数里排除会抬高平均客单价。
   const result = await prisma.$queryRaw<
     [
       {
@@ -65,7 +68,7 @@ export async function aggregateOrderStats(
         - COALESCE(SUM(sor_agg.refund_amount), 0) AS revenue,
       COALESCE(SUM(soi_agg.item_profit), 0)
         - COALESCE(SUM(sor_agg.refund_profit), 0) AS profit,
-      COUNT(*) FILTER (WHERE sor_agg.sale_order_id IS NULL) AS order_count
+      COUNT(*) AS order_count
     FROM sale_orders so
     LEFT JOIN soi_agg ON soi_agg.order_id = so.id
     LEFT JOIN sor_agg ON sor_agg.sale_order_id = so.id
@@ -283,7 +286,10 @@ export async function generateOrderNo(
   `;
   // 手工补录单与普通销售单各自独立计数（按 manual_entry 区分），
   // 避免两类号段互相挤占序号导致跳号。
-  const count = await client.saleOrder.count({
+  // 号段必须单调递增：用「当日已有最大序号 + 1」而非「当日单据条数 + 1」。
+  // 按条数推导时，删除中间单据会让 count 回落，新单算出已被占用的序号，
+  // 撞 @@unique([storeId, orderNo]) 导致后续录单持续失败。
+  const existingOrderNos = await client.saleOrder.findMany({
     where: {
       storeId,
       manualEntry: variant === 'manual',
@@ -292,7 +298,15 @@ export async function generateOrderNo(
         lte: dayEnd,
       },
     },
+    select: { orderNo: true },
   });
 
-  return buildOrderNo(date, count + 1, variant);
+  const maxSerial = existingOrderNos.reduce((max, { orderNo }) => {
+    const matched = /-(\d+)$/.exec(orderNo);
+    if (!matched) return max;
+    const serial = Number.parseInt(matched[1], 10);
+    return Number.isSafeInteger(serial) && serial > max ? serial : max;
+  }, 0);
+
+  return buildOrderNo(date, maxSerial + 1, variant);
 }

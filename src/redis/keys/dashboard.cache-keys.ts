@@ -30,11 +30,11 @@ export function buildProfitDashboardHomeTrendCacheKey(
   return `profit:dashboard:home-chunk:trend:store:${storeId}:period:${period}`;
 }
 
+/** 动态数据只按门店聚合（与周期无关），缓存键不带 period */
 export function buildProfitDashboardHomeActivitiesCacheKey(
   storeId: number,
-  period: string,
 ): string {
-  return `profit:dashboard:home-chunk:activities:store:${storeId}:period:${period}`;
+  return `profit:dashboard:home-chunk:activities:store:${storeId}`;
 }
 
 export function buildProfitDashboardHomePattern(storeId: number): string {

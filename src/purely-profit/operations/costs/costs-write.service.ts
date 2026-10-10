@@ -9,6 +9,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { getPayrollCostDate, toCostDbCents } from './costs.domain';
 import { buildCostRecordResponse } from './costs.mapper';
 import type {
@@ -53,8 +54,11 @@ export class CostsWriteService {
     }
 
     const recordDate = new Date(dto.date);
-    if (recordDate.getTime() > Date.now()) {
-      throw new BadRequestException('成本发生日期不能晚于当前时间');
+    // 业务时区为上海：允许填写「上海今天」的任意时刻，
+    // 否则比上海早进入新一天的客户端（如 UTC+9）会被误判为未来日期而 400。
+    const shanghaiTodayEnd = getShanghaiDayStartMs(Date.now()) + 86_400_000 - 1;
+    if (recordDate.getTime() > shanghaiTodayEnd) {
+      throw new BadRequestException('成本发生日期不能晚于今天');
     }
 
     const created = await this.prisma.costRecord.create({
@@ -110,6 +114,10 @@ export class CostsWriteService {
       this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
       this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
       this.cacheInvalidatorService.invalidateCostsCaches(storeId),
+      // 经营分析（business-analysis）同样聚合 cost_records 计算总成本/净利润/
+      // 成本结构与日趋势成本，成本写入后必须同步失效，否则最长要等一个 TTL
+      // 才能在经营分析里看到新成本。
+      this.cacheInvalidatorService.invalidateBusinessAnalysis(storeId),
     ]);
   }
 

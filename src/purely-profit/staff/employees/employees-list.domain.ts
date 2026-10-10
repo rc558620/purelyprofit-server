@@ -55,6 +55,15 @@ export function buildEmployeeListWhere(
 export function buildEmployeeListOrderBy(
   status?: EmployeeStatus,
 ): Prisma.EmployeeOrderByWithRelationInput[] {
+  // 「离职」视图前端按 resignDate 倒序展示（见 employeeListUtils.filterAndSort），
+  // 服务端分页必须同序，否则跨页会出现下一页日期反而更晚的乱序。
+  // resignDate 可为 null，追加 id 兜底保证分页游标稳定。
+  if (status === EmployeeStatus.resigned) {
+    return [{ resignDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }];
+  }
+
+  // 「全部」视图前端是 active 优先再按 createdAt 倒序，对应 status 升序
+  // （'active' < 'resigned'）后 createdAt 倒序。
   return status
     ? [{ createdAt: 'desc' }, { id: 'desc' }]
     : [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }];

@@ -32,6 +32,34 @@ import {
 } from './employees.utils';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 
+/**
+ * 构建排班查询条件。
+ *
+ * 统一内联 `employee.deletedAt = null`：员工档案软删除后，其历史排班不应再出现在
+ * 列表与报表中。部门过滤与软删除过滤必须合并进同一个 `employee` 对象书写，
+ * 若各自用展开运算符产出两个 `employee` key，后者会整体覆盖前者导致过滤失效。
+ */
+const buildShiftListWhere = (
+  storeId: number,
+  query: Pick<ListEmployeeShiftsQueryDto, 'employeeId' | 'department'>,
+  dateRange: { gte: Date; lt: Date } | undefined,
+): Prisma.EmployeeShiftWhereInput => ({
+  storeId,
+  employee: {
+    deletedAt: null,
+    ...(query.department
+      ? {
+          department: {
+            equals: query.department,
+            mode: 'insensitive' as const,
+          },
+        }
+      : {}),
+  },
+  ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+  ...(dateRange ? { date: dateRange } : {}),
+});
+
 @Injectable()
 export class EmployeesShiftService {
   constructor(
@@ -52,21 +80,7 @@ export class EmployeesShiftService {
     );
     const dateRange = buildDateRange(query.year, query.month);
     const rows = await this.prisma.employeeShift.findMany({
-      where: {
-        storeId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(dateRange ? { date: dateRange } : {}),
-        ...(query.department
-          ? {
-              employee: {
-                department: {
-                  equals: query.department,
-                  mode: 'insensitive' as const,
-                },
-              },
-            }
-          : {}),
-      },
+      where: buildShiftListWhere(storeId, query, dateRange),
       orderBy: [{ date: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
@@ -100,21 +114,7 @@ export class EmployeesShiftService {
       50,
       200,
     );
-    const where = {
-      storeId,
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-      ...(dateRange ? { date: dateRange } : {}),
-      ...(query.department
-        ? {
-            employee: {
-              department: {
-                equals: query.department,
-                mode: 'insensitive' as const,
-              },
-            },
-          }
-        : {}),
-    };
+    const where = buildShiftListWhere(storeId, query, dateRange);
     const [rows, total] = await Promise.all([
       this.prisma.employeeShift.findMany({
         where,

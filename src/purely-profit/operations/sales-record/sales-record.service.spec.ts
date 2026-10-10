@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type {
   CreateSalesRecordDto,
   ListSalesProductsQueryDto,
@@ -32,6 +33,10 @@ describe('SalesRecordService', () => {
 
   const salesRecordPreviewService = {
     preview: jest.fn(),
+  };
+
+  const commerceAccessService = {
+    resolveSingleStoreId: jest.fn(() => Promise.resolve(18)),
   };
 
   const user: AuthenticatedUser = {
@@ -71,6 +76,7 @@ describe('SalesRecordService', () => {
           provide: SalesRecordPreviewService,
           useValue: salesRecordPreviewService,
         },
+        { provide: CommerceAccessService, useValue: commerceAccessService },
       ],
     }).compile();
 

@@ -1,4 +1,5 @@
 import {
+  buildProfitDashboardHomeActivitiesCacheKey,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomePattern,
 } from './cache-keys';
@@ -17,6 +18,10 @@ export const profitDashboardHomeCacheInvalidatorProvider: CacheInvalidatorProvid
       input.redisService.delByPattern(buildProfitDashboardHomePattern(storeId)),
       input.redisService.delByPattern(
         buildProfitDashboardHomeChunkPattern(storeId),
+      ),
+      // 动态缓存键不带 period，chunk 通配模式匹配不到，需精确删除
+      input.redisService.del(
+        buildProfitDashboardHomeActivitiesCacheKey(storeId),
       ),
     ]);
   },
