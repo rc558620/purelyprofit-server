@@ -119,7 +119,8 @@ export class AuthCapabilityResponseDto {
 
   @ApiProperty({
     example: false,
-    description: '是否可使用自助下单（仅非餐饮门店，且具备自助下单查看/处理权限）',
+    description:
+      '是否可使用自助下单（仅非餐饮门店，且具备自助下单查看/处理权限）',
   })
   @IsBoolean()
   canUseSelfOrdering: boolean;

@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { InventoryService } from '../../goods/inventory/inventory.service';
 import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -17,6 +18,7 @@ describe('PurchasesService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
       aggregate: jest.fn(),
+      groupBy: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
       delete: jest.fn(),
@@ -42,6 +44,11 @@ describe('PurchasesService', () => {
     syncPurchaseCost: jest.fn(),
     deletePurchaseCostRecord: jest.fn(),
     invalidateCostCaches: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const inventoryService = {
+    recordPurchaseRestock: jest.fn().mockResolvedValue(undefined),
+    revertPurchaseRestock: jest.fn().mockResolvedValue(undefined),
   };
 
   const configService = {
@@ -137,6 +144,7 @@ describe('PurchasesService', () => {
         },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: CostsService, useValue: costsService },
+        { provide: InventoryService, useValue: inventoryService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -220,8 +228,8 @@ describe('PurchasesService', () => {
 
   it('getStats 会按当前门店编排供应商数和聚合统计', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    // countPurchaseSuppliers 在有 where 参数时使用 findMany + distinct
-    prismaService.purchaseOrder.findMany.mockResolvedValue([
+    // countPurchaseSuppliers 使用 groupBy 在 SQL 侧做 distinct 供应商计数
+    prismaService.purchaseOrder.groupBy.mockResolvedValue([
       { supplierId: 1 },
       { supplierId: 2 },
       { supplierId: 3 },
@@ -254,7 +262,7 @@ describe('PurchasesService', () => {
       'purchase:view',
       '无权查看该门店进货统计',
     );
-    expect(prismaService.purchaseOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.groupBy).toHaveBeenCalledTimes(1);
     expect(prismaService.purchaseOrder.aggregate).toHaveBeenCalledTimes(2);
   });
 
@@ -345,6 +353,71 @@ describe('PurchasesService', () => {
         supplierName: '可口可乐供应商',
       }),
     );
+  });
+
+  it('create 会在同一事务内同步入库库存（无码商品不入库存）', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue({
+      id: 6,
+      name: '可口可乐供应商',
+    });
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
+    ]);
+    prismaService.purchaseOrder.create.mockResolvedValue(createPurchaseOrder());
+
+    await service.create(user, {
+      storeId: 18,
+      supplierId: 6,
+      items: [
+        {
+          productId: 201,
+          productName: '可口可乐 330ml 快照',
+          unit: '箱',
+          quantity: 6,
+          unitPrice: 12,
+        },
+        // 无码商品：没有 productId，不应产生入库记录
+        { productName: '散装辣条', quantity: 3, unitPrice: 12 },
+      ],
+      date: new Date('2026-05-14T10:00:00.000Z').getTime(),
+    });
+
+    expect(inventoryService.recordPurchaseRestock).toHaveBeenCalledWith(
+      prismaService,
+      {
+        storeId: 18,
+        operatorStaffId: 8,
+        purchaseOrderId: 11,
+        items: [{ productId: 201, quantity: 6 }],
+      },
+    );
+  });
+
+  it('remove 会在同一事务内先回滚入库库存再删除进货单', async () => {
+    prismaService.purchaseOrder.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+    });
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+
+    await service.remove(user, 11);
+
+    expect(inventoryService.revertPurchaseRestock).toHaveBeenCalledWith(
+      prismaService,
+      { storeId: 18, purchaseOrderId: 11 },
+    );
+    // 回滚必须在删单之前执行，否则删单后日志关系会被置空
+    expect(
+      inventoryService.revertPurchaseRestock.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      prismaService.purchaseOrder.delete.mock.invocationCallOrder[0],
+    );
+    expect(costsService.deletePurchaseCostRecord).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.delete).toHaveBeenCalledWith({
+      where: { id: 11 },
+    });
   });
 
   it('create 在无码商品场景会跳过商品查询但仍走事务与成本同步', async () => {

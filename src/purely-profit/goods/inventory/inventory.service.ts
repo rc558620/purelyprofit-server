@@ -24,11 +24,13 @@ import {
   executeInventoryManualAdjustment,
   recordInventoryRestock,
   recordInventorySaleDeduction,
+  revertInventoryPurchaseRestock,
   revertInventorySaleDeduction,
 } from './inventory-stock.query';
 import type {
   AdjustInventoryInput,
   InventoryRestockParams,
+  InventoryRevertPurchaseParams,
   InventoryRevertSaleParams,
   InventorySaleDeductionParams,
   UpdateAlertThresholdInput,
@@ -155,6 +157,14 @@ export class InventoryService {
     params: InventoryRevertSaleParams,
   ): Promise<void> {
     await revertInventorySaleDeduction(transaction, params);
+  }
+
+  /** 删除进货单时回滚该单的入库库存（与 recordPurchaseRestock 互为逆操作） */
+  async revertPurchaseRestock(
+    transaction: Prisma.TransactionClient,
+    params: InventoryRevertPurchaseParams,
+  ): Promise<void> {
+    await revertInventoryPurchaseRestock(transaction, params);
   }
 
   private resolveAdjustPermission(

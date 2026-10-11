@@ -9,7 +9,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -92,6 +91,13 @@ export class PurchaseItemInputDto {
 }
 
 export class PreviewPurchaseDto {
+  @ApiPropertyOptional({ example: 1, description: '门店 ID，不传默认当前门店' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '门店 ID 必须是整数' })
+  @Min(1, { message: '门店 ID 必须大于等于 1' })
+  storeId?: number;
+
   @ApiProperty({
     type: [PurchaseItemInputDto],
     description: '进货明细（仅需商品信息，服务端计算金额）',
@@ -138,9 +144,6 @@ export class CreatePurchaseDto {
   @Type(() => Number)
   @IsInt({ message: '进货日期必须是整数时间戳' })
   @Min(0, { message: '进货日期不合法' })
-  @Max(Date.now() + 365 * 24 * 60 * 60 * 1000, {
-    message: '进货日期不能超过当前时间 1 年',
-  })
   date: number;
 
   @ApiPropertyOptional({ example: '货款月结', description: '备注' })

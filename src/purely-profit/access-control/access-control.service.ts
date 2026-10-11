@@ -298,11 +298,17 @@ export class AccessControlService {
     subAccount: MembershipSubAccountContext = null,
     businessMode?: 'catering' | 'general',
   ): AuthenticatedMembership {
-    const subjectType: IdentityType = subAccount
-      ? 'sub_account'
-      : staff.role === StaffRole.owner
-        ? 'owner'
-        : 'staff';
+    // 主账号（owner 员工行）优先：若店主本人也建有员工档案并绑定了子账号席位，
+    // membership 行会 JOIN 出 sa.*，但身份必须保持 owner，
+    // 否则会被子账号权限集（无 purchase:delete 等 owner 专属权限）降级导致 403
+    const isOwnerStaff = staff.role === StaffRole.owner && staff.isActive;
+
+    const subjectType: IdentityType =
+      subAccount && !isOwnerStaff
+        ? 'sub_account'
+        : staff.role === StaffRole.owner
+          ? 'owner'
+          : 'staff';
 
     const membership: AuthenticatedMembership = {
       staffId: staff.id,
@@ -317,7 +323,11 @@ export class AccessControlService {
       subAccountRole: subAccount?.role ?? null,
       subAccountStatus: subAccount?.status ?? null,
       subAccountAssigned: subAccount?.isAssigned ?? false,
-      canAccessHome: subAccount ? (subAccount.canAccessHome ?? false) : true,
+      canAccessHome: isOwnerStaff
+        ? true
+        : subAccount
+          ? (subAccount.canAccessHome ?? false)
+          : true,
       canUseHandover: subAccount?.canUseHandover ?? false,
       businessMode,
     };

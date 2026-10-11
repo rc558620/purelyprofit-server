@@ -35,18 +35,15 @@ export async function countPurchaseOrders(
 
 export async function countPurchaseSuppliers(
   prisma: PrismaService,
-  _storeId: number,
   where: Prisma.PurchaseOrderWhereInput,
 ): Promise<number> {
-  const result = await prisma.purchaseOrder.findMany({
+  // distinct 供应商计数在 SQL 侧完成，避免大周期下把全部进货单行拉进内存
+  const groups = await prisma.purchaseOrder.groupBy({
+    by: ['supplierId'],
     where,
-    select: { supplierId: true },
-    distinct: ['supplierId'],
-    orderBy: { supplierId: 'asc' },
   });
   // supplierId 为 null 表示手输供应商名，不计入供应商数
-  const validSupplierIds = result.filter((r) => r.supplierId !== null);
-  return validSupplierIds.length;
+  return groups.filter((group) => group.supplierId !== null).length;
 }
 
 export async function aggregatePurchaseOrders(

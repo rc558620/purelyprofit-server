@@ -21,6 +21,7 @@ describe('purchases.query', () => {
     const purchaseOrderFindMany = jest.fn();
     const purchaseOrderCount = jest.fn();
     const purchaseOrderAggregate = jest.fn();
+    const purchaseOrderGroupBy = jest.fn();
     const purchaseOrderFindUnique = jest.fn();
     const purchaseOrderDelete = jest.fn();
     const supplierCount = jest.fn();
@@ -33,6 +34,7 @@ describe('purchases.query', () => {
           findMany: purchaseOrderFindMany,
           count: purchaseOrderCount,
           aggregate: purchaseOrderAggregate,
+          groupBy: purchaseOrderGroupBy,
           findUnique: purchaseOrderFindUnique,
           delete: purchaseOrderDelete,
         },
@@ -47,6 +49,7 @@ describe('purchases.query', () => {
       purchaseOrderFindMany,
       purchaseOrderCount,
       purchaseOrderAggregate,
+      purchaseOrderGroupBy,
       purchaseOrderFindUnique,
       purchaseOrderDelete,
       supplierCount,
@@ -106,10 +109,10 @@ describe('purchases.query', () => {
   });
 
   it('countPurchaseOrders 和 countPurchaseSuppliers 会转发统计查询', async () => {
-    const { prisma, purchaseOrderCount, purchaseOrderFindMany } =
+    const { prisma, purchaseOrderCount, purchaseOrderGroupBy } =
       createPrismaMock();
     purchaseOrderCount.mockResolvedValue(6);
-    purchaseOrderFindMany.mockResolvedValue([
+    purchaseOrderGroupBy.mockResolvedValue([
       { supplierId: 1 },
       { supplierId: 2 },
     ]);
@@ -117,17 +120,15 @@ describe('purchases.query', () => {
     await expect(
       countPurchaseOrders(prisma as never, { storeId: 18 }),
     ).resolves.toBe(6);
-    // 按筛选周期统计有进货记录的供应商数（distinct supplierId）
+    // 按筛选周期统计有进货记录的供应商数（SQL 侧 distinct supplierId）
     await expect(
-      countPurchaseSuppliers(prisma as never, 18, { storeId: 18 }),
+      countPurchaseSuppliers(prisma as never, { storeId: 18 }),
     ).resolves.toBe(2);
 
     expect(purchaseOrderCount).toHaveBeenCalledWith({ where: { storeId: 18 } });
-    expect(purchaseOrderFindMany).toHaveBeenCalledWith({
+    expect(purchaseOrderGroupBy).toHaveBeenCalledWith({
+      by: ['supplierId'],
       where: { storeId: 18 },
-      select: { supplierId: true },
-      distinct: ['supplierId'],
-      orderBy: { supplierId: 'asc' },
     });
   });
 

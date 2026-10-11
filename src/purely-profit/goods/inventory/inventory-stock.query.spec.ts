@@ -6,6 +6,7 @@ import {
   querySaleAdjustmentLogs,
   recordInventoryRestock,
   recordInventorySaleDeduction,
+  revertInventoryPurchaseRestock,
   revertInventorySaleDeduction,
   updateInventoryProductStock,
 } from './inventory-stock.query';
@@ -506,6 +507,89 @@ describe('inventory-stock.query', () => {
         saleOrderId: 66,
         adjustType: 'sale',
       },
+    });
+  });
+
+  it('revertInventoryPurchaseRestock 会反向扣减库存并删除入库日志', async () => {
+    const {
+      transaction,
+      productFindFirst,
+      productUpdate,
+      logFindMany,
+      logDeleteMany,
+    } = createTransaction();
+    logFindMany.mockResolvedValue([
+      { productId: 101, delta: 6 },
+      { productId: 102, delta: 3 },
+    ]);
+    productFindFirst
+      .mockResolvedValueOnce({ id: 101, name: '可口可乐 330ml', stock: 10 })
+      .mockResolvedValueOnce({ id: 102, name: '雪碧', stock: 5 });
+
+    await revertInventoryPurchaseRestock(transaction, {
+      storeId: 18,
+      purchaseOrderId: 77,
+    });
+
+    expect(productUpdate).toHaveBeenNthCalledWith(1, {
+      where: { id: 101 },
+      data: { stock: { increment: -6 } },
+    });
+    expect(productUpdate).toHaveBeenNthCalledWith(2, {
+      where: { id: 102 },
+      data: { stock: { increment: -3 } },
+    });
+    // 先删日志再回滚，保证重复调用幂等
+    expect(logDeleteMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        purchaseOrderId: 77,
+        adjustType: 'restock',
+      },
+    });
+    expect(logDeleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      productUpdate.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('revertInventoryPurchaseRestock 在无日志时不做任何库存变更（幂等）', async () => {
+    const { transaction, productUpdate, logFindMany, logDeleteMany } =
+      createTransaction();
+    logFindMany.mockResolvedValue([]);
+
+    await revertInventoryPurchaseRestock(transaction, {
+      storeId: 18,
+      purchaseOrderId: 77,
+    });
+
+    expect(productUpdate).not.toHaveBeenCalled();
+    expect(logDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('revertInventoryPurchaseRestock 在库存不足时只回滚可用库存，不产生负库存', async () => {
+    const { transaction, productFindFirst, productUpdate, logFindMany } =
+      createTransaction();
+    logFindMany.mockResolvedValue([{ productId: 101, delta: 6 }]);
+    // 物理库存 4（其中 3 为客存冻结），可回滚量仅 1
+    productFindFirst.mockResolvedValue({
+      id: 101,
+      name: '可口可乐 330ml',
+      stock: 4,
+    });
+    (
+      transaction as unknown as { custodyOrder: { groupBy: jest.Mock } }
+    ).custodyOrder.groupBy.mockResolvedValue([
+      { productId: 101, _sum: { remainingQty: 3 } },
+    ]);
+
+    await revertInventoryPurchaseRestock(transaction, {
+      storeId: 18,
+      purchaseOrderId: 77,
+    });
+
+    expect(productUpdate).toHaveBeenCalledWith({
+      where: { id: 101 },
+      data: { stock: { increment: -1 } },
     });
   });
 });

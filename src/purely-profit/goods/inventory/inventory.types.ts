@@ -131,6 +131,17 @@ export interface InventoryRevertSaleParams {
   saleOrderId: number;
 }
 
+export interface InventoryRevertPurchaseParams {
+  storeId: number;
+  purchaseOrderId: number;
+}
+
+/** 回滚日志查询结构：仅需要商品与当时的 delta（销售/采购回滚共用） */
+export interface InventoryRevertLogRecord {
+  productId: number;
+  delta: number;
+}
+
 export interface InventoryAdjustmentPageResult {
   items: InventoryAdjustmentRecord[];
   total: number;

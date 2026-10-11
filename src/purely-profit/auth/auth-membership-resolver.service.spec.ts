@@ -103,7 +103,9 @@ describe('AuthMembershipResolverService', () => {
       legacyOwnerRepairService.repairLegacyOwnerMembership,
     ).toHaveBeenCalledTimes(1);
     expect(membershipQueryService.findMembershipRows).toHaveBeenCalledTimes(2);
-    expect(accessControlService.buildMembershipContext).toHaveBeenCalledTimes(1);
+    expect(accessControlService.buildMembershipContext).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it('会员行为空且补齐失败时返回 null，不触发重新查询', async () => {

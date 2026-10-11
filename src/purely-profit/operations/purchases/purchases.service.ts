@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { resolvePagination } from '../../commerce/commerce.utils';
+import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CostsService } from '../costs/costs.service';
@@ -62,6 +63,7 @@ export class PurchasesService {
     private readonly configService: ConfigService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly costsService: CostsService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async list(
@@ -112,7 +114,7 @@ export class PurchasesService {
       query,
     );
     const [supplierCount, currentAgg, previousAgg] = await Promise.all([
-      countPurchaseSuppliers(this.prisma, storeId, currentWhere),
+      countPurchaseSuppliers(this.prisma, currentWhere),
       aggregatePurchaseOrders(this.prisma, currentWhere),
       aggregatePreviousPurchaseOrders(this.prisma, { storeId, previousRange }),
     ]);
@@ -130,9 +132,10 @@ export class PurchasesService {
     user: AuthenticatedUser,
     dto: PreviewPurchaseDto,
   ): Promise<PurchasePreviewResponseDto> {
+    // 与 create 保持一致：优先使用请求携带的 storeId，避免多门店下预览校验错门店
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
-      undefined,
+      dto.storeId,
       'purchase:create',
       '无权操作该门店进货单',
     );
@@ -211,6 +214,23 @@ export class PurchasesService {
         items: preparedItems,
       });
 
+      // 进货即入库：与订单在同一事务内同步库存，避免前端补偿导致的丢失/重复入库
+      await this.inventoryService.recordPurchaseRestock(transaction, {
+        storeId,
+        operatorStaffId,
+        purchaseOrderId: order.id,
+        // 无码商品（productId 为空）无库存可入，跳过
+        items: preparedItems
+          .filter(
+            (item): item is typeof item & { productId: number } =>
+              item.productId !== null,
+          )
+          .map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+      });
+
       await this.costsService.syncPurchaseCost(transaction, {
         storeId,
         operatorStaffId,
@@ -250,6 +270,12 @@ export class PurchasesService {
     );
 
     await this.prisma.$transaction(async (transaction) => {
+      // 先回滚该进货单的入库库存（删除日志 + 反向扣减），再删单，
+      // 保证删除进货单不会留下虚增库存
+      await this.inventoryService.revertPurchaseRestock(transaction, {
+        storeId: purchase.storeId,
+        purchaseOrderId: purchase.id,
+      });
       await this.costsService.deletePurchaseCostRecord(
         transaction,
         purchase.storeId,

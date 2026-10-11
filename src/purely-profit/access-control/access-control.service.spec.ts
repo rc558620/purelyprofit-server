@@ -330,6 +330,35 @@ describe('AccessControlService', () => {
     expect(result.canAccessHome).toBe(true);
   });
 
+  it('主账号员工行命中子账号席位时保持 owner 身份，不被子账号权限集降级', () => {
+    const result = service.buildMembershipContext(
+      {
+        id: 1,
+        storeId: 10,
+        role: StaffRole.owner,
+        permissions: ['*'],
+        isActive: true,
+      },
+      {
+        id: 6,
+        employeeId: 12,
+        role: StoreSubAccountRole.finance,
+        status: StoreSubAccountStatus.active,
+        isAssigned: true,
+        canAccessHome: true,
+        canUseHandover: false,
+      },
+    );
+
+    expect(result.subjectType).toBe('owner');
+    expect(result.permissions).toContain('*');
+    // 通配符展开后应命中 owner 专属的删除权限（子账号权限集没有该权限）
+    expect(
+      service.hasPermission(result.permissions, 'purchase:delete'),
+    ).toBe(true);
+    expect(result.canAccessHome).toBe(true);
+  });
+
   it('resolveCurrentStaffIdForStore 应返回当前 membership 的 staffId', () => {
     expect(
       service.resolveCurrentStaffIdForStore(

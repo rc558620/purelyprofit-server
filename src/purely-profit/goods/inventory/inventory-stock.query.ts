@@ -4,6 +4,8 @@ import type {
   InventoryManualAdjustmentCommand,
   InventoryMutableProductRecord,
   InventoryRestockParams,
+  InventoryRevertLogRecord,
+  InventoryRevertPurchaseParams,
   InventoryRevertSaleParams,
   InventorySaleAdjustmentLogRecord,
   InventorySaleDeductionParams,
@@ -184,6 +186,51 @@ export async function revertInventorySaleDeduction(
   }
 }
 
+/**
+ * 进货单删除时的入库回滚：按该进货单产生的 restock 日志反向扣减库存。
+ *
+ * 与 revertInventorySaleDeduction 同序（先删日志、再回滚库存）：
+ * 先删日志可保证幂等——重复调用第二次查不到日志，不会重复回滚；
+ * 若回滚途中失败，事务整体回滚、日志也不会丢，下次重试仍能正确扣减。
+ *
+ * 库存语义：只回滚「可用库存」（物理库存 − 客存冻结量）并钳制到 0，
+ * 避免出现负库存或把客户寄存的商品回滚掉。
+ */
+export async function revertInventoryPurchaseRestock(
+  transaction: InventoryTransactionClient,
+  params: InventoryRevertPurchaseParams,
+): Promise<void> {
+  const logs = await queryPurchaseAdjustmentLogs(transaction, params);
+
+  if (logs.length === 0) {
+    return;
+  }
+
+  await deletePurchaseAdjustmentLogs(transaction, params);
+
+  for (const log of logs) {
+    const product = await findInventoryProductForStore(
+      transaction,
+      params.storeId,
+      log.productId,
+    );
+    if (!product) continue;
+
+    const frozenQty = await resolveFrozenQty(
+      transaction,
+      params.storeId,
+      log.productId,
+    );
+    const availableStock = Math.max(0, product.stock - frozenQty);
+    const revertQty = Math.min(Math.max(0, log.delta), availableStock);
+    if (revertQty <= 0) continue;
+
+    await updateInventoryProductStock(transaction, product.id, {
+      increment: -revertQty,
+    });
+  }
+}
+
 export async function findInventoryProductForStore(
   transaction: InventoryTransactionClient,
   storeId: number,
@@ -282,6 +329,37 @@ export async function deleteSaleAdjustmentLogs(
   });
 }
 
+export async function queryPurchaseAdjustmentLogs(
+  transaction: InventoryTransactionClient,
+  params: InventoryRevertPurchaseParams,
+): Promise<InventoryRevertLogRecord[]> {
+  return transaction.inventoryAdjustmentLog.findMany({
+    where: {
+      storeId: params.storeId,
+      purchaseOrderId: params.purchaseOrderId,
+      adjustType: 'restock',
+    },
+    orderBy: [{ id: 'asc' }],
+    select: {
+      productId: true,
+      delta: true,
+    },
+  });
+}
+
+export async function deletePurchaseAdjustmentLogs(
+  transaction: InventoryTransactionClient,
+  params: InventoryRevertPurchaseParams,
+): Promise<void> {
+  await transaction.inventoryAdjustmentLog.deleteMany({
+    where: {
+      storeId: params.storeId,
+      purchaseOrderId: params.purchaseOrderId,
+      adjustType: 'restock',
+    },
+  });
+}
+
 async function recordInventoryStockChange(
   transaction: InventoryTransactionClient,
   command: InventoryStockChangeCommand,
@@ -291,6 +369,11 @@ async function recordInventoryStockChange(
     command.storeId,
     command.productId,
   );
+  // 商品被软删/不属于本门店：跳过库存变更。
+  // 进货、销售等主链路不应因库存记录缺失而整体失败（调用方需要严格语义时
+  // 会自行校验商品是否存在，如 applyInventoryDeductionsInTransaction）。
+  if (!product) return;
+
   const plan = buildInventoryStockChangePlan({
     product,
     command,
