@@ -50,6 +50,7 @@ export class ManualEntryOrderDetailService {
         itemOriginalAmount: true,
         payableAmount: true,
         pickupNumber: true,
+        remark: true,
         table: { select: { name: true, tableCode: true } },
         items: {
           orderBy: { id: 'asc' as const },
@@ -104,6 +105,7 @@ export class ManualEntryOrderDetailService {
                   : String(scanOrder.pickupNumber),
               )
             : null,
+        remark: (scanOrder.remark as string | null) ?? null,
         manualEntry: true,
         amountSummary: {
           itemOriginalAmount: fenToYuan(itemOrigCents),
@@ -176,6 +178,8 @@ export class ManualEntryOrderDetailService {
       createdAt: saleOrder.createdAt.toISOString(),
       pickupNumber: null,
       pickupNumberLabel: null,
+      // 老 SaleOrder 链路无备注字段，统一为 null（浏览器小票不渲染备注行）
+      remark: null,
       manualEntry: true,
       amountSummary: {
         itemOriginalAmount: totalYuan,

@@ -146,12 +146,15 @@ export class SpacePrintController {
       'space:view',
       '无权查看打印代理配置',
     );
-    const [bindCode, agentVersion] = await Promise.all([
+    const [bindCode, agentVersion, status] = await Promise.all([
       this.printAgentService.getBindCode(storeId),
       this.printAgentService.getLatestRegisteredVersion(storeId),
+      this.printAgentService.getAgentStatus(storeId),
     ]);
-    const status = this.printAgentService.getAgentStatus(storeId);
-    const printers = this.printAgentService.getPrinters(storeId);
+    // 代理离线时不展示门店打印机列表（避免误以为可下发）
+    const printers = status.online
+      ? await this.printAgentService.getPrinters(storeId)
+      : [];
     return {
       bindCode,
       online: status.online,

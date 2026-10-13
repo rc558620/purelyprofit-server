@@ -89,6 +89,12 @@ export interface ScanOrderingOrderDetailPayload {
     /** 规格选项列表。 */
     specs: Array<{ name: string; extraPrice: number }>;
   }>;
+  /**
+   * 顾客下单备注；无备注为 null。
+   * 浏览器打印通道据此渲染小票「备注」行，与云/USB 通道（后端 loadOrder 取 remark）
+   * 输出保持一致——此前仅后端组装的小票有备注，浏览器小票缺失。
+   */
+  remark: string | null;
   /** 状态流转历史。 */
   histories: Array<{
     fromStatus: string;

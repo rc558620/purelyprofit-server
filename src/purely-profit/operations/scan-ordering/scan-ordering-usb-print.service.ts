@@ -95,7 +95,8 @@ export class ScanOrderingUsbPrintService {
     const storeId = await this.resolveMerchantStoreId(user);
     if (await this.agentService.isAgentBound(storeId)) {
       // windows 打印机的 type 对前端归一为 cups（同为"系统打印机"语义）
-      return this.agentService.getPrinters(storeId).map((printer) => ({
+      const printers = await this.agentService.getPrinters(storeId);
+      return printers.map((printer) => ({
         id: printer.id,
         name: printer.name,
         type: printer.type === 'windows' ? 'cups' : printer.type,

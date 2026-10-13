@@ -77,6 +77,8 @@ export interface ScanOrderDetailSource extends ScanOrderingAmountSummarySource {
   status: ScanOrderStatus;
   createdAt: Date;
   pickupNumber: number | null;
+  /** 顾客下单备注；无备注为 null（前端浏览器打印小票需要）。 */
+  remark: string | null;
   table: { name: string; tableCode: string } | null;
   items: Array<{
     productNameSnapshot: string;
@@ -249,6 +251,8 @@ export const toOrderDetailPayload = (input: {
     createdAt: order.createdAt.toISOString(),
     pickupNumber: order.pickupNumber,
     pickupNumberLabel: formatPickupNumber(order.pickupNumber),
+    // 备注透传给前端小票预览/打印（浏览器通道），对齐云打印与 USB 通道的输出
+    remark: order.remark ?? null,
     amountSummary: toAmountSummary(order, calculateSummary),
     items: order.items.map((item) => toDetailItem(item, calculateSummary)),
     histories: order.histories.map(toDetailHistory),

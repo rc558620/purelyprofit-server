@@ -209,7 +209,7 @@ describe('ScanOrderingUsbPrintService', () => {
 
   it('门店绑定代理时 listUsbDevices 返回代理上报打印机列表', async () => {
     agentService.isAgentBound.mockResolvedValue(true);
-    agentService.getPrinters.mockReturnValue([
+    agentService.getPrinters.mockResolvedValue([
       { id: 'RP58', name: 'RP58', type: 'windows' },
       { id: '/dev/usb/lp0', name: 'lp0', type: 'device' },
     ]);

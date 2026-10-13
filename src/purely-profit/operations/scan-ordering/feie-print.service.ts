@@ -11,6 +11,8 @@ interface FeiePrintConfig {
   user: string;
   ukey: string;
   apiUrl: string;
+  /** 单次请求超时（毫秒）。 */
+  timeoutMs: number;
 }
 
 /** 飞鹅开放接口统一响应结构。 */
@@ -54,6 +56,9 @@ export class FeiePrintService {
         this.configService.get<string>('feiePrint.apiUrl') ??
           'https://api.feieyun.cn/Api/Open/',
       ),
+      // Number() + || 兜底：配置读取可能是空串/非数字（测试替身或未注入环境变量）
+      timeoutMs:
+        Number(this.configService.get<number>('feiePrint.timeoutMs')) || 10_000,
     };
   }
 
@@ -142,10 +147,12 @@ export class FeiePrintService {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
+        // 超时保护：云端挂起时主动中断，避免请求拖到全局 HTTP 超时（默认 15s）
+        signal: AbortSignal.timeout(this.config.timeoutMs),
       });
     } catch (error) {
       throw new ServiceUnavailableException(
-        `飞鹅云打印请求失败：${error instanceof Error ? error.message : '网络异常'}`,
+        `飞鹅云打印请求失败：${this.errorMessage(error)}`,
       );
     }
 
@@ -166,6 +173,15 @@ export class FeiePrintService {
     if (!sn) {
       throw new BadRequestException('缺少飞鹅云打印机 SN');
     }
+  }
+
+  /** 归一化错误信息：超时（AbortSignal.timeout）单独给出可读文案，其余沿用原始 message。 */
+  private errorMessage(error: unknown): string {
+    if (!(error instanceof Error)) return '网络异常';
+    if (error.name === 'TimeoutError') {
+      return `请求超时（${this.config.timeoutMs}ms）`;
+    }
+    return error.message;
   }
 
   /** 规范化 base URL：确保以 / 结尾，避免路径拼接错位。 */

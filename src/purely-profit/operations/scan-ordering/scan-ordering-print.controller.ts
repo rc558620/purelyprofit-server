@@ -93,12 +93,20 @@ export class ScanOrderingPrintController {
       );
       return { orderId };
     }
-    const orderId = await this.cloudPrintService.printForMerchant(
-      user,
-      dto.target,
-      dto.orderId,
+    if (channel === 'cloud') {
+      const orderId = await this.cloudPrintService.printForMerchant(
+        user,
+        dto.target,
+        dto.orderId,
+      );
+      return { orderId };
+    }
+    // browser（浏览器系统打印）/ off（关闭）通道不由后端下发：前者由前端渲染
+    // 小票视图后调用 window.print()，后者应静默跳过。此处显式拒绝，避免
+    // browser/off 意外回落到云打印（用旧 SN 打出小票或报误导性的"未配置 SN"）。
+    throw new BadRequestException(
+      '当前打印通道未启用云/USB 打印，请先在打印设置中选择云打印或 USB 打印',
     );
-    return { orderId };
   }
 
   @Post('print/test')
@@ -118,11 +126,17 @@ export class ScanOrderingPrintController {
       );
       return { orderId };
     }
-    const orderId = await this.cloudPrintService.testPrintForMerchant(
-      user,
-      dto.target,
+    if (channel === 'cloud') {
+      const orderId = await this.cloudPrintService.testPrintForMerchant(
+        user,
+        dto.target,
+      );
+      return { orderId };
+    }
+    // browser / off 通道没有后端下发链路（测试按钮在前端侧已禁用），显式拒绝
+    throw new BadRequestException(
+      '当前打印通道未启用云/USB 打印，请先在打印设置中选择云打印或 USB 打印',
     );
-    return { orderId };
   }
 
   @Get('print/usb-devices')
@@ -200,13 +214,16 @@ export class ScanOrderingPrintController {
       'scan-ordering:view',
       '无权查看打印代理配置',
     );
-    // getAgentStatus / getPrinters 为同步内存读取，仅绑定码与版本需异步查询
-    const [bindCode, agentVersion] = await Promise.all([
+    // 绑定码与版本查库、在线状态cluster 下需读 Redis 在线标记（getPrinters 为内存读取）
+    const [bindCode, agentVersion, status] = await Promise.all([
       this.printAgentService.getBindCode(storeId),
       this.printAgentService.getLatestRegisteredVersion(storeId),
+      this.printAgentService.getAgentStatus(storeId),
     ]);
-    const status = this.printAgentService.getAgentStatus(storeId);
-    const printers = this.printAgentService.getPrinters(storeId);
+    // 打印机列表仅在代理在线时返回：离线期间继续展示会让商家误以为可下发
+    const printers = status.online
+      ? await this.printAgentService.getPrinters(storeId)
+      : [];
     return {
       bindCode,
       online: status.online,

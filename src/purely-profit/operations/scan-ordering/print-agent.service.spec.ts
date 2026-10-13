@@ -19,9 +19,12 @@ describe('PrintAgentService', () => {
     subscribe: jest.fn().mockResolvedValue(jest.fn()),
     publish: jest.fn().mockResolvedValue(1),
     set: jest.fn().mockResolvedValue(undefined),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    getJson: jest.fn().mockResolvedValue(null),
     del: jest.fn().mockResolvedValue(undefined),
     expire: jest.fn().mockResolvedValue(true),
     exists: jest.fn().mockResolvedValue(true),
+    isConnectionClosedError: jest.fn().mockReturnValue(false),
   };
 
   beforeEach(async () => {
@@ -137,14 +140,43 @@ describe('PrintAgentService', () => {
     expect(socket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"print"'),
     );
-    expect(redisService.set).toHaveBeenCalledWith(
+    // 在线标记改为结构化 JSON（pid + lastSeenAt），供跨 worker 判定在线与恢复最后在线时间
+    expect(redisService.setJson).toHaveBeenCalledWith(
       expect.stringContaining('print-agent:online:11'),
-      expect.any(String),
+      { pid: expect.any(Number), lastSeenAt: expect.any(Number) },
       expect.any(Number),
     );
-    expect(service.getAgentStatus(11)).toEqual({
+    expect(await service.getAgentStatus(11)).toEqual({
       online: true,
       lastSeenAt: expect.any(Number),
+    });
+  });
+
+  it('getAgentStatus：本 worker 无连接但 Redis 在线标记存在时判定在线（cluster 跨 worker）', async () => {
+    redisService.getJson.mockResolvedValueOnce({
+      pid: 4321,
+      lastSeenAt: 1700000000000,
+    });
+    // 本 worker 未持有连接，且 Redis 在线标记由持有连接的 worker 写入
+    expect(await service.getAgentStatus(11)).toEqual({
+      online: true,
+      lastSeenAt: 1700000000000,
+    });
+  });
+
+  it('getAgentStatus：本 worker 无连接且无在线标记时判定离线', async () => {
+    redisService.getJson.mockResolvedValue(null);
+    expect(await service.getAgentStatus(11)).toEqual({
+      online: false,
+      lastSeenAt: null,
+    });
+  });
+
+  it('getAgentStatus：Redis 读取异常时降级为离线且不抛错', async () => {
+    redisService.getJson.mockRejectedValueOnce(new Error('redis down'));
+    await expect(service.getAgentStatus(11)).resolves.toEqual({
+      online: false,
+      lastSeenAt: null,
     });
   });
 
@@ -182,16 +214,51 @@ describe('PrintAgentService', () => {
     };
     await service.attach(11, socket);
     await service.detach(11, socket);
-    expect(service.getAgentStatus(11).online).toBe(false);
+    expect((await service.getAgentStatus(11)).online).toBe(false);
     expect(redisService.del).toHaveBeenCalledWith(
       expect.stringContaining('print-agent:online:11'),
     );
   });
 
-  it('打印机缓存：setPrinters 后 getPrinters 可读', () => {
+  it('打印机缓存：setPrinters 后 getPrinters 可读且同步写入 Redis', async () => {
     service.setPrinters(11, [{ id: 'RP58', name: 'RP58', type: 'windows' }]);
-    expect(service.getPrinters(11)).toEqual([
+    await expect(service.getPrinters(11)).resolves.toEqual([
       { id: 'RP58', name: 'RP58', type: 'windows' },
     ]);
+    expect(redisService.setJson).toHaveBeenCalledWith(
+      expect.stringContaining('print-agent:printers:11'),
+      [{ id: 'RP58', name: 'RP58', type: 'windows' }],
+      expect.any(Number),
+    );
+  });
+
+  it('打印机缓存：本 worker 无内存缓存时回退 Redis（cluster 下代理连在其它 worker）', async () => {
+    redisService.getJson.mockResolvedValueOnce([
+      { id: 'RP58', name: 'RP58', type: 'windows' },
+    ]);
+    await expect(service.getPrinters(11)).resolves.toEqual([
+      { id: 'RP58', name: 'RP58', type: 'windows' },
+    ]);
+  });
+
+  it('打印机缓存：Redis 读取异常时降级为空数组且不抛错', async () => {
+    redisService.getJson.mockRejectedValueOnce(new Error('redis down'));
+    await expect(service.getPrinters(11)).resolves.toEqual([]);
+  });
+
+  it('detach：同时清理在线标记与打印机列表（离线后不再展示门店打印机）', async () => {
+    const socket: PrintAgentConnection = {
+      readyState: 1,
+      send: jest.fn(),
+      close: jest.fn(),
+    };
+    await service.attach(11, socket);
+    service.setPrinters(11, [{ id: 'RP58', name: 'RP58', type: 'windows' }]);
+    await service.detach(11, socket);
+
+    await expect(service.getPrinters(11)).resolves.toEqual([]);
+    expect(redisService.del).toHaveBeenCalledWith(
+      expect.stringContaining('print-agent:printers:11'),
+    );
   });
 });

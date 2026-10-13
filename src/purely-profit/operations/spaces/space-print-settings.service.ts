@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -65,6 +69,11 @@ export class SpacePrintSettingsService {
     updates: SpacePrintSettingsUpdate,
   ): Promise<SpacePrintSettings> {
     const storeId = await this.resolveMerchantStoreId(user);
+    // DTO 全字段可选：空更新会让 Prisma 抛校验错误（表现为 500），这里提前转成 400。
+    // （请求体经全局 ValidationPipe 的 whitelist 处理后，未传字段会被剥离。）
+    if (Object.keys(updates).length === 0) {
+      throw new BadRequestException('没有需要更新的打印配置字段');
+    }
     await this.prisma.store.update({
       where: { id: storeId },
       data: updates,
@@ -84,10 +93,7 @@ export class SpacePrintSettingsService {
     );
   }
 
-  private logUpdate(
-    storeId: number,
-    updates: SpacePrintSettingsUpdate,
-  ): void {
+  private logUpdate(storeId: number, updates: SpacePrintSettingsUpdate): void {
     // 配置变更日志；与扫码点餐打印配置同风格，便于排查
     console.info(
       `[space-print-settings] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,

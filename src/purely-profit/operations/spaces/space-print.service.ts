@@ -79,6 +79,8 @@ export class SpacePrintService {
       const printer = settings.spaceUsbPrinter;
       const data = this.ticketBuilder.buildTest('空间打印测试');
       if (await this.agentService.isAgentBound(storeId)) {
+        // target 沿用 cashier：Go 代理 resolvePrinter 只区分 kitchen，其余目标（含协议
+        // 预留的 space）一律走门店「收银台」打印机，与空间小票落到同一台的预期一致。
         const result = await this.agentService.dispatch(storeId, {
           taskId: PrintAgentService.newTaskId(),
           target: 'cashier',
@@ -105,7 +107,8 @@ export class SpacePrintService {
     const storeId = await this.resolveMerchantStoreIdForView(user);
     if (await this.agentService.isAgentBound(storeId)) {
       // windows 打印机的 type 对前端归一为 cups（同为"系统打印机"语义）
-      return this.agentService.getPrinters(storeId).map((printer) => ({
+      const printers = await this.agentService.getPrinters(storeId);
+      return printers.map((printer) => ({
         id: printer.id,
         name: printer.name,
         type: printer.type === 'windows' ? 'cups' : printer.type,
@@ -154,8 +157,12 @@ export class SpacePrintService {
       order.items.forEach((item) => {
         // 自助下单商品：商品名后拼「 (自助)」标注（半角括号，热敏机 ASCII 字库最规整）
         const name =
-          item.sourceType === 'member_self_order' ? `${item.name} (自助)` : item.name;
-        lines.push(`${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}<BR>`);
+          item.sourceType === 'member_self_order'
+            ? `${item.name} (自助)`
+            : item.name;
+        lines.push(
+          `${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}<BR>`,
+        );
         // 规格另起一行（对齐餐饮扫码点餐小票口径）
         if (item.specNames && item.specNames.length > 0) {
           lines.push(`  ${item.specNames.join('、')}<BR>`);
@@ -235,6 +242,8 @@ export class SpacePrintService {
     const data = this.ticketBuilder.buildSpaceTicket(ticket);
 
     if (await this.agentService.isAgentBound(storeId)) {
+      // target 沿用 cashier：Go 代理 resolvePrinter 只区分 kitchen，其余目标（含协议
+      // 预留的 space）一律走门店「收银台」打印机，与空间小票落到同一台的预期一致。
       const result = await this.agentService.dispatch(storeId, {
         taskId: PrintAgentService.newTaskId(),
         target: 'cashier',

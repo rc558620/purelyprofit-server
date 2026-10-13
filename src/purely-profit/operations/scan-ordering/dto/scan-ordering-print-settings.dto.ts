@@ -26,7 +26,10 @@ export class UpdateScanOrderingPrintSettingsDto {
   kitchenPrintChannel?: PrintChannel;
 
   @ApiPropertyOptional({
-    description: '收银台飞鹅云打印机 SN（channel=cloud 时必填）',
+    // 说明（非强校验）：支持「先切通道、后填 SN」的分次保存，故此处不做必填校验；
+    // 缺 SN 的拦截推迟到实际下发打印时（报错信息会引导商家回到打印设置）
+    description:
+      '收银台飞鹅云打印机 SN（cashierPrintChannel=cloud 时下发打印需要）',
   })
   @IsOptional()
   @IsString({ message: 'cashierCloudPrinterSn 必须是字符串' })
@@ -34,7 +37,8 @@ export class UpdateScanOrderingPrintSettingsDto {
   cashierCloudPrinterSn?: string | null;
 
   @ApiPropertyOptional({
-    description: '后厨飞鹅云打印机 SN（channel=cloud 时必填）',
+    description:
+      '后厨飞鹅云打印机 SN（kitchenPrintChannel=cloud 时下发打印需要）',
   })
   @IsOptional()
   @IsString({ message: 'kitchenCloudPrinterSn 必须是字符串' })

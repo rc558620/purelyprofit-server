@@ -355,6 +355,8 @@ export default () => ({
     /** 飞鹅开放接口地址（中国站正式地址；2026-01 起官方按接口路径分流，此处为 base，业务按接口名拼接路径） */
     apiUrl:
       process.env.FEIE_PRINT_API_URL ?? 'https://api.feieyun.cn/Api/Open/',
+    /** 单次飞鹅接口请求超时（毫秒）：云端挂起时快速失败，避免拖到全局 HTTP 超时 */
+    timeoutMs: parseInt(process.env.FEIE_PRINT_TIMEOUT_MS ?? '10000', 10),
   },
 
   /**

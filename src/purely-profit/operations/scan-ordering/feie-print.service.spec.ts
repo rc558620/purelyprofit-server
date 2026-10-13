@@ -97,6 +97,18 @@ describe('FeiePrintService', () => {
     expect(url).toBe('https://api.feieyun.cn/Api/Open/printMsg');
   });
 
+  it('请求超时时抛 503 并给出可读的超时文案', async () => {
+    const timeoutError = new Error('aborted');
+    timeoutError.name = 'TimeoutError';
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(timeoutError) as unknown as typeof fetch;
+
+    await expect(service.printMessage('SN123', 'hello')).rejects.toThrow(
+      '请求超时',
+    );
+  });
+
   it('飞鹅返回错误时抛 503', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       json: jest

@@ -60,6 +60,11 @@ const parseMessage = (raw: RawData): AgentMessage | null => {
 /** 心跳间隔：保持连接活跃并同步"最后在线时间"。 */
 const PING_INTERVAL_MS = 30_000;
 
+/** 注册入参长度上限（与 PrintAgentRegisterDto 约束对齐，防止超长脏数据落库）。 */
+const MAX_DEVICE_ID_LENGTH = 128;
+const MAX_PLATFORM_LENGTH = 32;
+const MAX_VERSION_LENGTH = 32;
+
 /**
  * 扫码点餐打印代理 WebSocket 路由（原生 WS，供 Go 打印代理连接）。
  * - token 鉴权：校验 stores.print_agent_token
@@ -100,12 +105,36 @@ export function registerPrintAgentNativeWebsocket(
     if (bindCode.length < 6 || bindCode.length > 16) {
       return reply.code(400).send({ message: '绑定码无效' });
     }
+    // 直连路由绕过了 NestJS ValidationPipe，DTO 上的约束不会自动生效，
+    // 这里补齐长度防线，避免超长 platform / version / deviceId 直接落库。
+    // 说明：platform 不做白名单强校验——已部署的旧代理上报值可能不在
+    // PrintAgentRegisterDto 枚举内，强校验会直接让它们在重绑时注册失败。
+    const deviceId = String(body.deviceId ?? '').trim();
+    if (deviceId.length > MAX_DEVICE_ID_LENGTH) {
+      return reply
+        .code(400)
+        .send({ message: `deviceId 不能超过 ${MAX_DEVICE_ID_LENGTH} 个字符` });
+    }
+    const platform =
+      body.platform == null ? undefined : String(body.platform).trim();
+    if (platform && platform.length > MAX_PLATFORM_LENGTH) {
+      return reply
+        .code(400)
+        .send({ message: `platform 不能超过 ${MAX_PLATFORM_LENGTH} 个字符` });
+    }
+    const version =
+      body.version == null ? undefined : String(body.version).trim();
+    if (version && version.length > MAX_VERSION_LENGTH) {
+      return reply
+        .code(400)
+        .send({ message: `version 不能超过 ${MAX_VERSION_LENGTH} 个字符` });
+    }
     try {
       const result = await agentService.register(
         bindCode,
-        String(body.deviceId ?? '').trim() || undefined,
-        body.platform,
-        body.version,
+        deviceId || undefined,
+        platform || undefined,
+        version || undefined,
       );
       return reply.code(200).send(result);
     } catch (error) {

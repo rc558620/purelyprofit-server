@@ -20,6 +20,17 @@ export interface PrintAgentConnection {
   close(code?: number, reason?: string): void;
 }
 
+/**
+ * Redis 在线标记内容（cluster 下供非持有连接的 worker 判定代理在线状态）。
+ * 仅本服务读写，值为结构化 JSON 而非纯 pid，便于跨 worker 恢复最后在线时间。
+ */
+interface PrintAgentOnlineMarker {
+  /** 持有该连接的 worker 进程 ID（排障用）。 */
+  pid: number;
+  /** 最近一次心跳/挂载时间戳（毫秒）。 */
+  lastSeenAt: number;
+}
+
 /** 打印任务下发结果。 */
 export type PrintAgentDispatchResult =
   | { ok: true; taskId: string; forwarded?: boolean }
@@ -56,10 +67,14 @@ interface PrintAgentForwardMessage {
 
 /** Redis 频道：打印任务跨 worker 转发。 */
 const PRINT_AGENT_CHANNEL = 'purelyprofit:print-agent:task:v1';
-/** Redis key 前缀：门店代理在线标记（值为持有连接的 worker pid）。 */
+/** Redis key 前缀：门店代理在线标记（值为持有连接的 worker pid + 最后在线时间）。 */
 const PRINT_AGENT_ONLINE_PREFIX = 'purelyprofit:print-agent:online:';
+/** Redis key 前缀：门店代理上报的打印机列表（跨 worker 共享，避免占有着连接的 worker 才能取到）。 */
+const PRINT_AGENT_PRINTERS_PREFIX = 'purelyprofit:print-agent:printers:';
 /** 在线标记 TTL（秒）：需大于心跳间隔，worker 崩溃后自动过期兜底。 */
 const ONLINE_TTL_SECONDS = 90;
+/** 打印机列表 TTL（秒）：代理每次上报都会刷新；代理异常退出未触发 detach 时由 TTL 回收。 */
+const PRINTERS_TTL_SECONDS = 24 * 60 * 60;
 /** 心跳间隔（秒），与网关 ping 间隔保持一致。 */
 const HEARTBEAT_INTERVAL_SECONDS = 30;
 
@@ -75,7 +90,14 @@ const HEARTBEAT_INTERVAL_SECONDS = 30;
 @Injectable()
 export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('PrintAgentService');
-  /** storeId → 在线代理连接（同一门店一般只装一个代理，后连覆盖先连）。 */
+  /**
+   * storeId → 在线代理连接。
+   *
+   * 已知限制（与 register 的多设备概念并存）：虽然同一门店可按 deviceId 注册多台电脑
+   * （各自持有独立 token 互不覆盖），但 WebSocket 连接按门店单例保存——后连会覆盖先连，
+   * 打印任务只发给最后连上的那台机器。要让多台电脑各自分担打印目标（收银台/后厨），
+   * 需要按 deviceId 维护连接并在任务里带上目标机器路由，属于协议层改造。
+   */
   private readonly connections = new Map<number, PrintAgentConnection>();
   /** storeId → 最近一次回执时间（毫秒时间戳）。 */
   private readonly lastSeenCache = new Map<number, number>();
@@ -172,16 +194,50 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     return Boolean(agent) || Boolean(store?.printAgentToken);
   }
 
-  /** 查询门店代理在线状态（商家端展示；cluster 下合并 Redis 在线标记）。 */
-  getAgentStatus(storeId: number): {
+  /**
+   * 查询门店代理在线状态（商家端展示）。
+   * - 本 worker 持有连接 → 直接在线，最后在线时间取本地内存
+   * - 本 worker 无连接（cluster：代理连在其它 worker）→ 读 Redis 在线标记判定，
+   *   并从标记里恢复最后在线时间，避免多 worker 部署时商家端误显示"离线"
+   * - Redis 不可用 → 降级为本地判定（本 worker 无连接即按离线，与原 semantics 一致）
+   */
+  async getAgentStatus(storeId: number): Promise<{
     online: boolean;
     lastSeenAt: number | null;
-  } {
-    // 本 worker 持有连接即在线；否则等待 Redis 在线标记确认（异步由 refresh 补全）
-    return {
-      online: this.connections.has(storeId),
-      lastSeenAt: this.lastSeenCache.get(storeId) ?? null,
-    };
+  }> {
+    if (this.connections.has(storeId)) {
+      return {
+        online: true,
+        lastSeenAt: this.lastSeenCache.get(storeId) ?? null,
+      };
+    }
+    try {
+      const marker = await this.redisService.getJson<PrintAgentOnlineMarker>(
+        this.onlineKey(storeId),
+      );
+      if (!marker) {
+        // 离线时保留本 worker 观察到的最后在线时间（语义为"上次在线"，不应随离线清空）
+        return {
+          online: false,
+          lastSeenAt: this.lastSeenCache.get(storeId) ?? null,
+        };
+      }
+      return {
+        online: true,
+        lastSeenAt: marker.lastSeenAt ?? null,
+      };
+    } catch (error) {
+      // Redis 不可用时降级：与 touch/attach 同范式，连接关闭类错误静默等待重连
+      if (!this.redisService.isConnectionClosedError(error)) {
+        this.logger.warn(
+          `打印代理在线标记读取失败: storeId=${storeId} ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return {
+        online: false,
+        lastSeenAt: this.lastSeenCache.get(storeId) ?? null,
+      };
+    }
   }
 
   /** 查询门店最近一次注册代理的版本号（用于商家端新旧版本对比提示）。 */
@@ -194,14 +250,45 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     return agent?.version ?? null;
   }
 
-  /** 保存代理上报的可用打印机列表。 */
+  /**
+   * 保存代理上报的可用打印机列表：写入本 worker 内存并异步同步到 Redis，
+   * 使 cluster 下未持有连接的 worker（商家端随机落到的 worker）也能读到列表。
+   * Redis 写入失败不阻断上报处理——内存态已生效，失败仅导致跨 worker 不可见。
+   */
   setPrinters(storeId: number, printers: PrintAgentPrinter[]): void {
     this.printerCache.set(storeId, printers);
+    void this.redisService
+      .setJson(this.printersKey(storeId), printers, PRINTERS_TTL_SECONDS)
+      .catch((error: unknown) => {
+        if (!this.redisService.isConnectionClosedError(error)) {
+          this.logger.warn(
+            `打印代理打印机列表缓存失败: storeId=${storeId} ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      });
   }
 
-  /** 读取代理上报的可用打印机列表（未上报时返回空数组）。 */
-  getPrinters(storeId: number): PrintAgentPrinter[] {
-    return this.printerCache.get(storeId) ?? [];
+  /**
+   * 读取代理上报的可用打印机列表（未上报时返回空数组）。
+   * 本 worker 内存优先，缺失时回退 Redis（代理连在其它 worker 的场景）。
+   */
+  async getPrinters(storeId: number): Promise<PrintAgentPrinter[]> {
+    const cached = this.printerCache.get(storeId);
+    if (cached) return cached;
+    try {
+      const printers = await this.redisService.getJson<PrintAgentPrinter[]>(
+        this.printersKey(storeId),
+      );
+      return printers ?? [];
+    } catch (error) {
+      // Redis 不可用时降级为空列表（商家端退回本机探测），不阻断打印设备查询
+      if (!this.redisService.isConnectionClosedError(error)) {
+        this.logger.warn(
+          `打印代理打印机列表读取失败: storeId=${storeId} ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return [];
+    }
   }
 
   /** 挂载代理连接（网关建立连接并校验令牌后调用）；同时写入 Redis 在线标记。 */
@@ -231,10 +318,13 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (this.connections.get(storeId) !== connection) return;
     this.connections.delete(storeId);
+    // 离线即清空上报的打印机列表：代理断开后不应继续展示/选择门店打印机
+    this.printerCache.delete(storeId);
     try {
       await this.redisService.del(this.onlineKey(storeId));
+      await this.redisService.del(this.printersKey(storeId));
     } catch (error) {
-      // 删除失败由在线标记 TTL 自动过期兜底
+      // 删除失败由在线标记/打印机缓存 TTL 自动过期兜底
       if (!this.redisService.isConnectionClosedError(error)) {
         this.logger.warn(
           `打印代理在线标记删除失败: storeId=${storeId} ${error instanceof Error ? error.message : String(error)}`,
@@ -348,11 +438,20 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** 写入 Redis 在线标记（值为持有连接的 worker pid）；attach 挂载与 touch 心跳共用。 */
+  /**
+   * 写入 Redis 在线标记（持有连接的 worker pid + 最后在线时间）；
+   * attach 挂载与 touch 心跳共用——每次重写同时完成 TTL 续期，
+   * 且 Redis 恢复后可自动重建标记（expire 无法复活已过期的 key）。
+   */
   private async markOnline(storeId: number): Promise<void> {
-    await this.redisService.set(
+    const now = Date.now();
+    const marker: PrintAgentOnlineMarker = {
+      pid: process.pid,
+      lastSeenAt: now,
+    };
+    await this.redisService.setJson(
       this.onlineKey(storeId),
-      String(process.pid),
+      marker,
       ONLINE_TTL_SECONDS,
     );
   }
@@ -360,6 +459,11 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   /** 门店在线标记 Redis key。 */
   private onlineKey(storeId: number): string {
     return `${PRINT_AGENT_ONLINE_PREFIX}${storeId}`;
+  }
+
+  /** 门店代理打印机列表 Redis key。 */
+  private printersKey(storeId: number): string {
+    return `${PRINT_AGENT_PRINTERS_PREFIX}${storeId}`;
   }
 
   /** 生成 6 位大写字母数字绑定码（去掉易混淆字符 0/O/1/I）。 */
