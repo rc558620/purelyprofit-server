@@ -13,7 +13,10 @@ import { SubjectCapabilityService } from '../access-control/subject-capability.s
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { AUTH_SESSION_TOKEN_HASH_KEY_PREFIX } from './auth.constants';
+import {
+  AUTH_DUMMY_PASSWORD_HASH,
+  AUTH_SESSION_TOKEN_HASH_KEY_PREFIX,
+} from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
@@ -49,6 +52,7 @@ describe('AuthService', () => {
   let service: AuthService;
   let authProductAuthService: AuthProductAuthService;
   let authProfileService: AuthProfileService;
+  let authPasswordService: AuthPasswordService;
 
   const prismaService = {
     user: {
@@ -114,6 +118,11 @@ describe('AuthService', () => {
     zscore: jest.fn().mockResolvedValue(null),
     mget: jest.fn().mockResolvedValue([]),
     expire: jest.fn().mockResolvedValue(true),
+    // refresh token 索引为 Redis SET（见 AuthSessionService）
+    sadd: jest.fn().mockResolvedValue(undefined),
+    saddMany: jest.fn().mockResolvedValue(undefined),
+    smembers: jest.fn().mockResolvedValue([]),
+    srem: jest.fn().mockResolvedValue(undefined),
   };
   const configService = {
     get: jest.fn(),
@@ -233,6 +242,7 @@ describe('AuthService', () => {
       AuthProductAuthService,
     );
     authProfileService = module.get<AuthProfileService>(AuthProfileService);
+    authPasswordService = module.get<AuthPasswordService>(AuthPasswordService);
   });
 
   it('仅允许 admin 别名映射到固定手机号登录', async () => {
@@ -349,6 +359,26 @@ describe('AuthService', () => {
         staffId: 59,
       }),
     );
+  });
+
+  it('账号不存在时登录仍执行 bcrypt 比较（防计时枚举）', async () => {
+    const verifySpy = jest.spyOn(authPasswordService, 'verifyPassword');
+    // 手机号查无账号：staff 候选为空，user 查询也为空
+    prismaService.staff.findMany.mockResolvedValue([]);
+    prismaService.user.findFirst.mockResolvedValue(null);
+    redisService.get.mockResolvedValue('0');
+
+    await expect(
+      service.login({ account: '13800138000', password: 'whatever' }),
+    ).rejects.toThrow('账号或密码错误');
+
+    // 即使用户不存在，也应对虚拟哈希执行一次 bcrypt 比较，
+    // 抹平与「账号存在」路径的响应时间差异，防止计时侧信道枚举有效账号
+    expect(verifySpy).toHaveBeenCalledWith(
+      'whatever',
+      AUTH_DUMMY_PASSWORD_HASH,
+    );
+    verifySpy.mockRestore();
   });
 
   it('purely-pulse 登录仅允许开发者账号', async () => {
@@ -886,6 +916,32 @@ describe('AuthService', () => {
         'purely_club',
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('purely-profit 验证码登录在账号不存在时提示未注册且不清除验证码', async () => {
+    prismaService.staff.findMany.mockResolvedValue([]);
+    prismaService.user.findFirst.mockResolvedValue(null);
+    // get 调用顺序：① 验证码尝试次数 ② 注册验证码 ③ 会话版本
+    redisService.get.mockImplementation((key: string) => {
+      if (key.includes('code-attempts')) return Promise.resolve('0');
+      if (key.includes('auth:register:')) return Promise.resolve('123456');
+      return Promise.resolve('0');
+    });
+
+    await expect(
+      authProductAuthService.loginByCode(
+        {
+          phone: '13800138000',
+          code: '123456',
+        },
+        'purely_profit',
+      ),
+    ).rejects.toThrow('该手机号尚未注册，请先注册');
+
+    // 验证码已通过校验，不应被清除：用户可转去注册并复用同一验证码
+    expect(redisService.del).not.toHaveBeenCalledWith(
+      'auth:register:purely_profit:13800138000',
+    );
   });
 
   it('purely-club 登录即注册在手机号未注册时自动创建账号', async () => {

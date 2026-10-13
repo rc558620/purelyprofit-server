@@ -105,6 +105,7 @@ describe('PulseMembershipService ledger', () => {
     expect(result).toEqual({
       memberInfo: {
         isActive: true,
+        isExpired: false,
         planId: null,
         expiredAt: null,
         inviteCode: 'PULSE',

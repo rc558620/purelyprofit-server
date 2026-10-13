@@ -152,22 +152,25 @@ export class StoreMembershipLockedPriceService {
       orderBy: { planId: 'asc' },
     });
 
-    return rows
-      // typeof 兜底：mock 残行 / 漏 select 的行该字段为 undefined，
-      // 此时按「已成交」处理，不改变旧行为
-      .filter(
-        (row) =>
-          typeof row.dealLockedAt === 'undefined' || row.dealLockedAt !== null,
-      )
-      .map((row) => ({
-        planId: row.planId as PlatformMembershipPlanId,
-        price: row.price,
-        subAccountAmount: row.subAccountAmount,
-        subAccountCount: row.subAccountCount,
-        renewalPriceOverride: row.renewalPriceOverride,
-        source: row.source,
-        lockedAt: row.lockedAt,
-      }));
+    return (
+      rows
+        // typeof 兜底：mock 残行 / 漏 select 的行该字段为 undefined，
+        // 此时按「已成交」处理，不改变旧行为
+        .filter(
+          (row) =>
+            typeof row.dealLockedAt === 'undefined' ||
+            row.dealLockedAt !== null,
+        )
+        .map((row) => ({
+          planId: row.planId as PlatformMembershipPlanId,
+          price: row.price,
+          subAccountAmount: row.subAccountAmount,
+          subAccountCount: row.subAccountCount,
+          renewalPriceOverride: row.renewalPriceOverride,
+          source: row.source,
+          lockedAt: row.lockedAt,
+        }))
+    );
   }
 
   /**

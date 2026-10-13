@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   DEFAULT_ROLE_PERMISSIONS,
+  deriveSubAccountCanUseHandover,
   toStoreSubAccountRole,
 } from '../../access-control/access-control.constants';
 import { StoreSubAccountLoginService } from '../../member/platform-membership/store-sub-account-login.service';
@@ -62,7 +63,9 @@ export class EmployeesSubAccountService {
             status: 'active',
             assignedAt: new Date(),
             canAccessHome: true,
-            canUseHandover: dto.role !== 'finance',
+            canUseHandover: deriveSubAccountCanUseHandover(
+              toStoreSubAccountRole(dto.role),
+            ),
           },
         });
         if (casResult.count === 0) {
@@ -97,7 +100,9 @@ export class EmployeesSubAccountService {
               isAssigned: true,
               assignedAt: new Date(),
               canAccessHome: true,
-              canUseHandover: dto.role !== 'finance',
+              canUseHandover: deriveSubAccountCanUseHandover(
+                toStoreSubAccountRole(dto.role),
+              ),
             },
           });
           if (casResult.count > 0) {

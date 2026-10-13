@@ -13,6 +13,8 @@ function createTransactionMock() {
     },
     marketingConsumption: {
       create: jest.fn(),
+      // tier 判定基准：默认 0，需要升级的用例自行 mock 聚合金额
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
     },
     marketingMemberLevelSetting: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -60,10 +62,10 @@ describe('MarketingConsumptionLinkService', () => {
   });
 
   it('无手机号时跳过联动（不查询会员、不写消费）', async () => {
-    await service.linkSpaceSettlementConsumption(
-      tx as never,
-      { ...baseParams, guestPhone: '  ' },
-    );
+    await service.linkSpaceSettlementConsumption(tx as never, {
+      ...baseParams,
+      guestPhone: '  ',
+    });
 
     expect(tx.marketingCustomer.findFirst).not.toHaveBeenCalled();
     expect(tx.marketingCustomer.create).not.toHaveBeenCalled();
@@ -94,16 +96,20 @@ describe('MarketingConsumptionLinkService', () => {
 
     expect(tx.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: { storeId: 18, phone: '13900001111', deletedAt: null },
-      select: { id: true, totalSpent: true },
+      select: { id: true },
     });
-    expect(tx.marketingCustomer.update).toHaveBeenCalledWith({
+    expect(tx.marketingCustomer.update).toHaveBeenNthCalledWith(1, {
       where: { id: 9 },
       data: {
         totalSpent: { increment: 20000 }, // ¥200.00
         visitCount: { increment: 1 },
         lastVisitAt: new Date(baseParams.checkoutAt),
-        tier: 'regular', // 新累计 ¥1200 未到 gold 门槛
       },
+    });
+    // tier 不再随物化字段一起写，而是按消费流水聚合结果单独落库
+    expect(tx.marketingCustomer.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 9 },
+      data: { tier: 'regular' },
     });
     expect(tx.marketingConsumption.create).toHaveBeenCalledWith({
       data: {
@@ -132,8 +138,11 @@ describe('MarketingConsumptionLinkService', () => {
         totalSpent: 20000,
         visitCount: 1,
         lastVisitAt: new Date(baseParams.checkoutAt),
-        tier: 'regular',
       },
+    });
+    expect(tx.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 99 },
+      data: { tier: 'regular' },
     });
     expect(tx.marketingConsumption.create).toHaveBeenCalledWith({
       data: {
@@ -186,10 +195,11 @@ describe('MarketingConsumptionLinkService', () => {
   });
 
   it('累计消费达到 gold 门槛时等级升级', async () => {
-    tx.marketingCustomer.findFirst.mockResolvedValue({
-      id: 9,
-      // gold 门槛取自会员等级设置 platinum.spendThreshold，默认 ¥5000
-      totalSpent: 490000, // ¥4900.00，距 gold（¥5000）差 ¥100
+    tx.marketingCustomer.findFirst.mockResolvedValue({ id: 9 });
+    // 消费流水聚合 ¥5000.00：本次 ¥100 + 历史 ¥4900，刚好达到 gold 门槛
+    // （gold 门槛取自会员等级设置 platinum.spendThreshold，默认 ¥5000）
+    tx.marketingConsumption.aggregate.mockResolvedValue({
+      _sum: { amount: 500000 },
     });
 
     await service.linkSpaceSettlementConsumption(tx as never, {
@@ -214,9 +224,10 @@ describe('MarketingConsumptionLinkService', () => {
         ],
       },
     });
-    tx.marketingCustomer.findFirst.mockResolvedValue({
-      id: 9,
-      totalSpent: 90000, // ¥900.00
+    tx.marketingCustomer.findFirst.mockResolvedValue({ id: 9 });
+    // 消费流水聚合 ¥1000.00：本次 ¥100 + 历史 ¥900，达到配置门槛
+    tx.marketingConsumption.aggregate.mockResolvedValue({
+      _sum: { amount: 100000 },
     });
 
     await service.linkSpaceSettlementConsumption(tx as never, {

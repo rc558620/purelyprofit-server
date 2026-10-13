@@ -43,67 +43,75 @@ export class MarketingCustomerPointsService {
     const absDelta = Math.abs(dto.delta);
     const isDeduct = dto.delta < 0;
 
-    const updated = await this.prisma.$transaction(
-      async (tx) => {
-        let marketingUpdated;
-        if (isDeduct) {
-          const result = await tx.marketingCustomer.updateMany({
-            where: { id: customerId, points: { gte: absDelta } },
-            data: { points: { decrement: absDelta } },
-          });
-          if (result.count === 0) {
-            throw new BadRequestException(
-              '积分余额不足，扣除失败；请刷新后重试',
-            );
+    try {
+      const updated = await this.prisma.$transaction(
+        async (tx) => {
+          let marketingUpdated;
+          if (isDeduct) {
+            const result = await tx.marketingCustomer.updateMany({
+              where: { id: customerId, points: { gte: absDelta } },
+              data: { points: { decrement: absDelta } },
+            });
+            if (result.count === 0) {
+              throw new BadRequestException(
+                '积分余额不足，扣除失败；请刷新后重试',
+              );
+            }
+            marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
+              where: { id: customerId },
+            });
+          } else {
+            marketingUpdated = await tx.marketingCustomer.update({
+              where: { id: customerId },
+              data: { points: { increment: dto.delta } },
+            });
           }
-          marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
-            where: { id: customerId },
-          });
-        } else {
-          marketingUpdated = await tx.marketingCustomer.update({
-            where: { id: customerId },
-            data: { points: { increment: dto.delta } },
-          });
-        }
 
-        // 创建营销积分流水记录
-        await tx.marketingPointsRecord.create({
-          data: {
-            storeId: customer.storeId,
-            customerId,
-            amount: dto.delta,
-            type: dto.delta > 0 ? 'gift' : 'spend',
-            description:
-              dto.remark || (dto.delta > 0 ? '后台调整积分' : '后台扣除积分'),
-          },
-        });
-
-        // 若有关联 Member，同步写 MemberPointsLog 流水（审计留档）
-        if (customer.memberId !== null) {
-          const beforePoints = marketingUpdated.points - dto.delta;
-          await tx.memberPointsLog.create({
+          // 创建营销积分流水记录
+          await tx.marketingPointsRecord.create({
             data: {
-              memberId: customer.memberId,
               storeId: customer.storeId,
-              changeType: dto.delta > 0 ? 'increase' : 'decrease',
-              source: 'admin_adjust',
-              changeAmount: absDelta,
-              beforePoints,
-              afterPoints: marketingUpdated.points,
-              reason: '后台管理员调整',
-              remark: dto.remark || null,
+              customerId,
+              amount: dto.delta,
+              type: dto.delta > 0 ? 'gift' : 'spend',
+              description:
+                dto.remark || (dto.delta > 0 ? '后台调整积分' : '后台扣除积分'),
             },
           });
-        }
 
-        return marketingUpdated;
-      },
-      { timeout: TX_TIMEOUT_MEDIUM },
-    );
+          // 若有关联 Member，同步写 MemberPointsLog 流水（审计留档）
+          if (customer.memberId !== null) {
+            const beforePoints = marketingUpdated.points - dto.delta;
+            await tx.memberPointsLog.create({
+              data: {
+                memberId: customer.memberId,
+                storeId: customer.storeId,
+                changeType: dto.delta > 0 ? 'increase' : 'decrease',
+                source: 'admin_adjust',
+                changeAmount: absDelta,
+                beforePoints,
+                afterPoints: marketingUpdated.points,
+                reason: '后台管理员调整',
+                remark: dto.remark || null,
+              },
+            });
+          }
 
-    await this.invalidateCache(customer.storeId);
+          return marketingUpdated;
+        },
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
 
-    return mapCustomerRow(updated);
+      await this.invalidateCache(customer.storeId);
+
+      return mapCustomerRow(updated);
+    } catch (error) {
+      // 占位在事务之前写入，用于拦截并发重复提交；但业务失败（如并发扣减时
+      // 积分不足）不应占用它，否则用户修正数值后 5 秒内重试会被误判为重复
+      // 提交。失败即释放占位，让重试畅通。
+      await this.redisService.del(idempotencyKey).catch(() => undefined);
+      throw error;
+    }
   }
 
   private async invalidateCache(storeId: number): Promise<void> {

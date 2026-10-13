@@ -33,7 +33,9 @@ export class CreateStoreDto {
   @ApiProperty({
     example: 'general',
     description:
-      '门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制',
+      '门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制。' +
+      '派生字段，最终以 storeType 推导结果为准（见 store-business-mode.ts）。' +
+      '业态在注册时确定，注册后不可切换。',
   })
   @IsEnum(['catering', 'general'] as const, {
     message: '门店业态必须是 catering 或 general',

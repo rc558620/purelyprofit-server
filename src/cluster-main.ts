@@ -1,5 +1,6 @@
 import cluster, { type Worker } from 'node:cluster';
 import { resolveClusterWorkerCount } from './config/cluster.configuration';
+import { ensureSharedRsaKeyPair } from './config/rsa-key-pair.utils';
 
 /**
  * 实时链路防误改：Cluster Worker 共享同一 HTTP 端口，Redis 负责跨 Worker 业务事件，
@@ -8,6 +9,10 @@ import { resolveClusterWorkerCount } from './config/cluster.configuration';
  */
 
 if (cluster.isPrimary) {
+  // 必须在 fork 之前执行：让所有 worker 继承同一份 RSA 密钥对，
+  // 否则各 worker 各自生成的密钥互不匹配，登录会间歇性解密失败。
+  ensureSharedRsaKeyPair();
+
   const workerCount = resolveClusterWorkerCount();
   console.log(
     `[cluster] primary pid=${process.pid} spawning ${workerCount} worker(s)`,

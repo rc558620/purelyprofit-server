@@ -31,6 +31,7 @@ describe('MembershipDowngradeService', () => {
     spaceSession: {
       count: jest.fn(),
     },
+    $queryRaw: jest.fn(),
   };
 
   const redisService = {
@@ -659,6 +660,99 @@ describe('MembershipDowngradeService', () => {
       const [, ttlAfterMidnight] = lastIncrCall();
       expect(ttlAfterMidnight).toBeGreaterThan(23 * 60 * 60);
       expect(ttlAfterMidnight).toBeLessThanOrEqual(24 * 60 * 60);
+    });
+  });
+
+  // ─── 时钟源漂移探测（观测） ────────────────────────────────────────────
+  //
+  // 到期判定用应用时钟，而到期时间可能由 DB 时钟写入的字段（订单 createdAt 走
+  // Prisma @default(now())）推导。两者偏差时判定就是跨时钟源比较，门店可能被
+  // 提前判过期。单机 cluster 部署进程间漂移恒为 0，所以这只在「应用机 ≠ DB 机
+  // 时钟不一致」或将来多机部署时才报得出——先做成可观测，再决定是否值得
+  // 为统一时间源付出全链路改造的代价。
+
+  describe('时钟源漂移探测', () => {
+    const validProfile = (): void => {
+      mockProfile({
+        currentPlanId: 'monthly',
+        startsAt: daysFromNow(-20),
+        expiresAt: daysFromNow(10),
+      });
+    };
+
+    it('DB 明显慢于应用时告警（这是会把到期时间算早、提前判过期的方向）', async () => {
+      validProfile();
+      const driftedDbNow = new Date(NOW.getTime() - 30 * 1000);
+      prismaService.$queryRaw.mockResolvedValue([{ now: driftedDbNow }]);
+      const warnSpy = jest
+        .spyOn(
+          (service as unknown as { logger: { warn: jest.Mock } }).logger,
+          'warn',
+        )
+        .mockImplementation(() => undefined);
+
+      await service.getDowngradeState(18);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('时钟源偏差'),
+      );
+    });
+
+    it('DB 明显快于应用时也告警', async () => {
+      validProfile();
+      const driftedDbNow = new Date(NOW.getTime() + 30 * 1000);
+      prismaService.$queryRaw.mockResolvedValue([{ now: driftedDbNow }]);
+      const warnSpy = jest
+        .spyOn(
+          (service as unknown as { logger: { warn: jest.Mock } }).logger,
+          'warn',
+        )
+        .mockImplementation(() => undefined);
+
+      await service.getDowngradeState(18);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('时钟源偏差'),
+      );
+    });
+
+    it('DB 与应用时钟一致时不告警', async () => {
+      validProfile();
+      prismaService.$queryRaw.mockResolvedValue([{ now: new Date(NOW) }]);
+      const warnSpy = jest
+        .spyOn(
+          (service as unknown as { logger: { warn: jest.Mock } }).logger,
+          'warn',
+        )
+        .mockImplementation(() => undefined);
+
+      await service.getDowngradeState(18);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('时钟源偏差'),
+      );
+    });
+
+    it('探测失败不影响本次判定（不因观测丢可用性）', async () => {
+      validProfile();
+      prismaService.$queryRaw.mockRejectedValue(new Error('db down'));
+
+      await expect(service.getDowngradeState(18)).resolves.toMatchObject({
+        isExpired: false,
+      });
+    });
+
+    it('探测按 5 分钟节流，不为每次判定都查一次库', async () => {
+      validProfile();
+      prismaService.$queryRaw.mockResolvedValue([{ now: new Date(NOW) }]);
+      // 缓存未命中才会走到探测：连续三次调用只应产生一次 $queryRaw
+      redisService.getJson.mockResolvedValue(null);
+
+      await service.getDowngradeState(18);
+      await service.getDowngradeState(18);
+      await service.getDowngradeState(18);
+
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
     });
   });
 

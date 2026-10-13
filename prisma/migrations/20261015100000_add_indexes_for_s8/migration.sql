@@ -28,16 +28,16 @@
  */
 
 -- 1. sale_order_items [storeId, orderId] partial
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "sale_order_items_store_id_order_id_partial_idx"
+CREATE INDEX IF NOT EXISTS "sale_order_items_store_id_order_id_partial_idx"
   ON "sale_order_items" ("store_id", "order_id")
   WHERE "product_name" NOT IN ('预付抵扣', '预付款', '续费抵扣');
 
 -- 2. finance_account_records [storeId, remaining] partial
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "finance_account_records_store_id_remaining_open_idx"
+CREATE INDEX IF NOT EXISTS "finance_account_records_store_id_remaining_open_idx"
   ON "finance_account_records" ("store_id", "remaining")
   WHERE "remaining" > 0;
 
 -- 3. cost_records [storeId, sourceType, payrollId] partial
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "cost_records_store_source_payroll_idx"
+CREATE INDEX IF NOT EXISTS "cost_records_store_source_payroll_idx"
   ON "cost_records" ("store_id", "source_type", "payroll_id")
   WHERE "payroll_id" IS NOT NULL;

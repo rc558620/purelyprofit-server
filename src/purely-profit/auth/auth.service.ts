@@ -62,6 +62,10 @@ export class AuthService {
       newPassword: dto.newPassword,
       confirmPassword: dto.confirmPassword,
       accountScope: user.accountScope ?? 'purely_profit',
+      // 携带当前身份的 Staff ID：改密会重签 token，缺失时多身份用户会被解析成另一身份
+      ...(user.currentMembership
+        ? { staffId: user.currentMembership.staffId }
+        : {}),
     };
 
     return this.authAuthenticationService.changePassword(params);

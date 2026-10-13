@@ -66,7 +66,6 @@ describe('SubjectCapabilityService', () => {
       'business-analysis',
       'goods-management',
       'handover-management',
-      'marketing-center',
       'space-management',
       'staff-management',
     ]);
@@ -74,7 +73,7 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.hiddenHomeModules).toContain('member-center');
     expect(snapshot.hiddenHomeModules).toContain('store-settings');
     expect(snapshot.canViewFinance).toBe(false);
-    expect(snapshot.canViewMarketing).toBe(true);
+    expect(snapshot.canViewMarketing).toBe(false);
     expect(snapshot.canUseGoodsManagement).toBe(true);
     expect(snapshot.canUseHandoverManagement).toBe(true);
     expect(snapshot.canUseSpaceManagement).toBe(true);
@@ -83,7 +82,10 @@ describe('SubjectCapabilityService', () => {
 
   it('finance 首页模块应保留经营分析、财务、交班与员工模块，并排除商品管理', () => {
     const snapshot = service.buildSnapshot(
-      buildSubAccountMembership(StoreSubAccountRole.finance),
+      buildSubAccountMembership(StoreSubAccountRole.finance, {
+        // 生产现实：财务不参与交班，但保留交班管理只读入口
+        canUseHandover: false,
+      }),
       3,
     );
 
@@ -142,11 +144,22 @@ describe('SubjectCapabilityService', () => {
       'additional',
       'business-analysis',
       'goods-management',
-      'marketing-center',
       'space-management',
       'staff-management',
     ]);
     expect(snapshot.hiddenHomeModules).toContain('handover-management');
     expect(snapshot.canUseHandoverManagement).toBe(false);
+  });
+
+  it('财务不参与交班时仍保留交班管理首页模块（只读审计）', () => {
+    const snapshot = service.buildSnapshot(
+      buildSubAccountMembership(StoreSubAccountRole.finance, {
+        canUseHandover: false,
+      }),
+      3,
+    );
+
+    expect(snapshot.allowedHomeModules).toContain('handover-management');
+    expect(snapshot.canUseHandoverManagement).toBe(true);
   });
 });

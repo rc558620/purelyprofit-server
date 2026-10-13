@@ -116,6 +116,8 @@ export class PulseMembershipLedgerService {
     return {
       memberInfo: {
         isActive: activeProfile !== undefined,
+        // 开发者聚合视图不是真实门店档案，谈不上「曾开通后到期」
+        isExpired: false,
         planId: null,
         expiredAt: null,
         inviteCode: 'PULSE',

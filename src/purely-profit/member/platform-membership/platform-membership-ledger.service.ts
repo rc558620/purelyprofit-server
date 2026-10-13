@@ -19,6 +19,7 @@ import {
   ensureMembershipProfile,
   findCurrentStorePartner,
   findPaidStoreMembershipOrders,
+  loadDbNowMs,
   loadPlanCatalog,
 } from './platform-membership.query';
 
@@ -29,7 +30,7 @@ export class PlatformMembershipLedgerService {
   async listPointsLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    const [profile, logs, paidOrders, plans, inviteCodeRecord] =
+    const [profile, logs, paidOrders, plans, inviteCodeRecord, dbNowMs] =
       await Promise.all([
         ensureMembershipProfile(this.prisma, storeId),
         this.prisma.storeMembershipPointsLog.findMany({
@@ -52,11 +53,13 @@ export class PlatformMembershipLedgerService {
           select: { code: true },
           orderBy: { createdAt: 'desc' },
         }),
+        loadDbNowMs(this.prisma),
       ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
+      nowMs: dbNowMs ?? Date.now(),
     });
     const memberInfo = buildMembershipInfo(
       effectiveProfile,

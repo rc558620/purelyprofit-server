@@ -309,6 +309,19 @@ describe('StoreSubAccountSlotService', () => {
       storeSubAccountReadService.getStoreSubAccountSummary.mockResolvedValue(
         summary,
       );
+      // updateSlot 在事务内执行，tx 委托到同一批 mock，便于断言原始调用
+      prismaService.$transaction.mockImplementation((callback) =>
+        callback({
+          employee: {
+            findFirst: (...args: unknown[]) =>
+              prismaService.employee.findFirst(...args),
+          },
+          storeSubAccount: {
+            upsert: (...args: unknown[]) =>
+              prismaService.storeSubAccount.upsert(...args),
+          },
+        }),
+      );
     });
 
     it('分配员工并设置登录信息时应创建或更新登录账号', async () => {
@@ -327,7 +340,8 @@ describe('StoreSubAccountSlotService', () => {
       ).toHaveBeenCalledWith(storeId, 100, {
         password: 'test123456',
         loginAccount: undefined,
-      });
+        // 第 4 个参数为事务客户端：凭证创建必须与槽位写入同事务
+      }, expect.anything());
       expect(prismaService.storeSubAccount.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {

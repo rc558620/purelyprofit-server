@@ -21,6 +21,7 @@ import {
 } from '@nestjs/common';
 import { StoresWechatPayService } from '../../purely-profit/stores/stores-wechat-pay.service';
 import type {
+  ClubWechatCallbackResourceDto,
   ClubWechatPaymentCallbackDto,
   WechatDecryptedTransaction,
 } from './dto/club-wechat-callback.dto';
@@ -65,19 +66,22 @@ export class ClubWechatCallbackDecryptorService {
       );
     }
 
-    let decrypted: WechatDecryptedTransaction | null = null;
+    let decrypted = this.tryDecryptWithKeys(resource, apiV3Keys);
 
-    // 始终尝试所有密钥（不 break），减少时序侧信道风险
-    for (const apiV3Key of apiV3Keys) {
-      const candidate = this.tryDecrypt(
-        resource.ciphertext,
-        resource.nonce,
-        resource.associated_data ?? '',
-        apiV3Key,
-      );
-      // 仅保留首次成功解密的结果
-      if (candidate !== null && decrypted === null) {
-        decrypted = candidate;
+    /*
+     * 全失败时强制回源重试一次：密钥列表带短时缓存，商户刚轮换密钥时
+     * 本实例可能仍持有旧列表（多实例部署下尤其如此）。强制刷新能自愈，
+     * 避免把「缓存过期」误报成「密钥不匹配或报文被篡改」。
+     */
+    if (!decrypted) {
+      const refreshedKeys =
+        await this.storesWechatPayService.listAllApiV3Keys(true);
+
+      if (refreshedKeys.length > 0) {
+        this.logger.warn(
+          '缓存中的 APIv3Key 全部解密失败，已强制刷新密钥列表并重试',
+        );
+        decrypted = this.tryDecryptWithKeys(resource, refreshedKeys);
       }
     }
 
@@ -88,6 +92,35 @@ export class ClubWechatCallbackDecryptorService {
       throw new UnauthorizedException(
         '微信支付回调解密失败，密钥不匹配或报文已损坏',
       );
+    }
+
+    return decrypted;
+  }
+
+  /**
+   * 用给定的密钥集合依次尝试解密。
+   *
+   * 注意：这里**不能**提前用 mchid 缩小范围 —— 微信 v3 回调的 mchid 位于密文内，
+   * 解密前无从得知本次回调属于哪个商户，只能遍历候选密钥。
+   *
+   * 始终尝试所有密钥（不 break），减少时序侧信道风险，仅保留首次成功的结果。
+   */
+  private tryDecryptWithKeys(
+    resource: ClubWechatCallbackResourceDto,
+    apiV3Keys: string[],
+  ): WechatDecryptedTransaction | null {
+    let decrypted: WechatDecryptedTransaction | null = null;
+
+    for (const apiV3Key of apiV3Keys) {
+      const candidate = this.tryDecrypt(
+        resource.ciphertext,
+        resource.nonce,
+        resource.associated_data ?? '',
+        apiV3Key,
+      );
+      if (candidate !== null && decrypted === null) {
+        decrypted = candidate;
+      }
     }
 
     return decrypted;

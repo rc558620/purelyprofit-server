@@ -98,6 +98,8 @@ export class SessionBootstrapService {
       where: { storeId },
       select: {
         currentPlanId: true,
+        // startsAt 是到期时间的推导锚点：expiresAt 缺失时按 startsAt + 套餐时长兜底
+        startsAt: true,
         expiresAt: true,
       },
     });
@@ -124,6 +126,7 @@ export class SessionBootstrapService {
     return {
       currentPlanId: profile.currentPlanId ?? null,
       planName,
+      startsAt: profile.startsAt,
       expiresAt: profile.expiresAt,
     };
   }

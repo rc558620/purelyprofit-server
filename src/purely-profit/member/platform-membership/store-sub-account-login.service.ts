@@ -12,6 +12,7 @@ import {
   buildAccountIdentifiers,
   buildLoginEmailFromAccount,
   isValidSubAccountLoginAccount,
+  normalizeLoginAccount,
 } from '../../auth/auth.utils';
 import { StoreSubAccountConflictCheckService } from './store-sub-account-conflict-check.service';
 
@@ -72,7 +73,10 @@ export class StoreSubAccountLoginService {
     }
 
     const normalizedPassword = input.password?.trim();
-    const normalizedLoginAccount = input.loginAccount?.trim();
+    // 与登录查找口径一致：trim + 小写归一化，避免大小写变体导致登不上
+    const normalizedLoginAccount = input.loginAccount
+      ? normalizeLoginAccount(input.loginAccount)
+      : undefined;
 
     if (
       normalizedLoginAccount !== undefined &&
@@ -83,7 +87,7 @@ export class StoreSubAccountLoginService {
       )
     ) {
       throw new BadRequestException(
-        '登录账号仅支持 6~32 位字母、数字或下划线，且不可使用保留账号',
+        '登录账号仅支持 6~18 位字母、数字或下划线，且不可使用保留账号',
       );
     }
 
@@ -358,11 +362,15 @@ export class StoreSubAccountLoginService {
     const aliasEmail = buildAccountIdentifiers('purely_profit', phone).email;
 
     // 优先复用本门店同手机号 Staff 关联的 User（更新密码）
+    // 排除门店主账号的 Staff：主账号 User 若被子账号复用，设置子账号密码会覆盖主账号密码，
+    // 导致子账号与主账号凭证互通（串号）。
+    const ownerUserId = await this.resolveStoreOwnerUserId(db, storeId);
     const sameStoreStaff = await db.staff.findFirst({
       where: {
         phone,
         storeId,
         userId: { not: null },
+        ...(ownerUserId != null ? { userId: { not: ownerUserId } } : {}),
       },
       select: {
         user: {
@@ -397,6 +405,20 @@ export class StoreSubAccountLoginService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 读取门店主账号的 User ID，用于把主账号 Staff 排除在子账号的 User 复用之外。
+   */
+  private async resolveStoreOwnerUserId(
+    db: PrismaClientOrTransaction,
+    storeId: number,
+  ): Promise<number | null> {
+    const store = await db.store.findUnique({
+      where: { id: storeId },
+      select: { ownerId: true },
+    });
+    return store?.ownerId ?? null;
   }
 
   /**

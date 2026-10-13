@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import type { PhoneUserRecord } from './auth-account.types';
+import { normalizeLoginAccount } from './auth.utils';
 
 /**
  * 承接 purely-profit 专属的账号查找逻辑：
@@ -28,11 +29,15 @@ export class AuthProfitAccountLookupService {
   /**
    * 通过 loginAccount 字段直接查找子账号登录用户
    * 替代旧的 email 格式解析方式，更简洁且无格式歧义
+   *
+   * 账号统一按 trim + 小写归一化后匹配，与创建侧
+   * （StoreSubAccountLoginService）及登录失败锁定 key 的口径保持一致，
+   * 避免「Cashier01 创建的账号用 cashier01 登不上」。
    */
   async findProfitUserByCustomAccount(
     loginAccount: string,
   ): Promise<PhoneUserRecord | null> {
-    const normalizedAccount = loginAccount.trim();
+    const normalizedAccount = normalizeLoginAccount(loginAccount);
 
     const staffCandidates = await this.prisma.staff.findMany({
       where: {
@@ -220,14 +225,5 @@ export class AuthProfitAccountLookupService {
       // 使用通用消息，避免通过差异化提示泄露该账号在其他门店存在的信息
       throw new ConflictException('账号异常，请联系管理员处理后重试');
     }
-  }
-
-  private describeIdentifier(identifierName: string): string {
-    const labelMap: Record<string, string> = {
-      phone: '手机号',
-      loginAccount: '登录账号',
-      emails: '登录邮箱',
-    };
-    return labelMap[identifierName] ?? identifierName;
   }
 }

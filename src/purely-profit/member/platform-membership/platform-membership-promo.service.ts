@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_SHORT,
+} from '../../../prisma/prisma.service';
 import { getShanghaiMonthStartMs } from '../../../shared/shanghai-time.utils';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { PROMO_BEAN_REWARDS_BY_LEVEL } from './platform-membership.constants';
@@ -25,10 +28,9 @@ export class PlatformMembershipPromoService {
    * 如果已充值则补发推广奖励。
    */
   async backfillUnchargedPromoRecords(): Promise<void> {
-    // 先清理历史重复豆日志并校正余额
-    await this.beanReconciliationService.deduplicatePromoBeanLogs();
-    // 校正所有推广人的豆余额（修复历史数据不一致）
-    await this.beanReconciliationService.reconcilePartnerBeanBalances();
+    // 先清理历史重复豆日志并校正余额。
+    // 内部带分布式锁：多实例部署时只有一个实例执行，避免并发重算覆盖余额
+    await this.beanReconciliationService.runStartupReconciliation();
 
     const uncharged = await this.prisma.storeMembershipPromoRecord.findMany({
       where: { hasCharged: false },
@@ -131,74 +133,99 @@ export class PlatformMembershipPromoService {
           },
         });
       const partnerLevel: PartnerLevelValue =
-        resolvePartnerLevel(monthChargedCount);
+        this.resolveRewardLevel(monthChargedCount);
       const rewardBeans =
         PROMO_BEAN_REWARDS_BY_LEVEL[partnerLevel]?.[
           planId as keyof (typeof PROMO_BEAN_REWARDS_BY_LEVEL)['star']
         ] ?? 0;
 
-      // 原子更新推广记录（hasCharged=false 作为并发锁）
-      const updateResult =
-        await this.prisma.storeMembershipPromoRecord.updateMany({
-          where: { id: record.id, hasCharged: false },
-          data: {
-            hasCharged: true,
-            chargedAmount: paidOrder.amount,
-            chargedAt: new Date(),
-            chargedPlan: planId,
-            rewardBeans,
-            ...(record.partnerId === null ? { partnerId } : {}),
+      // 去重：检查是否已为该记录发放过豆子（只读校验，可在事务外）
+      const existingLog =
+        rewardBeans > 0
+          ? await this.prisma.storePartnerBeanLog.findFirst({
+              where: {
+                relatedPromoRecordId: record.id,
+                source: 'promo_reward',
+              },
+              select: { id: true },
+            })
+          : null;
+
+      // 置位 + 发豆 + 写日志放进同一事务，与主流程 tryAwardPromoReward 口径一致。
+      // 关键：若置位在事务外、发豆在事务内，一旦发豆失败记录已 hasCharged=true，
+      // 下轮 backfill 的 findMany(hasCharged=false) 再也查不到它 —— 奖励永久丢失。
+      // 合并后要么全成功，要么整体回滚，下轮可安全重试。
+      const outcome = await this.prisma
+        .$transaction(
+          async (tx) => {
+            // 原子更新推广记录（hasCharged=false 作为并发锁）
+            const updateResult = await tx.storeMembershipPromoRecord.updateMany(
+              {
+                where: { id: record.id, hasCharged: false },
+                data: {
+                  hasCharged: true,
+                  chargedAmount: paidOrder.amount,
+                  chargedAt: new Date(),
+                  chargedPlan: planId,
+                  rewardBeans,
+                  ...(record.partnerId === null ? { partnerId } : {}),
+                },
+              },
+            );
+            // 已被其他进程处理，跳过豆子发放
+            if (updateResult.count === 0) return 'skipped' as const;
+
+            if (rewardBeans > 0 && !existingLog) {
+              await tx.storePartner.update({
+                where: { id: partnerId },
+                data: {
+                  beanBalance: { increment: rewardBeans },
+                  totalEarnedBeans: { increment: rewardBeans },
+                },
+              });
+
+              await tx.storePartnerBeanLog.create({
+                data: {
+                  storeId: record.storeId,
+                  partnerId,
+                  source: 'promo_reward',
+                  changeAmount: rewardBeans,
+                  description: `推广奖励(补发) · ${planId}套餐`,
+                  relatedPromoRecordId: record.id,
+                  relatedPlanType: planId,
+                  relatedUser: record.inviteePhone.replace(
+                    /(\d{3})\d{4}(\d{4})/,
+                    '$1****$2',
+                  ),
+                },
+              });
+            }
+            return 'done' as const;
           },
+          { timeout: TX_TIMEOUT_SHORT },
+        )
+        .catch((err: unknown) => {
+          // 事务已整体回滚（未置位），下轮启动会再次进入 backfill 重试
+          this.logger.error(
+            `[backfill] 记录 #${record.id}: 补发事务失败，等待下轮补偿: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          return 'failed' as const;
         });
-      // 如果已被其他进程处理，跳过豆子发放
-      if (updateResult.count === 0) {
+
+      if (outcome === 'skipped') {
         this.logger.log(
           `[backfill] 记录 #${record.id}: 已被其他进程处理，跳过`,
         );
         continue;
       }
+      if (outcome === 'failed') continue;
 
-      // 发放纯利豆
-      if (rewardBeans > 0) {
-        // 去重：检查是否已为该记录发放过豆子
-        const existingLog = await this.prisma.storePartnerBeanLog.findFirst({
-          where: {
-            relatedPromoRecordId: record.id,
-            source: 'promo_reward',
-          },
-          select: { id: true },
-        });
-        if (existingLog) {
-          this.logger.log(
-            `[backfill] 记录 #${record.id}: 已存在豆日志 #${existingLog.id}，跳过豆子发放`,
-          );
-          affectedStoreIds.add(record.storeId);
-          fixedCount++;
-          continue;
-        }
-        await this.prisma.storePartner.update({
-          where: { id: partnerId },
-          data: {
-            beanBalance: { increment: rewardBeans },
-            totalEarnedBeans: { increment: rewardBeans },
-          },
-        });
-
-        await this.prisma.storePartnerBeanLog.create({
-          data: {
-            storeId: record.storeId,
-            partnerId,
-            source: 'promo_reward',
-            changeAmount: rewardBeans,
-            description: `推广奖励(补发) · ${planId}套餐`,
-            relatedPromoRecordId: record.id,
-            relatedPlanType: planId,
-            relatedUser: record.inviteePhone.replace(
-              /(\d{3})\d{4}(\d{4})/,
-              '$1****$2',
-            ),
-          },
-        });
+      if (existingLog) {
+        this.logger.log(
+          `[backfill] 记录 #${record.id}: 已存在豆日志 #${existingLog.id}，仅补置位`,
+        );
       }
 
       affectedStoreIds.add(record.storeId);
@@ -233,17 +260,27 @@ export class PlatformMembershipPromoService {
     //    User.email 格式: profit_phone_{phone}@purelyprofit.local
     const user = await this.prisma.user.findUnique({
       where: { id: input.userId },
-      select: { email: true },
+      select: { email: true, wechatPhone: true },
     });
-    if (!user?.email) return;
+    if (!user) return;
+    // 优先从登录邮箱反解手机号，其次使用微信授权手机号（邮箱被改写时仍能兜底）
     const phoneMatch = user.email.match(
       /^profit_phone_(.+)@purelyprofit\.local$/,
     );
-    const inviteePhone = phoneMatch?.[1];
-    if (!inviteePhone) return;
+    const inviteePhone = phoneMatch?.[1] ?? user.wechatPhone ?? null;
+    if (!inviteePhone) {
+      this.logger.warn(
+        `无法解析用户 ${input.userId} 的手机号，跳过推广奖励发放`,
+      );
+      return;
+    }
 
     // 2. 查找该用户手机号关联的未充值推广记录
     //    hasCharged=false 作为幂等保护：已处理的记录不会被重复查出
+    //
+    //    只取最早注册的一条：同一手机号若因历史数据 / 多推广人录入存在多条记录，
+    //    全量遍历会让一次充值给多个推广人都发豆（一单多发）。
+    //    归属权以最早建立推广关系的记录为准。
     const unchargedPromos =
       await this.prisma.storeMembershipPromoRecord.findMany({
         where: {
@@ -255,10 +292,14 @@ export class PlatformMembershipPromoService {
           storeId: true,
           partnerId: true,
         },
+        orderBy: { registeredAt: 'asc' },
+        take: 1,
       });
     if (unchargedPromos.length === 0) return;
 
     const now = new Date();
+    /** 本次实际发放奖励的门店，用于定向失效缓存 */
+    const awardedStoreIds = new Set<number>();
 
     for (const promo of unchargedPromos) {
       // 3. 查找推广记录所属门店的已通过合伙人
@@ -290,7 +331,7 @@ export class PlatformMembershipPromoService {
         });
 
       const partnerLevel: PartnerLevelValue =
-        resolvePartnerLevel(monthChargedCount);
+        this.resolveRewardLevel(monthChargedCount);
 
       // 5. 计算奖励纯利豆数
       const rewardBeans =
@@ -298,61 +339,95 @@ export class PlatformMembershipPromoService {
           input.planId as keyof (typeof PROMO_BEAN_REWARDS_BY_LEVEL)['star']
         ] ?? 0;
 
-      // 6. 原子更新推广记录（hasCharged=false 作为并发锁）
-      const updateResult =
-        await this.prisma.storeMembershipPromoRecord.updateMany({
-          where: { id: promo.id, hasCharged: false },
-          data: {
-            hasCharged: true,
-            chargedAmount: input.amount,
-            chargedAt: now,
-            chargedPlan: input.planId,
-            rewardBeans,
-            // 如果之前 partnerId 为 null，补绑
-            ...(promo.partnerId === null ? { partnerId } : {}),
+      // 6~8. 置位 + 发豆 + 写日志放在同一事务，避免置位后崩溃导致奖励丢失
+      const awarded = await this.prisma
+        .$transaction(
+          async (tx) => {
+            // 原子更新推广记录（hasCharged=false 作为并发锁）
+            const updateResult = await tx.storeMembershipPromoRecord.updateMany(
+              {
+                where: { id: promo.id, hasCharged: false },
+                data: {
+                  hasCharged: true,
+                  chargedAmount: input.amount,
+                  chargedAt: now,
+                  chargedPlan: input.planId,
+                  rewardBeans,
+                  // 如果之前 partnerId 为 null，补绑
+                  ...(promo.partnerId === null ? { partnerId } : {}),
+                },
+              },
+            );
+            // 如果已被其他进程处理，跳过豆子发放
+            if (updateResult.count === 0) return false;
+
+            if (rewardBeans > 0) {
+              // 发放纯利豆给推广人
+              await tx.storePartner.update({
+                where: { id: partnerId },
+                data: {
+                  beanBalance: { increment: rewardBeans },
+                  totalEarnedBeans: { increment: rewardBeans },
+                },
+              });
+
+              // 写入纯利豆日志
+              await tx.storePartnerBeanLog.create({
+                data: {
+                  storeId: promo.storeId,
+                  partnerId,
+                  source: 'promo_reward',
+                  changeAmount: rewardBeans,
+                  description: `推广奖励 · ${input.planId}套餐`,
+                  relatedPromoRecordId: promo.id,
+                  relatedPlanType: input.planId,
+                  relatedUser: inviteePhone.replace(
+                    /(\d{3})\d{4}(\d{4})/,
+                    '$1****$2',
+                  ),
+                },
+              });
+            }
+            return true;
           },
-        });
-      // 如果已被其他进程处理，跳过豆子发放
-      if (updateResult.count === 0) continue;
-
-      // 7. 发放纯利豆给推广人
-      if (rewardBeans > 0) {
-        await this.prisma.storePartner.update({
-          where: { id: partnerId },
-          data: {
-            beanBalance: { increment: rewardBeans },
-            totalEarnedBeans: { increment: rewardBeans },
-          },
+          { timeout: TX_TIMEOUT_SHORT },
+        )
+        .catch((err: unknown) => {
+          // 事务失败时不标记 charged，后续可由启动补偿重新发放
+          this.logger.error(
+            `推广奖励发放事务失败（未标记已发放，等待补偿）: promoId=${promo.id}, error=${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          return false;
         });
 
-        // 8. 写入纯利豆日志
-        await this.prisma.storePartnerBeanLog.create({
-          data: {
-            storeId: promo.storeId,
-            partnerId,
-            source: 'promo_reward',
-            changeAmount: rewardBeans,
-            description: `推广奖励 · ${input.planId}套餐`,
-            relatedPromoRecordId: promo.id,
-            relatedPlanType: input.planId,
-            relatedUser: inviteePhone.replace(
-              /(\d{3})\d{4}(\d{4})/,
-              '$1****$2',
-            ),
-          },
-        });
+      if (!awarded) continue;
 
-        this.logger.log(
-          `推广奖励已发放: partnerId=${partnerId}, rewardBeans=${rewardBeans}, promoId=${promo.id}`,
-        );
-      }
-    }
+      awardedStoreIds.add(promo.storeId);
 
-    // 9. 清除推广人缓存以刷新统计数据
-    for (const promo of unchargedPromos) {
-      await this.cacheInvalidatorService.invalidateMembershipDerived(
-        promo.storeId,
+      this.logger.log(
+        `推广奖励已发放: partnerId=${partnerId}, rewardBeans=${rewardBeans}, promoId=${promo.id}`,
       );
     }
+
+    // 9. 清除推广人缓存以刷新统计数据（仅失效本次实际发放的门店）
+    for (const storeId of awardedStoreIds) {
+      await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
+    }
+  }
+
+  /**
+   * 计算「本次成交」应适用的合伙人等级。
+   *
+   * monthChargedCount 统计的是**已置位**的记录，而本单此刻尚未置位，
+   * 因此它代表「本单之前」的成交人数，需 +1 才是含本单的人数。
+   *
+   * 这样才与展示侧 buildPartnerLevel 对齐（展示时本单已 hasCharged=true，
+   * 天然含本单）。否则会出现：本月第 10 单按 star(8豆) 发，
+   * 用户刷新后却看到自己是 elite(9豆) 的口径不一致问题。
+   */
+  private resolveRewardLevel(monthChargedCount: number): PartnerLevelValue {
+    return resolvePartnerLevel(monthChargedCount + 1);
   }
 }

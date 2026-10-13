@@ -144,6 +144,21 @@ export const INVENTORY_ADJUST_TYPE_VALUES = [
   'sale',
 ] as const satisfies readonly InventoryAdjustType[];
 
+export type InventoryManualAdjustTypeValue = 'restock' | 'damage' | 'manual';
+
+/**
+ * 人工调整（盘点 / 进货 / 报损）接口允许写入的调整类型。
+ *
+ * `sale` 与 `custody_*` 只能由业务主链路写入：销售、进货、客存冻结都按 adjustType
+ * 聚合流水与报表，一旦人工接口能写入 `sale`，就会被算进销售口径，
+ * 且报表侧无法区分真实出库与手工改数。
+ */
+export const INVENTORY_MANUAL_ADJUST_TYPE_VALUES = [
+  'restock',
+  'damage',
+  'manual',
+] as const satisfies readonly InventoryAdjustType[];
+
 export type InventoryStockAlertLevelValue = 'normal' | 'warning' | 'danger';
 
 export const INVENTORY_STOCK_ALERT_LEVEL_VALUES = [

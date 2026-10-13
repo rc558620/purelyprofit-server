@@ -77,9 +77,7 @@ const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'staff:view',
   'staff:create',
   'staff:update',
-  // 营销与报表（主账号专属，子账号不实际使用）
-  'marketing:view',
-  'marketing:manage',
+  // 报表（主账号专属，子账号不实际使用）
   'report:view',
   // 商品与供应商管理
   'goods:view',
@@ -128,9 +126,7 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'staff:view',
   'staff:create',
   'staff:update',
-  // 营销与报表（主账号专属，子账号不实际使用）
-  'marketing:view',
-  'marketing:manage',
+  // 报表（主账号专属，子账号不实际使用）
   'report:view',
   // 商品与供应商管理
   'goods:view',
@@ -205,9 +201,9 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
   'service-call:process',
+  // 交班管理：财务仅保留只读查看（交班记录审计：可查看、可打印、可导出），
+  // 不参与任何交班事务（创建/确认/取消均无权限，附加项管理入口不显示）
   'handover:view',
-  'handover:create',
-  'handover:update',
 ] as const;
 
 const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
@@ -369,6 +365,19 @@ export class AccessControlService {
 
     if (membership.canUseHandover) {
       return finalPermissions as string[];
+    }
+
+    // 不参与交班时回收交班权限：
+    // - 财务视角例外：保留 handover:view 只读查看（交班记录审计：可查看/打印/导出，
+    //   但不参与任何交班事务，交班附加项管理入口不显示）；
+    // - 其他角色完全移除交班能力（无参与即无入口）。
+    // 即使财务权限集被误加回 handover:create/update，也会在此被剔除，
+    // 保证「财务不参与交班事务」在接口层最终生效。
+    if (membership.subAccountRole === StoreSubAccountRole.finance) {
+      return finalPermissions.filter(
+        (permission): permission is string =>
+          permission === 'handover:view' || !permission.startsWith('handover:'),
+      ) as string[];
     }
 
     return finalPermissions.filter(

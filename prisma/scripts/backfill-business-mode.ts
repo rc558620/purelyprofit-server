@@ -22,6 +22,8 @@ import { PrismaClient, StoreBusinessMode } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import Redis from 'ioredis';
+// 业态推导的单一事实源（纯常量模块，零 nest/prisma 依赖，可安全用于 ts-node 脚本）
+import { deriveBusinessModeFromStoreType } from '../../src/purely-profit/stores/store-business-mode';
 
 // Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -59,13 +61,6 @@ async function getCachedStoreType(storeId: number): Promise<string | null> {
   }
 }
 
-function deriveBusinessMode(storeType: string | null): StoreBusinessMode | null {
-  if (storeType === null) {
-    return null;
-  }
-  return storeType === '餐饮' ? 'catering' : 'general';
-}
-
 async function main(): Promise<void> {
   const shouldApply = process.argv.includes('--apply');
   const modeLabel = shouldApply ? 'APPLY（写入数据库）' : 'DRY-RUN（仅预览）';
@@ -84,7 +79,7 @@ async function main(): Promise<void> {
 
   for (const store of stores) {
     const cachedStoreType = await getCachedStoreType(store.id);
-    const targetMode = deriveBusinessMode(cachedStoreType);
+    const targetMode = deriveBusinessModeFromStoreType(cachedStoreType);
 
     if (targetMode === 'catering') {
       candidates.push({
@@ -105,13 +100,17 @@ async function main(): Promise<void> {
     console.log('  2. 所有门店确实都是非餐饮');
     console.log('  3. 门店已通过注册流程正确写入 businessMode');
     console.log('\n如需手动修正特定门店，请执行：');
-    console.log('  UPDATE stores SET business_mode = \'catering\' WHERE id IN (门店ID列表);');
+    console.log(
+      "  UPDATE stores SET business_mode = 'catering' WHERE id IN (门店ID列表);",
+    );
   } else {
     console.log(`发现 ${candidates.length} 个门店需要回填为 catering：\n`);
     console.log('| 门店ID | 门店名称 | 缓存中的 storeType | 目标业态 |');
     console.log('|--------|----------|---------------------|----------|');
     for (const c of candidates) {
-      console.log(`| ${c.id} | ${c.name} | ${c.cachedStoreType} | ${c.targetMode} |`);
+      console.log(
+        `| ${c.id} | ${c.name} | ${c.cachedStoreType} | ${c.targetMode} |`,
+      );
     }
   }
 
@@ -135,9 +134,14 @@ async function main(): Promise<void> {
     (s) => !candidates.find((c) => c.id === s.id),
   );
   if (unknownStores.length > 0) {
-    console.log(`\n⚠ 有 ${unknownStores.length} 个门店无法从 Redis 缓存中确认 storeType，`);
+    console.log(
+      `\n⚠ 有 ${unknownStores.length} 个门店无法从 Redis 缓存中确认 storeType，`,
+    );
     console.log('  需要人工核对后手动修正。');
-    console.log('  未确认门店 ID 列表：', unknownStores.map((s) => s.id).join(', '));
+    console.log(
+      '  未确认门店 ID 列表：',
+      unknownStores.map((s) => s.id).join(', '),
+    );
   }
 
   console.log('\n=== 回填脚本执行完毕 ===\n');

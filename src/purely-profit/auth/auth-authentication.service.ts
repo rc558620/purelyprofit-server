@@ -31,6 +31,7 @@ import { AuthPromoRecordService } from './auth-promo-record.service';
 import { AuthCodeLoginService } from './auth-code-login.service';
 import { AuthWechatLoginService } from './auth-wechat-login.service';
 import {
+  AUTH_DUMMY_PASSWORD_HASH,
   AUTH_LOGIN_FAIL_MAX_ATTEMPTS,
   AUTH_LOGIN_FAIL_WARNING_THRESHOLD,
 } from './auth.constants';
@@ -104,6 +105,18 @@ export class AuthAuthenticationService {
       params.productScope,
     );
 
+    // 推广码校验：注册前先确认有效，避免注册后静默丢失推广归属
+    let promoStoreId: number | null = null;
+    if (params.promoCode && params.productScope === 'purely_profit') {
+      promoStoreId =
+        await this.authPromoRecordService.resolveStoreIdByPromoCode(
+          params.promoCode,
+        );
+      if (promoStoreId === null) {
+        throw new BadRequestException('推广码无效或已停用，请确认后重新注册');
+      }
+    }
+
     const user = await this.authPasswordService.createUserFromPhone({
       phone: params.phone,
       name: params.name,
@@ -124,22 +137,20 @@ export class AuthAuthenticationService {
       });
     }
 
-    // 推广码关联：注册时携带推广码则创建推广记录（异步，不阻塞注册响应）
-    if (params.promoCode) {
-      const promoCode = params.promoCode;
-      void (async () => {
-        try {
-          await this.authPromoRecordService.tryCreatePromoRecord({
-            promoCode,
-            inviteePhone: params.phone,
-            inviteeName: params.name ?? '',
-          });
-        } catch (err: unknown) {
-          this.logger.warn(
-            `推广记录创建失败（不影响注册主流程）: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      })();
+    // 推广码关联：同步创建推广记录，确保注册响应前已落库
+    // （异步 fire-and-forget 会导致推广关系丢失，且注册后立即充值会查不到记录）
+    if (params.promoCode && promoStoreId !== null) {
+      const result = await this.authPromoRecordService.createPromoRecord({
+        promoCode: params.promoCode,
+        inviteePhone: params.phone,
+        inviteeName: params.name ?? '',
+        storeId: promoStoreId,
+      });
+      if (result.status === 'failed') {
+        this.logger.warn(
+          `推广记录创建失败（不影响注册主流程）: inviteePhone=${params.phone}`,
+        );
+      }
     }
 
     return this.authSessionService.signToken(user.id, {
@@ -166,7 +177,13 @@ export class AuthAuthenticationService {
     );
 
     if (!user) {
-      // 用户不存在：不递增失败计数，避免攻击者预先“预订”锁定状态
+      // 用户不存在：不递增失败计数，避免攻击者预先“预订”锁定状态；
+      // 但仍对虚拟密码哈希执行一次 bcrypt 比较，抹平与「账号存在」路径的
+      // 响应时间差异，防止攻击者通过计时侧信道枚举有效账号。
+      await this.authPasswordService.verifyPassword(
+        params.password,
+        AUTH_DUMMY_PASSWORD_HASH,
+      );
       throw new UnauthorizedException('账号或密码错误');
     }
 

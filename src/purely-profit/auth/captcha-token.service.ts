@@ -2,6 +2,7 @@
 // 当前为 MVP 实现：校验 token 格式合法且未过期
 // 后续可升级为：后端颁发 challenge → 前端完成 → 后端校验 challenge 完整闭环
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { RedisService } from '../../redis/redis.service';
 
 /** captchaToken Redis key 前缀 */
@@ -63,11 +64,23 @@ export class CaptchaTokenService {
   }
 
   /**
-   * 颁发 captchaToken（供前端调用验证码接口时使用）
+   * 服务端颁发 captchaToken（供前端完成拼图后调用验证码/登录接口时使用）。
    *
-   * 将 token 存入 Redis 并设置 TTL，后续发送短信时校验并消费。
+   * 取代早期的「前端自造 token + register 登记」模式：token 由服务端随机生成，
+   * 不可预测、不可枚举，且仍保持一次性消费语义。
    *
-   * @param captchaToken 前端生成的拼图验证令牌
+   * @returns 新颁发的 captchaToken
+   */
+  async issueChallenge(): Promise<string> {
+    const captchaToken = `puzzle_${Date.now()}_${randomBytes(8).toString('hex')}`;
+    await this.issue(captchaToken);
+    return captchaToken;
+  }
+
+  /**
+   * 将 captchaToken 存入 Redis 并设置 TTL，后续发送短信/登录时校验并消费。
+   *
+   * @param captchaToken 拼图验证令牌
    */
   async issue(captchaToken: string): Promise<void> {
     const redisKey = `${CAPTCHA_TOKEN_KEY_PREFIX}${captchaToken}`;

@@ -87,44 +87,36 @@ export class ClubScanOrderingMarketingCustomerService {
         where: { storeId, clubUserId, status: 'active', deletedAt: null },
         select: { id: true, balance: true, phone: true },
       });
-      if (boundCustomer && boundCustomer.balance > 0) return boundCustomer;
-
       // 新注册账号可能在手机号尚未同步前完成充值，余额会落在一条未绑定的
       // 客户记录。仅在门店内唯一存在该类记录时归并，避免误合并其它客户余额。
-      const unboundFundedCustomers = boundCustomer
-        ? await tx.marketingCustomer.findMany({
-            where: {
-              storeId,
-              clubUserId: null,
-              balance: { gt: 0 },
-              status: 'active',
-              deletedAt: null,
-            },
-            orderBy: { updatedAt: 'desc' },
-            take: 2,
-            select: { id: true, balance: true, phone: true },
-          })
-        : [];
-      if (boundCustomer && unboundFundedCustomers.length === 1) {
-        const unboundFundedCustomer = unboundFundedCustomers[0];
-        await tx.marketingCustomer.update({
-          where: { id: boundCustomer.id },
-          data: {
-            balance: { increment: unboundFundedCustomer.balance },
-            phone: unboundFundedCustomer.phone ?? boundCustomer.phone,
+      // 归并完成后绑定档案余额必 > 0，因此只在余额为 0 时尝试，让已归并过的
+      // 用户直接跳过这两次查询。
+      if (boundCustomer && boundCustomer.balance === 0) {
+        const unboundFundedCustomers = await tx.marketingCustomer.findMany({
+          where: {
+            storeId,
+            clubUserId: null,
+            balance: { gt: 0 },
+            status: 'active',
+            deletedAt: null,
           },
+          orderBy: { updatedAt: 'desc' },
+          take: 2,
+          select: { id: true, balance: true, phone: true },
         });
-        await tx.marketingCustomer.update({
-          where: { id: unboundFundedCustomer.id },
-          data: { status: 'inactive', deletedAt: new Date() },
-        });
-        return {
-          id: boundCustomer.id,
-          balance: boundCustomer.balance + unboundFundedCustomer.balance,
-          phone: unboundFundedCustomer.phone ?? boundCustomer.phone,
-        };
+        if (unboundFundedCustomers.length === 1) {
+          const merged = await this.mergeIntoBoundCustomer(
+            tx,
+            boundCustomer,
+            unboundFundedCustomers[0],
+          );
+          if (merged) return merged;
+        }
       }
 
+      // 同手机号的 legacy 档案：无论绑定档案是否已有余额都要合并。此前只在
+      // 绑定档案余额为 0 时才走这里，导致「先绑定、后充值」的用户与同号历史
+      // 档案长期并存（同人双档案、两条余额各算一份）。
       const user = await tx.user.findUnique({
         where: { id: clubUserId },
         select: { name: true, wechatPhone: true },
@@ -143,22 +135,12 @@ export class ClubScanOrderingMarketingCustomerService {
         : null;
       if (legacyCustomer) {
         if (boundCustomer) {
-          await tx.marketingCustomer.update({
-            where: { id: boundCustomer.id },
-            data: {
-              balance: { increment: legacyCustomer.balance },
-              phone: legacyCustomer.phone ?? boundCustomer.phone,
-            },
-          });
-          await tx.marketingCustomer.update({
-            where: { id: legacyCustomer.id },
-            data: { status: 'inactive', deletedAt: new Date() },
-          });
-          return {
-            id: boundCustomer.id,
-            balance: boundCustomer.balance + legacyCustomer.balance,
-            phone: legacyCustomer.phone ?? boundCustomer.phone,
-          };
+          const merged = await this.mergeIntoBoundCustomer(
+            tx,
+            boundCustomer,
+            legacyCustomer,
+          );
+          if (merged) return merged;
         }
         const claimed = await tx.marketingCustomer.updateMany({
           where: { id: legacyCustomer.id, clubUserId: null },
@@ -189,5 +171,48 @@ export class ClubScanOrderingMarketingCustomerService {
       );
     }
     return customer;
+  }
+
+  /**
+   * 把 source 档案的余额并入 boundCustomer，并软删 source。
+   *
+   * 并发防护：先以 CAS（balance + deleted_at 作为条件）抢占 source 档案。
+   * 抢占失败说明另一个并发请求（订单预览与结算可能同时发起）已完成归并，
+   * 此时改为重新读取绑定档案的实时余额返回；若两边都按各自读到的旧余额
+   * increment，同一笔孤儿余额会被重复累加一次。
+   */
+  private async mergeIntoBoundCustomer(
+    tx: Prisma.TransactionClient,
+    boundCustomer: { id: number; balance: number; phone: string | null },
+    source: { id: number; balance: number; phone: string | null },
+  ): Promise<{ id: number; balance: number; phone: string | null } | null> {
+    const claimed = await tx.marketingCustomer.updateMany({
+      where: {
+        id: source.id,
+        clubUserId: null,
+        balance: source.balance,
+        deletedAt: null,
+      },
+      data: { status: 'inactive', deletedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      return tx.marketingCustomer.findUnique({
+        where: { id: boundCustomer.id },
+        select: { id: true, balance: true, phone: true },
+      });
+    }
+
+    await tx.marketingCustomer.update({
+      where: { id: boundCustomer.id },
+      data: {
+        balance: { increment: source.balance },
+        phone: source.phone ?? boundCustomer.phone,
+      },
+    });
+    return {
+      id: boundCustomer.id,
+      balance: boundCustomer.balance + source.balance,
+      phone: source.phone ?? boundCustomer.phone,
+    };
   }
 }

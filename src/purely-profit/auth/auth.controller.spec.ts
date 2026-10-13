@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
@@ -28,6 +29,7 @@ describe('AuthController', () => {
 
   const authRsaService = {
     getPublicKeyPem: jest.fn(),
+    tryDecryptPassword: jest.fn(),
   };
 
   const captchaTokenService = {
@@ -84,6 +86,48 @@ describe('AuthController', () => {
     const module: TestingModule = await moduleBuilder.compile();
 
     controller = module.get<AuthController>(AuthController);
+  });
+
+  it('login 先解密密码，解密成功后消费 captchaToken', async () => {
+    authRsaService.tryDecryptPassword.mockReturnValue('plain-password');
+    authService.login.mockResolvedValue({ access_token: 'login-token' });
+
+    await expect(
+      controller.login({
+        account: '13800138000',
+        password: 'encrypted-password',
+        captchaToken: 'puzzle_1719500000000_abc123',
+      }),
+    ).resolves.toEqual({ access_token: 'login-token' });
+
+    expect(authRsaService.tryDecryptPassword).toHaveBeenCalledWith(
+      'encrypted-password',
+    );
+    expect(authService.login).toHaveBeenCalledWith(
+      expect.objectContaining({ password: 'plain-password' }),
+    );
+    expect(captchaTokenService.validateAndConsume).toHaveBeenCalledWith(
+      'puzzle_1719500000000_abc123',
+    );
+  });
+
+  it('login 在密码解密失败时不消费 captchaToken（前端可重试免重新拼图）', async () => {
+    authRsaService.tryDecryptPassword.mockImplementation(() => {
+      throw new BadRequestException(
+        '密码解密失败，请刷新页面重新获取公钥后重试',
+      );
+    });
+
+    await expect(
+      controller.login({
+        account: '13800138000',
+        password: 'encrypted-with-stale-key',
+        captchaToken: 'puzzle_1719500000000_abc123',
+      }),
+    ).rejects.toThrow('密码解密失败');
+
+    expect(captchaTokenService.validateAndConsume).not.toHaveBeenCalled();
+    expect(authService.login).not.toHaveBeenCalled();
   });
 
   it('capability 透传当前用户', async () => {

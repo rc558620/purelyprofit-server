@@ -52,13 +52,17 @@ export class StoreSubAccountConflictCheckService {
     }
 
     // 2. 手机号门店级唯一（仅当同门店无同手机号 Staff 时视为冲突）
-    //    同门店同手机号 Staff 关联的 User 可复用，不算冲突
+    //    同门店同手机号 Staff 关联的 User 可复用，不算冲突。
+    //    门店主账号（Store.ownerId）的 Staff 不可复用：复用会让子账号与主账号共用
+    //    同一个 User，创建子账号密码时会覆盖主账号密码，造成凭证混用。
     const phoneEmail = buildPhoneLoginEmail('purely_profit', phone);
+    const ownerUserId = await this.resolveStoreOwnerUserId(db, storeId);
     const reusableUserIds = await db.staff.findMany({
       where: {
         storeId,
         phone,
         userId: { not: null },
+        ...(ownerUserId != null ? { userId: { not: ownerUserId } } : {}),
       },
       select: { userId: true },
     });
@@ -87,5 +91,20 @@ export class StoreSubAccountConflictCheckService {
         throw new ConflictException('该电话号码已被其他主账号注册');
       }
     }
+  }
+
+  /**
+   * 读取门店主账号的 User ID。
+   * 主账号 Staff 不参与子账号的 User 复用，避免子账号与主账号共用凭证。
+   */
+  private async resolveStoreOwnerUserId(
+    db: PrismaClientOrTransaction,
+    storeId: number,
+  ): Promise<number | null> {
+    const store = await db.store.findUnique({
+      where: { id: storeId },
+      select: { ownerId: true },
+    });
+    return store?.ownerId ?? null;
   }
 }

@@ -30,6 +30,7 @@ import {
   findPaidStoreMembershipOrders,
   findStoreMembershipPromoRecords,
   findStorePartnerApplications,
+  loadDbNowMs,
   loadPlanCatalog,
   requirePlan,
 } from './platform-membership.query';
@@ -78,6 +79,7 @@ export class PlatformMembershipReadService {
       applications,
       plans,
       inviteCodeRecord,
+      dbNowMs,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
       findCurrentStorePartner(this.prisma, storeId),
@@ -90,11 +92,13 @@ export class PlatformMembershipReadService {
         select: { code: true },
         orderBy: { createdAt: 'desc' },
       }),
+      loadDbNowMs(this.prisma),
     ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
+      nowMs: dbNowMs ?? Date.now(),
     });
     const profileResponse = buildProfileResponse(
       effectiveProfile,
@@ -104,7 +108,7 @@ export class PlatformMembershipReadService {
 
     return {
       memberInfo: profileResponse.memberInfo,
-      remainingDays: calcRemainingDays(effectiveProfile),
+      remainingDays: calcRemainingDays(effectiveProfile, dbNowMs ?? Date.now()),
       stats: buildCenterStats(
         promoRecords,
         profileResponse.approvedPartners.length,
@@ -122,7 +126,7 @@ export class PlatformMembershipReadService {
   async getProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    const [profile, partner, paidOrders, plans, inviteCodeRecord] =
+    const [profile, partner, paidOrders, plans, inviteCodeRecord, dbNowMs] =
       await Promise.all([
         ensureMembershipProfile(this.prisma, storeId),
         findCurrentStorePartner(this.prisma, storeId),
@@ -133,11 +137,13 @@ export class PlatformMembershipReadService {
           select: { code: true },
           orderBy: { createdAt: 'desc' },
         }),
+        loadDbNowMs(this.prisma),
       ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
+      nowMs: dbNowMs ?? Date.now(),
     });
 
     return buildProfileResponse(
@@ -202,6 +208,7 @@ export class PlatformMembershipReadService {
         where: { ...storePaidWhere, status: 'paid' },
         _sum: { amount: true },
       }),
+      loadDbNowMs(this.prisma),
     ]);
 
     // aggregate 在无匹配行时 _sum.amount 为 null，兜底为 0
@@ -224,6 +231,7 @@ export class PlatformMembershipReadService {
       paidOrders,
       plans,
       inviteCodeRecord,
+      dbNowMs,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
       findCurrentStorePartner(this.prisma, storeId),
@@ -235,11 +243,13 @@ export class PlatformMembershipReadService {
         select: { code: true },
         orderBy: { createdAt: 'desc' },
       }),
+      loadDbNowMs(this.prisma),
     ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
+      nowMs: dbNowMs ?? Date.now(),
     });
     const statsByPeriod = buildPromoStatsByPeriod(promoRecords);
     const profileResponse = buildProfileResponse(
@@ -276,6 +286,7 @@ export class PlatformMembershipReadService {
       paidOrders,
       plans,
       inviteCodeRecord,
+      dbNowMs,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
       findCurrentStorePartner(this.prisma, storeId),
@@ -287,11 +298,13 @@ export class PlatformMembershipReadService {
         select: { code: true },
         orderBy: { createdAt: 'desc' },
       }),
+      loadDbNowMs(this.prisma),
     ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
+      nowMs: dbNowMs ?? Date.now(),
     });
     const filters = resolvePromoDetailCompatFilters(rawQuery);
     const filteredRecords = filterPromoRecordsForCompat(promoRecords, filters);

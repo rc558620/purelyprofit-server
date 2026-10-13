@@ -95,4 +95,41 @@ describe('normalizeMembershipProfileFromPaidOrders', () => {
 
     expect(result).toBe(profile);
   });
+
+  it('nowMs 用 DB 时钟判定：同一份订单，nowMs 不同则重建结论不同', () => {
+    // 回归：重建用 order.createdAt（DB 时钟）当基准推导 expiresAt，
+    // 判定却用 Date.now()（应用时钟）就是跨时钟源比较——DB 慢于应用时
+    // 到期时间被算早，门店被提前判过期。此处证明 nowMs 注入真实生效。
+    const profile: StoreMembershipProfileRecord = {
+      id: 1,
+      storeId: 18,
+      currentPlanId: null,
+      previousPlanId: null,
+      startsAt: null,
+      expiresAt: null,
+      totalPoints: 0,
+      availablePoints: 0,
+    };
+    // 2026-08-01 下单月度 → expiresAt = 2026-08-31
+    const paidOrders = [
+      buildPaidOrder('monthly', new Date('2026-08-01T00:00:00.000Z')),
+    ];
+
+    const withDbClockBeforeExpiry = normalizeMembershipProfileFromPaidOrders({
+      profile,
+      paidOrders,
+      plans,
+      nowMs: new Date('2026-08-15T00:00:00.000Z').getTime(),
+    });
+    const withDbClockAfterExpiry = normalizeMembershipProfileFromPaidOrders({
+      profile,
+      paidOrders,
+      plans,
+      nowMs: new Date('2026-09-05T00:00:00.000Z').getTime(),
+    });
+
+    expect(withDbClockBeforeExpiry.currentPlanId).toBe('monthly');
+    // 过期后不得把会员「买回来」
+    expect(withDbClockAfterExpiry).toBe(profile);
+  });
 });

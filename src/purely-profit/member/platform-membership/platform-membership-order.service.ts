@@ -16,7 +16,7 @@ import { resolveEffectivePlanId } from './membership-plan-resolver';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
 import {
   buildPlanExpiryAt,
-  resolveFrontendMembershipExpiry,
+  resolveMembershipExpiry,
 } from './membership-expiry.utils';
 import { buildProfileResponse } from './membership-profile.mapper';
 import {
@@ -207,7 +207,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       const isLegacyLifetimeMembership =
         profile.currentPlanId === 'yearly' && profile.expiresAt === null;
       const currentExpiryMs =
-        resolveFrontendMembershipExpiry(profile)?.getTime() ?? 0;
+        resolveMembershipExpiry(profile).expiresAt?.getTime() ?? 0;
       const baseMs =
         currentExpiryMs > now.getTime() ? currentExpiryMs : now.getTime();
       const nextExpiresAt = buildPlanExpiryAt(plan, baseMs);
@@ -361,21 +361,29 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
         );
       });
 
-    // 首次充值推广奖励（异步，不阻塞订单响应）
-    void this.promoService
-      .tryAwardPromoReward({
+    // 首次充值推广奖励：必须在订单响应返回前同步完成。
+    //
+    // 原实现是 void 异步（fire-and-forget），导致前端支付成功后立刻回源拉取
+    // 推广中心数据时，后端可能还没发完豆 —— 推广人会短暂看到「未发豆」的旧数据，
+    // 必须手动刷新才正常。同步化后响应即代表发豆结果已落库。
+    //
+    // 失败不阻断订单：订单事务此时已提交、会员权益已生效，
+    // 绝不能因发豆失败让已支付的订单报错。仅记录告警，
+    // 由 onApplicationBootstrap 的 backfillUnchargedPromoRecords 兜底补发。
+    try {
+      await this.promoService.tryAwardPromoReward({
         userId,
         storeId,
         planId: _planId,
         amount: _amount,
-      })
-      .catch((err: unknown) => {
-        this.logger.warn(
-          `推广奖励发放失败（不影响订单）: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
       });
+    } catch (err: unknown) {
+      this.logger.warn(
+        `推广奖励发放失败（不影响订单，等待启动补偿）: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     return cleanResponse;
   }

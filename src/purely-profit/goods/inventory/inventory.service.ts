@@ -81,6 +81,20 @@ export class InventoryService {
       );
     }
 
+    /*
+     * 调整类型与变动方向必须一致：否则会写出「进货入库 -7」「损耗/报废 +95」
+     * 这类语义自相矛盾的流水，按 adjustType 聚合的库存报表无法解释。
+     * manual（盘点）不做方向限制——盘点结果本就可能净增或净减。
+     */
+    if (mode === 'delta' && dto.delta !== undefined) {
+      if (dto.adjustType === 'restock' && dto.delta < 0) {
+        throw new BadRequestException('进货入库的数量必须为正数');
+      }
+      if (dto.adjustType === 'damage' && dto.delta > 0) {
+        throw new BadRequestException('损耗/报废的数量必须为负数');
+      }
+    }
+
     /* BUG-10: damage 类型强制要求备注 */
     if (dto.adjustType === 'damage' && !dto.note?.trim()) {
       throw new BadRequestException('报损类型必须填写备注说明');

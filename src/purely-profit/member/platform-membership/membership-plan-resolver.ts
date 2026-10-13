@@ -10,7 +10,7 @@ import {
 import {
   buildPlanExpiryAt,
   isMembershipProfileActive,
-  resolveFrontendMembershipExpiry,
+  resolveMembershipExpiry,
 } from './membership-expiry.utils';
 import type {
   MembershipPlanConfig,
@@ -19,6 +19,15 @@ import type {
   StoreMembershipProfileRecord,
 } from './platform-membership.types';
 
+/**
+ * 用商家真实付费订单补齐残缺的会员档案。
+ *
+ * ⚠️ `nowMs` 必须与 `paidOrders[].createdAt` 同一时钟源。
+ * 重建用 `order.createdAt`（Prisma `@default(now())` → **DB 时钟**）当基准推导
+ * `expiresAt`，若判断它是否过期却用 `Date.now()`（**应用时钟**），就是跨时钟源
+ * 比较：DB 慢于应用时到期时间被算早，门店会被提前判为过期。
+ * 调用方请用 `loadDbNowMs()` 取值，取不到再回落 `Date.now()`。
+ */
 export function normalizeMembershipProfileFromPaidOrders(params: {
   profile: StoreMembershipProfileRecord;
   paidOrders: Pick<StoreMembershipOrderRecord, 'planId' | 'createdAt'>[];
@@ -214,7 +223,7 @@ function rebuildMembershipProfileFromPaidOrders(params: {
 
     const orderTime = order.createdAt.getTime();
     const currentExpiryMs =
-      resolveFrontendMembershipExpiry(snapshot)?.getTime() ?? 0;
+      resolveMembershipExpiry(snapshot).expiresAt?.getTime() ?? 0;
     const baseMs = currentExpiryMs > orderTime ? currentExpiryMs : orderTime;
     const currentActivePlanId =
       currentExpiryMs > orderTime ? snapshot.currentPlanId : null;

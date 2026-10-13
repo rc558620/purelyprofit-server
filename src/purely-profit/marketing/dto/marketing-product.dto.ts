@@ -16,6 +16,7 @@ import {
 } from 'class-validator';
 import {
   MARKETING_PRODUCT_BILLING_MODE_VALUES,
+  MARKETING_PRODUCT_MAX_DURATION_MINUTES,
   MARKETING_PRODUCT_TYPE_VALUES,
   type MarketingProductBillingModeValue,
   type MarketingProductTypeValue,
@@ -106,6 +107,9 @@ export class CreateMarketingProductDto {
   @IsOptional()
   @Transform(transformNullableInt)
   @Min(1, { message: '服务时长必须大于 0' })
+  @Max(MARKETING_PRODUCT_MAX_DURATION_MINUTES, {
+    message: `服务时长不能超过 ${MARKETING_PRODUCT_MAX_DURATION_MINUTES} 分钟`,
+  })
   durationMinutes?: number | null;
 
   @ApiPropertyOptional({ example: 3, description: '适用人数' })
@@ -227,8 +231,12 @@ export class UpdateMarketingProductDto {
     description: '售价，单位：元（后端自动转为分存储）',
   })
   @IsOptional()
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '售价必须是数字' },
+  )
   @Transform(transformNullableYuan)
-  @Min(1, { message: '售价必须大于 0' })
+  @IsPositive({ message: '售价必须大于 0' })
   price?: number | null;
 
   @ApiPropertyOptional({
@@ -236,8 +244,12 @@ export class UpdateMarketingProductDto {
     description: '划线价/原价，单位：元；空字符串或 null 表示清空',
   })
   @IsOptional()
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '划线价必须是数字' },
+  )
   @Transform(transformNullableYuan)
-  @Min(1, { message: '划线价必须大于 0' })
+  @IsPositive({ message: '划线价必须大于 0' })
   originalPrice?: number | null;
 
   @ApiPropertyOptional({
@@ -283,6 +295,9 @@ export class UpdateMarketingProductDto {
   @IsOptional()
   @Transform(transformNullableInt)
   @Min(1, { message: '服务时长必须大于 0' })
+  @Max(MARKETING_PRODUCT_MAX_DURATION_MINUTES, {
+    message: `服务时长不能超过 ${MARKETING_PRODUCT_MAX_DURATION_MINUTES} 分钟`,
+  })
   durationMinutes?: number | null;
 
   @ApiPropertyOptional({

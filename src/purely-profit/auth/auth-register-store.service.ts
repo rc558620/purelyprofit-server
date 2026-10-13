@@ -22,16 +22,19 @@ import {
   extractStoreCreatePayload,
 } from '../stores/stores.utils';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
+import { findBoundStoreRecord } from '../stores/stores-bound-store.query';
+import { resolvePlanSnapshot } from '../subscriptions/subscriptions.utils';
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 
 /** 门店扩展字段缓存 TTL：7 天，与门店同生命周期量级 */
 const STORE_PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600;
 
-/** STARTER 套餐快照（与 subscriptions.constants 保持一致） */
-const STARTER_PLAN_SNAPSHOT = { planName: '基础版' };
-
-const STARTER_SEAT_QUOTA = 1;
+/**
+ * 新门店默认套餐快照。
+ * 直接取自套餐目录，避免此处硬编码与 SUBSCRIPTION_PLAN_CATALOG 漂移。
+ */
+const STARTER_PLAN = resolvePlanSnapshot(SubscriptionPlanCode.starter);
 
 export class RegisterStoreResponseDto {
   store!: StoreResponseDto;
@@ -63,7 +66,8 @@ export class AuthRegisterStoreService {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
-    const store = await this.prisma.$transaction(
+    const metadata = buildStoreProfileMetadata(payload);
+    const { store, managerStaffId } = await this.prisma.$transaction(
       async (tx) => {
         const createdStore = await tx.store.create({
           data: {
@@ -88,16 +92,16 @@ export class AuthRegisterStoreService {
           create: {
             storeId: createdStore.id,
             planCode: SubscriptionPlanCode.starter,
-            planName: STARTER_PLAN_SNAPSHOT.planName,
+            planName: STARTER_PLAN.planName,
             status: StoreSubscriptionStatus.active,
-            maxAccountSeats: STARTER_SEAT_QUOTA,
+            maxAccountSeats: STARTER_PLAN.maxAccountSeats,
             expiresAt: null,
           },
           update: {
             planCode: SubscriptionPlanCode.starter,
-            planName: STARTER_PLAN_SNAPSHOT.planName,
+            planName: STARTER_PLAN.planName,
             status: StoreSubscriptionStatus.active,
-            maxAccountSeats: STARTER_SEAT_QUOTA,
+            maxAccountSeats: STARTER_PLAN.maxAccountSeats,
             expiresAt: null,
           },
         });
@@ -107,18 +111,18 @@ export class AuthRegisterStoreService {
           where: { storeId: createdStore.id },
           create: {
             storeId: createdStore.id,
-            subAccountQuota: STARTER_SEAT_QUOTA,
+            subAccountQuota: STARTER_PLAN.maxAccountSeats,
             totalPoints: 0,
             availablePoints: 0,
           },
           update: {
-            subAccountQuota: STARTER_SEAT_QUOTA,
+            subAccountQuota: STARTER_PLAN.maxAccountSeats,
           },
         });
 
         // 创建主账号员工记录（manager 角色，非 owner）
         // owner 角色仅限 seed-owner.mjs 脚本设置的开发者账号
-        await tx.staff.create({
+        const managerStaff = await tx.staff.create({
           data: {
             storeId: createdStore.id,
             userId: user.id,
@@ -130,9 +134,20 @@ export class AuthRegisterStoreService {
             status: StaffStatus.active,
             isSeatActive: true,
           },
+          select: { id: true },
         });
 
-        return createdStore;
+        // 扩展字段（门店类型/地区/Logo）纳入同一事务：写入失败必须整体回滚，
+        // 否则会产生「门店已建但门店类型为空」的僵尸门店——设置页该字段 disabled
+        // 且提交时必填校验不通过，用户无法自行修复。
+        await tx.store.update({
+          where: { id: createdStore.id },
+          data: {
+            profileMetadata: metadata as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        return { store: createdStore, managerStaffId: managerStaff.id };
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
@@ -142,8 +157,7 @@ export class AuthRegisterStoreService {
       // 邀请码生成失败不影响注册主流程，可由管理员后续触发重新生成
     });
 
-    const metadata = buildStoreProfileMetadata(payload);
-    await this.persistStoreProfileMetadata(store.id, metadata);
+    await this.cacheStoreProfileMetadata(store.id, metadata);
 
     // 失效 membership 缓存，确保后续请求能读到新创建的 staff 记录
     await this.authStaffActivationService.invalidateMembershipCachesByUserId(
@@ -155,6 +169,8 @@ export class AuthRegisterStoreService {
       phone: user.phone,
       email: user.email,
       accountScope: user.accountScope ?? 'purely_profit',
+      // 锚定新建门店的 manager Staff：否则多身份用户重签 token 后会被解析到其他门店身份
+      ...(managerStaffId != null ? { staffId: managerStaffId } : {}),
     });
 
     return {
@@ -166,51 +182,23 @@ export class AuthRegisterStoreService {
   private async ensureUserCanOnlyBindSingleStore(
     user: AuthenticatedUser,
   ): Promise<void> {
-    const store = await this.prisma.store.findFirst({
-      where: {
-        deletedAt: null,
-        OR: [
-          { ownerId: user.id },
-          {
-            staffs: {
-              some: {
-                isActive: true,
-                status: StaffStatus.active,
-                OR: [
-                  { userId: user.id },
-                  { email: user.email },
-                  { phone: user.phone },
-                ],
-              },
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
+    const store = await findBoundStoreRecord(this.prisma, user);
 
     if (store) {
       throw new ConflictException('当前账号已绑定门店，暂不支持创建多个门店');
     }
   }
 
-  private async persistStoreProfileMetadata(
+  /**
+   * 缓存门店扩展字段到 Redis。
+   *
+   * DB 事实源已在建店事务内写入（见 create），此处仅负责 best-effort 缓存，
+   * 缓存失败不影响注册主流程——读取侧有 DB 优先 + Redis 兜底的恢复链路。
+   */
+  private async cacheStoreProfileMetadata(
     storeId: number,
     metadata: StoreProfileMetadata,
   ): Promise<void> {
-    // DB 持久化（事实源）：修复 Redis 清空后门店扩展字段丢失的问题
-    try {
-      await this.prisma.store.update({
-        where: { id: storeId },
-        data: { profileMetadata: metadata as unknown as Prisma.InputJsonValue },
-      });
-    } catch (error: unknown) {
-      this.logger.error(
-        `保存门店扩展字段到 DB 失败，storeId=${storeId}，门店扩展数据可能丢失：${error instanceof Error ? error.message : String(error)}`,
-      );
-      // 不重新抛出：DB 写入失败不应阻断注册主流程
-    }
-
     // Redis 缓存（best-effort）
     try {
       await this.redisService.set(

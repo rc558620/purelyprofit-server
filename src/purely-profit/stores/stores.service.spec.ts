@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { StaffRole, StaffStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
@@ -214,7 +214,7 @@ describe('StoresService', () => {
     });
   });
 
-  it('未绑定门店时可以正常创建门店并自动创建老板 staff', async () => {
+  it('未绑定门店时可以正常创建门店，并按注册链口径创建 manager staff', async () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:30:00.000Z');
 
@@ -271,14 +271,16 @@ describe('StoresService', () => {
       },
     });
     expect(subscriptionsService.initializeStoreSubscription).toHaveBeenCalled();
+    // 与注册闭环（POST /auth/register/store）保持同一口径：业务建店一律 manager，
+    // 不产出 owner（owner 默认权限即通配，会给业务路径开权限提升口子）
     expect(prismaService.staff.create).toHaveBeenCalledWith({
       data: {
         storeId: 9,
         userId: user.id,
         email: user.email,
         name: '老板',
-        role: StaffRole.owner,
-        permissions: ['*'],
+        role: StaffRole.manager,
+        permissions: [],
         status: StaffStatus.active,
         isSeatActive: true,
       },
@@ -295,6 +297,68 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
+  });
+
+  it('注册后不可切换业态：非餐饮门店改为餐饮类型时拒绝', async () => {
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      createdAt: new Date('2026-05-13T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:30:00.000Z'),
+    });
+
+    await expect(
+      service.updateCurrent(user, { storeType: '餐饮' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaService.store.update).not.toHaveBeenCalled();
+  });
+
+  it('注册后不可切换业态：餐饮门店改为非餐饮类型时拒绝', async () => {
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '小嘟奶茶店',
+      address: '南屏街',
+      businessMode: 'catering',
+      createdAt: new Date('2026-05-13T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:30:00.000Z'),
+    });
+
+    await expect(
+      service.updateCurrent(user, { storeType: '零售' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaService.store.update).not.toHaveBeenCalled();
+  });
+
+  it('同业态内变更门店类型（零售→服务）可以正常保存', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      createdAt,
+      updatedAt,
+    });
+    prismaService.store.update.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      createdAt,
+      updatedAt,
+    });
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.updateCurrent(user, { storeType: '服务' });
+
+    expect(prismaService.store.update).toHaveBeenCalled();
+    expect(result.storeType).toBe('服务');
   });
 
   it('读取历史门店扩展字段时会清洗 blob 临时 Logo', async () => {

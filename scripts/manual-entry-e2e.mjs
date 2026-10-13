@@ -34,10 +34,12 @@ const request = async (method, path, { token, body, headers } = {}) => {
 };
 
 // ─── 1. 登录 ──────────────────────────────────────────────────────────────
-const captchaToken = `puzzle_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-await request('POST', '/auth/captcha/register', {
-  body: { captchaToken },
-});
+const challengeResponse = await request('POST', '/auth/captcha/challenge');
+const captchaToken = challengeResponse.body?.captchaToken;
+if (!captchaToken) {
+  console.error('获取人机验证令牌失败：', JSON.stringify(challengeResponse.body).slice(0, 300));
+  process.exit(1);
+}
 const loginResponse = await request('POST', '/auth/login', {
   body: { phone: PHONE, password: PASSWORD, captchaToken },
 });

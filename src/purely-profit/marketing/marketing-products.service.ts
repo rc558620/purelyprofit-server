@@ -26,7 +26,14 @@ import {
 import { mapProductRow } from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 import type { MarketingProductRow } from './marketing.types';
-import { resolveMarketingPagination } from './marketing.utils';
+import {
+  MARKETING_PRODUCT_BILLING_MODE_VALUES,
+  MARKETING_PRODUCT_TYPE_VALUES,
+  resolveMarketingPagination,
+  safeEnumCoerce,
+  type MarketingProductBillingModeValue,
+  type MarketingProductTypeValue,
+} from './marketing.utils';
 
 const MARKETING_PRODUCT_ROW_INCLUDE = {
   category: {
@@ -39,6 +46,16 @@ const MARKETING_PRODUCT_ROW_INCLUDE = {
 type MarketingProductRecord = Prisma.MarketingProductGetPayload<{
   include: typeof MARKETING_PRODUCT_ROW_INCLUDE;
 }>;
+
+/** 归一化后的团购券/开台计费配置（金额统一为「分」） */
+interface NormalizedProductBilling {
+  validDays: number | null;
+  billingMode: MarketingProductBillingModeValue;
+  hourlyRateCents: number | null;
+  countdownMinutes: number | null;
+  countdownPriceCents: number | null;
+  autoCheckout: boolean;
+}
 
 @Injectable()
 export class MarketingProductsService {
@@ -114,6 +131,17 @@ export class MarketingProductsService {
     // B-3 fix: 划线价不得低于售价
     this.assertOriginalPriceNotLessThanPrice(dto.price, dto.originalPrice);
 
+    const billing = this.normalizeBillingConfig({
+      type: dto.type ?? 'service',
+      billingMode: dto.billingMode ?? 'items',
+      durationMinutes: dto.durationMinutes ?? null,
+      validDays: dto.validDays ?? null,
+      hourlyRate: dto.hourlyRate ?? null,
+      countdownMinutes: dto.countdownMinutes ?? null,
+      countdownPrice: dto.countdownPrice ?? null,
+      autoCheckout: dto.autoCheckout ?? false,
+    });
+
     try {
       const created = await this.prisma.marketingProduct.create({
         data: {
@@ -133,18 +161,12 @@ export class MarketingProductsService {
           personCount: dto.personCount ?? null,
           unit: dto.unit ?? null,
           type: dto.type ?? 'service',
-          validDays: dto.validDays ?? null,
-          billingMode: dto.billingMode ?? 'items',
-          hourlyRate:
-            dto.hourlyRate != null
-              ? Money.fromInputYuan(dto.hourlyRate).toDbCents()
-              : null,
-          countdownMinutes: dto.countdownMinutes ?? null,
-          countdownPrice:
-            dto.countdownPrice != null
-              ? Money.fromInputYuan(dto.countdownPrice).toDbCents()
-              : null,
-          autoCheckout: dto.autoCheckout ?? false,
+          validDays: billing.validDays,
+          billingMode: billing.billingMode,
+          hourlyRate: billing.hourlyRateCents,
+          countdownMinutes: billing.countdownMinutes,
+          countdownPrice: billing.countdownPriceCents,
+          autoCheckout: billing.autoCheckout,
         },
         include: MARKETING_PRODUCT_ROW_INCLUDE,
       });
@@ -197,6 +219,47 @@ export class MarketingProductsService {
       effectiveOriginalYuan,
     );
 
+    const currentType = safeEnumCoerce(
+      product.type,
+      MARKETING_PRODUCT_TYPE_VALUES,
+      'service',
+    );
+    const currentBillingMode = safeEnumCoerce(
+      product.billingMode,
+      MARKETING_PRODUCT_BILLING_MODE_VALUES,
+      'items',
+    );
+    const toYuan = (cents: number | null): number | null =>
+      cents != null ? Money.fromDbCents(cents).toOutputYuan() : null;
+
+    // 合并已有值与本次更新值后归一化计费配置，
+    // 保证「非团购券商品」与「倒计时」两条不变量在 PATCH 语义下同样成立
+    const billing = this.normalizeBillingConfig({
+      type: dto.type ?? currentType,
+      billingMode: dto.billingMode ?? currentBillingMode,
+      durationMinutes:
+        dto.durationMinutes !== undefined
+          ? (dto.durationMinutes ?? null)
+          : product.durationMinutes,
+      validDays:
+        dto.validDays !== undefined
+          ? (dto.validDays ?? null)
+          : product.validDays,
+      hourlyRate:
+        dto.hourlyRate !== undefined
+          ? (dto.hourlyRate ?? null)
+          : toYuan(product.hourlyRate),
+      countdownMinutes:
+        dto.countdownMinutes !== undefined
+          ? (dto.countdownMinutes ?? null)
+          : product.countdownMinutes,
+      countdownPrice:
+        dto.countdownPrice !== undefined
+          ? (dto.countdownPrice ?? null)
+          : toYuan(product.countdownPrice),
+      autoCheckout: dto.autoCheckout ?? product.autoCheckout,
+    });
+
     // 构建更新数据，分离 undefined（不更新）与 null（清空）
     const data: Prisma.MarketingProductUncheckedUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
@@ -220,27 +283,33 @@ export class MarketingProductsService {
       data.personCount = dto.personCount ?? null;
     if (dto.unit !== undefined) data.unit = dto.unit || null;
     if (dto.type !== undefined) data.type = dto.type;
-    if (dto.validDays !== undefined) data.validDays = dto.validDays ?? null;
-    if (dto.billingMode !== undefined) data.billingMode = dto.billingMode;
-    if (dto.hourlyRate !== undefined)
-      data.hourlyRate =
-        dto.hourlyRate != null
-          ? Money.fromInputYuan(dto.hourlyRate).toDbCents()
-          : null;
-    if (dto.countdownMinutes !== undefined)
-      data.countdownMinutes = dto.countdownMinutes ?? null;
-    if (dto.countdownPrice !== undefined)
-      data.countdownPrice =
-        dto.countdownPrice != null
-          ? Money.fromInputYuan(dto.countdownPrice).toDbCents()
-          : null;
-    if (dto.autoCheckout !== undefined) data.autoCheckout = dto.autoCheckout;
+    // 计费相关字段统一写入归一化结果（含脏数据清理），不再逐个判断 undefined
+    data.validDays = billing.validDays;
+    data.billingMode = billing.billingMode;
+    data.hourlyRate = billing.hourlyRateCents;
+    data.countdownMinutes = billing.countdownMinutes;
+    data.countdownPrice = billing.countdownPriceCents;
+    data.autoCheckout = billing.autoCheckout;
 
-    const updated = await this.prisma.marketingProduct.update({
-      where: { id: productId },
-      data,
-      include: MARKETING_PRODUCT_ROW_INCLUDE,
-    });
+    let updated: MarketingProductRecord;
+    try {
+      updated = await this.prisma.marketingProduct.update({
+        where: { id: productId },
+        data,
+        include: MARKETING_PRODUCT_ROW_INCLUDE,
+      });
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          // 与 createProduct 对齐：唯一约束冲突（含改名撞名）返回友好提示而非 500
+          throw new BadRequestException('该门店下已存在同名产品');
+        }
+        if (error.code === 'P2003') {
+          throw new BadRequestException('产品分类不存在或不属于当前门店');
+        }
+      }
+      throw error;
+    }
 
     return mapProductRow(this.toProductRow(updated));
   }
@@ -310,6 +379,89 @@ export class MarketingProductsService {
     const rateCents = Math.round((priceCents * 60) / dto.durationMinutes);
     return {
       rate: Money.fromDbCents(rateCents).toOutputYuan(),
+    };
+  }
+
+  /**
+   * 归一化团购券 / 开台计费配置，补齐此前只存在于前端的两条约束：
+   * 1. 非团购券商品一律清空 validDays 与开台计费字段：前端切换商品类型后
+   *    隐藏字段值仍会保留并提交（useForm 有意保留 unmount 字段值），
+   *    若不清洗会在 service 商品上留下脏的计费配置。
+   * 2. 倒计时模式要求预设时长与服务时长非空且一致：开台计时以
+   *    countdownMinutes 为准，与服务时长不符会导致计费账实不符。
+   * @param input.type 生效的商品类型（更新场景需传入合并后的值）
+   * @param input.hourlyRate / countdownPrice 单位「元」，输出统一为「分」
+   */
+  private normalizeBillingConfig(input: {
+    type: MarketingProductTypeValue;
+    billingMode: MarketingProductBillingModeValue;
+    durationMinutes: number | null;
+    validDays: number | null;
+    hourlyRate: number | null;
+    countdownMinutes: number | null;
+    countdownPrice: number | null;
+    autoCheckout: boolean;
+  }): NormalizedProductBilling {
+    const EMPTY_BILLING: NormalizedProductBilling = {
+      validDays: null,
+      billingMode: 'items',
+      hourlyRateCents: null,
+      countdownMinutes: null,
+      countdownPriceCents: null,
+      autoCheckout: false,
+    };
+
+    if (input.type !== 'voucher') {
+      return EMPTY_BILLING;
+    }
+
+    const toCents = (yuan: number | null): number | null =>
+      yuan != null ? Money.fromInputYuan(yuan).toDbCents() : null;
+
+    const normalized: NormalizedProductBilling = {
+      validDays: input.validDays,
+      billingMode: input.billingMode,
+      hourlyRateCents: toCents(input.hourlyRate),
+      countdownMinutes: input.countdownMinutes,
+      countdownPriceCents: toCents(input.countdownPrice),
+      autoCheckout: input.autoCheckout,
+    };
+
+    // 按计费方式保留对应字段、清空其它计费方式的专属字段，
+    // 避免前端切换计费方式后隐藏字段的残留值写库
+    const keepTimed = (
+      mode: MarketingProductBillingModeValue,
+    ): mode is 'timed' | 'mixed' => mode === 'timed' || mode === 'mixed';
+
+    if (normalized.billingMode === 'countdown') {
+      if (normalized.countdownMinutes == null) {
+        throw new BadRequestException('请填写预设时长');
+      }
+      if (input.durationMinutes == null) {
+        throw new BadRequestException('请填写服务时长');
+      }
+      if (normalized.countdownMinutes !== input.durationMinutes) {
+        throw new BadRequestException('预设时长与服务时长不一致，请保持一致');
+      }
+      return { ...normalized, hourlyRateCents: null };
+    }
+
+    if (keepTimed(normalized.billingMode)) {
+      return {
+        ...normalized,
+        countdownMinutes: null,
+        countdownPriceCents: null,
+        autoCheckout: false,
+      };
+    }
+
+    // items（纯消费）：无需任何开台计费参数，但保留团购券有效天数
+    return {
+      ...normalized,
+      hourlyRateCents: null,
+      countdownMinutes: null,
+      countdownPriceCents: null,
+      autoCheckout: false,
     };
   }
 

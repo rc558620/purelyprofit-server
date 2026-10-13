@@ -23,7 +23,7 @@ import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthRsaService } from './auth-rsa.service';
 import { CaptchaTokenService } from './captcha-token.service';
-import { RegisterCaptchaTokenDto } from '../../purely-club/auth/dto/register-captcha-token.dto';
+import { CaptchaChallengeResponseDto } from './dto/captcha-challenge-response.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -72,22 +72,24 @@ export class AuthController {
     return { publicKey: this.authRsaService.getPublicKey() };
   }
 
-  @Post('captcha/register')
+  @Post('captcha/challenge')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60, limit: 30 } })
   @ApiOperation({
-    summary: '注册拼图验证令牌',
+    summary: '颁发拼图验证令牌',
     description:
-      '前端完成拼图验证后调用此接口注册 captchaToken 到服务端。' +
-      '后续发送短信验证码时需携带该 token，后端校验通过后才允许发送。' +
+      '前端打开拼图验证时调用此接口获取服务端颁发的 captchaToken。' +
+      '拼图验证通过后，登录/发送验证码时需携带该 token，后端校验通过后才允许继续。' +
       'token 有效期 5 分钟，一次性消费。',
   })
-  registerCaptchaToken(
-    @Body() dto: RegisterCaptchaTokenDto,
-  ): Promise<{ success: boolean }> {
-    return this.captchaTokenService.issue(dto.captchaToken).then(() => ({
-      success: true,
-    }));
+  @ApiOkResponse({
+    description: '颁发成功，返回 captchaToken',
+    type: CaptchaChallengeResponseDto,
+  })
+  issueCaptchaChallenge(): Promise<CaptchaChallengeResponseDto> {
+    return this.captchaTokenService
+      .issueChallenge()
+      .then((captchaToken) => ({ captchaToken }));
   }
 
   @Post('register/send-code')
@@ -169,11 +171,13 @@ export class AuthController {
     type: AuthTokenResponseDto,
   })
   async login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
-    await this.captchaTokenService.validateAndConsume(dto.captchaToken);
+    // 先解密密码、后消费 captchaToken：解密失败（如服务端重启轮换 RSA 密钥）
+    // 时不应烧掉拼图令牌，前端重取公钥后可直接重试，无需用户重新拼图。
     const decryptedDto = {
       ...dto,
       password: this.authRsaService.tryDecryptPassword(dto.password),
     };
+    await this.captchaTokenService.validateAndConsume(dto.captchaToken);
     return this.authService.login(decryptedDto);
   }
 

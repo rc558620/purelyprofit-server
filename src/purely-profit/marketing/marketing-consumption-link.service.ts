@@ -87,13 +87,8 @@ export class MarketingConsumptionLinkService {
     // 事务内按 门店 + 手机号 关联（兼容已有会员与新建会员）
     const existing = await tx.marketingCustomer.findFirst({
       where: { storeId: params.storeId, phone, deletedAt: null },
-      select: { id: true, totalSpent: true },
+      select: { id: true },
     });
-
-    const newTotalSpent = (existing?.totalSpent ?? 0) + amountCents;
-    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值
-    const thresholds = await queryCustomerTierThresholds(tx, params.storeId);
-    const newTier = calcCustomerTier(newTotalSpent, thresholds) as never;
 
     let customerId: number;
     if (existing) {
@@ -104,7 +99,6 @@ export class MarketingConsumptionLinkService {
           totalSpent: { increment: amountCents },
           visitCount: { increment: 1 },
           lastVisitAt: new Date(params.checkoutAt),
-          tier: newTier,
         },
       });
     } else {
@@ -116,7 +110,6 @@ export class MarketingConsumptionLinkService {
           totalSpent: amountCents,
           visitCount: 1,
           lastVisitAt: new Date(params.checkoutAt),
-          tier: newTier,
         },
       });
       customerId = created.id;
@@ -132,6 +125,26 @@ export class MarketingConsumptionLinkService {
         payType: this.mapPaymentMethod(params.paymentMethod),
         itemsSummary: params.itemsSummary?.trim() || null,
       },
+    });
+
+    // tier 必须与列表/详情的展示口径同源：展示侧以 marketing_consumptions 的
+    // 实时聚合覆盖物化字段（F9）。若这里按物化 totalSpent 读-改-写算 tier，
+    // 两者一旦漂移（历史迁移、线下退款不冲减流水）就会出现「展示金额已达
+    // gold、等级仍为 regular」；并发结算同一顾客时也会按旧值算低等级。
+    // 故统一以聚合结果作为阈值判定基准。
+    const aggregated = await tx.marketingConsumption.aggregate({
+      where: { customerId },
+      _sum: { amount: true },
+    });
+    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值
+    const thresholds = await queryCustomerTierThresholds(tx, params.storeId);
+    const newTier = calcCustomerTier(
+      aggregated._sum.amount ?? 0,
+      thresholds,
+    ) as never;
+    await tx.marketingCustomer.update({
+      where: { id: customerId },
+      data: { tier: newTier },
     });
   }
 

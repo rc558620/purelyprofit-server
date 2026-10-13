@@ -1,4 +1,6 @@
 import type { MembershipPlanCycle } from '@prisma/client';
+import type { PlatformMembershipPlanId } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+import { resolveMembershipLevel } from '../../purely-profit/member/platform-membership/membership-expiry.utils';
 
 export interface MerchantVerificationRow {
   realName: string | null;
@@ -14,11 +16,13 @@ export interface MembershipProfileRow {
 /**
  * 判断会员订阅是否仍处于有效状态。
  *
- * 对齐 `isMembershipProfileActive`（membership-expiry.utils.ts）的判定逻辑：
- * - lifetime 计划永不过期，即使 expiresAt 因脏数据或 730 天默认值过期也不应影响判定
- * - 历史兼容：早年 lifetime 枚举还没加时用 yearly + null expiresAt 表示永久会员，
- *   需同时满足 startsAt 存在才认定为 lifetime，防止数据异常被误判
- * - 其他计划正常检查 expiresAt 是否晚于当前时间
+ * ⚠️ 这里**不再**自己实现过期判断，统一委托给
+ * `membership-expiry.utils` 的 `resolveMembershipLevel`。
+ *
+ * 过去这里有一份私有副本，判定成「lifetime 永不过期」，而 profit 侧的
+ * `resolveMembershipLevel` 判定成「lifetime 按 expiresAt 正常到期」——
+ * 同一个 AGES 门店，管理端 onboarding 说有会员、商家端却已被降级拦截。
+ * 语义相反的两份实现比任何一份的错误都难排查，必须收敛到一处。
  */
 export function isActiveMembership(
   profile: MembershipProfileRow | null,
@@ -27,23 +31,11 @@ export function isActiveMembership(
     return false;
   }
 
-  // lifetime 计划永不过期
-  if (profile.currentPlanId === 'lifetime') {
-    return true;
-  }
-
-  // 历史兼容：yearly + null expiresAt + startsAt 存在 → 视为 lifetime
-  if (
-    profile.currentPlanId === 'yearly' &&
-    profile.expiresAt === null &&
-    profile.startsAt !== null
-  ) {
-    return true;
-  }
-
-  if (!profile.expiresAt) {
-    return false;
-  }
-
-  return profile.expiresAt > new Date();
+  return (
+    resolveMembershipLevel({
+      currentPlanId: profile.currentPlanId as PlatformMembershipPlanId,
+      startsAt: profile.startsAt,
+      expiresAt: profile.expiresAt,
+    }) !== 'free'
+  );
 }

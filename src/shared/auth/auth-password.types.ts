@@ -64,6 +64,12 @@ export interface ChangePasswordAuthParams {
   newPassword: string;
   confirmPassword?: string;
   accountScope: AuthenticatedAccountScope;
+  /**
+   * 当前登录态命中的 Staff ID（子账号身份锚点）。
+   * 改密后需要重新签发 token，若不携带 staffId，多身份用户会被 membership
+   * 回退逻辑解析成另一个身份（如子账号 → 店主），造成静默的上下文切换。
+   */
+  staffId?: number;
 }
 
 export interface ResetPasswordAuthParams {

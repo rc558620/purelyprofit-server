@@ -23,11 +23,10 @@ import type {
 /**
  * 判断会员订阅是否仍处于有效状态。
  *
- * 统一判定逻辑（对齐 isActiveMembership / buildMembershipDto）：
- * - lifetime 计划永不过期
- * - 历史兼容：yearly + null expiresAt → 视为 lifetime
- * - 其他计划正常检查 expiresAt 是否晚于当前时间
- * - 无 profile 或 currentPlanId 为空 → inactive
+ * ⚠️ 统一委托给 `membership-expiry.utils` 的 `resolveMembershipLevel`，
+ * 不在此处另写一份——管理端与商家端口径一旦漂移，同一个门店会在两侧
+ * 显示相反的会员状态（曾出现过：这里说 lifetime 永不过期，
+ * 商家端却已按 expiresAt 判为到期）。
  */
 function isPulseMemberActive(
   profile: PulseAdminMembershipProfileRecord | null,
@@ -36,20 +35,13 @@ function isPulseMemberActive(
     return false;
   }
 
-  if (profile.currentPlanId === 'lifetime') {
-    return true;
-  }
-
-  // 历史兼容：yearly + null expiresAt → 视为 lifetime
-  if (profile.currentPlanId === 'yearly' && profile.expiresAt === null) {
-    return true;
-  }
-
-  if (!profile.expiresAt) {
-    return false;
-  }
-
-  return profile.expiresAt > new Date();
+  return (
+    resolveMembershipLevel({
+      currentPlanId: profile.currentPlanId,
+      startsAt: profile.startsAt ?? null,
+      expiresAt: profile.expiresAt,
+    }) !== 'free'
+  );
 }
 import {
   resolveAdminMemberDisplayName,
@@ -57,6 +49,7 @@ import {
   toPulseMemberLevel,
 } from './membership-admin-query.helper';
 import { Money } from '../../shared/money.utils';
+import { resolveMembershipLevel } from '../../purely-profit/member/platform-membership/membership-expiry.utils';
 import { resolveRenewalPriceFen } from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import type { LockedPriceSnapshot } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 

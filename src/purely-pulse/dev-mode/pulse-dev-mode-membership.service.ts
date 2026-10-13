@@ -138,6 +138,8 @@ export class PulseDevModeMembershipService {
   private buildDeveloperMemberInfo(user: AuthenticatedUser) {
     return {
       isActive: true,
+      // 开发者档恒为最高档且未到期，不存在降级态
+      isExpired: false,
       planId: DEV_PLAN_ID,
       expiredAt: DEV_EXPIRES_AT.getTime(),
       inviteCode: `DEV${user.id}`,

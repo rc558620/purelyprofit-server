@@ -170,12 +170,19 @@ export class StoresProfileService {
     return result;
   }
 
+  /**
+   * 写入门店扩展字段（DB 事实源 + Redis 缓存）。
+   *
+   * @param tx - 传入事务客户端时，DB 写入纳入该事务，失败将随事务整体回滚；
+   *             不传时走独立写入并容错，避免阻断非事务主流程。
+   */
   async persistStoreProfileMetadata(
     storeId: number,
     metadata: StoreProfileMetadata,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     // DB 持久化（事实源）
-    await this.persistStoreProfileMetadataToDb(storeId, metadata);
+    await this.persistStoreProfileMetadataToDb(storeId, metadata, tx);
     // Redis 缓存（best-effort）
     try {
       await this.redisService.set(
@@ -193,13 +200,23 @@ export class StoresProfileService {
   private async persistStoreProfileMetadataToDb(
     storeId: number,
     metadata: StoreProfileMetadata,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
+    const client = tx ?? this.prisma;
+
     try {
-      await this.prisma.store.update({
+      await client.store.update({
         where: { id: storeId },
         data: { profileMetadata: metadata as unknown as Prisma.InputJsonValue },
       });
     } catch (error) {
+      // 事务内不吞异常：扩展字段（门店类型/地区/Logo）是门店的必要组成部分，
+      // 写入失败必须随事务整体回滚。否则会产生「门店已建但门店类型为空、
+      // 设置页字段 disabled 且提交必填校验不通过」的僵尸门店，用户无法自救。
+      if (tx) {
+        throw error;
+      }
+
       this.logger.error(
         `保存门店扩展字段到 DB 失败，storeId=${storeId}，门店扩展数据可能丢失：${this.getErrorMessage(error)}`,
       );

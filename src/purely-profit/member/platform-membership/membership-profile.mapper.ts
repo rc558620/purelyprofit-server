@@ -1,7 +1,8 @@
 import type { PlatformMembershipProfileResponseDto } from './dto/platform-membership-response.dto';
 import {
+  isMembershipDowngraded,
   isMembershipProfileActive,
-  resolveFrontendMembershipExpiry,
+  resolveMembershipExpiry,
 } from './membership-expiry.utils';
 import { buildMembershipCapabilitiesSnapshot } from './platform-membership-access.shared';
 import type {
@@ -41,13 +42,15 @@ export function buildMembershipInfo(
   profile: StoreMembershipProfileRecord,
   inviteCode: string | null = null,
 ): PlatformMembershipProfileResponseDto['memberInfo'] {
-  const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
+  const expiredAt =
+    resolveMembershipExpiry(profile).expiresAt?.getTime() ?? null;
   const isLegacyLifetimeMembership =
     profile.currentPlanId === 'yearly' && profile.expiresAt === null;
   const isActive = isMembershipProfileActive(profile);
 
   return {
     isActive,
+    isExpired: isMembershipDowngraded(profile),
     planId: isActive ? profile.currentPlanId : null,
     ...(isLegacyLifetimeMembership ? { displayPlanName: 'ages会员' } : {}),
     expiredAt,

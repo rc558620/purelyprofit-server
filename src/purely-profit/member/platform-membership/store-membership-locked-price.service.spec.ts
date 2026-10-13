@@ -716,7 +716,9 @@ describe('StoreMembershipLockedPriceService', () => {
 
       await service.listStoresPendingSubAccountBackfill([18, 59]);
 
-      expect(prismaService.storeMembershipProfile.findMany).toHaveBeenCalledWith(
+      expect(
+        prismaService.storeMembershipProfile.findMany,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ storeId: { in: [18, 59] } }),
         }),
@@ -737,7 +739,9 @@ describe('StoreMembershipLockedPriceService', () => {
         service.listStoresPendingSubAccountBackfill([]),
       ).resolves.toEqual([]);
 
-      expect(prismaService.storeMembershipProfile.findMany).not.toHaveBeenCalled();
+      expect(
+        prismaService.storeMembershipProfile.findMany,
+      ).not.toHaveBeenCalled();
       expect(
         prismaService.storeMembershipLockedPrice.findMany,
       ).not.toHaveBeenCalled();
@@ -760,10 +764,9 @@ describe('StoreMembershipLockedPriceService', () => {
     it('以审计为准：调过价、后来又清空的门店仍留在清单里', async () => {
       const service = createService();
       // 18 曾经议价、现在已清空（审计有痕、覆盖价为 null）；59 仍在生效
-      prismaService.storeMembershipPriceOverrideAudit.findMany.mockResolvedValue([
-        { storeId: 18 },
-        { storeId: 59 },
-      ]);
+      prismaService.storeMembershipPriceOverrideAudit.findMany.mockResolvedValue(
+        [{ storeId: 18 }, { storeId: 59 }],
+      );
       prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
         { storeId: 59 },
       ]);

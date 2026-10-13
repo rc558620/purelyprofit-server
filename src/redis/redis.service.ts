@@ -354,6 +354,57 @@ export class RedisService
     );
   }
 
+  // ── Set 操作 ──────────────────────────────────────────────
+
+  /**
+   * 向 set 中添加成员，可选刷新 TTL（秒）。
+   * 原子操作，适用于「并发写入不能丢」的索引场景（如 refresh token 索引）。
+   */
+  async sadd(key: string, member: string, ttlSeconds?: number): Promise<void> {
+    await this.observeRedisCommand('SADD', async () => {
+      await this.client.sadd(key, member);
+      if (ttlSeconds) {
+        await this.client.expire(key, ttlSeconds);
+      }
+    });
+  }
+
+  /** 批量向 set 中添加成员，可选刷新 TTL（秒）；members 为空时跳过。 */
+  async saddMany(
+    key: string,
+    members: string[],
+    ttlSeconds?: number,
+  ): Promise<void> {
+    if (members.length === 0) {
+      return;
+    }
+
+    await this.observeRedisCommand('SADD', async () => {
+      await this.client.sadd(key, ...members);
+      if (ttlSeconds) {
+        await this.client.expire(key, ttlSeconds);
+      }
+    });
+  }
+
+  /** 读取 set 全部成员；key 不存在时返回空数组。 */
+  async smembers(key: string): Promise<string[]> {
+    return this.observeRedisCommand('SMEMBERS', () =>
+      this.client.smembers(key),
+    );
+  }
+
+  /** 从 set 中移除成员（原子操作）；members 为空时跳过。 */
+  async srem(key: string, ...members: string[]): Promise<void> {
+    if (members.length === 0) {
+      return;
+    }
+
+    await this.observeRedisCommand('SREM', async () => {
+      await this.client.srem(key, ...members);
+    });
+  }
+
   async checkReadiness(): Promise<void> {
     const pong = await this.observeRedisCommand('PING', () =>
       this.client.ping(),

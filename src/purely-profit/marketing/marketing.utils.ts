@@ -147,6 +147,12 @@ export const MARKETING_PRODUCT_BILLING_MODE_VALUES = [
 export type MarketingProductBillingModeValue =
   (typeof MARKETING_PRODUCT_BILLING_MODE_VALUES)[number];
 
+/**
+ * 服务时长上限（分钟）：此前只在前端限制，接口直调可写任意值，
+ * 这里抽常量供 Create/Update DTO 共用，与前端录入页 max 对齐。
+ */
+export const MARKETING_PRODUCT_MAX_DURATION_MINUTES = 600;
+
 // ─── 分页 ─────────────────────────────────────────────────────────────
 
 export interface MarketingPaginationMeta {

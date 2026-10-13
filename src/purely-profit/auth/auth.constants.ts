@@ -15,6 +15,13 @@ export const AUTH_LOGIN_FAIL_KEY_PREFIX = 'auth:login-fail:';
 export const AUTH_LOGIN_FAIL_MAX_ATTEMPTS = 5;
 /** 登录失败达到此次数时，错误消息中附带剩余尝试次数提醒 */
 export const AUTH_LOGIN_FAIL_WARNING_THRESHOLD = 2;
+/**
+ * 登录时序均衡用的虚拟密码哈希（bcrypt，cost 10）。
+ * 账号不存在时也执行一次 bcrypt 比较，抹平与「账号存在」的响应时间差异，
+ * 避免攻击者通过计时枚举有效账号。
+ */
+export const AUTH_DUMMY_PASSWORD_HASH =
+  '$2b$10$BLWnE2cKWdzMpYDDXkXKnO0TmxdFc8YWQgpqzxbjxF7Qfm.CeBPVW';
 /** 登录失败锁定时长（秒） */
 export const AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS = 900;
 export const AUTH_PASSWORD_RESET_CODE_LENGTH = 6;

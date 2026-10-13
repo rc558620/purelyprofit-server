@@ -9,7 +9,10 @@ import {
   StoreSubAccountRole,
   StoreSubAccountStatus,
 } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+} from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 import { StoreSubAccountLoginService } from './store-sub-account-login.service';
 import { StoreSubAccountReadService } from './store-sub-account-read.service';
@@ -17,6 +20,8 @@ import type {
   StoreSubAccountSummary,
   UpdateStoreSubAccountSlotInput,
 } from './store-sub-account.types';
+
+type PrismaClientOrTransaction = PrismaService | Prisma.TransactionClient;
 
 @Injectable()
 export class StoreSubAccountSlotService {
@@ -37,10 +42,14 @@ export class StoreSubAccountSlotService {
       storeId,
       quota,
     );
-    const current =
-      await this.membershipAccessService.getSubAccountBenefitSnapshot(storeId);
-
+    // 额度快照与变更写入放在同一事务内读取，避免并发下审计记录写入的是过期 oldQuota
     await this.prisma.$transaction(async (tx) => {
+      const current =
+        await this.membershipAccessService.getSubAccountBenefitSnapshot(
+          storeId,
+          tx,
+        );
+
       await tx.storeMembershipProfile.upsert({
         where: { storeId },
         create: {
@@ -72,78 +81,99 @@ export class StoreSubAccountSlotService {
     storeId: number,
     input: UpdateStoreSubAccountSlotInput,
   ): Promise<StoreSubAccountSummary> {
-    const entitlement =
-      await this.membershipAccessService.getSubAccountBenefitSnapshot(storeId);
-    if (!entitlement.enabled) {
-      throw new BadRequestException(
-        '当前门店未启用子账号额度，无法配置子账号槽位',
-      );
-    }
+    // 额度校验、登录凭证创建、槽位 upsert 必须在同一事务内完成：
+    // 拆成先后两次独立写时，「收缩额度（updateQuota）」与「配置高序号槽位（updateSlot）」
+    // 并发会互相覆盖——被 disabled 的槽位可能被重新写回 active，且该槽位员工的登录凭证
+    // 已创建完成，于是出现超出配额、仍可登录的幽灵子账号。
+    await this.prisma.$transaction(
+      async (tx) => {
+        // 事务内重读额度快照（走 tx 连接），确保读到的是提交后的最新额度
+        const entitlement =
+          await this.membershipAccessService.getSubAccountBenefitSnapshot(
+            storeId,
+            tx,
+          );
+        if (!entitlement.enabled) {
+          throw new BadRequestException(
+            '当前门店未启用子账号额度，无法配置子账号槽位',
+          );
+        }
 
-    if (input.slotIndex < 1 || input.slotIndex > entitlement.quota) {
-      throw new BadRequestException('子账号槽位超出当前已配置额度');
-    }
+        if (input.slotIndex < 1 || input.slotIndex > entitlement.quota) {
+          throw new BadRequestException('子账号槽位超出当前已配置额度');
+        }
 
-    const employee = await this.resolveAssignedEmployee(
-      storeId,
-      input.employeeId,
-    );
-
-    if (
-      !employee &&
-      (input.initialPassword || input.loginAccount !== undefined)
-    ) {
-      throw new BadRequestException('未分配员工时不能配置子账号登录信息');
-    }
-
-    if (
-      employee &&
-      (input.initialPassword || input.loginAccount !== undefined)
-    ) {
-      await this.storeSubAccountLoginService.ensureEmployeeHasLoginAccount(
-        storeId,
-        employee.id,
-        {
-          password: input.initialPassword,
-          loginAccount: input.loginAccount,
-        },
-      );
-    }
-
-    const status = input.status ?? StoreSubAccountStatus.active;
-    const canAccessHome =
-      input.canAccessHome ?? status === StoreSubAccountStatus.active;
-    const canUseHandover =
-      input.canUseHandover ?? status === StoreSubAccountStatus.active;
-
-    await this.prisma.storeSubAccount.upsert({
-      where: {
-        storeId_slotIndex: {
+        const employee = await this.resolveAssignedEmployee(
+          tx,
           storeId,
-          slotIndex: input.slotIndex,
-        },
+          input.employeeId,
+        );
+
+        if (
+          !employee &&
+          (input.initialPassword || input.loginAccount !== undefined)
+        ) {
+          throw new BadRequestException('未分配员工时不能配置子账号登录信息');
+        }
+
+        if (
+          employee &&
+          (input.initialPassword || input.loginAccount !== undefined)
+        ) {
+          await this.storeSubAccountLoginService.ensureEmployeeHasLoginAccount(
+            storeId,
+            employee.id,
+            {
+              password: input.initialPassword,
+              loginAccount: input.loginAccount,
+            },
+            tx,
+          );
+        }
+
+        const status = input.status ?? StoreSubAccountStatus.active;
+        const canAccessHome =
+          input.canAccessHome ?? status === StoreSubAccountStatus.active;
+        // 交班参与权按角色强制派生：财务视角永不参与交班（仅保留 handover:view
+        // 只读审计查看），其他角色未显式指定时跟随槽位启用状态。
+        // 与员工分配路径（deriveSubAccountCanUseHandover）保持同一口径，
+        // 避免经槽位路径创建的财务子账号获得交班事务权限。
+        const canUseHandover =
+          input.role === StoreSubAccountRole.finance
+            ? false
+            : (input.canUseHandover ?? status === StoreSubAccountStatus.active);
+
+        await tx.storeSubAccount.upsert({
+          where: {
+            storeId_slotIndex: {
+              storeId,
+              slotIndex: input.slotIndex,
+            },
+          },
+          create: {
+            storeId,
+            slotIndex: input.slotIndex,
+            role: input.role,
+            status,
+            employeeId: employee?.id ?? null,
+            isAssigned: Boolean(employee),
+            assignedAt: employee ? new Date() : null,
+            canAccessHome,
+            canUseHandover,
+          },
+          update: {
+            role: input.role,
+            status,
+            employeeId: employee?.id ?? null,
+            isAssigned: Boolean(employee),
+            assignedAt: employee ? new Date() : null,
+            canAccessHome,
+            canUseHandover,
+          },
+        });
       },
-      create: {
-        storeId,
-        slotIndex: input.slotIndex,
-        role: input.role,
-        status,
-        employeeId: employee?.id ?? null,
-        isAssigned: Boolean(employee),
-        assignedAt: employee ? new Date() : null,
-        canAccessHome,
-        canUseHandover,
-      },
-      update: {
-        role: input.role,
-        status,
-        employeeId: employee?.id ?? null,
-        isAssigned: Boolean(employee),
-        assignedAt: employee ? new Date() : null,
-        canAccessHome,
-        canUseHandover,
-      },
-    });
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     return this.storeSubAccountReadService.getStoreSubAccountSummary(storeId);
   }
@@ -248,6 +278,7 @@ export class StoreSubAccountSlotService {
   }
 
   private async resolveAssignedEmployee(
+    db: PrismaClientOrTransaction,
     storeId: number,
     employeeId: number | null | undefined,
   ): Promise<{ id: number } | null> {
@@ -255,7 +286,7 @@ export class StoreSubAccountSlotService {
       return null;
     }
 
-    const employee = await this.prisma.employee.findFirst({
+    const employee = await db.employee.findFirst({
       where: {
         id: employeeId,
         storeId,

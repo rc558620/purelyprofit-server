@@ -273,10 +273,23 @@ export class MarketingCustomersService {
           customer.memberId === null &&
           previousPhone
         ) {
-          await tx.member.updateMany({
-            where: { storeId: customer.storeId, phone: previousPhone },
-            data: { phone: nextPhone },
+          // 只在「同店同号唯一命中」时按 id 同步：门店手机号本应唯一，但历史
+          // 脏数据可能出现同号多条，updateMany 会把它们一并改写，放大影响面。
+          const matchedMembers = await tx.member.findMany({
+            where: {
+              storeId: customer.storeId,
+              phone: previousPhone,
+              deletedAt: null,
+            },
+            select: { id: true },
+            take: 2,
           });
+          if (matchedMembers.length === 1) {
+            await tx.member.update({
+              where: { id: matchedMembers[0].id },
+              data: { phone: nextPhone },
+            });
+          }
         }
 
         return result;
@@ -355,6 +368,9 @@ export class MarketingCustomersService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // 会员中心的余额/积分/等级事实源同为 marketing_customers，建档、改档、
+      // 删档都必须连带失效，否则会员列表/详情读数会陈旧到 TTL 自然过期
+      this.cacheInvalidatorService.invalidateMembersDerived(storeId),
     ]);
   }
 }

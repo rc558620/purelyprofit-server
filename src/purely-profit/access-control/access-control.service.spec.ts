@@ -65,7 +65,7 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('scan-ordering:table-config');
   });
 
-  it('manager 子账号应拥有门店运营权限，但不包含财务和门店设置权限', () => {
+  it('manager 子账号应拥有门店运营权限，但不包含财务、营销和门店设置权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.manager),
     );
@@ -74,8 +74,6 @@ describe('AccessControlService', () => {
       'staff:view',
       'staff:create',
       'staff:update',
-      'marketing:view',
-      'marketing:manage',
       'report:view',
       'goods:view',
       'goods:create',
@@ -170,7 +168,7 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('space:view');
   });
 
-  it('finance 子账号应拥有财务与进货管理操作权限', () => {
+  it('finance 子账号应拥有财务与进货管理操作权限，且仅保留交班只读查看', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.finance),
     );
@@ -197,6 +195,8 @@ describe('AccessControlService', () => {
       'commission:manage',
       'service-call:view',
       'service-call:process',
+      // 财务不参与交班（canUseHandover=false），但保留 handover:view 只读审计查看
+      'handover:view',
     ]);
     expect(permissions).toContain('inventory:update');
     expect(permissions).toContain('supplier:view');
@@ -205,7 +205,8 @@ describe('AccessControlService', () => {
     expect(permissions).toContain('purchase:view');
     expect(permissions).toContain('purchase:create');
     expect(permissions).not.toContain('space:view');
-    expect(permissions).not.toContain('handover:view');
+    expect(permissions).not.toContain('handover:create');
+    expect(permissions).not.toContain('handover:update');
     expect(permissions).not.toContain('operation-entry:view');
   });
 
@@ -353,9 +354,9 @@ describe('AccessControlService', () => {
     expect(result.subjectType).toBe('owner');
     expect(result.permissions).toContain('*');
     // 通配符展开后应命中 owner 专属的删除权限（子账号权限集没有该权限）
-    expect(
-      service.hasPermission(result.permissions, 'purchase:delete'),
-    ).toBe(true);
+    expect(service.hasPermission(result.permissions, 'purchase:delete')).toBe(
+      true,
+    );
     expect(result.canAccessHome).toBe(true);
   });
 

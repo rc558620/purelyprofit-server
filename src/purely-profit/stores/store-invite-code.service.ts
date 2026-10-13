@@ -157,8 +157,9 @@ export class StoreInviteCodeService {
    * 通过邀请码查询门店（用于注册或绑定场景）
    */
   async findStoreByCode(code: string): Promise<number | null> {
+    // 与注册路径保持一致：库中统一存大写，入参先归一化再精确匹配
     const record = await this.prisma.storeInviteCode.findUnique({
-      where: { code },
+      where: { code: code.trim().toUpperCase() },
       select: { storeId: true, isActive: true },
     });
 
@@ -170,7 +171,7 @@ export class StoreInviteCodeService {
    */
   async incrementUsedCount(code: string): Promise<void> {
     await this.prisma.storeInviteCode.updateMany({
-      where: { code, isActive: true },
+      where: { code: code.trim().toUpperCase(), isActive: true },
       data: { usedCount: { increment: 1 } },
     });
   }

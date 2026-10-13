@@ -13,6 +13,7 @@ import { AuthSessionService } from './auth-session.service';
 import type {
   AuthenticatedAccountScope,
   AuthProductScope,
+  SessionCategory,
 } from './auth-account.types';
 import type {
   LoginByCodeAuthParams,
@@ -67,11 +68,12 @@ export class AuthCodeLoginService {
     );
 
     if (!user) {
-      await this.authCodeVerifyService.clearRegisterCode(
-        params.phone,
-        params.productScope,
-      );
-      throw new UnauthorizedException('验证码无效或已过期');
+      // 账号不存在：不清除已通过校验的验证码——用户可能转去注册，
+      // 同一验证码应继续可用；同时使用独立文案与「验证码错误」区分，
+      // 避免误导用户反复重试登录。
+      // 注：能通过验证码校验说明请求方持有该手机号收到的短信，
+      // 不构成账号枚举风险。
+      throw new UnauthorizedException('该手机号尚未注册，请先注册');
     }
 
     const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
@@ -172,8 +174,9 @@ export class AuthCodeLoginService {
   /**
    * 验证码登录的 completeLogin：签发 token 前执行必要的前置检查。
    *
-   * - purely_profit：同步会员关系 + 封禁检查（与密码登录路径对齐）
-   * - purely_club：封禁检查
+   * - purely_profit：同步会员关系 + 封禁/注销/席位检查，并按账号类型注册会话
+   *   （与密码登录路径对齐，确保 profit_sub 单会话限制与踢下线机制生效）
+   * - purely_club：封禁检查（club 不启用会话限制）
    */
   private async completeLogin(
     user: { id: number; phone: string; email: string; staffId?: number },
@@ -199,12 +202,44 @@ export class AuthCodeLoginService {
 
     await this.authBanGuardService.ensureUserNotBanned(user.id);
 
-    return this.authSessionService.signToken(user.id, {
-      phone: user.phone,
-      email: user.email,
-      accountScope,
-      ...(user.staffId != null ? { staffId: user.staffId } : {}),
-    });
+    // purelyClub 不启用会话限制，直接签发 token
+    if (productScope === 'purely_club') {
+      return this.authSessionService.signToken(user.id, {
+        phone: user.phone,
+        email: user.email,
+        accountScope,
+        ...(user.staffId != null ? { staffId: user.staffId } : {}),
+      });
+    }
+
+    // 与密码登录一致：注册会话并按账号类型淘汰旧会话
+    const sid = await this.authSessionService.registerSession(
+      user.id,
+      this.resolveSessionCategory(user.phone, accountScope),
+    );
+
+    return this.authSessionService.signToken(
+      user.id,
+      {
+        phone: user.phone,
+        email: user.email,
+        accountScope,
+        ...(user.staffId != null ? { staffId: user.staffId } : {}),
+      },
+      sid,
+    );
+  }
+
+  /**
+   * 根据手机号和账号范围确定会话类别（与 AuthAuthenticationService 口径一致）
+   */
+  private resolveSessionCategory(
+    phone: string,
+    accountScope: AuthenticatedAccountScope,
+  ): SessionCategory {
+    if (phone === this.adminLoginPhone) return 'owner';
+    if (accountScope === 'purely_club') return 'profit_club';
+    return 'profit_main';
   }
 
   private resolveAccountScopeForLogin(user: {

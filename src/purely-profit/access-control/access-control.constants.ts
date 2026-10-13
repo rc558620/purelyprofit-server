@@ -115,6 +115,15 @@ export function toStoreSubAccountRoleCode(
   return STORE_SUB_ACCOUNT_ROLE_PRISMA_TO_CODE[role];
 }
 
+/**
+ * 子账号「可参与交班」派生规则（唯一数据源，员工分配与槽位配置两条创建路径共用）：
+ * - 财务视角不参与交班（仅保留 handover:view 只读审计查看，见 AccessControlService 过滤逻辑）；
+ * - 收银员与店长默认可参与交班。
+ */
+export const deriveSubAccountCanUseHandover = (
+  role: StoreSubAccountRole,
+): boolean => role !== StoreSubAccountRole.finance;
+
 export const STORE_SUB_ACCOUNT_ROLE_LABELS: Record<
   StoreSubAccountRole,
   string

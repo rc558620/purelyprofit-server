@@ -4,9 +4,12 @@ import { RedisService } from '../../../redis/redis.service';
 import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import type { MembershipRuntimeLevel } from './platform-membership-access.shared';
 import {
+  isMembershipDowngraded,
+  resolveMembershipExpiry,
   resolveMembershipLevel,
   type StoreMembershipProfileSnapshot,
 } from './platform-membership-access.shared';
+import { loadDbNowMs } from './platform-membership.query';
 
 // ─── 降级态对外文案（面向顾客与商家，均不暴露"欠费"语义）──────────────
 
@@ -53,6 +56,22 @@ const MANUAL_ENTRY_QUOTA_KEY_PREFIX = 'membership:manual-entry-quota:';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * 时钟漂移探测间隔。
+ *
+ * 「DB 时钟 − 应用时钟」是慢变量：同一对机器之间几乎不会突变，没必要每次判定
+ * 都去查一次库。5 分钟足够及时发现，又不会给读路径增加可感知的开销。
+ */
+const CLOCK_DRIFT_PROBE_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * 触发告警的时钟差阈值。
+ *
+ * 取 5s 而不是更小：判定粒度是「天」，且降级态本身有 60s 缓存，秒级以下的漂移
+ * 既测不出也修不了任何实际问题，报出来只会变成噪音。
+ */
+const CLOCK_DRIFT_WARN_THRESHOLD_MS = 5_000;
+
+/**
  * 构造会员过期异常。
  *
  * 带 `code` 字段供 C 端识别：这类错误不是「操作失败」，而是门店状态导致的
@@ -82,8 +101,16 @@ export interface StoreDowngradeState {
   remainingDays: number;
 }
 
+/**
+ * 降级态判定所需的档案字段。
+ *
+ * `previousPlanId` 不能省：运营把过期门店设为免费会清空 `currentPlanId`，
+ * 此时只剩它证明该门店「曾开通过」。漏掉就会让「设为免费」变成
+ * 解除全部到期限制的绕过路径。
+ */
 const PROFILE_SELECT = {
   currentPlanId: true,
+  previousPlanId: true,
   startsAt: true,
   expiresAt: true,
 } as const;
@@ -129,6 +156,9 @@ export class MembershipDowngradeService {
     private readonly redisService: RedisService,
   ) {}
 
+  /** 上次探测时钟漂移的时刻（进程内节流） */
+  private lastClockProbeAtMs = 0;
+
   /**
    * 查询门店降级态。
    *
@@ -144,13 +174,28 @@ export class MembershipDowngradeService {
       return cached;
     }
 
+    await this.probeClockDrift();
+
     const profile = await this.loadProfile(storeId);
     const level = resolveMembershipLevel(profile);
-    const expiredAt = profile?.expiresAt?.getTime() ?? null;
+    // 与 level 同源：直接取 `expiresAt` 会在「expiresAt 缺失但按 startsAt 推导出
+    // 到期时间」时给出 null，导致在途订单放行判断失效
+    const resolvedExpiry = resolveMembershipExpiry(profile);
+    const expiredAt = resolvedExpiry.expiresAt?.getTime() ?? null;
+
+    // 到期时间算不出来时：档位按 free（不送付费权益），但 isMembershipDowngraded
+    // 返回 false（不施加到期限制），所以这里只告警、不停营业。
+    // 这类脏数据必须由监控发现并修数据，而不是靠停掉门店营业来暴露
+    if (resolvedExpiry.source === 'none' && profile?.currentPlanId) {
+      this.logger.warn(
+        `会员档案缺少可判定的到期时间，本次按未过期处理：storeId=${storeId}, ` +
+          `currentPlanId=${profile.currentPlanId}, startsAt=${profile.startsAt?.toISOString() ?? 'null'}`,
+      );
+    }
 
     const state: StoreDowngradeState = {
       // 从未开通过（无任何套餐记录）不算降级，保持免费版原有权益
-      isExpired: level === 'free' && profile?.currentPlanId != null,
+      isExpired: isMembershipDowngraded(profile),
       level,
       expiredAt,
       remainingDays: this.calcRemainingDays(expiredAt),
@@ -158,6 +203,45 @@ export class MembershipDowngradeService {
 
     await this.writeDowngradeStateCache(cacheKey, state);
     return state;
+  }
+
+  /**
+   * 探测「DB 时钟 − 应用时钟」偏差。
+   *
+   * 为什么值得测：会员到期判定目前用应用时钟（`Date.now()`），而到期时间可能由
+   * DB 时钟写入的字段推导（订单 `createdAt` 走 Prisma `@default(now())`）。
+   * 两者有偏差时，判定就是在跨时钟源比较——DB 慢于应用会把到期时间算早，
+   * 门店被提前判为过期。
+   *
+   * 当前是单机 cluster 部署（同机进程共享系统时钟，进程间漂移恒为 0），
+   * 所以这只在「应用机与 DB 机时钟不一致」或将来多机部署时才可能报出来。
+   * 先把它变成可观测事实，再决定是否值得为统一时间源付出全链路改造的代价。
+   *
+   * 探测失败只告警，绝不影响本次判定。
+   */
+  private async probeClockDrift(): Promise<void> {
+    const localMs = Date.now();
+    if (localMs - this.lastClockProbeAtMs < CLOCK_DRIFT_PROBE_INTERVAL_MS) {
+      return;
+    }
+    // 先置时间戳，避免探测期间并发请求重复进入（探测本身慢，间隔要按进入时算）
+    this.lastClockProbeAtMs = localMs;
+
+    const dbNowMs = await loadDbNowMs(this.prisma);
+    if (dbNowMs === null) {
+      return;
+    }
+
+    const driftMs = dbNowMs - localMs;
+    if (Math.abs(driftMs) < CLOCK_DRIFT_WARN_THRESHOLD_MS) {
+      return;
+    }
+
+    this.logger.warn(
+      `会员到期判定的时钟源偏差超过 ${CLOCK_DRIFT_WARN_THRESHOLD_MS}ms：` +
+        `db=${dbNowMs}, app=${localMs}, drift=${driftMs}ms。` +
+        `判定与到期时间推导需统一到同一时钟源，否则同一门店可能在不同实例上判出不同结果。`,
+    );
   }
 
   /** 是否处于续费提醒窗口（到期前 N 天，含当天） */

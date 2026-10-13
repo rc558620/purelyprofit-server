@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
@@ -32,6 +32,8 @@ describe('InventoryService', () => {
     custodyOrder: {
       groupBy: jest.fn().mockResolvedValue([]),
     },
+    // 盘点行锁 SELECT ... FOR UPDATE
+    $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn(),
   };
 
@@ -346,6 +348,56 @@ describe('InventoryService', () => {
       note: '盘点修正',
       createdAt: createdAt.getTime(),
     });
+  });
+
+  /*
+   * 回归用：调整类型与变动方向必须一致，否则会写出「进货入库 -7」「损耗/报废 +95」
+   * 这类语义自相矛盾的流水，按 adjustType 聚合的库存报表无法解释。
+   */
+  it('adjust 拒绝与调整类型方向不一致的增减量', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+
+    await expect(
+      service.adjust(user, {
+        storeId: 18,
+        productId: 101,
+        delta: -7,
+        adjustType: 'restock',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      service.adjust(user, {
+        storeId: 18,
+        productId: 101,
+        delta: 95,
+        adjustType: 'damage',
+        note: '报废说明',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('adjust 报损类型缺少有效备注时拒绝', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+
+    await expect(
+      service.adjust(user, {
+        storeId: 18,
+        productId: 101,
+        delta: -3,
+        adjustType: 'damage',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      service.adjust(user, {
+        storeId: 18,
+        productId: 101,
+        delta: -3,
+        adjustType: 'damage',
+        note: '   ',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('getReport 在导出场景会校验会员导出权限', async () => {

@@ -48,7 +48,6 @@ const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'goods-management',
   'handover-management',
-  'marketing-center',
   'space-management',
   'staff-management',
 ]);
@@ -191,11 +190,17 @@ export class SubjectCapabilityService {
               )
             : [];
 
-    return membership.canUseHandover
-      ? allowedHomeModules
-      : allowedHomeModules.filter(
+    // 财务视角即使不参与交班，也保留「交班管理」首页入口（只读审计查看：
+    // 可查看/打印/导出交班记录）；其他角色不参与交班时移除该入口。
+    const handoverBlocked =
+      !membership.canUseHandover &&
+      membership.subAccountRole !== StoreSubAccountRole.finance;
+
+    return handoverBlocked
+      ? allowedHomeModules.filter(
           (moduleName) => moduleName !== 'handover-management',
-        );
+        )
+      : allowedHomeModules;
   }
 
   private hasAnyPermission(

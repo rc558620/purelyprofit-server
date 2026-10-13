@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { aNonNegativeNumber, aValidDate } from '../../../spec-matchers';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
@@ -23,6 +24,7 @@ import { SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE } from './membership-renewal-policy.sh
 
 describe('PlatformMembershipService', () => {
   let service: PlatformMembershipService;
+  let promoService: PlatformMembershipPromoService;
 
   const prismaService = {
     store: {
@@ -338,10 +340,25 @@ describe('PlatformMembershipService', () => {
           provide: NewCustomerQuotaService,
           useValue: createNewCustomerQuotaServiceMock(),
         },
+        {
+          // 启动对账依赖分布式锁（多实例互斥），测试中直接放行
+          provide: RedisLockService,
+          useValue: {
+            acquireLock: jest.fn().mockResolvedValue({
+              resource: 'promo:bean-reconciliation',
+              token: 'test-token',
+              key: 'distributed-lock:promo:bean-reconciliation',
+            }),
+            releaseLock: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<PlatformMembershipService>(PlatformMembershipService);
+    promoService = module.get<PlatformMembershipPromoService>(
+      PlatformMembershipPromoService,
+    );
   });
 
   it.each([
@@ -627,6 +644,7 @@ describe('PlatformMembershipService', () => {
     await expect(service.getCenter(user)).resolves.toEqual({
       memberInfo: {
         isActive: true,
+        isExpired: false,
         planId: 'quarterly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
         inviteCode: 'TEST1234',
@@ -705,6 +723,7 @@ describe('PlatformMembershipService', () => {
       await expect(service.getCenter(user)).resolves.toEqual({
         memberInfo: {
           isActive: true,
+          isExpired: false,
           planId: 'yearly',
           displayPlanName: 'ages会员',
           expiredAt: membershipStartAt.getTime() + 730 * 24 * 60 * 60 * 1000,
@@ -765,6 +784,7 @@ describe('PlatformMembershipService', () => {
     await expect(service.getProfile(user)).resolves.toEqual({
       memberInfo: {
         isActive: true,
+        isExpired: false,
         planId: 'quarterly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
         inviteCode: 'TEST1234',
@@ -1014,6 +1034,7 @@ describe('PlatformMembershipService', () => {
     await expect(service.listPointsLogs(user)).resolves.toEqual({
       memberInfo: {
         isActive: true,
+        isExpired: false,
         planId: 'yearly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
         inviteCode: 'TEST1234',
@@ -2072,6 +2093,7 @@ describe('PlatformMembershipService', () => {
       profile: {
         memberInfo: {
           isActive: true,
+          isExpired: false,
           planId: 'quarterly',
           expiredAt: new Date('2026-08-18T00:00:00.000Z').getTime(),
           inviteCode: 'TEST1234',
@@ -2554,5 +2576,43 @@ describe('PlatformMembershipService', () => {
         }),
       }),
     );
+  });
+
+  it('purchaseOrder 同步等待推广奖励发放完成后才返回响应', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([]);
+
+    const trace: string[] = [];
+    jest
+      .spyOn(promoService, 'tryAwardPromoReward')
+      .mockImplementation(async () => {
+        trace.push('reward:start');
+        // 让出宏任务：若是 fire-and-forget，purchaseOrder 会在 reward:end 之前返回
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+        trace.push('reward:end');
+      });
+
+    await service.purchaseOrder(user, { planId: 'yearly' });
+    trace.push('order:return');
+
+    expect(trace).toEqual(['reward:start', 'reward:end', 'order:return']);
+  });
+
+  it('推广奖励发放抛错时订单仍正常返回（仅告警，不阻断已支付订单）', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([]);
+
+    jest
+      .spyOn(promoService, 'tryAwardPromoReward')
+      .mockRejectedValue(new Error('promo db down'));
+
+    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+
+    expect(result.order.planId).toBe('yearly');
+    expect(result.order.status).toBe('paid');
   });
 });

@@ -21,6 +21,7 @@ describe('inventory-stock.query', () => {
     logFindMany: jest.Mock;
     logDeleteMany: jest.Mock;
     custodyOrderGroupBy: jest.Mock;
+    queryRaw: jest.Mock;
   } {
     const productFindFirst = jest.fn();
     const productUpdate = jest.fn();
@@ -29,6 +30,8 @@ describe('inventory-stock.query', () => {
     const logDeleteMany = jest.fn();
     // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
     const custodyOrderGroupBy = jest.fn().mockResolvedValue([]);
+    // 行锁 SELECT ... FOR UPDATE
+    const queryRaw = jest.fn().mockResolvedValue([]);
 
     return {
       transaction: {
@@ -44,6 +47,7 @@ describe('inventory-stock.query', () => {
         custodyOrder: {
           groupBy: custodyOrderGroupBy,
         },
+        $queryRaw: queryRaw,
       } as unknown as InventoryTransactionClient,
       productFindFirst,
       productUpdate,
@@ -51,6 +55,7 @@ describe('inventory-stock.query', () => {
       logFindMany,
       logDeleteMany,
       custodyOrderGroupBy,
+      queryRaw,
     };
   }
 
@@ -216,6 +221,67 @@ describe('inventory-stock.query', () => {
       where: { id: 101 },
       data: { stock: { increment: -3 } },
     });
+  });
+
+  /*
+   * 回归用：调整前必须对该商品行加排他锁。
+   * set 模式是「读旧值 → 写绝对值」的 read-modify-write，Read Committed 下两个并发
+   * 盘点会各自基于同一份旧 stock 计算，两条日志的 delta 合计与账面实际变化不一致，
+   * beforeStock 也会全部记成同一个旧值。
+   */
+  it('executeInventoryManualAdjustment 会先加行锁再读取库存', async () => {
+    const { transaction, productFindFirst, queryRaw } = createTransaction();
+    productFindFirst.mockResolvedValue({
+      id: 101,
+      name: '可口可乐 330ml',
+      stock: 10,
+    });
+
+    await executeInventoryManualAdjustment(transaction, {
+      storeId: 18,
+      productId: 101,
+      operatorStaffId: 8,
+      targetStock: 15,
+      mode: 'set',
+      adjustType: 'manual',
+      note: '盘点修正',
+    });
+
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    // 锁必须先于读取，否则读到的仍是未串行化的旧值
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      productFindFirst.mock.invocationCallOrder[0],
+    );
+  });
+
+  /*
+   * 回归用：set 模式下 targetStock 等于当前库存时不产生 delta=0 的空流水。
+   * service 层只能拦住显式传入的 delta=0，这种「盘点结果与账面一致」的情况
+   * 必须到 domain 层（已读到 product.stock）才能判定。
+   */
+  it('executeInventoryManualAdjustment set 模式下库存无变化时拒绝', async () => {
+    const { transaction, productFindFirst, productUpdate, logCreate } =
+      createTransaction();
+    productFindFirst.mockResolvedValue({
+      id: 101,
+      name: '可口可乐 330ml',
+      stock: 10,
+    });
+
+    await expect(
+      executeInventoryManualAdjustment(transaction, {
+        storeId: 18,
+        productId: 101,
+        operatorStaffId: 8,
+        targetStock: 10,
+        mode: 'set',
+        adjustType: 'manual',
+        note: '盘点修正',
+      }),
+    ).rejects.toThrow(/无需调整/);
+
+    expect(productUpdate).not.toHaveBeenCalled();
+    expect(logCreate).not.toHaveBeenCalled();
   });
 
   /*

@@ -41,6 +41,16 @@ export function buildInventoryManualAdjustmentPlan(params: {
     mode: params.command.mode,
   });
 
+  /*
+   * 两种模式下都不允许产生 delta=0 的空流水：
+   * service 层只能拦住显式传 delta=0，set 模式下 targetStock 等于当前库存的情况
+   * 必须到这里（已读到 product.stock）才能判定。
+   * inventory_adjustment_logs 是只增不删的大表，无效流水会长期占用存储并干扰盘点对账。
+   */
+  if (afterStock === product.stock) {
+    throw new BadRequestException('调整后库存与当前库存一致，无需调整');
+  }
+
   return {
     productId: product.id,
     afterStock,

@@ -31,6 +31,15 @@ export class RefreshableCacheService implements OnModuleDestroy {
     await this.refreshQueue.drain();
   }
 
+  /**
+   * 读-改-写缓存：命中直接返回，未命中则 load 后写回。
+   *
+   * ⚠️ 一致性边界：loadValue 与写回之间若发生写请求（提交后按 pattern 失效），
+   * 本次 load 读到的旧值仍会被写回并存活一个 TTL（refreshAfterMs 之后由后台
+   * 刷新自愈）。因此本缓存是「有界陈旧」而非强一致：商家端对 C 端刚落账的
+   * 余额/积分，最坏滞后约 ttlSeconds，通常在 refreshAfterMs 后自行纠正。
+   * 需要强一致的读数（余额、库存）不要走这里。
+   */
   async getOrLoadRefreshableJson<T>(
     options: RefreshableCacheLoadOptions<T>,
   ): Promise<T> {

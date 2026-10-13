@@ -3,7 +3,10 @@ import {
   addShanghaiDays,
   getShanghaiDayStartMs,
 } from '../../../shared/shanghai-time.utils';
-import { resolveFrontendMembershipExpiry } from './membership-expiry.utils';
+import {
+  isLegacyLifetimeProfile,
+  resolveMembershipLevel,
+} from './membership-expiry.utils';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 import {
   MEMBERSHIP_RULES,
@@ -22,6 +25,25 @@ export type {
   MembershipRuntimeLevel,
 } from './membership-capabilities.shared';
 export { buildMembershipCapabilities } from './membership-capabilities.shared';
+
+/**
+ * 实时档位判定已抽离到 `membership-expiry.utils`，此处透出以保持既有引用入口不变。
+ *
+ * ⚠️ 不要在此处另写一份过期判断：一旦与 `membership-expiry.utils` 漂移，
+ * 就会出现「配额按已过期收紧、续费横幅却说不欠费」（或反之）的静默降级。
+ */
+export {
+  isMembershipDowngraded,
+  isMembershipProfileActive,
+  resolveMembershipExpiry,
+  resolveMembershipLevel,
+} from './membership-expiry.utils';
+export type {
+  MembershipDowngradeProfile,
+  MembershipExpiryProfile,
+  MembershipExpirySource,
+  ResolvedMembershipExpiry,
+} from './membership-expiry.utils';
 
 export type SubAccountQuotaValidationIssue = 'not_integer' | 'out_of_range';
 
@@ -120,30 +142,6 @@ export function buildSubAccountBenefitSnapshot(
   };
 }
 
-export function resolveMembershipLevel(
-  profile: StoreMembershipProfileSnapshot | null,
-  nowMs: number = Date.now(),
-): MembershipRuntimeLevel {
-  if (!profile?.currentPlanId) {
-    return 'free';
-  }
-
-  if (isLegacyLifetimeProfile(profile)) {
-    return 'lifetime';
-  }
-
-  const expiresAt = resolveFrontendMembershipExpiry(profile);
-  if (profile.currentPlanId === 'lifetime' && expiresAt === null) {
-    return 'lifetime';
-  }
-
-  if (!expiresAt || expiresAt.getTime() <= nowMs) {
-    return 'free';
-  }
-
-  return profile.currentPlanId;
-}
-
 /**
  * 解析会员档案里记录的档位，**忽略到期判定**。
  *
@@ -174,20 +172,6 @@ export function resolveStoredMembershipLevel(
   }
 
   return storedPlanId;
-}
-
-/**
- * 历史兼容：早年 lifetime 枚举还没加时用 yearly + null expiresAt 表示永久会员，
- * 需同时满足 startsAt 存在才认定为 lifetime，防止数据异常被误判。
- */
-function isLegacyLifetimeProfile(
-  profile: StoreMembershipProfileSnapshot,
-): boolean {
-  return (
-    profile.currentPlanId === 'yearly' &&
-    profile.expiresAt === null &&
-    profile.startsAt !== null
-  );
 }
 
 export function normalizeSubAccountQuota(

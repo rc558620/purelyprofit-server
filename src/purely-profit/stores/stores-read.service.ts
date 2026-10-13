@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { StaffStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { findBoundStoreRecord } from './stores-bound-store.query';
 import type {
   StoreRecordSnapshot,
   StoreResponseDto,
@@ -35,48 +35,6 @@ export class StoresReadService {
   findBoundStoreRecord(
     user: AuthenticatedUser,
   ): Promise<StoreRecordSnapshot | null> {
-    if (user.currentMembership?.storeId) {
-      return this.prisma.store.findUnique({
-        where: { id: user.currentMembership.storeId },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          businessMode: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    }
-
-    return this.prisma.store.findFirst({
-      where: {
-        OR: [
-          { ownerId: user.id },
-          {
-            staffs: {
-              some: {
-                isActive: true,
-                status: StaffStatus.active,
-                OR: [
-                  { userId: user.id },
-                  { email: user.email },
-                  { phone: user.phone },
-                ],
-              },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        businessMode: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    });
+    return findBoundStoreRecord(this.prisma, user);
   }
 }

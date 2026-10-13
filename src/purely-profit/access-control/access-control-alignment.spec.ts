@@ -113,13 +113,14 @@ describe('Sub-account alignment regression', () => {
       'business-analysis',
       'goods-management',
       'handover-management',
-      'marketing-center',
       'space-management',
       'staff-management',
     ]);
     expect(capability.canUseGoodsManagement).toBe(true);
+    expect(capability.canViewMarketing).toBe(false);
     expect(permissions).toContain('report:view');
-    expect(permissions).toContain('marketing:view');
+    expect(permissions).not.toContain('marketing:view');
+    expect(permissions).not.toContain('marketing:manage');
     expect(permissions).toContain('goods:view');
     expect(permissions).toContain('inventory:view');
     expect(permissions).toContain('cost:view');
@@ -132,8 +133,11 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).not.toContain('store:view');
   });
 
-  it('finance 的首页模块与关键接口权限保持一致', () => {
-    const membership = buildSubAccountMembership(StoreSubAccountRole.finance);
+  it('finance 的首页模块与关键接口权限保持一致（不参与交班但保留只读查看）', () => {
+    // 生产现实：员工分配路径下财务 canUseHandover 恒为 false
+    const membership = buildSubAccountMembership(StoreSubAccountRole.finance, {
+      canUseHandover: false,
+    });
     const permissions =
       accessControlService.getEffectivePermissions(membership);
     const capability = subjectCapabilityService.buildSnapshot(membership, 3);
@@ -146,6 +150,7 @@ describe('Sub-account alignment regression', () => {
     ]);
     expect(capability.allowedHomeModules).not.toContain('goods-management');
     expect(capability.canUseGoodsManagement).toBe(false);
+    expect(capability.canUseHandoverManagement).toBe(true);
     expect(permissions).toContain('report:view');
     expect(permissions).toContain('finance:view');
     expect(permissions).toContain('goods:view');
@@ -161,9 +166,10 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).toContain('purchase:create');
     expect(permissions).toContain('sales:view');
     expect(permissions).toContain('staff:view');
+    // 财务只读审计：可查看交班记录，但不参与任何交班事务
     expect(permissions).toContain('handover:view');
-    expect(permissions).toContain('handover:create');
-    expect(permissions).toContain('handover:update');
+    expect(permissions).not.toContain('handover:create');
+    expect(permissions).not.toContain('handover:update');
     expect(permissions).not.toContain('marketing:view');
     expect(permissions).not.toContain('space:view');
     expect(permissions).not.toContain('operation-entry:view');

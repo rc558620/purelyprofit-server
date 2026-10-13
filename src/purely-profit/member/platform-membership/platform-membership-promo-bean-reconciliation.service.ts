@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisLockService } from '../../../redis/redis-lock.service';
+
+/** 启动对账锁资源名（全局唯一，跨实例互斥） */
+const RECONCILE_LOCK_RESOURCE = 'promo:bean-reconciliation';
+/** 锁 TTL：需覆盖全量合伙人对账耗时，过期后自动释放防死锁 */
+const RECONCILE_LOCK_TTL_SECONDS = 300;
 
 @Injectable()
 export class PlatformMembershipPromoBeanReconciliationService {
@@ -11,7 +17,41 @@ export class PlatformMembershipPromoBeanReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly redisLockService: RedisLockService,
   ) {}
+
+  /**
+   * 启动期一次性对账入口（去重日志 + 校正余额）。
+   *
+   * 必须加分布式锁：对账是「读全部日志 → 重算 → 覆盖写余额」的非幂等操作，
+   * 多实例部署时若并发执行，会读到不含彼此新写入的日志快照，
+   * 把并发充值 / 提现产生的余额覆盖回退（用户豆凭空消失）。
+   *
+   * 拿不到锁说明已有实例在执行，直接跳过（对账允许延后，不阻塞启动）。
+   */
+  async runStartupReconciliation(): Promise<void> {
+    const lock = await this.redisLockService.acquireLock(
+      RECONCILE_LOCK_RESOURCE,
+      {
+        ttlSeconds: RECONCILE_LOCK_TTL_SECONDS,
+        retryTimes: 0,
+      },
+    );
+
+    if (!lock) {
+      this.logger.warn(
+        '[reconcile] 已有实例正在执行推广豆对账，本实例跳过（避免并发覆盖余额）',
+      );
+      return;
+    }
+
+    try {
+      await this.deduplicatePromoBeanLogs();
+      await this.reconcilePartnerBeanBalances();
+    } finally {
+      await this.redisLockService.releaseLock(lock);
+    }
+  }
 
   /**
    * 清理同一推广记录的重复豆日志。

@@ -38,10 +38,28 @@ async function resolveFrozenQty(
   return frozenMap.get(productId) ?? 0;
 }
 
+/**
+ * 对库存商品行加排他锁，保证「读 stock → 客存冻结校验 → 写库存 → 写流水」全程串行。
+ */
+async function lockInventoryProductRow(
+  transaction: InventoryTransactionClient,
+  productId: number,
+): Promise<void> {
+  await transaction.$queryRaw`SELECT "id" FROM "products" WHERE "id" = ${productId} FOR UPDATE`;
+}
+
 export async function executeInventoryManualAdjustment(
   transaction: InventoryTransactionClient,
   command: InventoryManualAdjustmentCommand,
 ): Promise<InventoryAdjustmentRecord> {
+  /*
+   * set/delta 两种模式都是 read-modify-write：先读 stock 算新值再写回。
+   * Read Committed 下两个并发调整会各自基于同一份旧 stock 计算，最后的 UPDATE 覆盖前者，
+   * 于是账面只涨了一次、日志却记了两条 delta，beforeStock 也全是旧值，盘点对账直接错乱。
+   * 盘点恰恰是多人同时提交的高并发场景，这里先取行锁把并发请求串行化。
+   */
+  await lockInventoryProductRow(transaction, command.productId);
+
   const product = await findInventoryProductForStore(
     transaction,
     command.storeId,

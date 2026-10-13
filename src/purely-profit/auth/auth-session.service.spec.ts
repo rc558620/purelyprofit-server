@@ -15,6 +15,9 @@ describe('AuthSessionService – Refresh Token', () => {
     getJson: jest.fn(),
     getJsonAndDelete: jest.fn(),
     setJson: jest.fn(),
+    sadd: jest.fn(),
+    smembers: jest.fn(),
+    srem: jest.fn(),
     zadd: jest.fn(),
     zcard: jest.fn(),
     zrange: jest.fn(),
@@ -37,6 +40,9 @@ describe('AuthSessionService – Refresh Token', () => {
     mockRedis.getJson.mockResolvedValue(null);
     mockRedis.getJsonAndDelete.mockResolvedValue(null);
     mockRedis.setJson.mockResolvedValue(undefined);
+    mockRedis.sadd.mockResolvedValue(undefined);
+    mockRedis.smembers.mockResolvedValue([]);
+    mockRedis.srem.mockResolvedValue(undefined);
     mockRedis.zadd.mockResolvedValue(undefined);
     mockRedis.zcard.mockResolvedValue(0);
     mockRedis.zrange.mockResolvedValue([]);
@@ -92,10 +98,10 @@ describe('AuthSessionService – Refresh Token', () => {
         accountScope: 'purely_profit',
       });
 
-      // setJson 应被调用 2 次：token payload + user-index
-      expect(mockRedis.setJson).toHaveBeenCalledTimes(2);
+      // setJson 仅被调用 1 次：token payload（索引走 sadd）
+      expect(mockRedis.setJson).toHaveBeenCalledTimes(1);
 
-      // 第一次调用存储 token payload
+      // 存储 token payload
       const [key, payload, ttl] = mockRedis.setJson.mock.calls[0];
       expect(key).toMatch(/^auth:refresh-token:[a-f0-9]{64}$/);
       expect(payload).toEqual({
@@ -107,18 +113,19 @@ describe('AuthSessionService – Refresh Token', () => {
       expect(ttl).toBe(2592000); // 30 days
     });
 
-    it('维护 userId 索引', async () => {
+    it('维护 userId 索引（Redis SET，原子写入）', async () => {
       await service.signToken(42, {
         phone: '13800138000',
         email: 'phone_138@purelyprofit.local',
         accountScope: 'purely_profit',
       });
 
-      // 第二次调用存储 user-index
-      const [indexKey, indexPayload] = mockRedis.setJson.mock.calls[1];
-      expect(indexKey).toBe('auth:refresh-token:user-index:42');
-      expect(Array.isArray(indexPayload)).toBe(true);
-      expect(indexPayload).toHaveLength(1);
+      // 索引通过 SADD 原子写入，避免并发刷新丢失引用
+      expect(mockRedis.sadd).toHaveBeenCalledWith(
+        'auth:refresh-token:user-index:42',
+        expect.stringMatching(/^[a-f0-9]{64}$/),
+        2592000,
+      );
     });
   });
 
@@ -138,13 +145,8 @@ describe('AuthSessionService – Refresh Token', () => {
         email: 'phone_138@purelyprofit.local',
         accountScope: 'purely_profit',
       });
-      // 模拟 Redis user-index 查找（generateRefreshToken 内部）
-      mockRedis.getJson.mockImplementation((key: string) => {
-        if (key.startsWith('auth:refresh-token:user-index:')) {
-          return Promise.resolve([]);
-        }
-        return Promise.resolve(null);
-      });
+      // 模拟 Redis user-index set 查找（generateRefreshToken 内部）
+      mockRedis.smembers.mockResolvedValue([]);
 
       const result = await service.refreshAccessToken(original.refresh_token!);
 
@@ -176,8 +178,8 @@ describe('AuthSessionService – Refresh Token', () => {
         email: 'phone_138@purelyprofit.local',
         accountScope: 'purely_profit',
       });
-      // user-index 查找（generateRefreshToken 内部）
-      mockRedis.getJson.mockResolvedValue([]);
+      // user-index set 查找（generateRefreshToken 内部）
+      mockRedis.smembers.mockResolvedValue([]);
 
       await service.refreshAccessToken(original.refresh_token!);
 
@@ -187,14 +189,9 @@ describe('AuthSessionService – Refresh Token', () => {
   });
 
   describe('invalidateAllRefreshTokens', () => {
-    it('通过 user-index 批量删除', async () => {
+    it('通过 user-index set 批量删除', async () => {
       const hashes = ['hash1', 'hash2', 'hash3'];
-      mockRedis.getJson.mockImplementation((key: string) => {
-        if (key === 'auth:refresh-token:user-index:42') {
-          return Promise.resolve(hashes);
-        }
-        return Promise.resolve(null);
-      });
+      mockRedis.smembers.mockResolvedValue(hashes);
 
       await service.invalidateAllRefreshTokens(42);
 
@@ -212,7 +209,7 @@ describe('AuthSessionService – Refresh Token', () => {
     });
 
     it('无 token 时不报错', async () => {
-      mockRedis.getJson.mockResolvedValue(null);
+      mockRedis.smembers.mockResolvedValue([]);
 
       await expect(
         service.invalidateAllRefreshTokens(999),
@@ -278,6 +275,11 @@ describe('AuthSessionService – Refresh Token', () => {
         0,
         0,
       );
+      // 被淘汰会话的 hash 从 user-index set 中原子移除
+      expect(mockRedis.srem).toHaveBeenCalledWith(
+        'auth:refresh-token:user-index:3',
+        'hash-of-oldest',
+      );
       expect(mockRedis.zadd).toHaveBeenCalled();
       expect(sid).toMatch(/^[a-f0-9]{32}$/);
     });
@@ -339,7 +341,7 @@ describe('AuthSessionService – Refresh Token', () => {
 
   describe('removeAllSessions', () => {
     it('清除所有 refresh token 并删除会话列表', async () => {
-      mockRedis.getJson.mockResolvedValue(['hash1', 'hash2']);
+      mockRedis.smembers.mockResolvedValue(['hash1', 'hash2']);
 
       await service.removeAllSessions(42);
 
@@ -382,8 +384,8 @@ describe('AuthSessionService – Refresh Token', () => {
         accountScope: 'purely_profit',
         sid: 'active-session-id',
       });
-      // user-index 查找（generateRefreshToken 内部）
-      mockRedis.getJson.mockResolvedValue([]);
+      // user-index set 查找（generateRefreshToken 内部）
+      mockRedis.smembers.mockResolvedValue([]);
       // 会话仍然活跃
       mockRedis.zscore.mockResolvedValue('1720000000000');
 

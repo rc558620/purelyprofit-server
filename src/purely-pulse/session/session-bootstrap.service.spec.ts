@@ -189,6 +189,7 @@ describe('SessionBootstrapService', () => {
       where: { storeId: 18 },
       select: {
         currentPlanId: true,
+        startsAt: true,
         expiresAt: true,
       },
     });

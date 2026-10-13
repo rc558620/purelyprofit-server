@@ -1,5 +1,6 @@
 import type { InventoryAdjustType } from '@prisma/client';
 import type {
+  InventoryManualAdjustTypeValue,
   InventoryStockAlertLevelValue,
   InventoryStockSortValue,
 } from '../../commerce/commerce.utils';
@@ -34,7 +35,8 @@ export interface AdjustInventoryInput {
   delta?: number;
   targetStock?: number;
   mode?: 'delta' | 'set';
-  adjustType: InventoryAdjustType;
+  /** 人工调整接口仅接受进货 / 报损 / 盘点三类，其余类型由业务主链路写入 */
+  adjustType: InventoryManualAdjustTypeValue;
   note?: string;
 }
 

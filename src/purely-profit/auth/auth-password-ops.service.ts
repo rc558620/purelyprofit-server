@@ -65,6 +65,8 @@ export class AuthPasswordOpsService {
         phone: params.phone,
         email: currentUser.email,
         accountScope: params.accountScope,
+        // 保持改密前的身份锚点，避免多身份用户被 membership 回退解析到另一个身份
+        ...(params.staffId != null ? { staffId: params.staffId } : {}),
       },
       sid,
     );

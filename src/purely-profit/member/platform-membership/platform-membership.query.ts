@@ -20,6 +20,34 @@ import type {
   StorePartnerRecord,
 } from './platform-membership.types';
 
+/**
+ * 读取数据库当前时间（ms）；读取失败返回 null，由调用方自行回落。
+ *
+ * 为什么需要它：档案与订单的 `createdAt` 走 Prisma `@default(now())`，取的是
+ * **DB 时钟**；而到期判定默认是 `Date.now()`，取的是**应用时钟**。凡是需要
+ * 「用 `createdAt` 推导到期时间、再判断当前是否过期」的读路径，两侧必须用同一个
+ * 时钟，否则就是跨时钟源比较（DB 慢于应用时会把到期时间算早、提前判过期）。
+ *
+ * ⚠️ 这是只读查询，不涉及写入，`NOW()` 无需 `AT TIME ZONE 'UTC'`——
+ * 写入口径由 `scripts/check-sql-timezone.mjs` 单独把关。
+ */
+export async function loadDbNowMs(
+  prismaExecutor: PrismaExecutor,
+): Promise<number | null> {
+  try {
+    const rows = await prismaExecutor.$queryRaw<{ now: Date }[]>`
+      SELECT NOW() AS "now"
+    `;
+
+    const dbNowMs = rows[0]?.now?.getTime();
+    return typeof dbNowMs === 'number' && Number.isFinite(dbNowMs)
+      ? dbNowMs
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureMembershipProfile(
   prismaExecutor: PrismaExecutor,
   storeId: number,

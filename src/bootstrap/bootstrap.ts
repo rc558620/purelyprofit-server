@@ -254,6 +254,20 @@ export async function bootstrap(): Promise<void> {
       );
     }
   }
+  const rsaPublicKey = (
+    configService.get<string>('auth.rsaPublicKey') ?? ''
+  ).trim();
+  const rsaPrivateKey = (
+    configService.get<string>('auth.rsaPrivateKey') ?? ''
+  ).trim();
+  if (!rsaPublicKey || !rsaPrivateKey) {
+    console.warn(
+      '[bootstrap] ⚠️ 未配置 AUTH_RSA_PUBLIC_KEY / AUTH_RSA_PRIVATE_KEY：' +
+        '单进程与集群模式（start:cluster）会自动生成/共享密钥对，重启后轮换；' +
+        '多实例（多服务器负载均衡）部署必须显式配置相同的密钥对，否则登录会间歇性失败。',
+    );
+  }
+
   app.setGlobalPrefix('api');
   await registerScanOrderingNativeWebsocket(app);
   registerPrintAgentNativeWebsocket(app);

@@ -15,6 +15,7 @@ export interface UserProfileRow {
 export interface MembershipProfileRow {
   currentPlanId: string | null;
   planName: string | null;
+  startsAt: Date | null;
   expiresAt: Date | null;
 }
 

@@ -114,6 +114,20 @@ export class PlatformMembershipInfoDto {
   @IsBoolean({ message: '会员状态必须是布尔值' })
   isActive: boolean;
 
+  /**
+   * 是否为「曾经开通过会员、现已到期」的降级态。
+   *
+   * 后端权威下发，前端**不得**再用 `isActive` + `expiredAt` 本地反推：
+   * 两者口径不同源时会出现「后端已按过期拦截下单、前端却不展示续费引导」，
+   * 商家只看到操作失败而不知道要续费。
+   */
+  @ApiProperty({
+    example: false,
+    description: '是否为曾开通会员但已到期的降级态（后端权威判定）',
+  })
+  @IsBoolean({ message: '会员降级态必须是布尔值' })
+  isExpired: boolean;
+
   @ApiPropertyOptional({
     enum: [...PLATFORM_MEMBERSHIP_PLAN_IDS, 'developer'],
     description: '当前生效套餐标识，开发者模式返回 developer，无生效套餐时为空',

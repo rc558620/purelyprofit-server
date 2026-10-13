@@ -317,7 +317,11 @@ describe('OnboardingStatusService', () => {
     expect(result.targetStatus.membershipActive).toBe(false);
   });
 
-  it('getStatus lifetime 会员即使 expiresAt 已过期也视为有效', async () => {
+  // AGES（lifetime）实际按 730 天有效期售卖，写入了 expiresAt 就必须正常到期。
+  // 过去 onboarding 认定「lifetime 永不过期」，与商家端「按 expiresAt 到期」
+  // 语义相反——同一个门店在管理端显示有会员、在商家端却已被降级拦截。
+  // 现在两侧统一委托 resolveMembershipLevel，此处按过期处理。
+  it('getStatus lifetime 会员过了 expiresAt 视为无效', async () => {
     pulseStoreContextService.resolveTargetStore.mockResolvedValue({
       store: {
         id: 18,
@@ -337,6 +341,35 @@ describe('OnboardingStatusService', () => {
       currentPlanId: 'lifetime',
       startsAt: new Date('2024-01-01T00:00:00.000Z'),
       expiresAt: new Date('2025-12-31T23:59:59.999Z'),
+    });
+
+    const result = await service.getStatus(user);
+
+    expect(result.steps.hasMembership).toBe(false);
+    expect(result.targetStatus.membershipActive).toBe(false);
+    expect(result.isCompleted).toBe(false);
+  });
+
+  it('getStatus lifetime 未写入 expiresAt 属于真永久会员，永不过期', async () => {
+    pulseStoreContextService.resolveTargetStore.mockResolvedValue({
+      store: {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+        contactPhone: '0755-12345678',
+        ownerId: 301,
+        ownerName: '张三',
+      },
+      source: 'selected',
+    });
+    prismaService.user.findUnique.mockResolvedValue({
+      realName: '张老板',
+      idNumber: '440301199001011234',
+    });
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'lifetime',
+      startsAt: new Date('2024-01-01T00:00:00.000Z'),
+      expiresAt: null,
     });
 
     const result = await service.getStatus(user);

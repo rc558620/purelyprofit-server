@@ -22,8 +22,10 @@ import {
 import {
   INVENTORY_ADJUST_MODE_VALUES,
   INVENTORY_ADJUST_TYPE_VALUES,
+  INVENTORY_MANUAL_ADJUST_TYPE_VALUES,
   INVENTORY_STOCK_ALERT_LEVEL_VALUES,
   INVENTORY_STOCK_SORT_VALUES,
+  type InventoryManualAdjustTypeValue,
   type InventoryStockAlertLevelValue,
 } from '../../../commerce/commerce.utils';
 
@@ -208,13 +210,20 @@ export class AdjustInventoryDto {
   @Min(0, { message: '目标库存不能为负数' })
   targetStock?: number;
 
+  /*
+   * 入参只允许人工可发起的三类：进货入库 / 损耗报废 / 手动盘点。
+   * sale 与 custody_* 由销售、进货、客存主链路写入，开放给人工接口会让手工改数
+   * 混进按 adjustType 聚合的销售报表与客存冻结余额。
+   */
   @ApiProperty({
     example: 'manual',
-    enum: INVENTORY_ADJUST_TYPE_VALUES,
-    description: '调整类型',
+    enum: INVENTORY_MANUAL_ADJUST_TYPE_VALUES,
+    description: '调整类型（人工仅支持进货入库 / 损耗报废 / 手动盘点）',
   })
-  @IsIn(INVENTORY_ADJUST_TYPE_VALUES, { message: '调整类型不合法' })
-  adjustType: (typeof INVENTORY_ADJUST_TYPE_VALUES)[number];
+  @IsIn(INVENTORY_MANUAL_ADJUST_TYPE_VALUES, {
+    message: '调整类型不合法（人工仅支持进货入库 / 损耗报废 / 手动盘点）',
+  })
+  adjustType: InventoryManualAdjustTypeValue;
 
   @ApiPropertyOptional({ example: '盘点修正', description: '备注' })
   @IsOptional()
