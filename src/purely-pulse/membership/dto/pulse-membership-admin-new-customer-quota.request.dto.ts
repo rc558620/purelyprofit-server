@@ -12,7 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { trimString } from './pulse-membership-admin-logs.shared.dto';
-import { toNullableNumber } from './pulse-membership-admin-members.shared.dto';
+import { toNullableNumber } from './pulse-membership-admin-members.transform';
 
 /** 单次可增减的新客额度上限（位新客），防止误传天文数字把余额打爆 */
 export const PULSE_ADMIN_NEW_CUSTOMER_QUOTA_MAX_DELTA = 1_000_000;

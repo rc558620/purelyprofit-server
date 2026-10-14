@@ -26,7 +26,7 @@ import {
   mergeSessionItems,
   sumLineTotalMoney,
 } from './space-session-items.shared';
-import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inventory-stock.query';
+import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inventory-stock.write';
 import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
 import type { SpaceSessionItemDto } from './dto/space-session-items.request.dto';
 

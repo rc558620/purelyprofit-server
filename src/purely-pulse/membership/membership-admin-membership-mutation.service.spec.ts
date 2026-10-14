@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
+import { PulseMembershipAdminMembershipMutationOrderService } from './membership-admin-membership-mutation-order.service';
 import type { PulseAdminMembershipProfileRecord } from './membership.types';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 
@@ -16,6 +17,7 @@ describe('PulseMembershipAdminMembershipMutationService.resolveWritablePlanId', 
 
   // 纯函数，只吃入参，不触碰任何依赖；构造参数传空即可
   const service = new PulseMembershipAdminMembershipMutationService(
+    null as never,
     null as never,
     null as never,
     null as never,
@@ -156,6 +158,11 @@ describe('PulseMembershipAdminMembershipMutationService.applyAdminMembershipLeve
       mutationStateService as never,
       quotaService as never,
       storeSubAccountService as never,
+      new PulseMembershipAdminMembershipMutationOrderService(
+        platformMembershipService as never,
+        prismaService as never,
+        lockedPriceService as never,
+      ) as never,
     );
 
   const user = { id: 1, email: 'op@x.com' } as AuthenticatedUser;
@@ -278,6 +285,11 @@ describe('PulseMembershipAdminMembershipMutationService.applyAdminMembershipLeve
       mutationStateService as never,
       quotaService as never,
       storeSubAccountService as never,
+      new PulseMembershipAdminMembershipMutationOrderService(
+        platformMembershipService as never,
+        prismaService as never,
+        lockedPriceService as never,
+      ) as never,
     );
 
   const user = { id: 1, email: 'op@x.com' } as AuthenticatedUser;
@@ -518,6 +530,11 @@ describe('PulseMembershipAdminMembershipMutationService.applyAdminMembershipLeve
       mutationStateService as never,
       quotaService as never,
       storeSubAccountService as never,
+      new PulseMembershipAdminMembershipMutationOrderService(
+        platformMembershipService as never,
+        prismaService as never,
+        lockedPriceService as never,
+      ) as never,
     );
 
   const user = { id: 1, email: 'op@x.com' } as AuthenticatedUser;

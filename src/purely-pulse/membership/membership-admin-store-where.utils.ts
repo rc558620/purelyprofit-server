@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
+import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.query.request.dto';
 
 export function buildAdminMemberListStoreWhere(
   storeIds: number[],

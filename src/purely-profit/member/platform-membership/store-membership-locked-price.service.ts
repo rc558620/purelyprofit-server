@@ -1,92 +1,45 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-// 仅用于类型别名（不参与运行时求值），使用 import type 避免误入运行时依赖，
-// 也避免 isolatedModules 下被 transpiler 保留成无用 import
-import type { StoreMembershipLockedPriceSource } from '@prisma/client';
-import {
-  resolveRenewalPriceFen,
-  SUB_ACCOUNT_PRICING_PLAN_IDS,
-} from './platform-membership.constants';
+import { Injectable, Logger } from '@nestjs/common';
+import { resolveRenewalPriceFen } from './platform-membership.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
-import type { MembershipRuntimeLevel } from './platform-membership-access.service';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 import type {
   MembershipPlanConfig,
   PrismaExecutor,
 } from './platform-membership.types';
+import {
+  findDealPriceRows,
+  findLockedPriceAuditRows,
+  findStoresEverRenewalPriceAdjusted,
+  findStoresPendingSubAccountBackfill,
+} from './store-membership-locked-price.query';
+import {
+  collectDealPriceSnapshots,
+  toLockedPriceSnapshots,
+} from './store-membership-locked-price.shared';
+import type {
+  DealPriceSnapshotTables,
+  LockedPriceSnapshot,
+  LockedPriceSource,
+  ResolvedPlanPrice,
+  StoreRenewalPricingContext,
+} from './store-membership-locked-price.types';
+import {
+  clearStoreSubAccountAmounts,
+  resetStoreLockedPrices,
+  writeDealPriceUpsert,
+  writeFirstDealPrice,
+  writeRenewalPriceOverride,
+  writeSubAccountSnapshot,
+} from './store-membership-locked-price.write';
 
-/** 锁定价来源：商家端下单成交 / 平台侧设置会员等级成交 */
-export type LockedPriceSource = StoreMembershipLockedPriceSource;
-
-export interface StoreRenewalPricingContext {
-  /** 当前生效档位（后端按当前时间实时计算）；会员到期后回落为 'free' */
-  level: MembershipRuntimeLevel;
-  /**
-   * 待续费档位：曾开通子账号功能时取**会员档案里保留的原档位**（到期不回落），
-   * 否则与 `level` 相同。续费页据此决定只展示哪一档。
-   */
-  renewalLevel: MembershipRuntimeLevel;
-  /** 是否已开通子账号功能（实时能力口径：归一化后的子账号配额 > 0） */
-  subAccountEnabled: boolean;
-  /**
-   * 是否**曾开通**子账号功能（`pulseSubAccountQuota > 0`）——到期不失效。
-   *
-   * 档位裁剪、首购锁定价、含子账号权益的展示都必须以本字段为准，
-   * 不能用 `subAccountEnabled`。
-   */
-  subAccountFeatureOwned: boolean;
-  /** 套餐含子账号权益时的展示数量：生效中为实际配额，到期后退回档案里的配置额度 */
-  subAccountQuota: number;
-  /**
-   * 门店已成交的各套餐价格（分），key 为套餐标识。
-   *
-   * **只作记账与快照展示，不参与定价**：续费价基数只取「当前配置价与议定价的
-   * 较高者」，成交总额不当护城河——否则平台降价时老客被旧成交价托住，
-   * 会出现「季度月均反而低于年度」的档位倒挂。
-   */
-  lockedPrices: Map<PlatformMembershipPlanId, number>;
-  /**
-   * 运营为该门店单独议定的**基础价**（分），key 为套餐标识。
-   *
-   * 定价公式的基数部分：`max(当前配置价, 本表对应值) + 子账号加价`。
-   * 只收录**已议定**的档位；key 不存在即按「未议定」处理，完全回落标准口径。
-   */
-  lockedPriceOverrides: Map<PlatformMembershipPlanId, number>;
-  /**
-   * 门店已成交的各套餐子账号加价（分），key 为套餐标识。
-   *
-   * 定价公式 max 的**右侧加数**：`max(当前配置价, 议定价) + 本字段` = 标准总价。
-   * 只收录**已录入**的行；不存在的 key 按 0 处理（存量数据兼容）。
-   */
-  lockedSubAccountAmounts: Map<PlatformMembershipPlanId, number>;
-  /**
-   * 门店已成交的各套餐子账号**数量**，key 为套餐标识。
-   *
-   * 与加价同源：价格是按这个数量算出来的，续费卡展示「包含 N 个子账号」
-   * 应当与账单口径一致，而不是实时配额（配额可能已被单独调整过）。
-   */
-  lockedSubAccountCounts: Map<PlatformMembershipPlanId, number>;
-}
-
-export interface ResolvedPlanPrice {
-  /** 实际应支付价格（分） */
-  price: number;
-}
-
-/** 成交价快照条目（含来源与锁定时点，管理端展示用） */
-export interface LockedPriceSnapshot {
-  planId: PlatformMembershipPlanId;
-  /** 成交总额（分） */
-  price: number;
-  /** 子账号加价（分）；null 表示运营尚未录入 */
-  subAccountAmount: number | null;
-  /** 子账号数量；null 表示运营尚未录入 */
-  subAccountCount: number | null;
-  /** 续费价覆盖（分）；null 表示该档位未覆盖，按配置价走 */
-  renewalPriceOverride: number | null;
-  source: LockedPriceSource;
-  lockedAt: Date;
-}
+/** 对外保持原有导入路径，类型实现已下沉到 `.types.ts` */
+export type {
+  LockedPriceSource,
+  LockedPriceSnapshot,
+  ResolvedPlanPrice,
+  StoreRenewalPricingContext,
+} from './store-membership-locked-price.types';
 
 /**
  * 会员套餐成交价快照与续费定价。
@@ -99,22 +52,24 @@ export interface LockedPriceSnapshot {
  *                          └─ 随调价涨跌 ─┘   └─ 长期锁定 ─┘
  * ```
  *
- * 「议定价与配置价取高者」是有意设计：配置价上调必须传导到所有门店
- * （议定价低于配置价时仍按配置价收，陈旧的低价压不住平台的涨价），
- * 议定价高于配置价时又不能被配置价吞掉（那是运营谈下来的高价）。
+ * 「议定价与配置价取高者」是有意设计：配置价上调必须传导到所有门店（议定价低于
+ * 配置价时仍按配置价收），议定价高于配置价时又不能被配置价吞掉。
  *
- * 「成交总额不参与定价」同样是有意设计：若把成交价当护城河，
- * 平台**降价**时老客被旧成交价托住、其它档位却跟降，档位间比例会倒挂
- * （季度月均反而低于年度）。成交总额只回显记账，定价基数一律按上面那条。
+ * 「成交总额不参与定价」同样是有意设计：若把成交价当护城河，平台**降价**时老客
+ * 被旧成交价托住、其它档位却跟降，档位间比例会倒挂（季度月均反而低于年度）。
+ * 成交总额只回显记账，定价基数一律按上面那条。
  *
  * 规则：
- * - 成交（商家端下单成功 / 平台侧设置会员等级）即写入快照，
- *   **不再区分门店是否开通子账号**——那是档位裁剪的事，不该决定要不要记录成交价
+ * - 成交（商家端下单成功 / 平台侧设置会员等级）即写入快照，**不再区分门店是否
+ *   开通子账号**——那是档位裁剪的事，不该决定要不要记录成交价
  * - 商家端自助购买走 `lockPriceOnFirstDeal`：已存在**不覆盖**（首充语义）
  * - 管理端「设置会员等级」走 `upsertDealPrice`：**覆盖**（一次显式成交 / 重新议价）
  * - `subAccountAmount` 为空时按 0 处理，存量数据自动回退到旧口径，无需数据迁移
  * - `resetLockedPrices` 只允许由管理端显式触发；关闭子账号能力不再自动清空成交价，
  *   否则「客户降级为免费后再次开通」会丢失历史价
+ *
+ * 本类是 Nest 注入入口，**只做参数装配**：写路径（校验 → 审计日志 → 落库）在
+ * `.write.ts`，SQL 一律在 `.query.ts`，纯计算与校验在 `.shared.ts`。
  */
 @Injectable()
 export class StoreMembershipLockedPriceService {
@@ -137,132 +92,31 @@ export class StoreMembershipLockedPriceService {
     storeId: number,
     executor: PrismaExecutor = this.prisma,
   ): Promise<LockedPriceSnapshot[]> {
-    const rows = await executor.storeMembershipLockedPrice.findMany({
-      where: { storeId },
-      select: {
-        planId: true,
-        price: true,
-        subAccountAmount: true,
-        subAccountCount: true,
-        renewalPriceOverride: true,
-        dealLockedAt: true,
-        source: true,
-        lockedAt: true,
-      },
-      orderBy: { planId: 'asc' },
-    });
+    const rows = await findLockedPriceAuditRows(executor, storeId);
 
-    return (
-      rows
-        // typeof 兜底：mock 残行 / 漏 select 的行该字段为 undefined，
-        // 此时按「已成交」处理，不改变旧行为
-        .filter(
-          (row) =>
-            typeof row.dealLockedAt === 'undefined' ||
-            row.dealLockedAt !== null,
-        )
-        .map((row) => ({
-          planId: row.planId as PlatformMembershipPlanId,
-          price: row.price,
-          subAccountAmount: row.subAccountAmount,
-          subAccountCount: row.subAccountCount,
-          renewalPriceOverride: row.renewalPriceOverride,
-          source: row.source,
-          lockedAt: row.lockedAt,
-        }))
-    );
+    return toLockedPriceSnapshots(rows);
   }
 
   /**
-   * 读取门店成交价快照，返回定价公式两侧所需的两张表。
+   * 读取门店成交价快照，返回定价公式两侧所需的四张表。
    *
-   * - `prices`：成交总额，只作记账 / 快照展示，不参与定价
-   * - `priceOverrides`：运营议定的基础价，与当前配置价**取高者**作为定价基数
-   * - `subAccountAmounts`：子账号加价，`max(当前配置价, 议定价) + 本字段` 的组成部分
-   *
-   * `subAccountAmounts` **只收录已录入的行**：缺失与该 key 不存在等价（按 0 处理），
-   * 存量为 `null` 的数据因此自动回退旧口径，不会被误判成「这家店子账号不要钱」。
-   * `priceOverrides` 同理只收录**已议定**的档位。
+   * 各表的收录口径见 `collectDealPriceSnapshots`。
    */
   async loadDealPriceSnapshots(
     storeId: number,
     executor: PrismaExecutor = this.prisma,
-  ): Promise<{
-    prices: Map<PlatformMembershipPlanId, number>;
-    priceOverrides: Map<PlatformMembershipPlanId, number>;
-    subAccountAmounts: Map<PlatformMembershipPlanId, number>;
-    subAccountCounts: Map<PlatformMembershipPlanId, number>;
-  }> {
-    const rows = await executor.storeMembershipLockedPrice.findMany({
-      where: { storeId },
-      select: {
-        planId: true,
-        price: true,
-        subAccountAmount: true,
-        subAccountCount: true,
-        renewalPriceOverride: true,
-        dealLockedAt: true,
-      },
-    });
+  ): Promise<DealPriceSnapshotTables> {
+    const rows = await findDealPriceRows(executor, storeId);
 
-    const prices = new Map<PlatformMembershipPlanId, number>();
-    const priceOverrides = new Map<PlatformMembershipPlanId, number>();
-    const subAccountAmounts = new Map<PlatformMembershipPlanId, number>();
-    const subAccountCounts = new Map<PlatformMembershipPlanId, number>();
-
-    for (const row of rows) {
-      const planId = row.planId as PlatformMembershipPlanId;
-      // 成交总额只收录真正成交过的行：占位行（仅承载续费价覆盖）的 price
-      // 是建行时抄的配置价，收进来会被当成该门店的成交价。
-      // typeof 兜底同上：字段缺失时按已成交处理，不改旧行为。
-      if (
-        typeof row.dealLockedAt === 'undefined' ||
-        row.dealLockedAt !== null
-      ) {
-        prices.set(planId, row.price);
-      }
-      // 用 typeof 而非 `!== null` 兜底：select 漏字段、或是 mock 返回残行时
-      // 值是 undefined，`!== null` 会让 undefined 混进表里
-      if (typeof row.subAccountAmount === 'number') {
-        subAccountAmounts.set(planId, row.subAccountAmount);
-      }
-      if (typeof row.subAccountCount === 'number') {
-        subAccountCounts.set(planId, row.subAccountCount);
-      }
-      if (typeof row.renewalPriceOverride === 'number') {
-        priceOverrides.set(planId, row.renewalPriceOverride);
-      }
-    }
-
-    return { prices, priceOverrides, subAccountAmounts, subAccountCounts };
+    return collectDealPriceSnapshots(rows);
   }
 
   /**
-   * 子账号分量是否非法：必须是非负整数。
-   *
-   * `undefined`（本次不动这两个字段）与 `null`（置空）都是合法取值，
-   * 只有真正传了数字才校验——否则负的加价会把标准总价算小。
-   */
-  private isInvalidSubAccountValue(value: number | null | undefined): boolean {
-    return (
-      value !== undefined &&
-      value !== null &&
-      (!Number.isInteger(value) || value < 0)
-    );
-  }
-
-  /**
-   * 首次成交时写入成交价快照。
-   *
-   * 已**成交**过的档位不覆盖（「首充锁定」语义），返回 false 表示沿用原成交价。
+   * 首次成交时写入成交价快照；返回 false 表示沿用原成交价。
    * 管理端重新议定价格要走 `upsertDealPrice`，不要用这个。
    *
-   * ⚠️ 「是否已成交」以 `dealLockedAt` 为准，**不是**「行是否存在」：
-   * 运营先在管理端议定续费价时，`upsertRenewalPriceOverride` 会为尚无成交的档位
-   * 建一行占位行（`dealLockedAt` 为空、price 抄的是当时的配置价）。若沿用
-   * `createMany + skipDuplicates`，这类行会挡住商家首次成交的写入——
-   * 真实成交价与 `source: purchase` 永久丢失，快照里留下一个假成交价。
-   * 因此先尝试「认领占位行」，只有行确实不存在时才新建。
+   * ⚠️ 「已成交」以 `dealLockedAt` 为准而非「行是否存在」，因此运营先议定续费价
+   * 时建下的占位行会被首笔成交认领（而不是挡住写入）。详见 `writeFirstDealPrice`。
    *
    * ⚠️ 这里**不再**限定「只有曾开通子账号功能的门店才写入」。
    * 早期实现为了规避「门店日后开通子账号、旧价突然生效」而跳过写入，
@@ -270,7 +124,7 @@ export class StoreMembershipLockedPriceService {
    * 议出的高价次年就蒸发。定价基数改看「当前配置价与议定价的较高者」后，
    * 「是否开通子账号」只影响档位裁剪，不再决定要不要记录成交价。
    */
-  async lockPriceOnFirstDeal(params: {
+  lockPriceOnFirstDeal(params: {
     storeId: number;
     planId: PlatformMembershipPlanId;
     price: number;
@@ -281,70 +135,9 @@ export class StoreMembershipLockedPriceService {
     /** 子账号数量；不传表示本次不涉及子账号，落库为 NULL */
     subAccountCount?: number | null;
   }): Promise<boolean> {
-    const {
-      storeId,
-      planId,
-      price,
-      source,
-      executor = this.prisma,
-      subAccountAmount = null,
-      subAccountCount = null,
-    } = params;
+    const { executor = this.prisma, ...writeParams } = params;
 
-    if (!Number.isInteger(price) || price < 0) {
-      this.logger.warn(
-        `[locked-price] 忽略非法成交价 storeId=${storeId} planId=${planId} price=${price}`,
-      );
-      return false;
-    }
-
-    if (
-      this.isInvalidSubAccountValue(subAccountAmount) ||
-      this.isInvalidSubAccountValue(subAccountCount)
-    ) {
-      this.logger.warn(
-        `[locked-price] 忽略非法子账号分量 storeId=${storeId} planId=${planId} subAccountAmount=${subAccountAmount} subAccountCount=${subAccountCount}`,
-      );
-      return false;
-    }
-
-    // 先认领「尚未成交」的行：它可能只是运营议定续费价时建的占位行，
-    // 必须让首笔成交的真实金额与来源落进去
-    const claimed = await executor.storeMembershipLockedPrice.updateMany({
-      where: { storeId, planId, dealLockedAt: null },
-      data: {
-        price,
-        source,
-        lockedAt: new Date(),
-        dealLockedAt: new Date(),
-        // 只在调用方明确给了分量时才写：占位行上可能已有运营「补录」的子账号加价，
-        // 首笔成交只负责补上成交金额与来源，不该把议定好的分量抹成 null
-        ...(typeof subAccountAmount === 'number' ? { subAccountAmount } : {}),
-        ...(typeof subAccountCount === 'number' ? { subAccountCount } : {}),
-      },
-    });
-
-    if (claimed.count > 0) {
-      return true;
-    }
-
-    // 行不存在才新建；并发下由唯一键 + skipDuplicates 兜底（不会覆盖已成交的行）
-    const created = await executor.storeMembershipLockedPrice.createMany({
-      data: [
-        {
-          storeId,
-          planId,
-          price,
-          subAccountAmount,
-          subAccountCount,
-          source,
-          dealLockedAt: new Date(),
-        },
-      ],
-      skipDuplicates: true,
-    });
-
-    return created.count > 0;
+    return writeFirstDealPrice(this.logger, executor, writeParams);
   }
 
   /**
@@ -356,7 +149,7 @@ export class StoreMembershipLockedPriceService {
    * `subAccountAmount` / `subAccountCount` 传 `undefined` 表示本次不动这两个字段，
    * 传 `null` 表示清空（例如关闭子账号能力后不应再收子账号的钱）。
    */
-  async upsertDealPrice(params: {
+  upsertDealPrice(params: {
     storeId: number;
     planId: PlatformMembershipPlanId;
     price: number;
@@ -365,73 +158,9 @@ export class StoreMembershipLockedPriceService {
     subAccountAmount?: number | null;
     subAccountCount?: number | null;
   }): Promise<void> {
-    const {
-      storeId,
-      planId,
-      price,
-      source,
-      executor = this.prisma,
-      subAccountAmount,
-      subAccountCount,
-    } = params;
+    const { executor = this.prisma, ...writeParams } = params;
 
-    if (!Number.isInteger(price) || price < 0) {
-      this.logger.warn(
-        `[locked-price] 忽略非法成交价 storeId=${storeId} planId=${planId} price=${price}`,
-      );
-      return;
-    }
-
-    // 子账号分量同样是定价公式的输入，非法值会让标准总价被算小，
-    // 必须与 price 一样拦在写入之前
-    if (
-      this.isInvalidSubAccountValue(subAccountAmount) ||
-      this.isInvalidSubAccountValue(subAccountCount)
-    ) {
-      this.logger.warn(
-        `[locked-price] 忽略非法子账号分量 storeId=${storeId} planId=${planId} subAccountAmount=${subAccountAmount} subAccountCount=${subAccountCount}`,
-      );
-      return;
-    }
-
-    this.logger.warn(
-      JSON.stringify({
-        event: 'store_membership_deal_price_upsert',
-        storeId,
-        planId,
-        price,
-        subAccountAmount: subAccountAmount ?? null,
-        subAccountCount: subAccountCount ?? null,
-        source,
-      }),
-    );
-
-    await executor.storeMembershipLockedPrice.upsert({
-      where: { storeId_planId: { storeId, planId } },
-      create: {
-        storeId,
-        planId,
-        price,
-        subAccountAmount: subAccountAmount ?? null,
-        subAccountCount: subAccountCount ?? null,
-        source,
-        dealLockedAt: new Date(),
-      },
-      update: {
-        price,
-        source,
-        // 一次显式成交：既刷新成交时点，也把「仅承载覆盖价」的占位行转成正式成交行
-        lockedAt: new Date(),
-        dealLockedAt: new Date(),
-        ...(subAccountAmount !== undefined ? { subAccountAmount } : {}),
-        ...(subAccountCount !== undefined ? { subAccountCount } : {}),
-        //
-        // ⚠️ 这里**绝不能**顺手清掉 `renewalPriceOverride`。
-        // 「设置会员等级」是一次成交记账，而覆盖价是运营单独议定的、
-        // 对未来每次续费都生效的定价输入；两者生命周期不同。
-        // 一旦在这里写 null，运营在「调整续费价格」里议的价会被静默蒸发。
-      },
-    });
+    return writeDealPriceUpsert(this.logger, executor, writeParams);
   }
 
   /**
@@ -440,88 +169,24 @@ export class StoreMembershipLockedPriceService {
    * ⚠️ 只允许由管理端「重置成交价」显式触发。**不得**由关闭子账号能力等副作用
    * 自动调用：客户降级为免费后再次开通时，必须还能读到历史成交价。
    *
-   * ⚠️ **不得整行删除**：`renewalPriceOverride`（运营议定的续费价）与成交分量
-   * 同住一行，整行删掉会让门店静默回落到配置价续费——议定价**高于**配置价时
-   * 平台白丢一块收入，且没有任何提示。因此按有无议定价分两类处理：
-   * - 无议定价：整行删除，下次成交重新锁价；
-   * - 有议定价：保留该行，只作废成交分量（`dealLockedAt` 置空 + 子账号分量清空），
-   *   续费价维持运营议定的口径。
+   * 只走 `this.prisma`：本方法不在事务里，一旦将来把它挪进事务，这里会读到事务外
+   * 的数据。需要事务支持时请加 `executor` 参数。
    */
-  async resetLockedPrices(
+  resetLockedPrices(
     storeId: number,
     planId?: PlatformMembershipPlanId,
   ): Promise<number> {
-    const baseWhere = planId ? { storeId, planId } : { storeId };
-
-    // 顺序：先作废（护住覆盖价），再删除。两步条件互斥且都只依赖 where，
-    // 重复调用幂等；任一步失败都不会把运营议定的续费价丢掉。
-    const revoked = await this.prisma.storeMembershipLockedPrice.updateMany({
-      where: { ...baseWhere, renewalPriceOverride: { not: null } },
-      data: {
-        dealLockedAt: null,
-        subAccountAmount: null,
-        subAccountCount: null,
-      },
-    });
-
-    const deleted = await this.prisma.storeMembershipLockedPrice.deleteMany({
-      where: { ...baseWhere, renewalPriceOverride: null },
-    });
-
-    const clearedCount = revoked.count + deleted.count;
-
-    if (clearedCount > 0) {
-      this.logger.warn(
-        JSON.stringify({
-          event: 'store_membership_locked_price_reset',
-          storeId,
-          planId: planId ?? null,
-          clearedCount,
-          // 分开记：被作废的行仍保留覆盖价，排查「重置后价格没变」时看这里
-          revokedCount: revoked.count,
-          deletedCount: deleted.count,
-        }),
-      );
-    }
-
-    return clearedCount;
+    return resetStoreLockedPrices(this.logger, this.prisma, storeId, planId);
   }
 
   /**
-   * 清空门店的子账号加价：关闭子账号能力后不应继续收子账号的钱。
-   *
-   * 只置空子账号两列，**保留** `price` 成交总额——
-   * 于是续费价退化成纯配置价（成交总额不参与定价，保留它只为对账与快照展示）。
-   * 返回受影响行数。
+   * 清空门店的子账号加价：关闭子账号能力后不应继续收子账号的钱。返回受影响行数。
    *
    * ⚠️ 只走 `this.prisma`：调用方（关闭子账号能力）不在事务里，
    * 一旦将来把它挪进事务，这里会读到事务外的数据。需要事务支持时请加 `executor` 参数。
    */
-  async clearSubAccountAmounts(storeId: number): Promise<number> {
-    const result = await this.prisma.storeMembershipLockedPrice.updateMany({
-      // 两列任一非空都要清：只判 `subAccountAmount` 会漏掉
-      // 「数量已录入、加价仍是 NULL」的行，关掉子账号后数量却还挂着
-      where: {
-        storeId,
-        OR: [
-          { subAccountAmount: { not: null } },
-          { subAccountCount: { not: null } },
-        ],
-      },
-      data: { subAccountAmount: null, subAccountCount: null },
-    });
-
-    if (result.count > 0) {
-      this.logger.warn(
-        JSON.stringify({
-          event: 'store_membership_sub_account_amount_cleared',
-          storeId,
-          clearedCount: result.count,
-        }),
-      );
-    }
-
-    return result.count;
+  clearSubAccountAmounts(storeId: number): Promise<number> {
+    return clearStoreSubAccountAmounts(this.logger, this.prisma, storeId);
   }
 
   /**
@@ -534,142 +199,36 @@ export class StoreMembershipLockedPriceService {
    * 传 `null` 即撤销补录，续费价回到纯配置价口径（成交总额不参与定价）。
    * 返回 false 表示该门店该档位没有成交记录（补录无从附着）。
    */
-  async updateSubAccountSnapshot(params: {
+  updateSubAccountSnapshot(params: {
     storeId: number;
     planId: PlatformMembershipPlanId;
     subAccountAmount: number | null;
     subAccountCount: number | null;
     executor?: PrismaExecutor;
   }): Promise<boolean> {
-    const { storeId, planId, subAccountAmount, subAccountCount } = params;
-    const executor = params.executor ?? this.prisma;
+    const { executor = this.prisma, ...writeParams } = params;
 
-    if (
-      subAccountAmount !== null &&
-      (!Number.isInteger(subAccountAmount) || subAccountAmount < 0)
-    ) {
-      this.logger.warn(
-        `[locked-price] 忽略非法子账号加价 storeId=${storeId} planId=${planId} subAccountAmount=${subAccountAmount}`,
-      );
-      return false;
-    }
-
-    // 数量与加价同源，同样要拦：写进负数 / 小数会让续费卡展示「包含 -1 个子账号」
-    if (
-      subAccountCount !== null &&
-      (!Number.isInteger(subAccountCount) || subAccountCount < 0)
-    ) {
-      this.logger.warn(
-        `[locked-price] 忽略非法子账号数量 storeId=${storeId} planId=${planId} subAccountCount=${subAccountCount}`,
-      );
-      return false;
-    }
-
-    this.logger.warn(
-      JSON.stringify({
-        event: 'store_membership_sub_account_amount_backfilled',
-        storeId,
-        planId,
-        subAccountAmount,
-        subAccountCount,
-      }),
-    );
-
-    const result = await executor.storeMembershipLockedPrice.updateMany({
-      where: { storeId, planId },
-      data: { subAccountAmount, subAccountCount },
-    });
-
-    return result.count > 0;
+    return writeSubAccountSnapshot(this.logger, executor, writeParams);
   }
 
   /**
-   * 在 `storeIds` 范围内列出「有子账号、但成交价快照里没有子账号加价」的门店，供运营批量补录。
+   * 列出「有子账号、但成交价快照里没有子账号加价」的门店，供运营批量补录。
    *
-   * 判据用 `pulseSubAccountQuota > 0`（曾开通，到期不失效）——到期门店同样需要补录，
-   * 否则配置价一涨过成交总额，它们就会按「不含子账号」的标准价续费，白送子账号。
-   *
-   * ⚠️ 必须先用 `storeIds` 收窄：这两张表都是**全平台**的，不带 `storeId in (...)`
-   * 就是全表扫描后再到内存里求交集，管理端可见门店越多浪费越大；收窄后走
-   * `storeId` 索引，读的只可能是最终要返回的那几行。
+   * `storeIds` 是必须项（先用可见门店收窄查询），判据详见
+   * `findStoresPendingSubAccountBackfill`。
    */
-  async listStoresPendingSubAccountBackfill(
-    storeIds: number[],
-  ): Promise<number[]> {
-    if (storeIds.length === 0) {
-      return [];
-    }
-
-    const profiles = await this.prisma.storeMembershipProfile.findMany({
-      where: { storeId: { in: storeIds }, pulseSubAccountQuota: { gt: 0 } },
-      select: { storeId: true },
-    });
-
-    if (profiles.length === 0) {
-      return [];
-    }
-
-    const scopedStoreIds = profiles.map((profile) => profile.storeId);
-
-    // 需要「至少有一个年 / 永久档位缺子账号加价」才算待补录：
-    // 月 / 季会员开不了子账号，它们的快照永远不需要补录，不该把门店捞进清单
-    const pendingRows = await this.prisma.storeMembershipLockedPrice.findMany({
-      where: {
-        storeId: { in: scopedStoreIds },
-        planId: { in: [...SUB_ACCOUNT_PRICING_PLAN_IDS] },
-        subAccountAmount: null,
-      },
-      select: { storeId: true },
-      distinct: ['storeId'],
-    });
-
-    return pendingRows.map((row) => row.storeId);
+  listStoresPendingSubAccountBackfill(storeIds: number[]): Promise<number[]> {
+    return findStoresPendingSubAccountBackfill(this.prisma, storeIds);
   }
 
   /**
-   * 在 `storeIds` 范围内列出「续费价**被调整过**」的门店，供管理端筛选复核。
+   * 列出「续费价**被调整过**」的门店，供管理端筛选复核。
    *
-   * 口径是**曾经调过**，不是「当前还调着」：
-   * 运营在弹窗里清空覆盖（恢复配置价）后 `renewalPriceOverride` 会变回 null，
-   * 但改价这件事发生过，门店仍要留在清单里——否则运营会以为自己没议过价、再议一遍。
-   *
-   * 因此判据落在审计表 `store_membership_price_override_audits`：一次实际变更一行
-   * （新建与清除都记，值没变则整批跳过）。再并上「当前仍有覆盖价」兜底：
-   * 审计若将来按保留期清理，当前生效的议价不能被顺带清出清单。
-   *
-   * 与 `listStoresPendingSubAccountBackfill` 同理：`storeIds` 是必须项，
-   * 否则每次筛选都要对全平台的审计表做一次 distinct 扫描。
+   * 口径是**曾经调过**而非「当前还调着」；`storeIds` 是必须项。
+   * 判据与兜底详见 `findStoresEverRenewalPriceAdjusted`。
    */
-  async listStoresEverRenewalPriceAdjusted(
-    storeIds: number[],
-  ): Promise<number[]> {
-    if (storeIds.length === 0) {
-      return [];
-    }
-
-    const [auditRows, overrideRows] = await Promise.all([
-      this.prisma.storeMembershipPriceOverrideAudit.findMany({
-        where: { storeId: { in: storeIds } },
-        select: { storeId: true },
-        distinct: ['storeId'],
-      }),
-      this.prisma.storeMembershipLockedPrice.findMany({
-        where: {
-          storeId: { in: storeIds },
-          renewalPriceOverride: { not: null },
-        },
-        select: { storeId: true },
-        distinct: ['storeId'],
-      }),
-    ]);
-
-    const adjustedStoreIds = new Set<number>([
-      ...auditRows.map((row) => row.storeId),
-      ...overrideRows.map((row) => row.storeId),
-    ]);
-
-    // 按入参顺序返回，调用方的分页 / 排序口径不被打乱
-    return storeIds.filter((storeId) => adjustedStoreIds.has(storeId));
+  listStoresEverRenewalPriceAdjusted(storeIds: number[]): Promise<number[]> {
+    return findStoresEverRenewalPriceAdjusted(this.prisma, storeIds);
   }
 
   /**
@@ -760,7 +319,7 @@ export class StoreMembershipLockedPriceService {
    * 不是一次成交：它不进「成交价快照」展示，也不会拦住商家首次成交的写入
    * （`lockPriceOnFirstDeal` 见到 `dealLockedAt` 为空会认领本行并补上真实成交分量）。
    */
-  async upsertRenewalPriceOverride(params: {
+  upsertRenewalPriceOverride(params: {
     storeId: number;
     planId: PlatformMembershipPlanId;
     /** 覆盖价（分）；null = 清除覆盖 */
@@ -769,58 +328,8 @@ export class StoreMembershipLockedPriceService {
     fallbackConfigPrice: number;
     executor?: PrismaExecutor;
   }): Promise<{ oldPrice: number | null }> {
-    const {
-      storeId,
-      planId,
-      overridePrice,
-      fallbackConfigPrice,
-      executor = this.prisma,
-    } = params;
+    const { executor = this.prisma, ...writeParams } = params;
 
-    if (
-      overridePrice !== null &&
-      (!Number.isInteger(overridePrice) || overridePrice < 0)
-    ) {
-      this.logger.warn(
-        `[locked-price] 忽略非法续费价覆盖 storeId=${storeId} planId=${planId} overridePrice=${overridePrice}`,
-      );
-      throw new BadRequestException('续费价必须是非负整数（分）');
-    }
-
-    const existing = await executor.storeMembershipLockedPrice.findUnique({
-      where: { storeId_planId: { storeId, planId } },
-      select: { price: true, renewalPriceOverride: true },
-    });
-
-    const oldPrice = existing?.renewalPriceOverride ?? null;
-
-    // 无变化就不写库：避免产生一条没有实际变更的审计记录
-    if (oldPrice === overridePrice) {
-      return { oldPrice };
-    }
-
-    await executor.storeMembershipLockedPrice.upsert({
-      where: { storeId_planId: { storeId, planId } },
-      create: {
-        storeId,
-        planId,
-        price: fallbackConfigPrice,
-        renewalPriceOverride: overridePrice,
-        source: 'admin',
-      },
-      update: { renewalPriceOverride: overridePrice },
-    });
-
-    this.logger.warn(
-      JSON.stringify({
-        event: 'store_membership_renewal_price_override_upsert',
-        storeId,
-        planId,
-        oldPrice,
-        newPrice: overridePrice,
-      }),
-    );
-
-    return { oldPrice };
+    return writeRenewalPriceOverride(this.logger, executor, writeParams);
   }
 }

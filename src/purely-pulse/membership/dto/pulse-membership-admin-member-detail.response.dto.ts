@@ -8,15 +8,17 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PulseMemberBaseDto } from './pulse-membership-admin-member-base.dto';
+import { PulseAdminMemberLockedPriceDto } from './pulse-membership-admin-members.locked-price.dto';
 import {
-  PulseAdminMemberLockedPriceDto,
   PulseRechargeRecordDto,
   PulseRenewalPriceAdjustRecordDto,
-  PulseSubAccountCapabilityDto,
   PulseSubAccountQuotaRecordDto,
+} from './pulse-membership-admin-members.record.dto';
+import {
+  PulseSubAccountCapabilityDto,
   PulseSubAccountRoleSummaryDto,
   PulseSubAccountSlotDto,
-} from './pulse-membership-admin-members.shared.dto';
+} from './pulse-membership-admin-members.sub-account.dto';
 
 /**
  * 管理员视角的会员详情（对齐前端 MemberDetail，memberList.types.ts）

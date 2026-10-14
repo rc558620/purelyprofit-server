@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { PulseAdminMemberSubAccountAmountBackfillDto } from './pulse-membership-admin-members.request.dto';
+import { PulseAdminMemberSubAccountAmountBackfillDto } from './pulse-membership-admin-members.membership.request.dto';
 
 /**
  * 子账号加价补录 / 撤销的入参校验。

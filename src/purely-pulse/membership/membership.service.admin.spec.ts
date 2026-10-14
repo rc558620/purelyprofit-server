@@ -2,12 +2,11 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { PulseMembershipAdminController } from './membership-admin.controller';
+import { PulseMembershipAdminMemberMutationController } from './membership-admin-member-mutation.controller';
+import { PulseMembershipAdminSubAccountController } from './membership-admin-sub-account.controller';
 import { aValidDate } from '../../spec-matchers';
-import {
-  PulseAdminMemberMembershipDto,
-  PulseAdminMemberSubAccountQuotaDto,
-} from './dto/pulse-membership-admin-members.request.dto';
+import { PulseAdminMemberMembershipDto } from './dto/pulse-membership-admin-members.membership.request.dto';
+import { PulseAdminMemberSubAccountQuotaDto } from './dto/pulse-membership-admin-members.sub-account.request.dto';
 import {
   createPulseMembershipServiceTestingContext,
   type PulseMembershipServiceTestingContext,
@@ -47,7 +46,7 @@ describe('PulseAdminMemberSubAccountQuotaDto', () => {
   });
 });
 
-describe('PulseMembershipAdminController membership', () => {
+describe('PulseMembershipAdminMemberMutationController membership', () => {
   const user: AuthenticatedUser = {
     id: 101,
     email: 'dev@example.com',
@@ -65,7 +64,7 @@ describe('PulseMembershipAdminController membership', () => {
     const pulseMembershipService = {
       setAdminMemberMembership: jest.fn().mockResolvedValue({ id: '48' }),
     };
-    const controller = new PulseMembershipAdminController(
+    const controller = new PulseMembershipAdminMemberMutationController(
       pulseMembershipService as never,
     );
 
@@ -104,7 +103,7 @@ describe('PulseMembershipAdminController membership', () => {
   });
 });
 
-describe('PulseMembershipAdminController sub-account quota', () => {
+describe('PulseMembershipAdminSubAccountController sub-account quota', () => {
   const user: AuthenticatedUser = {
     id: 101,
     email: 'dev@example.com',
@@ -124,7 +123,7 @@ describe('PulseMembershipAdminController sub-account quota', () => {
         .fn()
         .mockResolvedValue({ id: '48' }),
     };
-    const controller = new PulseMembershipAdminController(
+    const controller = new PulseMembershipAdminSubAccountController(
       pulseMembershipService as never,
     );
 

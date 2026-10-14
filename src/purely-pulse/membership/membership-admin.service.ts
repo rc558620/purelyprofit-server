@@ -15,7 +15,7 @@ import type {
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
 } from './dto/pulse-membership-admin-new-customer-quota.response.dto';
-import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
+import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.query.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
 import type { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';

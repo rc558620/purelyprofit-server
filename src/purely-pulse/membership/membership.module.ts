@@ -8,6 +8,7 @@ import { PulseMembershipAdminBeansMutationService } from './membership-admin-bea
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
 import { PulseMembershipAdminMemberRecordsService } from './membership-admin-member-records.service';
 import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
+import { PulseMembershipAdminMembershipMutationOrderService } from './membership-admin-membership-mutation-order.service';
 import { PulseMembershipAdminNewCustomerQuotaService } from './membership-admin-new-customer-quota.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
@@ -17,11 +18,17 @@ import { PulseMembershipAdminStatusMutationService } from './membership-admin-st
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
 import { PulseMembershipAdminClubStatsService } from './membership-admin-club-stats.service';
+import { PulseMembershipAdminLogsController } from './membership-admin-logs.controller';
 import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-query.service';
+import { PulseMembershipAdminMemberMutationController } from './membership-admin-member-mutation.controller';
+import { PulseMembershipAdminMemberRecordsController } from './membership-admin-member-records.controller';
+import { PulseMembershipAdminMembersController } from './membership-admin-members.controller';
+import { PulseMembershipAdminNewCustomerQuotaController } from './membership-admin-new-customer-quota.controller';
+import { PulseMembershipAdminPricingController } from './membership-admin-pricing.controller';
+import { PulseMembershipAdminSubAccountController } from './membership-admin-sub-account.controller';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
 import { PulseMembershipAdminSalesStatsService } from './membership-admin-sales-stats.service';
-import { PulseMembershipAdminController } from './membership-admin.controller';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipController } from './membership.controller';
 import { PulseMembershipLedgerService } from './membership-ledger.service';
@@ -35,7 +42,16 @@ import { PulseMembershipService } from './membership.service';
     PulseStoreContextModule,
     NewCustomerQuotaModule,
   ],
-  controllers: [PulseMembershipController, PulseMembershipAdminController],
+  controllers: [
+    PulseMembershipController,
+    PulseMembershipAdminLogsController,
+    PulseMembershipAdminMemberRecordsController,
+    PulseMembershipAdminNewCustomerQuotaController,
+    PulseMembershipAdminMembersController,
+    PulseMembershipAdminMemberMutationController,
+    PulseMembershipAdminPricingController,
+    PulseMembershipAdminSubAccountController,
+  ],
   providers: [
     PulseMembershipService,
     PulseMembershipAccessService,
@@ -50,6 +66,7 @@ import { PulseMembershipService } from './membership.service';
     PulseMembershipAdminLogsQueryService,
     PulseMembershipAdminMutationStateService,
     PulseMembershipAdminMembershipMutationService,
+    PulseMembershipAdminMembershipMutationOrderService,
     PulseMembershipAdminNewCustomerQuotaService,
     PulseMembershipAdminPricingPreviewService,
     PulseMembershipAdminRenewalPriceService,

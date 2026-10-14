@@ -3,11 +3,11 @@ import { IsBoolean, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
 import {
   PULSE_MEMBER_LEVEL_VALUES,
   PULSE_MEMBER_STATUS_VALUES,
-} from './pulse-membership-admin-members.shared.dto';
+} from './pulse-membership-admin-members.constants';
 import type {
   PulseMemberLevelValue,
   PulseMemberStatusValue,
-} from './pulse-membership-admin-members.shared.dto';
+} from '../membership.types';
 
 /**
  * 管理端会员公共字段基类

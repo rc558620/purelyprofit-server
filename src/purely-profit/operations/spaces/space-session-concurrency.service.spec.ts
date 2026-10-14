@@ -3,7 +3,7 @@ import { SpaceBillingMode, SpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.query';
+import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.write';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import { aValidDate, aNonNegativeNumber } from '../../../spec-matchers';

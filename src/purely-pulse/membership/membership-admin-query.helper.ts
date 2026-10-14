@@ -1,3 +1,4 @@
+import type { PrismaExecutor } from '../../purely-profit/member/platform-membership/platform-membership.types';
 import type {
   PulseAdminMemberLevel,
   PulseAdminMembershipProfileRecord,
@@ -7,7 +8,7 @@ import type {
   PulseAdminMemberListStatsDto,
   PulseMemberListItemDto,
 } from './dto/pulse-membership-admin-members.response.dto';
-import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
+import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.query.request.dto';
 
 // ─── Re-exports for backward compatibility ───────────────────────────────────
 export {
@@ -166,6 +167,33 @@ function shouldIncludeByExpiry(
   // 精准过滤：到期时间 > 当前时间 且 <= 阈值时间
   const thresholdTime = now + days * dayMs;
   return membershipExpiry > now && membershipExpiry <= thresholdTime;
+}
+
+// ─── Operator display names ──────────────────────────────────────────────────
+
+/**
+ * 操作人展示名：realName → name 逐级回落，都没有时不写入 Map（前端兜底）。
+ *
+ * 审计行只有 `operatorUserId`，由调用方按 id 批量补名（避免逐行回库）。
+ */
+export async function loadAdminOperatorNames(
+  prisma: PrismaExecutor,
+  userIds: number[],
+): Promise<Map<number, string>> {
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, realName: true },
+  });
+
+  const nameById = new Map<number, string>();
+  for (const user of users) {
+    const displayName = user.realName?.trim() || user.name?.trim();
+    if (displayName) {
+      nameById.set(user.id, displayName);
+    }
+  }
+
+  return nameById;
 }
 
 // ─── Identity resolvers ──────────────────────────────────────────────────────

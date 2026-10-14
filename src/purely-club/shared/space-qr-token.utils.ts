@@ -1,4 +1,8 @@
 import { SPACE_TOKEN_PATTERN } from '../../purely-profit/operations/scan-qr-payload.utils';
+import {
+  readLastPathSegment,
+  readTokenQueryParam,
+} from './qr-token-parsing.utils';
 
 /**
  * 空间码 token 提取（服务端兜底）。
@@ -43,23 +47,4 @@ export function extractSpaceQrToken(rawValue: string): string {
 
   // 裸 token（前端已提取过）：原样返回，保证幂等
   return value;
-}
-
-/** 从 `?token=xxx` 中取值；非 URL 或无该参数时返回 null。 */
-function readTokenQueryParam(value: string): string | null {
-  try {
-    const token = new URL(value).searchParams.get('token')?.trim();
-    return token || null;
-  } catch {
-    return null;
-  }
-}
-
-/** 取路径末段：先剥离 query/hash 与 scheme + host，再取最后一个非空分段。 */
-function readLastPathSegment(value: string): string {
-  const path = value.split(/[?#]/, 1)[0] ?? '';
-  const withoutOrigin = path.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
-  const withoutScheme = withoutOrigin.replace(/^[a-z][a-z0-9+.-]*:/i, '');
-  const segments = withoutScheme.split('/').filter(Boolean);
-  return (segments[segments.length - 1] ?? '').trim();
 }

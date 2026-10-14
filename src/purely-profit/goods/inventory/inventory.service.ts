@@ -26,7 +26,7 @@ import {
   recordInventorySaleDeduction,
   revertInventoryPurchaseRestock,
   revertInventorySaleDeduction,
-} from './inventory-stock.query';
+} from './inventory-stock.write';
 import type {
   AdjustInventoryInput,
   InventoryRestockParams,

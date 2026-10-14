@@ -14,6 +14,8 @@ import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
+import { ClubScanOrderingQrTokenService } from './club-scan-ordering-qr-token.service';
+import { ClubScanOrderingSessionService } from './club-scan-ordering-session.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
@@ -55,6 +57,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
   providers: [
     ClubNewCustomerQuotaService,
     ClubScanOrderingService,
+    ClubScanOrderingQrTokenService,
+    ClubScanOrderingSessionService,
     ClubScanOrderingCartService,
     ClubScanOrderingMenuQueryService,
     ClubScanOrderingServiceCallService,

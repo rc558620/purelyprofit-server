@@ -10,7 +10,7 @@ import type {
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
 } from './dto/pulse-membership-admin-logs.response.dto';
-import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
+import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.query.request.dto';
 import type { PulseAdminEmployeeCandidateDto } from './dto/pulse-membership-admin-employee.response.dto';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-member-detail.response.dto';
 import type { PulseAdminMembersResponseDto } from './dto/pulse-membership-admin-members.response.dto';
@@ -26,7 +26,7 @@ import { buildAdminMemberListStats } from './membership-admin-query.helper';
 import {
   PULSE_ADMIN_MEMBER_LIST_DEFAULT_PAGE_SIZE,
   PULSE_ADMIN_MEMBER_LIST_MAX_PAGE_SIZE,
-} from './dto/pulse-membership-admin-members.shared.dto';
+} from './dto/pulse-membership-admin-members.constants';
 
 @Injectable()
 export class PulseMembershipAdminQueryService {

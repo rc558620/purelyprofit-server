@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SESSION_ITEM_SOURCE_TYPE } from './club-self-ordering.utils';
-import { deductInventoryForSaleBestEffort } from '../../purely-profit/goods/inventory/inventory-stock.query';
+import { deductInventoryForSaleBestEffort } from '../../purely-profit/goods/inventory/inventory-stock.write';
 
 /** 待写入空间账单的订单行快照 */
 export interface PaidOrderItemSnapshot {

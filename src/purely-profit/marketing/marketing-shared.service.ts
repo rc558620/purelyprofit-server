@@ -14,6 +14,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { MarketingPermission } from './marketing-access.service';
 import { MarketingAccessService } from './marketing-access.service';
 import { queryCustomerRowById, queryPromotionRowById } from './marketing.query';
+import {
+  MARKETING_PRODUCT_ROW_INCLUDE,
+  toProductRow,
+} from './marketing-products.mapper';
 import type {
   MarketingCustomerRow,
   MarketingProductCategoryRow,
@@ -218,43 +222,12 @@ export class MarketingSharedService {
   async findProductOrThrow(productId: number): Promise<MarketingProductRow> {
     const product = await this.prisma.marketingProduct.findUnique({
       where: { id: productId },
-      include: {
-        category: {
-          select: {
-            name: true,
-          },
-        },
-      },
+      include: MARKETING_PRODUCT_ROW_INCLUDE,
     });
     if (!product) {
       throw new NotFoundException('产品不存在');
     }
 
-    return {
-      id: product.id,
-      storeId: product.storeId,
-      categoryId: product.categoryId,
-      categoryName: product.category?.name ?? '',
-      name: product.name,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      image: product.image,
-      descriptionTitle: product.descriptionTitle,
-      description: product.description,
-      stock: product.stock,
-      durationMinutes: product.durationMinutes,
-      personCount: product.personCount,
-      unit: product.unit,
-      type: product.type,
-      validDays: product.validDays,
-      billingMode: product.billingMode,
-      hourlyRate: product.hourlyRate,
-      countdownMinutes: product.countdownMinutes,
-      countdownPrice: product.countdownPrice,
-      autoCheckout: product.autoCheckout,
-      isActive: product.isActive,
-      createdAt: product.createdAt,
-      updatedAt: product.updatedAt,
-    };
+    return toProductRow(product);
   }
 }
