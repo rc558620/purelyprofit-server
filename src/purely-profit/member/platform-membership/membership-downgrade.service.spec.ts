@@ -5,14 +5,16 @@ import { RedisService } from '../../../redis/redis.service';
 import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import {
   ADDITIONAL_BLOCKED_MESSAGE,
-  MANUAL_ENTRY_DAILY_LIMIT,
   MANUAL_ENTRY_QUOTA_MESSAGE,
   MEMBERSHIP_EXPIRED_ERROR_CODE,
-  MEMBERSHIP_EXPIRING_SOON_DAYS,
   SCAN_ORDER_BLOCKED_MESSAGE,
   SPACE_OPEN_BLOCKED_MESSAGE,
-  MembershipDowngradeService,
-} from './membership-downgrade.service';
+} from './membership-downgrade.messages';
+import {
+  MANUAL_ENTRY_DAILY_LIMIT,
+  MEMBERSHIP_EXPIRING_SOON_DAYS,
+} from './membership-downgrade.constants';
+import { MembershipDowngradeService } from './membership-downgrade.service';
 
 /** 固定"当前时间"，让 remainingDays / 过期判定可预期 */
 const NOW = new Date('2026-05-23T12:00:00.000Z');

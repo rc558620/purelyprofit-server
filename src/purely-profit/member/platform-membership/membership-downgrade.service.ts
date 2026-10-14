@@ -1,137 +1,40 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
-import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
-import type { MembershipRuntimeLevel } from './platform-membership-access.shared';
+import {
+  MANUAL_ENTRY_DAILY_LIMIT,
+  MAX_ACTIVE_SPACE_SESSIONS,
+} from './membership-downgrade.constants';
+import {
+  ADDITIONAL_BLOCKED_MESSAGE,
+  buildMembershipExpiredException,
+  MANUAL_ENTRY_QUOTA_MESSAGE,
+  SPACE_OPEN_BLOCKED_MESSAGE,
+} from './membership-downgrade.messages';
+import {
+  countActiveSpaceSessions,
+  loadDowngradeProfile,
+  MembershipClockDriftProbe,
+} from './membership-downgrade.query';
+import {
+  incrementManualEntryCount,
+  readDowngradeStateCache,
+  readManualEntryCount,
+  writeDowngradeStateCache,
+} from './membership-downgrade.store';
+import {
+  calcRemainingDays,
+  isDowngradeExpiringSoon,
+} from './membership-downgrade.shared';
+import type {
+  ManualEntryUsage,
+  StoreDowngradeState,
+} from './membership-downgrade.types';
 import {
   isMembershipDowngraded,
   resolveMembershipExpiry,
   resolveMembershipLevel,
-  type StoreMembershipProfileSnapshot,
 } from './platform-membership-access.shared';
-import { loadDbNowMs } from './platform-membership.query';
-
-// ─── 降级态对外文案（面向顾客与商家，均不暴露"欠费"语义）──────────────
-
-/** 餐饮门店扫码点餐被拦截时的提示 */
-export const SCAN_ORDER_BLOCKED_MESSAGE =
-  '该门店暂时无法在线点单，请到前台点餐';
-/** 非餐饮门店自助下单被拦截时的提示 */
-export const SELF_ORDER_BLOCKED_MESSAGE = '该门店暂时无法自助下单，请联系商家';
-/** 会员专区（营销商品购买）被拦截时的提示 */
-export const MEMBER_ZONE_ORDER_BLOCKED_MESSAGE =
-  '会员服务暂时不可用，请联系商家';
-/** B 端追加点单「确认并记账」被拦截时的提示（餐饮 + 非餐饮到期账号） */
-export const ADDITIONAL_BLOCKED_MESSAGE =
-  '会员已到期，追加点单需续费后使用。已录入的商品和历史订单完整保留，不会删除。';
-/** 空间开台/预定超出「同时开台数」上限时的提示 */
-export const SPACE_OPEN_BLOCKED_MESSAGE =
-  '当前会员最多同时开 1 个台，请先结账或关闭现有台位，续费后可同时开多个台。';
-/** 手动录单超出每日上限时的提示 */
-export const MANUAL_ENTRY_QUOTA_MESSAGE =
-  '今日手动录单已达上限，会员到期后每日最多手动录入 5 单，续费后不受限制。';
-
-/**
- * 会员过期错误的业务码。
- *
- * C 端需要据此把「门店不能下单」与普通错误区分开：前者要展示引导弹窗
- * （告知顾客可到前台点餐），后者走常规 toast。仅靠 HTTP 403 无法区分。
- *
- * ⚠️ 修改此处必须同步两个前端（purelyProfit / purelyClub 的
- * src/utils/http/membershipExpired.ts），否则引导弹窗会静默退化成普通报错。
- * 一致性由 scripts/check-membership-contract.mjs 守护。
- */
-export const MEMBERSHIP_EXPIRED_ERROR_CODE = 'MEMBERSHIP_EXPIRED';
-
-/** 距到期多少天开始展示续费横幅 */
-export const MEMBERSHIP_EXPIRING_SOON_DAYS = 10;
-/** 到期账号每日手动录单上限 */
-export const MANUAL_ENTRY_DAILY_LIMIT = 5;
-/** 到期账号同时可开台数上限 */
-export const MAX_ACTIVE_SPACE_SESSIONS = 1;
-
-/** 每日手动录单计数的 Redis key 前缀 */
-const MANUAL_ENTRY_QUOTA_KEY_PREFIX = 'membership:manual-entry-quota:';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * 时钟漂移探测间隔。
- *
- * 「DB 时钟 − 应用时钟」是慢变量：同一对机器之间几乎不会突变，没必要每次判定
- * 都去查一次库。5 分钟足够及时发现，又不会给读路径增加可感知的开销。
- */
-const CLOCK_DRIFT_PROBE_INTERVAL_MS = 5 * 60 * 1000;
-
-/**
- * 触发告警的时钟差阈值。
- *
- * 取 5s 而不是更小：判定粒度是「天」，且降级态本身有 60s 缓存，秒级以下的漂移
- * 既测不出也修不了任何实际问题，报出来只会变成噪音。
- */
-const CLOCK_DRIFT_WARN_THRESHOLD_MS = 5_000;
-
-/**
- * 构造会员过期异常。
- *
- * 带 `code` 字段供 C 端识别：这类错误不是「操作失败」，而是门店状态导致的
- * 不可用，需要展示引导（到前台点餐 / 联系商家），而非一闪而过的错误提示。
- */
-const buildMembershipExpiredException = (message: string): ForbiddenException =>
-  new ForbiddenException({
-    statusCode: 403,
-    message,
-    code: MEMBERSHIP_EXPIRED_ERROR_CODE,
-  });
-
-export interface StoreDowngradeState {
-  /**
-   * 是否为「曾经开通过会员、现已过期」的降级态。
-   *
-   * ⚠️ 必须区分于「从未开通过」：两者当前档位都是 free，但从未开通的门店
-   * 属于免费版正常用户，不能施加到期专属限制（C 端停新单、追加点单禁用、
-   * 手动录单限额），否则会误伤全部免费商家。
-   */
-  isExpired: boolean;
-  /** 当前生效档位 */
-  level: MembershipRuntimeLevel;
-  /** 到期时间戳（ms），从未开通时为 null */
-  expiredAt: number | null;
-  /** 剩余天数，从未开通时为 0 */
-  remainingDays: number;
-}
-
-/**
- * 降级态判定所需的档案字段。
- *
- * `previousPlanId` 不能省：运营把过期门店设为免费会清空 `currentPlanId`，
- * 此时只剩它证明该门店「曾开通过」。漏掉就会让「设为免费」变成
- * 解除全部到期限制的绕过路径。
- */
-const PROFILE_SELECT = {
-  currentPlanId: true,
-  previousPlanId: true,
-  startsAt: true,
-  expiresAt: true,
-} as const;
-
-/**
- * 降级态缓存 key。
- *
- * 必须遵循 `profit:platform-membership:*:store:{storeId}` 这一格式 ——
- * 续费下单时会调用 invalidatePlatformMembershipDerived 按该 pattern 批量删除，
- * 从而让「续费后立即恢复」生效。若另起一套 key 前缀，续费后仍会读到旧的过期态。
- */
-const buildDowngradeStateCacheKey = (storeId: number): string =>
-  `profit:platform-membership:downgrade-state:store:${storeId}`;
-
-/**
- * 降级态缓存时长（秒）。
- *
- * 仅作为兜底：正常路径下续费会主动失效缓存。
- * 取 60 秒是为了让缓存内的 remainingDays 不会明显失真（以天为单位的展示）。
- */
-const DOWNGRADE_STATE_CACHE_TTL_SECONDS = 60;
 
 /**
  * 会员降级态服务。
@@ -146,18 +49,22 @@ const DOWNGRADE_STATE_CACHE_TTL_SECONDS = 60;
  *
  * 注意：免费版既有规则（商品/空间/员工新增配额、财务营销关闭、历史 7 天）
  * 不受此处影响，由 PlatformMembershipAccessService 单独负责。
+ *
+ * 判定所需的存储读写分别落在 `membership-downgrade.query.ts`（DB）与
+ * `membership-downgrade.store.ts`（Redis），本文件只做编排。
  */
 @Injectable()
 export class MembershipDowngradeService {
   private readonly logger = new Logger(MembershipDowngradeService.name);
 
+  private readonly clockDriftProbe: MembershipClockDriftProbe;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-  ) {}
-
-  /** 上次探测时钟漂移的时刻（进程内节流） */
-  private lastClockProbeAtMs = 0;
+  ) {
+    this.clockDriftProbe = new MembershipClockDriftProbe(prisma);
+  }
 
   /**
    * 查询门店降级态。
@@ -167,16 +74,18 @@ export class MembershipDowngradeService {
    * 续费下单时会按 pattern 主动失效，保证「续费后立即恢复」。
    */
   async getDowngradeState(storeId: number): Promise<StoreDowngradeState> {
-    const cacheKey = buildDowngradeStateCacheKey(storeId);
-
-    const cached = await this.readDowngradeStateCache(cacheKey);
+    const cached = await readDowngradeStateCache(
+      this.redisService,
+      this.logger,
+      storeId,
+    );
     if (cached) {
       return cached;
     }
 
-    await this.probeClockDrift();
+    await this.clockDriftProbe.probe(this.logger);
 
-    const profile = await this.loadProfile(storeId);
+    const profile = await loadDowngradeProfile(this.prisma, storeId);
     const level = resolveMembershipLevel(profile);
     // 与 level 同源：直接取 `expiresAt` 会在「expiresAt 缺失但按 startsAt 推导出
     // 到期时间」时给出 null，导致在途订单放行判断失效
@@ -198,59 +107,21 @@ export class MembershipDowngradeService {
       isExpired: isMembershipDowngraded(profile),
       level,
       expiredAt,
-      remainingDays: this.calcRemainingDays(expiredAt),
+      remainingDays: calcRemainingDays(expiredAt),
     };
 
-    await this.writeDowngradeStateCache(cacheKey, state);
-    return state;
-  }
-
-  /**
-   * 探测「DB 时钟 − 应用时钟」偏差。
-   *
-   * 为什么值得测：会员到期判定目前用应用时钟（`Date.now()`），而到期时间可能由
-   * DB 时钟写入的字段推导（订单 `createdAt` 走 Prisma `@default(now())`）。
-   * 两者有偏差时，判定就是在跨时钟源比较——DB 慢于应用会把到期时间算早，
-   * 门店被提前判为过期。
-   *
-   * 当前是单机 cluster 部署（同机进程共享系统时钟，进程间漂移恒为 0），
-   * 所以这只在「应用机与 DB 机时钟不一致」或将来多机部署时才可能报出来。
-   * 先把它变成可观测事实，再决定是否值得为统一时间源付出全链路改造的代价。
-   *
-   * 探测失败只告警，绝不影响本次判定。
-   */
-  private async probeClockDrift(): Promise<void> {
-    const localMs = Date.now();
-    if (localMs - this.lastClockProbeAtMs < CLOCK_DRIFT_PROBE_INTERVAL_MS) {
-      return;
-    }
-    // 先置时间戳，避免探测期间并发请求重复进入（探测本身慢，间隔要按进入时算）
-    this.lastClockProbeAtMs = localMs;
-
-    const dbNowMs = await loadDbNowMs(this.prisma);
-    if (dbNowMs === null) {
-      return;
-    }
-
-    const driftMs = dbNowMs - localMs;
-    if (Math.abs(driftMs) < CLOCK_DRIFT_WARN_THRESHOLD_MS) {
-      return;
-    }
-
-    this.logger.warn(
-      `会员到期判定的时钟源偏差超过 ${CLOCK_DRIFT_WARN_THRESHOLD_MS}ms：` +
-        `db=${dbNowMs}, app=${localMs}, drift=${driftMs}ms。` +
-        `判定与到期时间推导需统一到同一时钟源，否则同一门店可能在不同实例上判出不同结果。`,
+    await writeDowngradeStateCache(
+      this.redisService,
+      this.logger,
+      storeId,
+      state,
     );
+    return state;
   }
 
   /** 是否处于续费提醒窗口（到期前 N 天，含当天） */
   isExpiringSoon(state: StoreDowngradeState): boolean {
-    if (state.isExpired || state.expiredAt === null) {
-      return false;
-    }
-
-    return state.remainingDays <= MEMBERSHIP_EXPIRING_SOON_DAYS;
+    return isDowngradeExpiringSoon(state);
   }
 
   // ─── C 端：停新单 ────────────────────────────────────────────────────
@@ -313,9 +184,7 @@ export class MembershipDowngradeService {
       return;
     }
 
-    const activeSessions = await this.prisma.spaceSession.count({
-      where: { storeId, status: 'active' },
-    });
+    const activeSessions = await countActiveSpaceSessions(this.prisma, storeId);
 
     if (activeSessions >= MAX_ACTIVE_SPACE_SESSIONS) {
       throw buildMembershipExpiredException(SPACE_OPEN_BLOCKED_MESSAGE);
@@ -338,7 +207,11 @@ export class MembershipDowngradeService {
       return 0;
     }
 
-    const used = await this.readManualEntryCount(storeId);
+    const used = await readManualEntryCount(
+      this.redisService,
+      this.logger,
+      storeId,
+    );
     if (used >= MANUAL_ENTRY_DAILY_LIMIT) {
       throw buildMembershipExpiredException(MANUAL_ENTRY_QUOTA_MESSAGE);
     }
@@ -353,135 +226,19 @@ export class MembershipDowngradeService {
       return;
     }
 
-    // 必须用 Redis INCR 原子递增。
-    // 若改回「先 get 再 set」：并发录单时两个请求可能同时读到 3、各自写 4，
-    // 结果是实际录了 5 单而计数只有 4 —— 配额被悄悄突破且难以察觉。
-    await this.redisService.incr(
-      this.buildManualEntryKey(storeId),
-      this.ttlUntilNextDay(),
-    );
+    await incrementManualEntryCount(this.redisService, storeId);
   }
 
   /** 查询今日已手动录单数（未过期恒为 0） */
-  async getManualEntryUsage(
-    storeId: number,
-  ): Promise<{ used: number; limit: number }> {
+  async getManualEntryUsage(storeId: number): Promise<ManualEntryUsage> {
     const state = await this.getDowngradeState(storeId);
     if (!state.isExpired) {
       return { used: 0, limit: MANUAL_ENTRY_DAILY_LIMIT };
     }
 
     return {
-      used: await this.readManualEntryCount(storeId),
+      used: await readManualEntryCount(this.redisService, this.logger, storeId),
       limit: MANUAL_ENTRY_DAILY_LIMIT,
     };
-  }
-
-  // ─── 内部工具 ────────────────────────────────────────────────────────
-
-  /**
-   * 读取降级态缓存。
-   *
-   * 缓存不可用（Redis 故障 / 脏数据）时返回 null 走回源，绝不因缓存问题
-   * 影响下单判定。
-   */
-  private async readDowngradeStateCache(
-    cacheKey: string,
-  ): Promise<StoreDowngradeState | null> {
-    try {
-      const raw =
-        await this.redisService.getJson<StoreDowngradeState>(cacheKey);
-      if (!raw || typeof raw !== 'object') {
-        return null;
-      }
-
-      // 逐字段校验，避免半截数据被当成有效状态
-      if (
-        typeof raw.isExpired !== 'boolean' ||
-        typeof raw.level !== 'string' ||
-        typeof raw.remainingDays !== 'number' ||
-        (raw.expiredAt !== null && typeof raw.expiredAt !== 'number')
-      ) {
-        return null;
-      }
-
-      return raw;
-    } catch (error) {
-      this.logger.warn(
-        `读取会员降级态缓存失败，改为回源：key=${cacheKey}, ` +
-          `error=${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    }
-  }
-
-  /** 写入降级态缓存；失败仅告警，不影响调用方 */
-  private async writeDowngradeStateCache(
-    cacheKey: string,
-    state: StoreDowngradeState,
-  ): Promise<void> {
-    try {
-      await this.redisService.setJson(
-        cacheKey,
-        state,
-        DOWNGRADE_STATE_CACHE_TTL_SECONDS,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `写入会员降级态缓存失败（不影响本次判定）：key=${cacheKey}, ` +
-          `error=${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  private async readManualEntryCount(storeId: number): Promise<number> {
-    try {
-      const raw = await this.redisService.getJson<number>(
-        this.buildManualEntryKey(storeId),
-      );
-      return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
-    } catch (error) {
-      // Redis 不可用时按 0 处理（即放行）：每日限额是可事后追补的商业控制，
-      // 不应因为计数组件故障就阻断商家录单这种直接影响营业的操作。
-      // 仅告警，由监控发现后跟进。
-      this.logger.warn(
-        `读取手动录单计数失败，本次按未超限处理：storeId=${storeId}, ` +
-          `error=${error instanceof Error ? error.message : String(error)}`,
-      );
-      return 0;
-    }
-  }
-
-  /** 计数按上海时区自然日分片，次日 0 点自动失效 */
-  private buildManualEntryKey(storeId: number): string {
-    const dayStart = getShanghaiDayStartMs(Date.now());
-    return `${MANUAL_ENTRY_QUOTA_KEY_PREFIX}${storeId}:${dayStart}`;
-  }
-
-  private ttlUntilNextDay(): number {
-    const nextDayStart = getShanghaiDayStartMs(Date.now()) + DAY_MS;
-    return Math.max(1, Math.ceil((nextDayStart - Date.now()) / 1000));
-  }
-
-  private calcRemainingDays(expiredAt: number | null): number {
-    if (expiredAt === null) {
-      return 0;
-    }
-
-    return Math.max(0, Math.ceil((expiredAt - Date.now()) / DAY_MS));
-  }
-
-  private async loadProfile(
-    storeId: number,
-  ): Promise<StoreMembershipProfileSnapshot | null> {
-    const normalizedStoreId = Number(storeId);
-    if (!Number.isInteger(normalizedStoreId) || normalizedStoreId <= 0) {
-      return null;
-    }
-
-    return this.prisma.storeMembershipProfile.findUnique({
-      where: { storeId: normalizedStoreId },
-      select: PROFILE_SELECT,
-    });
   }
 }

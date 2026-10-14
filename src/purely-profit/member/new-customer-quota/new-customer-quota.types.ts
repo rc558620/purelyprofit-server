@@ -59,6 +59,52 @@ export interface ConsumeNewCustomerQuotaResult {
   remaining: number;
 }
 
+// ─── 写路径入参（.write.ts 事务体的参数，全部由 service 组装） ───────────
+
+/** 充值到账：写额度 + 充值流水 */
+export interface QuotaRechargeWriteParams {
+  storeId: number;
+  /** 充值金额（分），仅用于流水留痕 */
+  amountFen: number;
+  /** 本次到账的新客数，由金额换算而来 */
+  quotaCount: number;
+  /** 支付单号，用于与微信支付对账 */
+  orderId: string;
+}
+
+/** 会员赠送：写额度 + 赠送流水 */
+export interface QuotaGrantWriteParams {
+  storeId: number;
+  /** 会员档位，仅用于流水文案 */
+  planId: string | null;
+  /** 赠送的新客数（已含期数倍率） */
+  quotaCount: number;
+  /** 购买期数，> 1 时流水标注「×N」 */
+  periodCount: number;
+}
+
+/** 清零：写余额 0 + 清零流水 */
+export interface QuotaClearWriteParams {
+  storeId: number;
+  description: string;
+}
+
+/** 运营调额：按增量调整余额（不会低于 0）+ admin_adjust 流水 */
+export interface QuotaAdjustWriteParams {
+  storeId: number;
+  /** 增量，负数为回收 */
+  delta: number;
+  description: string;
+}
+
+/** 新客消耗：扣 1 个额度 + 写消耗留痕与流水 */
+export interface QuotaConsumeWriteParams {
+  storeId: number;
+  clubUserId: number;
+  /** 手机号快照，仅用于运营追溯；未绑定时传 null */
+  phone: string | null;
+}
+
 /** C 端额度预检结果：供 purelyClub 在下单前判断是否放行 */
 export interface NewCustomerQuotaCheckResult {
   /** 当前顾客是否为新客（全局口径：任意门店都未消耗过额度） */

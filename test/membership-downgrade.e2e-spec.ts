@@ -6,14 +6,14 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import type { AuthenticatedUser } from '../src/purely-profit/auth/strategies/jwt.strategy';
+import { MembershipDowngradeService } from '../src/purely-profit/member/platform-membership/membership-downgrade.service';
 import {
   ADDITIONAL_BLOCKED_MESSAGE,
-  MANUAL_ENTRY_DAILY_LIMIT,
   MEMBERSHIP_EXPIRED_ERROR_CODE,
-  MembershipDowngradeService,
   SCAN_ORDER_BLOCKED_MESSAGE,
   SPACE_OPEN_BLOCKED_MESSAGE,
-} from '../src/purely-profit/member/platform-membership/membership-downgrade.service';
+} from '../src/purely-profit/member/platform-membership/membership-downgrade.messages';
+import { MANUAL_ENTRY_DAILY_LIMIT } from '../src/purely-profit/member/platform-membership/membership-downgrade.constants';
 import { ClubScanOrderingCartService } from '../src/purely-club/scan-ordering/club-scan-ordering-cart.service';
 
 /**
@@ -128,14 +128,17 @@ describe('会员到期限制 (e2e, real database)', () => {
         // 按外键依赖顺序清理，任一步失败都不应中断整体清理
         const cleanups: Array<() => Promise<unknown>> = [
           () => prisma.scanOrderingSession.deleteMany({ where: { storeId } }),
-          () => prisma.scanOrderingMenuProduct.deleteMany({ where: { storeId } }),
-          () => prisma.scanOrderingMenuCategory.deleteMany({ where: { storeId } }),
+          () =>
+            prisma.scanOrderingMenuProduct.deleteMany({ where: { storeId } }),
+          () =>
+            prisma.scanOrderingMenuCategory.deleteMany({ where: { storeId } }),
           () => prisma.scanOrderingTable.deleteMany({ where: { storeId } }),
           () => prisma.product.deleteMany({ where: { storeId } }),
           () => prisma.spaceSession.deleteMany({ where: { storeId } }),
           () => prisma.space.deleteMany({ where: { storeId } }),
           () => prisma.spaceType.deleteMany({ where: { storeId } }),
-          () => prisma.storeMembershipProfile.deleteMany({ where: { storeId } }),
+          () =>
+            prisma.storeMembershipProfile.deleteMany({ where: { storeId } }),
           () => prisma.store.deleteMany({ where: { id: storeId } }),
         ];
 
@@ -171,7 +174,10 @@ describe('会员到期限制 (e2e, real database)', () => {
   ): Promise<{ storeId: number; userId: number }> {
     const suffix = nextSuffix();
     const user = await prisma.user.create({
-      data: { email: `e2e-${label}-${suffix}@test.local`, password: 'not-used' },
+      data: {
+        email: `e2e-${label}-${suffix}@test.local`,
+        password: 'not-used',
+      },
     });
     createdUserIds.push(user.id);
 
@@ -339,7 +345,10 @@ describe('会员到期限制 (e2e, real database)', () => {
   }
 
   const buildUser = (id: number): AuthenticatedUser =>
-    ({ id, phone: `1380000${String(id).padStart(4, '0')}` }) as AuthenticatedUser;
+    ({
+      id,
+      phone: `1380000${String(id).padStart(4, '0')}`,
+    }) as AuthenticatedUser;
 
   /** 捕获异常而不中断，便于断言「是否被会员过期门禁拦截」 */
   const captureError = async (fn: () => Promise<unknown>): Promise<unknown> => {
@@ -422,11 +431,15 @@ describe('会员到期限制 (e2e, real database)', () => {
     it('续费后限制立即解除（无需重启服务）', async () => {
       const { storeId } = await seedStore('renew');
       await seedMembership(storeId, 'expired', { expiredDaysAgo: 5 });
-      expect((await downgradeService.getDowngradeState(storeId)).isExpired).toBe(true);
+      expect(
+        (await downgradeService.getDowngradeState(storeId)).isExpired,
+      ).toBe(true);
 
       await seedMembership(storeId, 'active', { remainingDays: 365 });
 
-      expect((await downgradeService.getDowngradeState(storeId)).isExpired).toBe(false);
+      expect(
+        (await downgradeService.getDowngradeState(storeId)).isExpired,
+      ).toBe(false);
     });
   });
 
@@ -564,7 +577,9 @@ describe('会员到期限制 (e2e, real database)', () => {
       await downgradeService.incrementManualEntryCount(storeId);
       await downgradeService.incrementManualEntryCount(storeId);
 
-      await expect(downgradeService.assertManualEntryQuota(storeId)).resolves.toBe(2);
+      await expect(
+        downgradeService.assertManualEntryQuota(storeId),
+      ).resolves.toBe(2);
     });
 
     it('达到上限后拦截并带业务码', async () => {
@@ -590,8 +605,12 @@ describe('会员到期限制 (e2e, real database)', () => {
 
       await downgradeService.incrementManualEntryCount(storeId);
 
-      await expect(downgradeService.assertManualEntryQuota(storeId)).resolves.toBe(0);
-      await expect(downgradeService.getManualEntryUsage(storeId)).resolves.toEqual({
+      await expect(
+        downgradeService.assertManualEntryQuota(storeId),
+      ).resolves.toBe(0);
+      await expect(
+        downgradeService.getManualEntryUsage(storeId),
+      ).resolves.toEqual({
         used: 0,
         limit: MANUAL_ENTRY_DAILY_LIMIT,
       });
@@ -621,7 +640,9 @@ describe('会员到期限制 (e2e, real database)', () => {
       const { storeId } = await seedStore('space-allow');
       await seedMembership(storeId, 'expired', { expiredDaysAgo: 1 });
 
-      await expect(downgradeService.assertSpaceCanOpen(storeId)).resolves.toBeUndefined();
+      await expect(
+        downgradeService.assertSpaceCanOpen(storeId),
+      ).resolves.toBeUndefined();
     });
 
     it('已结算的会话不占用开台额度', async () => {
@@ -629,7 +650,9 @@ describe('会员到期限制 (e2e, real database)', () => {
       await seedMembership(storeId, 'expired', { expiredDaysAgo: 1 });
       await seedSpaceSession({ storeId, status: 'settled' });
 
-      await expect(downgradeService.assertSpaceCanOpen(storeId)).resolves.toBeUndefined();
+      await expect(
+        downgradeService.assertSpaceCanOpen(storeId),
+      ).resolves.toBeUndefined();
     });
 
     it('有效会员不受同时开台数限制', async () => {
@@ -637,7 +660,9 @@ describe('会员到期限制 (e2e, real database)', () => {
       await seedMembership(storeId, 'active', { remainingDays: 60 });
       await seedSpaceSession({ storeId, status: 'active' });
 
-      await expect(downgradeService.assertSpaceCanOpen(storeId)).resolves.toBeUndefined();
+      await expect(
+        downgradeService.assertSpaceCanOpen(storeId),
+      ).resolves.toBeUndefined();
     });
   });
 });

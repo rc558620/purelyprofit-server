@@ -18,10 +18,8 @@ import {
   hashSelfOrderRequest,
 } from './club-self-ordering.utils';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
-import {
-  MembershipDowngradeService,
-  SELF_ORDER_BLOCKED_MESSAGE,
-} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { SELF_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 
 /** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */

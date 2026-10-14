@@ -41,3 +41,16 @@ export const NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE = 'NEW_CUSTOMER_QUOTA_EXHAUSTED';
 /** 额度不足提示文案（与 purelyClub 前端展示保持一致） */
 export const NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE =
   '新用户额度已用完，当前无法下单，请联系商家';
+
+/** 流水默认返回条数 */
+export const DEFAULT_QUOTA_LOG_LIMIT = 20;
+
+/**
+ * 顾问锁命名空间：与同库其它 advisory lock 隔离（pg_advisory_xact_lock 的两参数版本）。
+ *
+ * 用它把「查留痕 → 扣额度 → 写记录」串行化：唯一键已收紧为账号全局唯一，
+ * 两个门店**同时**服务同一位新客时会各自扣减，后插入者撞 P2002，而 PostgreSQL
+ * 下这会让整笔建单事务 aborted（抛数据库错误而不是额度文案）。锁的键是
+ * clubUserId，不同顾客互不阻塞，且随事务提交/回滚自动释放，无需显式解锁。
+ */
+export const QUOTA_CONSUME_LOCK_NAMESPACE = 4242;

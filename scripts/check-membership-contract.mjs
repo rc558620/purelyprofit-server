@@ -40,10 +40,10 @@ const clubRoot = process.env.PURELY_CLUB_ROOT ?? resolve(serverRoot, '../purelyC
 /** 三处声明点：常量名不同（后端 ERROR_CODE，前端 CODE），但值必须一致 */
 const CONTRACT_TARGETS = [
   {
-    label: '后端 membership-downgrade.service.ts',
+    label: '后端 membership-downgrade.messages.ts',
     file: resolve(
       serverRoot,
-      'src/purely-profit/member/platform-membership/membership-downgrade.service.ts',
+      'src/purely-profit/member/platform-membership/membership-downgrade.messages.ts',
     ),
     pattern: /MEMBERSHIP_EXPIRED_ERROR_CODE\s*(?::[^=]*)?=\s*['"]([^'"]+)['"]/,
   },

@@ -1,10 +1,8 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { StaffRole, StaffStatus, StoreSubAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  MEMBERSHIP_EXPIRED_ERROR_CODE,
-  MembershipDowngradeService,
-} from '../member/platform-membership/membership-downgrade.service';
+import { MembershipDowngradeService } from '../member/platform-membership/membership-downgrade.service';
+import { MEMBERSHIP_EXPIRED_ERROR_CODE } from '../member/platform-membership/membership-downgrade.messages';
 import { AuthMembershipQueryService } from './auth-membership-query.service';
 
 /**

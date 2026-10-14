@@ -6,39 +6,40 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-} from 'node:crypto';
 import QRCode from 'qrcode';
+import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { isProductionEnvironment } from '../../../shared/qr-public-url.utils';
 import { reportScanQrBaseUrlStatus } from '../../../shared/scan-qr-base-url-status.utils';
+import {
+  buildScanOrderingQrTokenSecrets,
+  decryptScanOrderingQrToken,
+  resolveScanOrderingQrTokenKeys,
+  type ScanOrderingQrTokenKeyConfig,
+  type ScanOrderingQrTokenSecrets,
+} from '../../../shared/scan-ordering-qr-token-codec.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildScanOrderingTableQrPayload } from '../scan-qr-payload.utils';
-
-/** 桌台二维码创建结果，明文 token 仅在本次创建响应返回。 */
-export interface ScanOrderingQrCodeResponse {
-  /** 二维码记录主键。 */
-  id: number;
-  /** 桌台主键。 */
-  tableId: number;
-  /** 桌码版本。 */
-  version: number;
-  /** 仅本次响应返回的不可枚举扫码 token。 */
-  token: string;
-  /** 二维码图片 Data URL（base64 PNG），可直接用于前端<img>标签。 */
-  qrCodeImageUrl: string;
-}
+import type {
+  ScanOrderingQrCodeExportItem,
+  ScanOrderingQrCodeListItem,
+  ScanOrderingQrCodeResponse,
+} from './scan-ordering-qr.types';
 
 /** 桌台二维码服务常量。 */
 const SCAN_ORDERING_QR_CODE_SIZE = 240;
+/** 桌码列表缓存时长（秒）：列表只在轮换 / 作废后失效，读远多于写。 */
+const QR_CODE_LIST_CACHE_TTL_SECONDS = 300;
 
-/** 扫码点餐桌码管理服务。 */
+/** 新写入的桌码记录的最小投影。 */
+interface CreatedQrCodeRow {
+  id: number;
+  version: number;
+}
+
+/** 扫码点餐桌码管理服务：编排「权限校验 → 存取 → 出图」，加解密细节在 codec util。 */
 @Injectable()
 export class ScanOrderingQrService implements OnModuleInit {
   private readonly logger = new Logger(ScanOrderingQrService.name);
@@ -108,20 +109,7 @@ export class ScanOrderingQrService implements OnModuleInit {
     user: AuthenticatedUser,
     tableId: number,
   ): Promise<ScanOrderingQrCodeResponse> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      undefined,
-      'scan-ordering:table-manage',
-      '无权管理扫码点餐桌码',
-    );
-    const table = await this.prisma.scanOrderingTable.findFirst({
-      where: { id: tableId, storeId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!table) {
-      throw new NotFoundException('扫码点餐桌台不存在');
-    }
-
+    const storeId = await this.requireTableStoreId(user, tableId);
     return this.createQrCode(storeId, tableId, true);
   }
 
@@ -154,26 +142,11 @@ export class ScanOrderingQrService implements OnModuleInit {
   async listQrCodes(
     user: AuthenticatedUser,
     tableId: number,
-  ): Promise<
-    Array<{
-      id: number;
-      version: number;
-      status: string;
-      createdAt: string;
-      revokedAt: string | null;
-    }>
-  > {
+  ): Promise<ScanOrderingQrCodeListItem[]> {
     const storeId = await this.requireTableStoreId(user, tableId);
     const cacheKey = this.buildQrCodeCacheKey(storeId, tableId);
-    const cachedCodes = await this.redisService.getJson<
-      Array<{
-        id: number;
-        version: number;
-        status: string;
-        createdAt: string;
-        revokedAt: string | null;
-      }>
-    >(cacheKey);
+    const cachedCodes =
+      await this.redisService.getJson<ScanOrderingQrCodeListItem[]>(cacheKey);
     if (cachedCodes) return cachedCodes;
 
     const codes = await this.prisma.scanOrderingTableQrCode.findMany({
@@ -192,7 +165,11 @@ export class ScanOrderingQrService implements OnModuleInit {
       createdAt: code.createdAt.toISOString(),
       revokedAt: code.revokedAt?.toISOString() ?? null,
     }));
-    await this.redisService.set(cacheKey, JSON.stringify(response), 300);
+    await this.redisService.set(
+      cacheKey,
+      JSON.stringify(response),
+      QR_CODE_LIST_CACHE_TTL_SECONDS,
+    );
     return response;
   }
 
@@ -210,15 +187,9 @@ export class ScanOrderingQrService implements OnModuleInit {
     await this.invalidateQrCodeCache(storeId, tableId);
   }
 
-  async exportQrCodes(user: AuthenticatedUser): Promise<
-    Array<{
-      tableId: number;
-      tableCode: string;
-      tableName: string;
-      qrCodeVersion: number;
-      qrCodeStatus: string;
-    }>
-  > {
+  async exportQrCodes(
+    user: AuthenticatedUser,
+  ): Promise<ScanOrderingQrCodeExportItem[]> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
@@ -251,6 +222,7 @@ export class ScanOrderingQrService implements OnModuleInit {
     return this.createQrCode(storeId, tableId, false);
   }
 
+  /** 校验操作者对桌台所属门店的管理权限，并确认桌台存在。 */
   private async requireTableStoreId(
     user: AuthenticatedUser,
     tableId: number,
@@ -275,74 +247,76 @@ export class ScanOrderingQrService implements OnModuleInit {
     revokeCurrentCode: boolean,
   ): Promise<ScanOrderingQrCodeResponse> {
     const token = randomBytes(32).toString('base64url');
-    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const secrets = this.buildTokenSecrets(token);
 
-    let qrCode;
+    let qrCode: CreatedQrCodeRow;
     try {
-      qrCode = await this.prisma.$transaction(async (tx) => {
-        const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
-          where: { tableId },
-          orderBy: { version: 'desc' },
-          select: { version: true },
-        });
-        if (revokeCurrentCode) {
-          await tx.scanOrderingTableQrCode.updateMany({
-            where: { tableId, status: 'active' },
-            data: { status: 'revoked', revokedAt: new Date() },
-          });
-        }
-        const version = (latestQrCode?.version ?? 0) + 1;
-        return tx.scanOrderingTableQrCode.create({
-          data: {
-            storeId,
-            tableId,
-            tokenHash,
-            tokenCiphertext: this.encryptToken(token),
-            tokenPrefix: token.slice(0, 8),
-            version,
-          },
-          select: { id: true, version: true },
-        });
+      qrCode = await this.insertNextVersion({
+        storeId,
+        tableId,
+        secrets,
+        revokeCurrentCode,
       });
     } catch (error) {
-      // 检查是否为唯一约束冲突（如 table_id 冲突）
-      if (
-        error.message?.includes('Unique constraint') ||
-        error.code === 'P2002'
-      ) {
-        // 先手动 revoking 所有该桌台的 active 二维码
-        await this.prisma.scanOrderingTableQrCode.updateMany({
-          where: { tableId, status: 'active' },
-          data: { status: 'revoked', revokedAt: new Date() },
-        });
-
-        // 重试创建
-        qrCode = await this.prisma.$transaction(async (tx) => {
-          const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
-            where: { tableId },
-            orderBy: { version: 'desc' },
-            select: { version: true },
-          });
-          const version = (latestQrCode?.version ?? 0) + 1;
-          return tx.scanOrderingTableQrCode.create({
-            data: {
-              storeId,
-              tableId,
-              tokenHash,
-              tokenCiphertext: this.encryptToken(token),
-              tokenPrefix: token.slice(0, 8),
-              version,
-            },
-            select: { id: true, version: true },
-          });
-        });
-      } else {
-        throw error;
-      }
+      // 并发建码会撞同一版本唯一约束：先把残留的 active 桌码作废再重试一次。
+      // 这里不能让冲突冒泡成 500 —— 商家端点「轮换」失败会以为操作没生效。
+      if (!isUniqueConstraintError(error)) throw error;
+      await this.revokeActiveQrCodes(tableId);
+      qrCode = await this.insertNextVersion({
+        storeId,
+        tableId,
+        secrets,
+        revokeCurrentCode: false,
+      });
     }
 
     await this.invalidateQrCodeCache(storeId, tableId);
     return this.toQrCodeResponse(qrCode.id, tableId, qrCode.version, token);
+  }
+
+  /**
+   * 在单个事务内作废旧码（可选）并写入下一版本桌码。
+   *
+   * 作废与取版本号必须在同一事务里：否则并发轮换会算出同一个 version，
+   * 后写的一行撞唯一约束。
+   */
+  private insertNextVersion(params: {
+    storeId: number;
+    tableId: number;
+    secrets: Required<ScanOrderingQrTokenSecrets>;
+    revokeCurrentCode: boolean;
+  }): Promise<CreatedQrCodeRow> {
+    return this.prisma.$transaction(async (tx) => {
+      if (params.revokeCurrentCode) {
+        await tx.scanOrderingTableQrCode.updateMany({
+          where: { tableId: params.tableId, status: 'active' },
+          data: { status: 'revoked', revokedAt: new Date() },
+        });
+      }
+      const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
+        where: { tableId: params.tableId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      return tx.scanOrderingTableQrCode.create({
+        data: {
+          storeId: params.storeId,
+          tableId: params.tableId,
+          tokenHash: params.secrets.tokenHash,
+          tokenCiphertext: params.secrets.tokenCiphertext,
+          tokenPrefix: params.secrets.tokenPrefix,
+          version: (latestQrCode?.version ?? 0) + 1,
+        },
+        select: { id: true, version: true },
+      });
+    });
+  }
+
+  private async revokeActiveQrCodes(tableId: number): Promise<void> {
+    await this.prisma.scanOrderingTableQrCode.updateMany({
+      where: { tableId, status: 'active' },
+      data: { status: 'revoked', revokedAt: new Date() },
+    });
   }
 
   private async toQrCodeResponse(
@@ -373,18 +347,17 @@ export class ScanOrderingQrService implements OnModuleInit {
     return { id, tableId, version, token, qrCodeImageUrl };
   }
 
-  private encryptToken(token: string): string {
-    const key = this.getPrimaryEncryptionKey();
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const ciphertext = Buffer.concat([
-      cipher.update(token, 'utf8'),
-      cipher.final(),
-    ]);
-    const authTag = cipher.getAuthTag();
-    return [iv, authTag, ciphertext]
-      .map((part) => part.toString('base64url'))
-      .join('.');
+  /** 桌码必须有密文可回读（商家端要重新出图），因此缺密钥时直接失败。 */
+  private buildTokenSecrets(
+    token: string,
+  ): Required<ScanOrderingQrTokenSecrets> {
+    const secrets = this.guardCrypto(() =>
+      buildScanOrderingQrTokenSecrets(token, this.readTokenKeyConfig()),
+    );
+    if (!secrets.tokenCiphertext) {
+      throw new InternalServerErrorException('未配置桌码加密密钥');
+    }
+    return { ...secrets, tokenCiphertext: secrets.tokenCiphertext };
   }
 
   /**
@@ -394,102 +367,42 @@ export class ScanOrderingQrService implements OnModuleInit {
    * 密钥轮换后，轮换前生成的历史桌码仍能被重新下载 / 导出。
    */
   private decryptToken(ciphertext: string): string {
-    const [encodedIv, encodedAuthTag, encodedToken, ...extraParts] =
-      ciphertext.split('.');
-    if (
-      !encodedIv ||
-      !encodedAuthTag ||
-      !encodedToken ||
-      extraParts.length > 0
-    ) {
-      throw new InternalServerErrorException('桌码加密数据无效');
-    }
-
-    const iv = Buffer.from(encodedIv, 'base64url');
-    const authTag = Buffer.from(encodedAuthTag, 'base64url');
-    const encrypted = Buffer.from(encodedToken, 'base64url');
-
-    for (const key of this.resolveEncryptionKeys()) {
-      try {
-        const decipher = createDecipheriv('aes-256-gcm', key, iv);
-        decipher.setAuthTag(authTag);
-        return Buffer.concat([
-          decipher.update(encrypted),
-          decipher.final(),
-        ]).toString('utf8');
-      } catch {
-        // 该候选密钥解不开（GCM 校验失败），继续尝试下一个
-      }
-    }
-
-    throw new InternalServerErrorException(
-      '桌码加密数据无法解密：密钥可能已轮换，请检查 ' +
-        'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY / ' +
-        'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS 配置，' +
-        '或轮换桌码后重新下载',
+    const token = this.guardCrypto(() =>
+      decryptScanOrderingQrToken(
+        ciphertext,
+        resolveScanOrderingQrTokenKeys(this.readTokenKeyConfig()),
+      ),
     );
-  }
-
-  /** 加密用的主密钥：优先显式配置的当前密钥，缺失时回退派生密钥。 */
-  private getPrimaryEncryptionKey(): Buffer {
-    const [primary] = this.resolveEncryptionKeys();
-    return primary;
-  }
-
-  /**
-   * 解密候选密钥（按优先级，已去重）：
-   * 当前显式密钥 → 上一代显式密钥 → JWT_SECRET 派生密钥。
-   */
-  private resolveEncryptionKeys(): Buffer[] {
-    const current = this.readExplicitKey('scanOrdering.qrTokenEncryptionKey');
-    const previous = this.readExplicitKey(
-      'scanOrdering.qrTokenEncryptionKeyPrevious',
-    );
-    const derived = this.deriveKeyFromJwtSecret();
-
-    const candidates = [current, previous, derived].filter(
-      (key): key is Buffer => key !== null,
-    );
-    if (candidates.length === 0) {
-      throw new InternalServerErrorException('未配置桌码加密密钥');
-    }
-
-    const unique = new Map<string, Buffer>();
-    for (const key of candidates) {
-      unique.set(key.toString('hex'), key);
-    }
-    return [...unique.values()];
-  }
-
-  /** 读取显式配置的密钥；未配置返回 null，长度非法直接抛错。 */
-  private readExplicitKey(configPath: string): Buffer | null {
-    const encodedKey = this.configService.get<string>(configPath);
-    if (!encodedKey) {
-      return null;
-    }
-    const key = Buffer.from(encodedKey, 'base64');
-    if (key.length !== 32) {
+    if (!token) {
       throw new InternalServerErrorException(
-        '桌码加密密钥必须为 32 字节 Base64 值',
+        '桌码加密数据无法解密：密钥可能已轮换，请检查 ' +
+          'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY / ' +
+          'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS 配置，' +
+          '或轮换桌码后重新下载',
       );
     }
-    return key;
+    return token;
   }
 
-  /**
-   * 由 JWT_SECRET 派生的兜底密钥。
-   *
-   * 仅为兼容「从未显式配置过密钥」的历史部署保留：JWT_SECRET 一旦轮换，
-   * 这些密文就再也解不开，因此生产环境必须显式配置独立密钥。
-   */
-  private deriveKeyFromJwtSecret(): Buffer | null {
-    const jwtSecret = this.configService.get<string>('jwt.secret');
-    if (!jwtSecret) {
-      return null;
+  /** codec util 抛的是纯 Error，这里统一转成 500 并保留原提示文案。 */
+  private guardCrypto<T>(run: () => T): T {
+    try {
+      return run();
+    } catch (error) {
+      throw new InternalServerErrorException((error as Error).message);
     }
-    return createHash('sha256')
-      .update(`scan-ordering-qr-token:${jwtSecret}`)
-      .digest();
+  }
+
+  private readTokenKeyConfig(): ScanOrderingQrTokenKeyConfig {
+    return {
+      current: this.configService.get<string>(
+        'scanOrdering.qrTokenEncryptionKey',
+      ),
+      previous: this.configService.get<string>(
+        'scanOrdering.qrTokenEncryptionKeyPrevious',
+      ),
+      jwtSecret: this.configService.get<string>('jwt.secret'),
+    };
   }
 
   private buildQrCodeCacheKey(storeId: number, tableId: number): string {
@@ -502,4 +415,13 @@ export class ScanOrderingQrService implements OnModuleInit {
   ): Promise<void> {
     await this.redisService.del(this.buildQrCodeCacheKey(storeId, tableId));
   }
+}
+
+/** 判断是否命中唯一约束冲突（并发轮换 / 补码会撞同一版本行）。 */
+function isUniqueConstraintError(error: unknown): boolean {
+  const { message, code } = (error ?? {}) as {
+    message?: string;
+    code?: string;
+  };
+  return Boolean(message?.includes('Unique constraint') || code === 'P2002');
 }

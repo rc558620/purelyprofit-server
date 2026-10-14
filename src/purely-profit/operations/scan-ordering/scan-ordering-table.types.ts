@@ -1,4 +1,4 @@
-import type { ScanOrderingQrCodeResponse } from './scan-ordering-qr.service';
+import type { ScanOrderingQrCodeResponse } from './scan-ordering-qr.types';
 
 /** 手工录入单轮次状态：清桌会话判定与前端 loadManualEntryOrders 口径一致
  * （含已完成，否则全部完结的手工单桌台会被误判为无轮次而无法清桌）。 */

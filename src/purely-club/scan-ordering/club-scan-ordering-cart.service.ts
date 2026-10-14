@@ -8,10 +8,8 @@ import {
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import {
-  MembershipDowngradeService,
-  SCAN_ORDER_BLOCKED_MESSAGE,
-} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { SCAN_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { computeCartVersion } from './club-scan-ordering-cart-pricing.utils';
 import type {
   AddClubScanCartItemDto,

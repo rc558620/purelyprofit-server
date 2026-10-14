@@ -7,10 +7,8 @@ import { buildOrderNo } from './club-order-drafts.utils';
 import { resolvePointsDeduction } from './club-order-points.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
-import {
-  MembershipDowngradeService,
-  MEMBER_ZONE_ORDER_BLOCKED_MESSAGE,
-} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { MEMBER_ZONE_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import type {
   ClubServiceOrderResponseDto,
