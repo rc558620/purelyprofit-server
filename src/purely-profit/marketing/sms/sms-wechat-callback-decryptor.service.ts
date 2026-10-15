@@ -1,0 +1,148 @@
+/**
+ * SmsWechatCallbackDecryptorService
+ *
+ * 短信充值回调的 v3 报文解密。
+ *
+ * 与 club 解密器（`ClubWechatCallbackDecryptorService`）的本质区别：
+ * club 收款是**每个门店各自的商户号**（apiV3Key 存在 `stores_wechat_pay` 表，
+ * 解密时遍历所有门店密钥逐个试）；短信充值是**商家付钱给平台**，走平台商户号，
+ * 其 APIv3Key 来自环境变量 `WECHAT_PAY_API_V3_KEY`——不在门店表里，
+ * 套用 club 解密器会永远解不开（密钥列表里根本没有它）。
+ *
+ * 算法：AEAD_AES_256_GCM
+ *   - 密钥：平台 APIv3Key（32 字节 ASCII）
+ *   - IV：resource.nonce（12 字节）
+ *   - AAD：resource.associated_data（可选）
+ *   - 密文：resource.ciphertext（Base64，末尾 16 字节为 GCM Tag）
+ */
+import { createDecipheriv } from 'node:crypto';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { WechatDecryptedTransaction } from '../../../purely-club/payments/dto/club-wechat-callback.dto';
+import type { SmsWechatCallbackDto } from './dto/sms.dto';
+
+interface SmsWechatCallbackResource {
+  algorithm: string;
+  ciphertext: string;
+  nonce: string;
+  associated_data?: string;
+}
+
+/** GCM Tag 固定 16 字节 */
+const GCM_TAG_LENGTH = 16;
+
+@Injectable()
+export class SmsWechatCallbackDecryptorService {
+  private readonly logger = new Logger(SmsWechatCallbackDecryptorService.name);
+
+  constructor(private readonly configService: ConfigService) {}
+
+  /**
+   * 解密回调报文中的 resource.ciphertext，返回交易详情。
+   *
+   * 单一平台密钥，无需遍历试解：解不开就说明密钥配错或报文被篡改，
+   * 直接拒绝（微信会重试投递，不会丢单）。
+   */
+  decryptCallback(
+    payload: Pick<SmsWechatCallbackDto, 'resource'>,
+  ): WechatDecryptedTransaction {
+    const resource: SmsWechatCallbackResource = payload.resource;
+
+    if (resource.algorithm !== 'AEAD_AES_256_GCM') {
+      throw new UnauthorizedException(
+        `不支持的回调加密算法: ${resource.algorithm}`,
+      );
+    }
+
+    const apiV3Key = this.getPlatformApiV3Key();
+    const decrypted = this.tryDecrypt(
+      resource.ciphertext,
+      resource.nonce,
+      resource.associated_data ?? '',
+      apiV3Key,
+    );
+
+    if (!decrypted) {
+      this.logger.warn(
+        '平台 APIv3Key 无法解密短信充值回调报文，可能是密钥配置错误或报文被篡改',
+      );
+      throw new UnauthorizedException(
+        '短信充值回调解密失败，平台密钥不匹配或报文已损坏',
+      );
+    }
+
+    return decrypted;
+  }
+
+  // ─── 私有方法 ──────────────────────────────────────────────────────────────
+
+  private getPlatformApiV3Key(): string {
+    const key = this.configService.get<string>('wechat.payApiV3Key')?.trim();
+    if (!key) {
+      // 平台配置缺失属于部署事故：商家无法自查，直接拒绝并留明确日志
+      this.logger.error(
+        'WECHAT_PAY_API_V3_KEY 未配置，短信充值回调无法解密，请检查平台微信支付配置',
+      );
+      throw new UnauthorizedException(
+        '平台微信收款未配置，无法处理短信充值回调，请联系平台管理员',
+      );
+    }
+    return key;
+  }
+
+  /**
+   * 尝试用平台 APIv3Key 解密密文。
+   * 解密失败（密钥错误 / GCM 认证失败）时返回 null，不抛出异常。
+   */
+  private tryDecrypt(
+    ciphertextBase64: string,
+    nonce: string,
+    associatedData: string,
+    apiV3Key: string,
+  ): WechatDecryptedTransaction | null {
+    try {
+      const ciphertextBuf = Buffer.from(ciphertextBase64, 'base64');
+      if (ciphertextBuf.length <= GCM_TAG_LENGTH) {
+        return null;
+      }
+
+      const ciphertext = ciphertextBuf.subarray(
+        0,
+        ciphertextBuf.length - GCM_TAG_LENGTH,
+      );
+      const authTag = ciphertextBuf.subarray(
+        ciphertextBuf.length - GCM_TAG_LENGTH,
+      );
+
+      // APIv3Key 直接作为 32 字节 AES 密钥（UTF-8 编码）
+      const keyBuf = Buffer.from(apiV3Key, 'utf8');
+      if (keyBuf.length !== 32) {
+        this.logger.error(
+          `平台 APIv3Key 长度非法（${keyBuf.length} 字节，应为 32），请检查 WECHAT_PAY_API_V3_KEY`,
+        );
+        return null;
+      }
+
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        keyBuf,
+        Buffer.from(nonce, 'utf8'),
+      );
+      decipher.setAuthTag(authTag);
+      decipher.setAAD(Buffer.from(associatedData, 'utf8'));
+
+      const plaintext = Buffer.concat([
+        decipher.update(ciphertext),
+        decipher.final(),
+      ]).toString('utf8');
+
+      return JSON.parse(plaintext) as WechatDecryptedTransaction;
+    } catch (error: unknown) {
+      // 密钥不对或 GCM 认证失败，返回 null
+      this.logger.warn(
+        `短信充值回调 AES-GCM 解密失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+}

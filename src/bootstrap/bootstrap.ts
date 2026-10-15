@@ -54,16 +54,21 @@ function resolveCorsOrigin(corsOrigin: string): true | string[] {
  * 在 body 被 content type parser 解析之前，拦截原始数据流并缓存到 request.rawBody，
  * 同时将数据透传给后续的 parser，确保微信签名校验使用的 rawBody 与 HTTP 原始请求体完全一致。
  *
- * 仅当路由 path 以 /club/payments/wechat/callback 结尾时注入。
+ * 命中的路由：
+ *  - /club/payments/wechat/callback — purelyClub C 端订单回调
+ *  - /marketing/sms/wechat/callback — B 端短信钱包充值回调（独立路由，不复用上面那条）
  */
 function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
-  const WECHAT_CALLBACK_PATH = '/club/payments/wechat/callback';
+  const WECHAT_CALLBACK_PATHS = [
+    '/club/payments/wechat/callback',
+    '/marketing/sms/wechat/callback',
+  ];
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
   fastifyInstance.addHook('onRoute', (routeOptions) => {
     const routePath = routeOptions.path ?? '';
     if (
-      routePath.endsWith(WECHAT_CALLBACK_PATH) &&
+      WECHAT_CALLBACK_PATHS.some((path) => routePath.endsWith(path)) &&
       (routeOptions.method === 'POST' ||
         (Array.isArray(routeOptions.method) &&
           routeOptions.method.includes('POST')))

@@ -168,11 +168,22 @@ export interface MarketingResolvedPagination {
   take: number;
 }
 
+/**
+ * 营销域列表分页的单次最大条数（上限钳制，非默认页大小）。
+ *
+ * 由 100 放宽到 200，用于支撑群发短信的收件人选择：腾讯云短信 SendSms 接口
+ * 单次请求最多提交 200 个手机号，收件人页需要「一页 = 单次发送上限」的语义。
+ *
+ * 注意该值只做上限钳制：现有传 20 / 100 的调用方行为不变，仅主动传更大值的
+ * 调用方受益。调整前请确认 DB 侧排序索引能承受单次 200 行的取数。
+ */
+export const MARKETING_MAX_PAGE_SIZE = 200;
+
 export function resolveMarketingPagination(
   page: number | undefined,
   pageSize: number | undefined,
   defaultPageSize = 20,
-  maxPageSize = 100,
+  maxPageSize = MARKETING_MAX_PAGE_SIZE,
 ): MarketingResolvedPagination {
   const safePage = page && page > 0 ? page : 1;
   const safeSize = pageSize && pageSize > 0 ? pageSize : defaultPageSize;

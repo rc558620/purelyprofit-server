@@ -34,6 +34,10 @@ export class QueueSchedulerService implements OnModuleInit {
     private readonly retentionCleanupQueue: Queue<RetentionCleanupJobData>,
     @InjectQueue('sale-order-items-archive')
     private readonly saleOrderItemsArchiveQueue: Queue<SaleOrderItemsArchiveJobData>,
+    @InjectQueue('sms-broadcast-recovery')
+    private readonly smsBroadcastRecoveryQueue: Queue<void>,
+    @InjectQueue('sms-delivery-reconcile')
+    private readonly smsDeliveryReconcileQueue: Queue<void>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -42,6 +46,8 @@ export class QueueSchedulerService implements OnModuleInit {
     await this.registerScanOrderingSessionArchiveJob();
     await this.registerRetentionCleanupJobs();
     await this.registerSaleOrderItemsArchiveJob();
+    await this.registerSmsBroadcastRecoveryJob();
+    await this.registerSmsDeliveryReconcileJob();
   }
 
   /**
@@ -180,21 +186,17 @@ export class QueueSchedulerService implements OnModuleInit {
    */
   private async registerSaleOrderItemsArchiveJob(): Promise<void> {
     const enabled =
-      this.configService.get<boolean>(
-        'app.archiveSaleOrderItemsEnabled',
-      ) ?? true;
+      this.configService.get<boolean>('app.archiveSaleOrderItemsEnabled') ??
+      true;
 
     if (!enabled) {
-      this.logger.log(
-        '[queue-scheduler] sale-order-items-archive disabled',
-      );
+      this.logger.log('[queue-scheduler] sale-order-items-archive disabled');
       return;
     }
 
     const intervalMs =
-      this.configService.get<number>(
-        'app.archiveSaleOrderItemsIntervalMs',
-      ) ?? 86_400_000;
+      this.configService.get<number>('app.archiveSaleOrderItemsIntervalMs') ??
+      86_400_000;
 
     await this.saleOrderItemsArchiveQueue.add(
       'archive',
@@ -206,6 +208,62 @@ export class QueueSchedulerService implements OnModuleInit {
     );
     this.logger.log(
       `[queue-scheduler] sale-order-items-archive registered intervalMs=${intervalMs}`,
+    );
+  }
+
+  /**
+   * 注册群发短信派发补偿定时任务
+   *
+   * 群发是「先扣费后派发」，派发在事务之外执行，进程崩溃会让任务卡在
+   * `sending`（钱扣了、短信没发、没有终态）。这个任务负责把它们捞出来补发
+   * 或判死，周期取 60s：与「卡死判定阈值」同量级，保证事故在 1~2 分钟内自愈。
+   */
+  private async registerSmsBroadcastRecoveryJob(): Promise<void> {
+    const intervalMs =
+      this.configService.get<number>('app.smsBroadcastRecoveryIntervalMs') ??
+      60_000;
+
+    await this.smsBroadcastRecoveryQueue.add('scan', undefined, {
+      repeat: { every: intervalMs },
+      jobId: 'sms-broadcast-recovery-scan', // 固定 jobId，防止重复注册
+    });
+
+    this.logger.log(
+      `[queue-scheduler] sms-broadcast-recovery registered intervalMs=${intervalMs}`,
+    );
+  }
+
+  /**
+   * 注册送达回执兜底定时任务（天级）
+   *
+   * 腾讯云回执推送可能丢失，丢了那条短信就永远不知道送达没有、
+   * 该退的钱也退不回去。这里每天主动向通道拉一次缺失的回执。
+   *
+   * 周期 24h：回执兜底本身有 72 小时等待窗口（不急），且要省着用通道配额。
+   * 出问题可通过 `app.smsDeliveryReconcileEnabled=false` 单独关停，
+   * 不影响群发主链路与分钟级的派发补偿。
+   */
+  private async registerSmsDeliveryReconcileJob(): Promise<void> {
+    const enabled =
+      this.configService.get<boolean>('app.smsDeliveryReconcileEnabled') ??
+      true;
+
+    if (!enabled) {
+      this.logger.log('[queue-scheduler] sms-delivery-reconcile disabled');
+      return;
+    }
+
+    const intervalMs =
+      this.configService.get<number>('app.smsDeliveryReconcileIntervalMs') ??
+      86_400_000;
+
+    await this.smsDeliveryReconcileQueue.add('reconcile', undefined, {
+      repeat: { every: intervalMs },
+      jobId: 'sms-delivery-reconcile-cycle',
+    });
+
+    this.logger.log(
+      `[queue-scheduler] sms-delivery-reconcile registered intervalMs=${intervalMs}`,
     );
   }
 }

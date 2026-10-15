@@ -97,6 +97,11 @@ import { MarketingSharedService } from './marketing-shared.service';
     ClubMemberProfileService,
     ClubMemberLevelsService,
   ],
-  exports: [MarketingOverviewService, MarketingConsumptionLinkService],
+  exports: [
+    MarketingOverviewService,
+    MarketingConsumptionLinkService,
+    // 群发短信模块复用门店解析逻辑（前端不传 storeId）
+    MarketingSharedService,
+  ],
 })
 export class MarketingModule {}

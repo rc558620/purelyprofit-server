@@ -77,5 +77,8 @@ import { PulseMembershipService } from './membership.service';
     PulseMembershipAdminMutationService,
     PulseMembershipAdminService,
   ],
+  // 导出访问判定服务：Pulse 其它模块（如群发短信）复用同一套门店可见性口径，
+  // 避免各处自行实现「开发者看全部 / 非开发者只看自己」而出现权限漂移。
+  exports: [PulseMembershipAccessService],
 })
 export class PulseMembershipModule {}

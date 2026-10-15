@@ -13,8 +13,11 @@ import { RetentionCleanupProcessor } from './retention-cleanup.processor';
 import { RetentionCleanupService } from './retention-cleanup.service';
 import { SaleOrderItemsArchiveProcessor } from './sale-order-items-archive.processor';
 import { SaleOrderItemsArchiveService } from './sale-order-items-archive.service';
+import { SmsBroadcastRecoveryProcessor } from './sms-broadcast-recovery.processor';
+import { SmsDeliveryReconcileProcessor } from './sms-delivery-reconcile.processor';
 import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
 
 /**
  * 消息队列模块
@@ -31,6 +34,8 @@ import { PrismaModule } from '../prisma/prisma.module';
  * - `retention-cleanup`：定时清理无界增长表（idempotency 每 6h / audit_logs 每 24h）
  * - `sale-order-items-archive`：定时归档 sale_order_items 冷数据到归档表（每 24h）
  * - `club-payment-callback`：异步处理微信支付成功回调
+ * - `sms-broadcast-recovery`：定时补发卡在 sending 的群发短信任务（每 60s）
+ * - `sms-delivery-reconcile`：定时补拉丢失的送达回执并退费（每 24h）
  */
 @Global()
 @Module({
@@ -77,12 +82,19 @@ import { PrismaModule } from '../prisma/prisma.module';
       {
         name: 'sale-order-items-archive',
       },
+      {
+        name: 'sms-broadcast-recovery',
+      },
+      {
+        name: 'sms-delivery-reconcile',
+      },
     ),
     ClubPaymentCallbackQueueModule,
     RedisModule, // 提供 CachePrewarmCycleService
     SpacesModule, // 提供 SpaceSessionAutoCheckoutService
     ScanOrderingModule,
     PrismaModule, // 提供 PrismaService（RetentionCleanupService / SaleOrderItemsArchiveService 依赖）
+    SmsModule, // 提供 SmsBroadcastRecoveryService（群发派发补偿）
   ],
   providers: [
     CachePrewarmProcessor,
@@ -92,6 +104,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     RetentionCleanupService,
     SaleOrderItemsArchiveProcessor,
     SaleOrderItemsArchiveService,
+    SmsBroadcastRecoveryProcessor,
+    SmsDeliveryReconcileProcessor,
     QueueSchedulerService,
   ],
   exports: [],

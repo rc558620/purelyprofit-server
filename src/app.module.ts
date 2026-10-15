@@ -26,6 +26,7 @@ import { CustodyModule } from './purely-profit/operations/custody/custody.module
 import { FinanceModule } from './purely-profit/finance/finance.module';
 import { InventoryModule } from './purely-profit/goods/inventory/inventory.module';
 import { MarketingModule } from './purely-profit/marketing/marketing.module';
+import { SmsModule } from './purely-profit/marketing/sms/sms.module';
 import { ProductsModule } from './purely-profit/goods/products/products.module';
 import { PurchasesModule } from './purely-profit/operations/purchases/purchases.module';
 import { SuppliersModule } from './purely-profit/operations/suppliers/suppliers.module';
@@ -42,6 +43,7 @@ import { CommissionModule } from './purely-profit/operations/commission/commissi
 import { PulseSessionModule } from './purely-pulse/session/session.module';
 import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.module';
 import { PulseMembershipModule } from './purely-pulse/membership/membership.module';
+import { PulseSmsModule } from './purely-pulse/marketing/sms/pulse-sms.module';
 import { PulseMembershipSettingsModule } from './purely-pulse/membership-settings/membership-settings.module';
 import { PulseDashboardModule } from './purely-pulse/dashboard/dashboard.module';
 import { BusinessEventsModule } from './purely-profit/business-events/business-events.module';
@@ -124,6 +126,7 @@ import { UploadModule } from './shared/upload.module';
     ProductsModule,
     SuppliersModule,
     PurchasesModule,
+    SmsModule,
     InventoryModule,
     ProfitDetailModule,
     SalesRecordModule,
@@ -140,6 +143,7 @@ import { UploadModule } from './shared/upload.module';
     PulseSessionModule,
     PulseOnboardingModule,
     PulseMembershipModule,
+    PulseSmsModule,
     PulseMembershipSettingsModule,
     PulseDashboardModule,
     PulseGrowthModule,

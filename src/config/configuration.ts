@@ -559,6 +559,22 @@ export default () => ({
      */
     platformPublicKeyContent:
       process.env.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT ?? '',
+
+    /**
+     * **平台收款商户号**（商家向平台付费的场景：短信钱包充值等）。
+     *
+     * ⚠️ 与门店微信收款（stores_wechat_pay，C 端顾客付钱给商家）是两条
+     * 完全独立的资金流，严禁混用：短信充值下单用这里的商户号，
+     * 回调也用这里的 APIv3Key 解密。
+     * 对应环境变量：WECHAT_PAY_MCH_ID
+     */
+    payMchId: process.env.WECHAT_PAY_MCH_ID ?? '',
+
+    /**
+     * 平台收款商户号的 APIv3 密钥（32 字节），用于解密短信充值回调报文。
+     * 对应环境变量：WECHAT_PAY_API_V3_KEY
+     */
+    payApiV3Key: process.env.WECHAT_PAY_API_V3_KEY ?? '',
   },
 
   /**
@@ -582,6 +598,96 @@ export default () => ({
     /** 找回密码验证码模板 ID */
     passwordResetTemplateId:
       process.env.TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID ?? '',
+    /**
+     * 营销类短信模板 ID（群发专用）。
+     *
+     * ⚠️ 必须与上面三个验证码模板区分：腾讯云对验证码模板有严格限流且
+     * **不允许群发**，用验证码模板走群发会被通道直接拒绝。
+     * 对应环境变量：TENCENT_SMS_MARKETING_TEMPLATE_ID
+     */
+    marketingTemplateId: process.env.TENCENT_SMS_MARKETING_TEMPLATE_ID ?? '',
+  },
+
+  /**
+   * 群发短信（营销中心 → 短信钱包）配置。
+   *
+   * 全部走配置而非硬编码：单价、告警阈值、充值档位都属于运营口径，
+   * 改动不应触发发版。未配置时回落到 sms.constants.ts 的兜底值。
+   */
+  sms: {
+    /** 短信单价（分/条），对应 SMS_UNIT_PRICE_FEN */
+    unitPriceFen: parseInt(process.env.SMS_UNIT_PRICE_FEN ?? '5', 10),
+    /** 余额告警阈值（分），对应 SMS_WARNING_THRESHOLD_FEN */
+    warningThresholdFen: parseInt(
+      process.env.SMS_WARNING_THRESHOLD_FEN ?? '500',
+      10,
+    ),
+    /**
+     * 充值档位（分，英文逗号分隔）。**不含任何赠送**——赠送由 purelyPulse
+     * 侧发放并计入 grant 流水，档位里没有 bonus 字段。
+     * 对应环境变量：SMS_RECHARGE_TIERS_FEN
+     */
+    rechargeTiersFen: (
+      process.env.SMS_RECHARGE_TIERS_FEN ?? '1000,5000,10000,30000,50000'
+    )
+      .split(',')
+      .map((value) => parseInt(value.trim(), 10))
+      .filter((value) => Number.isFinite(value) && value > 0),
+    /** 单条短信字数上限（超出按长短信拆分） */
+    segmentSingleLimit: parseInt(
+      process.env.SMS_SEGMENT_SINGLE_LIMIT ?? '70',
+      10,
+    ),
+    /** 长短信每段字数上限 */
+    segmentLongLimit: parseInt(process.env.SMS_SEGMENT_LONG_LIMIT ?? '67', 10),
+    /**
+     * 微信 Native 支付回调地址（短信钱包专用）。
+     * ⚠️ 不能复用 WECHAT_PAY_NOTIFY_URL：那是 purelyClub C 端订单回调，
+     * 走的是另一套上下文与落账逻辑。
+     */
+    wechatPayNotifyUrl: process.env.SMS_WECHAT_PAY_NOTIFY_URL ?? '',
+    /**
+     * 本地直充开关：true 时 `POST /marketing/sms/recharge-orders` 跳过微信
+     * 下单，直接入账，用于微信 Native 开通前把前后端流程跑通。
+     * 对应环境变量：SMS_RECHARGE_DIRECT_CREDIT（只认字符串 'true'）
+     */
+    directCredit: process.env.SMS_RECHARGE_DIRECT_CREDIT === 'true',
+    /**
+     * 腾讯云**送达状态回执**的校验口令。
+     *
+     * 回执是公网 HTTP 推送、且腾讯侧没有请求签名，防护只能靠：
+     * 1. 不易猜的回调路径（见 SMS_DELIVERY_CALLBACK_PATH）；
+     * 2. 这里的可选口令——配置了就要求请求带上，带了必须对得上。
+     *
+     * 校验位置：`X-Sms-Delivery-Token` 请求头或 query `token`。
+     * 不配置时不做口令校验（字段匹配不到就没人动钱，退费链路天然无害）。
+     * 对应环境变量：SMS_DELIVERY_CALLBACK_TOKEN
+     */
+    deliveryCallbackToken: process.env.SMS_DELIVERY_CALLBACK_TOKEN ?? '',
+    /**
+     * 短信计费字数统计口径：`utf16`（默认）| `codepoint`。
+     *
+     * 默认 `utf16`：腾讯云按 UCS-2 计费，用它才能做到「商户消耗多少付多少」。
+     * 之前用 codepoint 会让含 emoji 的正文少算段数、少收钱，差额由平台承担。
+     * 保留 `codepoint` 仅用于回滚。
+     *
+     * ⚠️ 切换会改变含 emoji 短信的扣费金额。询价会把口径固化进快照，
+     * 因此切换过程中不会出现「询价与扣款不一致」。
+     * 对应环境变量：SMS_SEGMENT_COUNT_MODE
+     */
+    segmentCountMode:
+      process.env.SMS_SEGMENT_COUNT_MODE === 'codepoint'
+        ? 'codepoint'
+        : 'utf16',
+    /**
+     * 平台短信**采购成本**（分/条）。用于毛利监控：
+     * 配置后，若售价 `unitPriceFen` 不高于它，每次群发都会打 ERROR 告警
+     * （那意味着每发一条都在亏，与退费策略无关）。
+     *
+     * 未配置（0）时不告警。**填上真实采购价才能发现倒挂。**
+     * 对应环境变量：SMS_COST_PRICE_FEN
+     */
+    costPriceFen: parseInt(process.env.SMS_COST_PRICE_FEN ?? '0', 10),
   },
 
   /**

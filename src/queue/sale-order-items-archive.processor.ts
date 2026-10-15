@@ -26,9 +26,7 @@ export interface SaleOrderItemsArchiveJobData {
 export class SaleOrderItemsArchiveProcessor extends WorkerHost {
   private readonly logger = new Logger(SaleOrderItemsArchiveProcessor.name);
 
-  constructor(
-    private readonly archiveService: SaleOrderItemsArchiveService,
-  ) {
+  constructor(private readonly archiveService: SaleOrderItemsArchiveService) {
     super();
   }
 

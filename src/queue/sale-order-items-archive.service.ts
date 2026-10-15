@@ -40,8 +40,9 @@ export class SaleOrderItemsArchiveService {
    */
   async archiveColdRecords(): Promise<number> {
     const retentionDays =
-      this.configService.get<number>('app.archiveSaleOrderItemsRetentionDays') ??
-      180;
+      this.configService.get<number>(
+        'app.archiveSaleOrderItemsRetentionDays',
+      ) ?? 180;
     const batchSize =
       this.configService.get<number>('app.archiveSaleOrderItemsBatchSize') ??
       5000;
