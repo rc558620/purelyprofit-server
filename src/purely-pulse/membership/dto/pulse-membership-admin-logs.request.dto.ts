@@ -75,6 +75,23 @@ export class GetPulseAdminMemberLogsQueryDto {
   beanTab?: (typeof PULSE_ADMIN_MEMBER_BEAN_TAB_VALUES)[number];
 
   @ApiPropertyOptional({
+    example: 18,
+    description:
+      '按单个合伙人（门店）过滤：传入门店 ID 后只返回该合伙人的流水，' +
+      '供 purelyPulse partnerBeans 页从余额一览点击进入单合伙人变动记录使用；' +
+      'points/logs 与 beans/logs 均生效',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : Number(value),
+  )
+  @IsInt({ message: 'storeId 必须是整数' })
+  @Min(1, { message: 'storeId 必须大于等于 1' })
+  storeId?: number;
+
+  @ApiPropertyOptional({
     example: '张三',
     description:
       '关键词：模糊匹配流水说明、门店名、门店联系电话、会员姓名与手机号；' +

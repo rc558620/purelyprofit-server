@@ -177,6 +177,12 @@ export class PulseMembershipAdminLogsQueryService {
       andConditions.push({ OR: buildBeanKeywordConditions(query.keyword) });
     }
 
+    // 单合伙人（门店）过滤：与权限范围 storeId: { in: storeIds } 取交集，
+    // 传了无权门店的 ID 只会得到空结果，不会越权
+    if (query.storeId !== undefined) {
+      andConditions.push({ storeId: query.storeId });
+    }
+
     if (cursor) {
       andConditions.push(buildCursorWhere(cursor));
     }
@@ -207,6 +213,11 @@ export class PulseMembershipAdminLogsQueryService {
 
     if (query.keyword) {
       andConditions.push({ OR: buildPointsKeywordConditions(query.keyword) });
+    }
+
+    // 与纯利豆同口径：单合伙人（门店）过滤在积分流水里同样生效
+    if (query.storeId !== undefined) {
+      andConditions.push({ storeId: query.storeId });
     }
 
     if (cursor) {
