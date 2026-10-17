@@ -5,8 +5,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HandoverMode, HandoverStatus } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+} from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
@@ -20,23 +23,23 @@ import type {
   HandoverRecordSummaryQueryDto,
 } from './dto/handover-records.dto';
 import { HandoverRecordsQueryService } from './handover-records-query.service';
+import type { ShiftRecordRow } from './handover.types';
 import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
   buildShiftDateRange,
+  buildShiftGraceEndAt,
   ensureMembershipContext,
   ensureMembershipStoreId,
   isManagerMembership,
   mapRecordToDto,
   normalizeOptionalText,
   normalizeRequiredText,
+  toDisplayName,
 } from './handover.shared';
 
-/**
- * 交班宽限小时数：与 handover-confirm-shift.service.ts 的 HANDOVER_SHIFT_GRACE_HOURS 对齐。
- * 班次结束后该时间窗口内的交班记录仍视为合法，用于时间窗口查重上界。
- */
-const HANDOVER_SHIFT_GRACE_HOURS = 4;
+/** 完成/取消交班记录时用于定位所属班次的回溯条数上限 */
+const OWNED_SHIFT_LOOKUP_TAKE = 30;
 
 @Injectable()
 export class HandoverRecordsService {
@@ -114,89 +117,146 @@ export class HandoverRecordsService {
       throw new ForbiddenException('只有发起人或主账号/管理员可以确认完成交班');
     }
 
-    // B4 fix：重复交班拦截 —— 仅拦截同一班次的重复交班，
-    // 不再按"当天任意已完成记录"拦截（多班次场景下会误拦其它班次的交班）。
-    // 策略：优先用 employeeShiftIdSnapshot 精确匹配（confirm 路径总是写入快照），
-    // 时间窗口作为 null-snapshot 记录的降级（上界放宽到 endAt + grace，
-    // 因为规则 5 要求 handoverAt > endAt，合法交班必然落在 endAt 之后）。
-    if (record.fromEmployeeId && record.createdAt) {
-      // 1. 定位 pending 记录所属班次：以 createdAt 为时间基准，找到当时正在进行的班次
-      const employeeShifts = await this.prisma.employeeShift.findMany({
-        where: {
-          storeId,
-          employeeId: record.fromEmployeeId,
-          date: { lte: record.createdAt },
-        },
-        select: {
-          id: true,
-          startTime: true,
-          endTime: true,
-          date: true,
-        },
-        orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
-        take: 30,
-      });
+    // 定位班次、查重与状态变更必须在同一事务内完成，
+    // 否则并发 complete / complete+cancel 会出现 TOCTOU 双写（后写覆盖先写）。
+    const completedAt = new Date();
+    const note =
+      normalizeOptionalText(dto.note, HANDOVER_NOTE_MAX_LENGTH) ?? record.note;
 
-      const ownedShift = employeeShifts.find((s) => {
-        const range = buildShiftDateRange(s.startTime, s.endTime, s.date);
-        const graceEnd = new Date(range.endAt);
-        graceEnd.setHours(graceEnd.getHours() + HANDOVER_SHIFT_GRACE_HOURS);
-        return (
-          record.createdAt!.getTime() >= range.startAt.getTime() &&
-          record.createdAt!.getTime() <= graceEnd.getTime()
-        );
-      });
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        // B4 fix：重复交班拦截 —— 仅拦截同一班次的重复交班，
+        // 不再按"当天任意已完成记录"拦截（多班次场景下会误拦其它班次的交班）。
+        // 策略：优先用 employeeShiftIdSnapshot 精确匹配（confirm 路径总是写入快照），
+        // 时间窗口作为 null-snapshot 记录的降级（上界放宽到 endAt + grace，
+        // 因为规则 5 要求 handoverAt > endAt，合法交班必然落在 endAt 之后）。
+        const ownedShift =
+          record.fromEmployeeId && record.createdAt
+            ? await this.findOwnedShift(
+                tx,
+                storeId,
+                record.fromEmployeeId,
+                record.createdAt,
+              )
+            : null;
 
-      if (ownedShift) {
-        // 2. 检查该班次是否已有 completed 记录
-        const shiftRange = buildShiftDateRange(
-          ownedShift.startTime,
-          ownedShift.endTime,
-          ownedShift.date,
-        );
-        const graceEndAt = new Date(shiftRange.endAt);
-        graceEndAt.setHours(graceEndAt.getHours() + HANDOVER_SHIFT_GRACE_HOURS);
-        const existingCompleted = await this.prisma.storeHandoverRecord.count({
-          where: {
-            storeId,
-            fromEmployeeId: record.fromEmployeeId,
-            status: HandoverStatus.completed,
-            OR: [
-              // 精确匹配：confirm 路径写入的 employeeShiftIdSnapshot
-              { employeeShiftIdSnapshot: ownedShift.id },
-              // 降级兜底：无快照的旧记录，按班次时段 + grace 窗口匹配
-              {
-                employeeShiftIdSnapshot: null,
-                handoverAt: {
-                  gte: shiftRange.startAt,
-                  lte: graceEndAt,
+        if (ownedShift) {
+          const shiftRange = buildShiftDateRange(
+            ownedShift.startTime,
+            ownedShift.endTime,
+            ownedShift.date,
+          );
+          const existingCompleted = await tx.storeHandoverRecord.count({
+            where: {
+              storeId,
+              fromEmployeeId: record.fromEmployeeId,
+              status: HandoverStatus.completed,
+              OR: [
+                // 精确匹配：confirm 路径写入的 employeeShiftIdSnapshot
+                { employeeShiftIdSnapshot: ownedShift.id },
+                // 降级兜底：无快照的旧记录，按班次时段 + grace 窗口匹配
+                {
+                  employeeShiftIdSnapshot: null,
+                  handoverAt: {
+                    gte: shiftRange.startAt,
+                    lte: buildShiftGraceEndAt(shiftRange),
+                  },
                 },
-              },
-            ],
+              ],
+            },
+          });
+          if (existingCompleted > 0) {
+            throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
+          }
+        }
+        // 若找不到 ownedShift（极端边界：pending 创建于所有班次时间窗口之外），
+        // 跳过拦截。这是保守策略：宁可不拦也不误拦。
+
+        // 条件更新：只有仍处于 pending 才生效。并发场景下后到的请求
+        // count === 0，直接失败，避免 complete/cancel 互相覆盖。
+        const result = await tx.storeHandoverRecord.updateMany({
+          where: { id: recordId, storeId, status: HandoverStatus.pending },
+          data: {
+            status: HandoverStatus.completed,
+            handoverAt: completedAt,
+            note,
+            toSubAccountId: membership.subAccountId,
+            // 补齐班次快照：与 confirm 路径保持一致，
+            // 否则本记录对 isShiftHandedOver / ensureShiftNotHandedOver 不可见，
+            // 同一班次会被再次交班。
+            ...(ownedShift
+              ? {
+                  employeeShiftIdSnapshot: ownedShift.id ?? null,
+                  fromEmployeeNameSnapshot:
+                    toDisplayName(ownedShift.employeeName) ?? null,
+                  shiftTypeSnapshot: ownedShift.shiftType ?? null,
+                  shiftNameSnapshot:
+                    toDisplayName(ownedShift.shiftName) ?? null,
+                  shiftStartTimeSnapshot: ownedShift.startTime ?? null,
+                  shiftEndTimeSnapshot: ownedShift.endTime ?? null,
+                }
+              : {}),
           },
         });
-        if (existingCompleted > 0) {
-          throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
-        }
-      }
-      // 若找不到 ownedShift（极端边界：pending 创建于所有班次时间窗口之外），
-      // 跳过拦截。这是保守策略：宁可不拦也不误拦。
-    }
 
-    const updated = await this.prisma.storeHandoverRecord.update({
-      where: { id: recordId },
-      data: {
-        status: HandoverStatus.completed,
-        handoverAt: new Date(),
-        note:
-          normalizeOptionalText(dto.note, HANDOVER_NOTE_MAX_LENGTH) ??
-          record.note,
-        toSubAccountId: membership.subAccountId,
+        if (result.count === 0) {
+          throw new ConflictException('交班记录状态已变更，请刷新页面后重试');
+        }
+
+        return tx.storeHandoverRecord.findUniqueOrThrow({
+          where: { id: recordId },
+          include: HANDOVER_RECORD_INCLUDE,
+        });
       },
-      include: HANDOVER_RECORD_INCLUDE,
-    });
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     return mapRecordToDto(updated);
+  }
+
+  /**
+   * 定位 pending 记录所属班次：以记录 createdAt 为时间基准，找到当时正在进行的班次。
+   * 上界放宽到 endAt + 宽限，覆盖"班次结束后补建交班记录"的场景。
+   */
+  private async findOwnedShift(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+    employeeId: number,
+    createdAt: Date,
+  ): Promise<ShiftRecordRow | null> {
+    const employeeShifts = await tx.employeeShift.findMany({
+      where: {
+        storeId,
+        employeeId,
+        date: { lte: createdAt },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        employeeName: true,
+        shiftType: true,
+        shiftName: true,
+        startTime: true,
+        endTime: true,
+        date: true,
+      },
+      orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
+      take: OWNED_SHIFT_LOOKUP_TAKE,
+    });
+
+    return (
+      employeeShifts.find((shift) => {
+        const range = buildShiftDateRange(
+          shift.startTime,
+          shift.endTime,
+          shift.date,
+        );
+        return (
+          createdAt.getTime() >= range.startAt.getTime() &&
+          createdAt.getTime() <= buildShiftGraceEndAt(range).getTime()
+        );
+      }) ?? null
+    );
   }
 
   async cancelHandoverRecord(
@@ -223,12 +283,21 @@ export class HandoverRecordsService {
       throw new ForbiddenException('只有发起人或主账号/管理员可以取消交班');
     }
 
-    const updated = await this.prisma.storeHandoverRecord.update({
-      where: { id: recordId },
+    // 条件更新：只有仍处于 pending 才生效，避免与并发的 complete/cancel 互相覆盖
+    const result = await this.prisma.storeHandoverRecord.updateMany({
+      where: { id: recordId, storeId, status: HandoverStatus.pending },
       data: {
         status: HandoverStatus.cancelled,
         reason: normalizeRequiredText(dto.reason, 200, '取消原因不能为空'),
       },
+    });
+
+    if (result.count === 0) {
+      throw new ConflictException('交班记录状态已变更，请刷新页面后重试');
+    }
+
+    const updated = await this.prisma.storeHandoverRecord.findUniqueOrThrow({
+      where: { id: recordId },
       include: HANDOVER_RECORD_INCLUDE,
     });
 

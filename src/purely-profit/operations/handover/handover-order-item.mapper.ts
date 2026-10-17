@@ -21,6 +21,11 @@ import type {
   RefundOrderRow,
   SaleOrderRefundRow,
 } from './handover.types';
+import type { SpaceConsumptionPaymentIndex } from './handover-space-session-payment';
+import {
+  buildSaleStockKey,
+  type SaleStockSnapshotIndex,
+} from './handover-stock-snapshot';
 import type { HandoverOrderItemDto } from './dto/handover-shared.dto';
 import { Money } from '../../../shared/money.utils';
 import {
@@ -154,7 +159,21 @@ const resolveRenewGrouponCode = (
  */
 export const resolveOrderItemPaymentDisplay = (
   item: OrderItemRow,
+  /**
+   * 空间会话消费行（台位费 / 追加点单）的实际付款来源索引：
+   * 由 buildSpaceConsumptionPaymentIndex 构建，命中时优先使用，
+   * 保证该类行的支付方式反映「哪笔资金付了它」而非一律取结账单方式。
+   */
+  consumptionPaymentIndex?: SpaceConsumptionPaymentIndex,
 ): { paymentLabel: string; paymentColor: string } => {
+  const consumptionPayment = consumptionPaymentIndex?.get(item.id);
+  if (consumptionPayment) {
+    return {
+      paymentLabel: consumptionPayment.paymentLabel,
+      paymentColor: consumptionPayment.paymentColor,
+    };
+  }
+
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   const spaceSession = item.order.spaceSession;
 
@@ -210,7 +229,19 @@ export const mapOrderItem = (
   shiftOperatorName: string | null = null,
   /** 已被退款的销售单 id 集合：退款单会同时返回下单+退款两行，下单行不展示库存 */
   refundedOrderIds: ReadonlySet<number> = new Set(),
+  /** 空间会话消费行的实际付款来源索引（见 buildSpaceConsumptionPaymentIndex） */
+  consumptionPaymentIndex?: SpaceConsumptionPaymentIndex,
+  /**
+   * 销售时点库存快照（见 loadSaleStockSnapshotIndex）：
+   * 库存列优先取该笔销售扣减完成后的库存，查不到回退商品实时库存。
+   */
+  saleStockIndex?: SaleStockSnapshotIndex,
 ): HandoverOrderItemDto => {
+  const consumptionPayment = consumptionPaymentIndex?.get(item.id) ?? null;
+  const saleStockSnapshot =
+    item.product?.id != null
+      ? saleStockIndex?.get(buildSaleStockKey(item.order.id, item.product.id))
+      : undefined;
   // 抵扣项（预付款/续费抵扣）代表已收到的钱，展示时应为正数。
   // 旧数据 DB 中可能存为负数（结算计算遗留），新数据已修正为正数。
   // 此处统一取绝对值，确保前端直接展示，无需任何业务计算。
@@ -223,7 +254,10 @@ export const mapOrderItem = (
   const totalRevenue = Money.fromDbCents(salePriceCents)
     .multiply(item.quantity)
     .toOutputYuan();
-  const { paymentLabel, paymentColor } = resolveOrderItemPaymentDisplay(item);
+  const { paymentLabel, paymentColor } = resolveOrderItemPaymentDisplay(
+    item,
+    consumptionPaymentIndex,
+  );
   const productName = resolveOrderItemProductName(item);
   const timeCategory = resolveTimeCategory(item.productName, paymentLabel);
   // 有优惠判定：扫码点餐订单的商品折扣 / 订单折扣任一大于 0
@@ -283,14 +317,18 @@ export const mapOrderItem = (
     // date 始终用 SaleOrder.date，同结账批次项共享同一值，保证排序聚合
     date: item.order.date.getTime(),
     displayDate,
-    currentStock: item.product?.stock ?? null,
+    // 库存列：优先销售扣减完成后的库存（同商品多行可见 5→4→3 递减），查不到回退实时库存
+    currentStock: saleStockSnapshot ?? item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
     timeCategory,
-    grouponCode:
-      item.order.grouponCode ??
-      session?.prepaidGrouponCode ??
-      resolveRenewGrouponCode(session?.sessionRenewRecords) ??
-      null,
+    // 消费行（台位费 / 追加点单）的券码跟随实际付款来源：
+    // 由预付覆盖 → 开台券码；由续费覆盖 → 该笔续费券码；由结账补收覆盖 → 结账券码。
+    grouponCode: consumptionPayment
+      ? consumptionPayment.grouponCode
+      : (item.order.grouponCode ??
+        session?.prepaidGrouponCode ??
+        resolveRenewGrouponCode(session?.sessionRenewRecords) ??
+        null),
     hasDiscount,
     // 退款单对应的下单行：库存列展示为“-”（退款行展示恢复后的库存）
     isRefundedOrder: refundedOrderIds.has(item.order.id),

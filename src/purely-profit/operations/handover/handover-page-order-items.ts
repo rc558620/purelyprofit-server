@@ -7,6 +7,7 @@ import {
   type SettledSpaceSessionRow,
 } from './handover.shared';
 import type { SaleOrderRefundRow } from './handover.types';
+import type { SaleStockSnapshotIndex } from './handover-stock-snapshot';
 import { mapScanOrderingRefundOrderItem } from './handover-order-item.mapper';
 import { aggregateRegularOrderItems } from './handover-order-item-aggregator';
 import { buildRenewSplitItems } from './handover-renew-items';
@@ -44,6 +45,8 @@ export const mergeDisplayedOrderItems = (
   shiftOperatorName: string | null = null,
   /** 扫码点餐退款行（SaleOrderRefund）：映射为负数退款行与下单行并存 */
   scanOrderingRefunds: SaleOrderRefundRow[] = [],
+  /** 销售时点库存快照：库存列按该笔销售扣减完成后的库存展示 */
+  saleStockIndex: SaleStockSnapshotIndex = new Map(),
 ): HandoverOrderItemDto[] => {
   const guestPayableItems = buildGuestPayableItems(
     settledSpaceSessions,
@@ -83,6 +86,7 @@ export const mergeDisplayedOrderItems = (
       storeOwnerUserId,
       shiftOperatorName,
       refundedOrderIds,
+      saleStockIndex,
     ),
   );
 

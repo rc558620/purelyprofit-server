@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
@@ -39,6 +39,8 @@ import {
 
 @Injectable()
 export class HandoverService {
+  private readonly logger = new Logger(HandoverService.name);
+
   constructor(
     private readonly handoverPageService: HandoverPageService,
     private readonly handoverConfirmService: HandoverConfirmService,
@@ -188,12 +190,23 @@ export class HandoverService {
     // 交班页兜底展示"空间自动结账"，而非当前登录用户的姓名。
     void user;
     const systemUser = createAutoCheckoutSystemUser();
-    await this.spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      systemUser,
-      ensureMembershipStoreId(user),
-      Date.now(),
-      trigger,
-    );
+    // 自动结账只是交班前的尽力而为步骤：其分布式锁依赖 Redis，
+    // Redis 不可用时应降级跳过（记录告警），而不是让交班的读接口一并 500。
+    // 结账本身由 scheduler:auto-checkout 定时任务兜底。
+    try {
+      await this.spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions(
+        systemUser,
+        ensureMembershipStoreId(user),
+        Date.now(),
+        trigger,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[handover] auto_checkout_skipped trigger=${trigger} reason=${
+          error instanceof Error ? error.message : 'UnknownError'
+        }`,
+      );
+    }
   }
 
   private ensureUserCanManageAdditionalItems(user: AuthenticatedUser): void {

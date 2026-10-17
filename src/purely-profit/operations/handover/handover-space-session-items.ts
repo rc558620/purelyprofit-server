@@ -8,7 +8,6 @@ import {
   SPACE_GUEST_PAYABLE_ITEM_NAME,
   SPACE_REFUND_ITEM_NAME,
   SPACE_REFUND_DISPLAY_SUFFIX,
-  GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
   buildGrouponLabel,
   toDisplayName,
   resolveOperatorRole,
@@ -67,15 +66,14 @@ export const buildGuestPayableItems = (
       .toDbCents();
     if (payableAmountCents < 0) continue;
 
-    // BUG fix: 当顾客支付方式为团购券时，使用团购标签而非门店侧结算方式（如现金）
-    const isGrouponCustomerPayment =
-      session.prepaidCustomerPaymentMethod ===
-      GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD;
-    const paymentLabel = isGrouponCustomerPayment
-      ? buildGrouponLabel(session.prepaidGrouponPlatform)
-      : PAYMENT_METHOD_CONFIG[
-          session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat
-        ].label;
+    // 客人应付 = 结账时补收的差额，展示结账时实际选择的支付方式。
+    // 不再跟随开台支付方式：开台用团购券、结账改微信补差价时，此处应显示微信。
+    const checkoutPaymentMethod =
+      session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
+    const paymentLabel =
+      checkoutPaymentMethod === SalesPaymentMethod.groupon_voucher
+        ? buildGrouponLabel(session.saleOrder?.grouponPlatform)
+        : PAYMENT_METHOD_CONFIG[checkoutPaymentMethod].label;
     const date = session.endTime?.getTime() ?? Date.now();
     const spaceName = session.space?.name ?? '';
 
@@ -96,7 +94,11 @@ export const buildGuestPayableItems = (
       currentStock: null,
       stockUnit: null,
       timeCategory: 'session_end',
-      grouponCode: session.prepaidGrouponCode ?? null,
+      // 券码跟随付款来源：仅结账本身使用团购券时展示该券码
+      grouponCode:
+        checkoutPaymentMethod === SalesPaymentMethod.groupon_voucher
+          ? (session.saleOrder?.grouponCode ?? null)
+          : null,
       hasDiscount: false,
     });
   }
@@ -163,7 +165,8 @@ export const buildRefundItemsFromSessions = (
       currentStock: null,
       stockUnit: null,
       timeCategory: 'session_end',
-      grouponCode: session.prepaidGrouponCode ?? null,
+      // 退款行不展示团购券码：退款按结账支付方式原路退回，与开台团购券无关
+      grouponCode: null,
       hasDiscount: false,
     });
   }

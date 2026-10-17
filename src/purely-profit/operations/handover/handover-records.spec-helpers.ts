@@ -53,6 +53,15 @@ export const setupHandoverRecordsSpec = (): {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    // resetAllMocks 会清掉 $transaction 的默认实现（事务回调需透传自身），需重建
+    prismaService.$transaction.mockImplementation((input: unknown) => {
+      if (typeof input === 'function') {
+        return Promise.resolve(
+          (input as (client: unknown) => unknown)(prismaService),
+        );
+      }
+      return Promise.resolve(input);
+    });
     prismaService.employee.findUnique.mockResolvedValue({ linkedStaffId: 1 });
     prismaService.employee.findMany.mockResolvedValue([]);
     prismaService.employeeShift.findMany.mockResolvedValue([]);

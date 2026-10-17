@@ -146,7 +146,10 @@ describe('HandoverRecordsService - 写操作', () => {
     it('接收人成功完成交班', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
       prismaService.storeHandoverRecord.count.mockResolvedValue(0);
-      prismaService.storeHandoverRecord.update.mockResolvedValue({
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.storeHandoverRecord.findUniqueOrThrow.mockResolvedValue({
         ...mockRecord,
         status: HandoverStatus.completed,
         handoverAt: new Date('2026-05-13T12:00:00.000Z'),
@@ -163,6 +166,16 @@ describe('HandoverRecordsService - 写操作', () => {
 
       expect(result.status).toBe('completed');
       expect(result.handoverAt).toBeGreaterThan(0);
+      // 条件更新必须带 status: pending，防止并发 complete/cancel 双写
+      expect(prismaService.storeHandoverRecord.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 1,
+            storeId: 100,
+            status: HandoverStatus.pending,
+          }),
+        }),
+      );
     });
 
     it('非接收人尝试完成应抛出 ForbiddenException', async () => {
@@ -196,7 +209,10 @@ describe('HandoverRecordsService - 写操作', () => {
       ).rejects.toThrow(ForbiddenException);
 
       prismaService.storeHandoverRecord.count.mockResolvedValue(0);
-      prismaService.storeHandoverRecord.update.mockResolvedValue({
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.storeHandoverRecord.findUniqueOrThrow.mockResolvedValue({
         ...selfRecord,
         status: HandoverStatus.completed,
         handoverAt: new Date('2026-05-13T12:10:00.000Z'),
@@ -248,12 +264,73 @@ describe('HandoverRecordsService - 写操作', () => {
         ctx.service.completeHandoverRecord(subAccountUser, 1, {}),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('S1: 完成交班时应写入班次快照，使该班次对已交班判定可见', async () => {
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      // 定位到早班 09:00-18:00（createdAt 10:00 落在其内）
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          id: 77,
+          employeeId: 10,
+          employeeName: '老板',
+          shiftType: 'morning',
+          shiftName: '早班',
+          startTime: '09:00',
+          endTime: '18:00',
+          date: new Date('2026-05-13T00:00:00.000Z'),
+        },
+      ]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.storeHandoverRecord.findUniqueOrThrow.mockResolvedValue({
+        ...mockRecord,
+        status: HandoverStatus.completed,
+      });
+
+      await ctx.service.completeHandoverRecord(subAccountUser, 1, {});
+
+      // 缺快照时该记录对 isShiftHandedOver / ensureShiftNotHandedOver 不可见，
+      // 会导致同一班次被再次交班
+      expect(prismaService.storeHandoverRecord.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            employeeShiftIdSnapshot: 77,
+            shiftTypeSnapshot: 'morning',
+            shiftNameSnapshot: '早班',
+            shiftStartTimeSnapshot: '09:00',
+            shiftEndTimeSnapshot: '18:00',
+          }),
+        }),
+      );
+    });
+
+    it('S2: 并发完成时 updateMany 命中 0 行应抛出 ConflictException', async () => {
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+      // 并发场景下记录已被其它请求改为 completed，条件更新不命中
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(
+        ctx.service.completeHandoverRecord(subAccountUser, 1, {}),
+      ).rejects.toThrow(ConflictException);
+
+      expect(
+        prismaService.storeHandoverRecord.findUniqueOrThrow,
+      ).not.toHaveBeenCalled();
+    });
   });
 
   describe('cancelHandoverRecord', () => {
     it('发起人成功取消交班', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
-      prismaService.storeHandoverRecord.update.mockResolvedValue({
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.storeHandoverRecord.findUniqueOrThrow.mockResolvedValue({
         ...mockRecord,
         status: HandoverStatus.cancelled,
         reason: '临时有事',
@@ -269,7 +346,10 @@ describe('HandoverRecordsService - 写操作', () => {
 
     it('主账号/管理员成功取消他人交班', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
-      prismaService.storeHandoverRecord.update.mockResolvedValue({
+      prismaService.storeHandoverRecord.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.storeHandoverRecord.findUniqueOrThrow.mockResolvedValue({
         ...mockRecord,
         status: HandoverStatus.cancelled,
       });

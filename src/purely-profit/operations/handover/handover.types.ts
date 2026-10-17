@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
+import type { SaleStockSnapshotIndex } from './handover-stock-snapshot';
 
 /** 已结账的空间会话行数据（客人应付 / 退款展示项的数据源） */
 export type SettledSpaceSessionRow = {
@@ -21,6 +22,10 @@ export type SettledSpaceSessionRow = {
   space: { name: string };
   saleOrder: {
     paymentMethod: SalesPaymentMethod;
+    /** 团购券码：结账选团购券时展示 */
+    grouponCode?: string | null;
+    /** 团购平台：结账选团购券时展示（如 taobao/meituan） */
+    grouponPlatform?: string | null;
     date: Date;
     operatorNameSnapshot: string | null;
     operatorStaff: {
@@ -130,7 +135,11 @@ export type OrderItemRow = {
   productName: string;
   salePrice: number;
   quantity: number;
-  product: { stock: number; unit: string } | null;
+  /**
+   * id：商品 ID，销售时点库存快照（SaleStockSnapshotIndex）的关联键。
+   * 可选仅为兼容测试夹具；SALE_ORDER_ITEM_SELECT 已返回。
+   */
+  product: { id?: number; stock: number; unit: string } | null;
   order: {
     id: number;
     date: Date;
@@ -179,6 +188,8 @@ export type OrderItemRow = {
       prepaidCustomerPaymentMethod: string | null;
       prepaidGrouponPlatform: string | null;
       prepaidGrouponCode: string | null;
+      /** 开台预付款金额（分）：消费行支付方式归属的资金池来源之一 */
+      prepaidAmount: number | null;
       /// Step 8.1: renewRecords 已拆为独立表
       sessionRenewRecords: Array<{
         paymentMethod: string;
@@ -306,6 +317,8 @@ export type HandoverPageMetrics = {
   orderCount: number;
   paymentOrderItems: OrderItemRow[];
   orderItems: OrderItemRow[];
+  /** 销售时点库存快照（saleOrderId+productId → afterStock）：库存列展示用 */
+  saleStockIndex: SaleStockSnapshotIndex;
   /** 扫码点餐退款行（SaleOrderRefund）：在交班明细中展示为负数退款行 */
   saleOrderRefundItems: SaleOrderRefundRow[];
   additionalRevenueAmount: number;
@@ -321,6 +334,7 @@ export const EMPTY_METRICS: HandoverPageMetrics = {
   orderCount: 0,
   paymentOrderItems: [],
   orderItems: [],
+  saleStockIndex: new Map(),
   saleOrderRefundItems: [],
   additionalRevenueAmount: 0,
   spaceRevenueAmount: 0,

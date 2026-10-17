@@ -7,6 +7,8 @@ export const SALE_ORDER_ITEM_SELECT = {
   quantity: true,
   product: {
     select: {
+      // 商品 ID：交班库存列按销售扣减流水（saleOrderId+productId）取销售时点库存
+      id: true,
       stock: true,
       unit: true,
     },
@@ -70,6 +72,8 @@ export const SALE_ORDER_ITEM_SELECT = {
           prepaidCustomerPaymentMethod: true,
           prepaidGrouponPlatform: true,
           prepaidGrouponCode: true,
+          // 开台预付款金额（分）：交班消费行（台位费/追加点单）支付方式归属计算依赖
+          prepaidAmount: true,
           // 空间会话商品行规格（非扫码订单的规格来源）：与 saleOrderItem 行级一一对应
           sessionItems: {
             select: {
@@ -86,6 +90,8 @@ export const SALE_ORDER_ITEM_SELECT = {
               grouponPlatform: true,
               grouponCode: true,
             },
+            // 续费按到账顺序（id 升序）返回，保证支付方式归属计算稳定
+            orderBy: { id: 'asc' },
           },
           space: {
             select: {
@@ -140,6 +146,9 @@ export const SETTLED_SPACE_SESSION_SELECT = {
   saleOrder: {
     select: {
       paymentMethod: true,
+      // 团购券信息：结账选团购券时，客人应付/退款行展示对应平台与券码
+      grouponCode: true,
+      grouponPlatform: true,
       date: true,
       operatorNameSnapshot: true,
       operatorStaff: {

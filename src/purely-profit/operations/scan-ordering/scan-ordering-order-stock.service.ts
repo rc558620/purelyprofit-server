@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { InventoryAdjustType } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
 /**
@@ -55,6 +56,14 @@ export class ScanOrderingOrderStockService {
 
         // 共用商品库存：仅在接单时扣减（Q1 决策），不足时阻止接单
         if (item.menuProduct.productId !== null) {
+          const product = await tx.product.findFirst({
+            where: {
+              id: item.menuProduct.productId,
+              storeId,
+              deletedAt: null,
+            },
+            select: { name: true, stock: true },
+          });
           const productUpdated = await tx.product.updateMany({
             where: {
               id: item.menuProduct.productId,
@@ -67,6 +76,28 @@ export class ScanOrderingOrderStockService {
           if (productUpdated.count === 0) {
             throw new ConflictException('商品库存不足，无法接单');
           }
+
+          // 销售扣减流水：与普通销售（recordInventorySaleDeduction）同构，
+          // 挂上扫码订单对应的销售单号，供交班库存列回溯该笔销售后的库存
+          const saleOrder = await tx.saleOrder.findFirst({
+            where: { scanOrderId: orderId },
+            select: { id: true },
+          });
+          await tx.inventoryAdjustmentLog.create({
+            data: {
+              storeId,
+              productId: item.menuProduct.productId,
+              purchaseOrderId: null,
+              saleOrderId: saleOrder?.id ?? null,
+              operatorStaffId: null,
+              productName: product?.name ?? '',
+              beforeStock: product?.stock ?? 0,
+              afterStock: (product?.stock ?? 0) - item.quantity,
+              delta: -item.quantity,
+              adjustType: InventoryAdjustType.sale,
+              note: '扫码点餐接单扣减',
+            },
+          });
         }
       }),
     );

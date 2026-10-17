@@ -5,7 +5,9 @@ import { addShanghaiDays } from '../../../shared/shanghai-time.utils';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { HandoverConfirmShiftFallbackService } from './handover-confirm-shift-fallback.service';
 import {
+  HANDOVER_SHIFT_GRACE_HOURS,
   buildShiftDateRange,
+  buildShiftGraceEndAt,
   buildShiftMatchConditions,
   endOfDay,
   isSameShiftRecord,
@@ -21,14 +23,6 @@ export type ConfirmShiftLookupOptions = {
   shiftReferenceAt?: number;
   operatorName?: string;
 };
-
-/**
- * 班次结束后允许交班定位的宽限期（小时）。
- * 规则 5 要求交班必须发生在班次结束之后（handoverAt 恒 > endAt），
- * 因此把"active"窗口从 [startAt, endAt] 扩展为 [startAt, endAt + 宽限]，
- * 使刚结束的班次在交班时仍可被 active 逻辑选中，避免其成为死代码。
- */
-const HANDOVER_SHIFT_GRACE_HOURS = 4;
 
 const CONFIRM_SHIFT_RECORD_SELECT = {
   id: true,
@@ -135,7 +129,8 @@ export class HandoverConfirmShiftService {
         status: HandoverStatus.completed,
         handoverAt: {
           gte: shiftRange.startAt,
-          lte: shiftRange.endAt,
+          // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
+          lte: buildShiftGraceEndAt(shiftRange),
         },
       };
     } else {
@@ -249,7 +244,9 @@ export class HandoverConfirmShiftService {
     const lower = startOfDay(referenceDate);
     const upper =
       forwardDays > 0
-        ? new Date(addShanghaiDays(endOfDay(referenceDate).getTime(), forwardDays))
+        ? new Date(
+            addShanghaiDays(endOfDay(referenceDate).getTime(), forwardDays),
+          )
         : endOfDay(referenceDate);
     return this.prisma.employeeShift.findMany({
       where: {

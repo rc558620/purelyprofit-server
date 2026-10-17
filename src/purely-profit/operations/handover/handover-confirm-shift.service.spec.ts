@@ -131,15 +131,17 @@ describe('HandoverConfirmShiftService', () => {
       handoverAt,
     );
 
-    // 验证查询用的是 shiftRecord.date(7/11) 计算的班次窗口 [7/11 20:00, 7/12 02:00]
+    // 验证查询用的是 shiftRecord.date(7/11) 计算的班次窗口 [7/11 20:00, 7/12 02:00 + 宽限 4h]
     // 而非 handoverAt(7/12) 计算的错位窗口 [7/12 20:00, 7/13 02:00]
     const callArgs = prismaService.storeHandoverRecord.count.mock.calls[0][0];
     const timeRange = callArgs.where.handoverAt;
     // startAt 应是 7/11 20:00 而非 7/12 20:00
     expect(timeRange.gte.getHours()).toBe(20);
     expect(timeRange.gte.getDate()).toBe(11);
-    // endAt 应是 7/12 02:00 而非 7/13 02:00
-    expect(timeRange.lte.getHours()).toBe(2);
+    // endAt 应是 7/12 02:00 + 4h 宽限 = 7/12 06:00，而非 7/13 02:00。
+    // 规则 5 要求 handoverAt 恒 > endAt，窗口上界必须含宽限期，
+    // 否则合法交班记录永远匹配不到（同一班次可被重复交班）。
+    expect(timeRange.lte.getHours()).toBe(6);
     expect(timeRange.lte.getDate()).toBe(12);
   });
 

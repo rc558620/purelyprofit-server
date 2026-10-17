@@ -58,8 +58,11 @@ export const createHandoverPrismaMock = () => {
       create: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       count: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
 

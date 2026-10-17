@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { HandoverStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildShiftDateRange, type ShiftRecordRow } from './handover.shared';
+import {
+  buildShiftDateRange,
+  buildShiftGraceEndAt,
+  type ShiftRecordRow,
+} from './handover.shared';
 import type { ConfirmShiftLookupOptions } from './handover-confirm-shift.service';
 
 /**
@@ -39,9 +43,13 @@ export class HandoverConfirmShiftFallbackService {
       (min, r) => (r.startAt < min ? r.startAt : min),
       allRanges[0]?.startAt ?? now,
     );
+    // 上界取各班次宽限后的最大值：合法交班的 handoverAt 恒 > endAt（规则 5）
     const latestEnd = allRanges.reduce(
-      (max, r) => (r.endAt > max ? r.endAt : max),
-      allRanges[0]?.endAt ?? now,
+      (max, r) => {
+        const graceEndAt = buildShiftGraceEndAt(r);
+        return graceEndAt > max ? graceEndAt : max;
+      },
+      allRanges[0] ? buildShiftGraceEndAt(allRanges[0]) : now,
     );
     const completedRecords = await this.prisma.storeHandoverRecord.findMany({
       where: {
@@ -88,8 +96,10 @@ export class HandoverConfirmShiftFallbackService {
         shift.endTime,
         shift.date,
       );
+      // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
+      const graceEndAtMs = buildShiftGraceEndAt(range).getTime();
       const isHandedOver = handedOverTimes.some(
-        (t) => t >= range.startAt.getTime() && t <= range.endAt.getTime(),
+        (t) => t >= range.startAt.getTime() && t <= graceEndAtMs,
       );
       if (!isHandedOver) {
         return shift;

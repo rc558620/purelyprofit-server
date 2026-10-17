@@ -22,6 +22,10 @@ import {
 } from './handover-page-query.builders';
 import { mergeDisplayedOrderItems } from './handover-page-order-items';
 import {
+  buildSaleStockSnapshotIndex,
+  loadSaleStockSnapshotIndex,
+} from './handover-stock-snapshot';
+import {
   attachPaymentRatios,
   computeRefundAmountFromSessions,
   buildRecordRevenueSummary,
@@ -87,9 +91,7 @@ export class HandoverRecordsRevenueService {
     // 3 次并行 raw SQL，每次返回 N 行聚合结果（按 idx 对齐）
     const [additionalRows, spaceRows, scanOrderingRows] = await Promise.all([
       // additionalRevenue: 非空间销售 + 非扫码点餐订单的 total_revenue 之和
-      this.prisma.$queryRaw<
-        Array<{ idx: number; total: bigint | null }>
-      >`
+      this.prisma.$queryRaw<Array<{ idx: number; total: bigint | null }>>`
         WITH ranges AS (
           SELECT idx, start_at, end_at
           FROM UNNEST(
@@ -115,9 +117,7 @@ export class HandoverRecordsRevenueService {
         ORDER BY r.idx
       `,
       // spaceRevenue: 空间会话 time_cost + items_cost 之和
-      this.prisma.$queryRaw<
-        Array<{ idx: number; total: bigint | null }>
-      >`
+      this.prisma.$queryRaw<Array<{ idx: number; total: bigint | null }>>`
         WITH ranges AS (
           SELECT idx, start_at, end_at
           FROM UNNEST(
@@ -126,13 +126,15 @@ export class HandoverRecordsRevenueService {
           ) WITH ORDINALITY AS t(start_at, end_at, idx)
         )
         SELECT r.idx,
-          COALESCE(SUM(ss.time_cost), 0) + COALESCE(SUM(ss.items_cost), 0)::bigint AS total
+          (COALESCE(SUM(ss.time_cost), 0) + COALESCE(SUM(ss.items_cost), 0))::bigint AS total
         FROM ranges r
         LEFT JOIN LATERAL (
           SELECT time_cost, items_cost
           FROM space_sessions
           WHERE store_id = ${storeId}
-            AND status = ${SpaceSessionStatus.settled}::text
+            -- status 是 PG 枚举类型 SpaceSessionStatus，枚举与 text 之间无隐式运算符，
+            -- 必须两侧同时转 text 比较，否则报 operator does not exist 导致接口 500
+            AND status::text = ${SpaceSessionStatus.settled}::text
             AND end_time IS NOT NULL
             AND end_time >= r.start_at
             AND end_time <= r.end_at
@@ -141,9 +143,7 @@ export class HandoverRecordsRevenueService {
         ORDER BY r.idx
       `,
       // scanOrderingRevenue: 扫码点餐订单（scan_order_id 非空）的 total_revenue 之和
-      this.prisma.$queryRaw<
-        Array<{ idx: number; total: bigint | null }>
-      >`
+      this.prisma.$queryRaw<Array<{ idx: number; total: bigint | null }>>`
         WITH ranges AS (
           SELECT idx, start_at, end_at
           FROM UNNEST(
@@ -336,6 +336,17 @@ export class HandoverRecordsRevenueService {
     // 门店主账号 user.id：操作员职位判定依据（主账号=紫）
     const storeOwnerUserId = await this.loadStoreOwnerUserId(storeId);
 
+    // 销售时点库存快照：库存列显示该笔销售扣减完成后的库存；
+    // 查不到流水的行按「当前库存 + 后续销量」倒推兜底（老订单/被退款流水）
+    const preciseStockIndex = await loadSaleStockSnapshotIndex(
+      this.prisma,
+      orderItems,
+    );
+    const saleStockIndex = buildSaleStockSnapshotIndex(
+      orderItems,
+      preciseStockIndex,
+    );
+
     return {
       revenueSummary: buildRecordRevenueSummary(
         revenueAmounts,
@@ -353,6 +364,8 @@ export class HandoverRecordsRevenueService {
         shiftOperatorName,
         // 扫码点餐退款行（SaleOrderRefund）：负数退款行与下单行并存，保证账目平衡
         saleOrderRefunds,
+        // 销售时点库存快照：库存列按该笔销售扣减完成后的库存展示
+        saleStockIndex,
       ),
     };
   }

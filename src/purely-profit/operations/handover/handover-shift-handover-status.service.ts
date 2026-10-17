@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { HandoverStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildShiftDateRange, type ShiftRecordRow } from './handover.shared';
+import {
+  buildShiftDateRange,
+  buildShiftGraceEndAt,
+  type ShiftRecordRow,
+} from './handover.shared';
 
 /** 已交班班次的标识集合（精确 ID + 时间范围兜底） */
 export type HandedOverShiftIds = {
@@ -42,7 +46,8 @@ export class HandoverShiftHandoverStatusService {
         employeeShiftIdSnapshot: null,
         handoverAt: {
           gte: shiftRange.startAt,
-          lte: shiftRange.endAt,
+          // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
+          lte: buildShiftGraceEndAt(shiftRange),
         },
         ...(shiftRecord.createdAt
           ? {
@@ -121,9 +126,13 @@ export class HandoverShiftHandoverStatusService {
       (min, r) => (r.startAt < min ? r.startAt : min),
       allRanges[0]?.startAt ?? new Date(0),
     );
+    // 上界取各班次宽限后的最大值：合法交班的 handoverAt 恒 > endAt（规则 5）
     const latestEnd = allRanges.reduce(
-      (max, r) => (r.endAt > max ? r.endAt : max),
-      allRanges[0]?.endAt ?? new Date(),
+      (max, r) => {
+        const graceEndAt = buildShiftGraceEndAt(r);
+        return graceEndAt > max ? graceEndAt : max;
+      },
+      allRanges[0] ? buildShiftGraceEndAt(allRanges[0]) : new Date(),
     );
 
     const handoverRecords = await this.prisma.storeHandoverRecord.findMany({
@@ -187,12 +196,13 @@ export class HandoverShiftHandoverStatusService {
       return true;
     }
 
-    // 兜底：检查是否有 handoverAt 落在该 shift 时间段内的记录
+    // 兜底：检查是否有 handoverAt 落在该 shift 时间段（含宽限期）内的记录
     const shiftRange = buildShiftDateRange(
       shift.startTime,
       shift.endTime,
       shift.date,
     );
+    const graceEndAtMs = buildShiftGraceEndAt(shiftRange).getTime();
     return handedOverShiftIds.byRange.some((record) => {
       if (record.employeeId !== shift.employeeId) {
         return false;
@@ -205,8 +215,8 @@ export class HandoverShiftHandoverStatusService {
         return false;
       }
       return (
-        record.startAt >= shiftRange.startAt &&
-        record.startAt <= shiftRange.endAt
+        record.startAt.getTime() >= shiftRange.startAt.getTime() &&
+        record.startAt.getTime() <= graceEndAtMs
       );
     });
   }

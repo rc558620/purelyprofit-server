@@ -197,6 +197,19 @@ export class SpaceSessionSettlementService {
             },
           );
 
+          // 追加点单扣库存发生在加单时（早于销售单创建），流水当时无单号可挂；
+          // 结账时按「备注中的会话 ID」把本会话的销售扣减流水回填结账单号，
+          // 交班「当前库存」列据此回溯该笔销售后的库存
+          await transaction.inventoryAdjustmentLog.updateMany({
+            where: {
+              storeId: params.session.storeId,
+              adjustType: 'sale',
+              saleOrderId: null,
+              note: `空间管理追加点单（会话#${params.session.id}）`,
+            },
+            data: { saleOrderId: Number(createdOrder.id) },
+          });
+
           // F9: 空间结算联动营销中心——按手机号创建/关联会员并写入消费流水
           // （无手机号或结算金额 <= 0 时内部跳过）
           await this.marketingConsumptionLinkService.linkSpaceSettlementConsumption(

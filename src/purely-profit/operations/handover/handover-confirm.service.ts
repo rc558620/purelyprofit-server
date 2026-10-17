@@ -2,13 +2,17 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
 import {
   PrismaService,
   TX_TIMEOUT_MEDIUM,
 } from '../../../prisma/prisma.service';
-import { RedisLockService } from '../../../redis/redis-lock.service';
+import {
+  RedisLockService,
+  type DistributedLock,
+} from '../../../redis/redis-lock.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ConfirmHandoverRequestDto } from './dto/handover-page.dto';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
@@ -31,6 +35,8 @@ const CONFIRM_HANDOVER_LOCK_TTL_SECONDS = 20;
 
 @Injectable()
 export class HandoverConfirmService {
+  private readonly logger = new Logger(HandoverConfirmService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly handoverAdditionalItemsService: HandoverAdditionalItemsService,
@@ -107,17 +113,36 @@ export class HandoverConfirmService {
       membership.storeId,
       sourceShiftRecord,
     );
-    const lock = await this.redisLockService.acquireLock(lockResource, {
-      ttlSeconds: CONFIRM_HANDOVER_LOCK_TTL_SECONDS,
-    });
+    // Redis 不可用（连接失败等）时 acquireLock 会抛错。此时降级为
+    // pg_advisory_xact_lock：事务级行锁，事务结束自动释放，
+    // 保证"同一班次串行交班"的互斥语义不依赖 Redis 可用性。
+    let lock: DistributedLock | null = null;
+    let usePgAdvisoryLock = false;
+    try {
+      lock = await this.redisLockService.acquireLock(lockResource, {
+        ttlSeconds: CONFIRM_HANDOVER_LOCK_TTL_SECONDS,
+      });
+    } catch (error) {
+      usePgAdvisoryLock = true;
+      this.logger.warn(
+        `[handover] redis_lock_unavailable fallback=pg_advisory_xact_lock resource=${lockResource} reason=${
+          error instanceof Error ? error.message : 'UnknownError'
+        }`,
+      );
+    }
 
-    if (!lock) {
+    if (!lock && !usePgAdvisoryLock) {
       throw new ConflictException('当前班次正在进行交班操作，请稍后重试');
     }
 
     try {
       const record = (await this.prisma.$transaction(
         async (tx) => {
+          if (usePgAdvisoryLock) {
+            const [key1, key2] = this.buildAdvisoryLockKeys(lockResource);
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key1}, ${key2})`;
+          }
+
           await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
             tx,
             membership.storeId,
@@ -169,8 +194,27 @@ export class HandoverConfirmService {
 
       return mapRecordToDto(record);
     } finally {
-      await this.redisLockService.releaseLock(lock);
+      if (lock) {
+        await this.redisLockService.releaseLock(lock);
+      }
     }
+  }
+
+  /**
+   * 把锁资源标识映射为 pg_advisory_xact_lock 的两个 int4 key。
+   * 使用 FNV-1a 变体生成两个独立 32 位哈希，保证同一资源跨进程得到相同 key。
+   */
+  private buildAdvisoryLockKeys(resource: string): [number, number] {
+    let hash1 = 0x811c9dc5;
+    let hash2 = 0x01000193;
+
+    for (let i = 0; i < resource.length; i += 1) {
+      const charCode = resource.charCodeAt(i);
+      hash1 = Math.imul(hash1 ^ charCode, 0x01000193) >>> 0;
+      hash2 = Math.imul(hash2 + charCode, 0x85ebca6b) >>> 0;
+    }
+
+    return [hash1 | 0, hash2 | 0];
   }
 
   /**

@@ -186,4 +186,8 @@ export const createSpaceTransactionClient = () => ({
     update: jest.fn(),
     updateMany: jest.fn(),
   },
+  /// 结账回填追加点单库存流水的销售单号
+  inventoryAdjustmentLog: {
+    updateMany: jest.fn(),
+  },
 });

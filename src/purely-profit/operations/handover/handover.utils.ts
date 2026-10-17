@@ -5,7 +5,10 @@ import {
   addShanghaiDays,
   getShanghaiDayStartMs,
 } from '../../../shared/shanghai-time.utils';
-import { SHIFT_TIME_FALLBACKS } from './handover.constants';
+import {
+  HANDOVER_SHIFT_GRACE_HOURS,
+  SHIFT_TIME_FALLBACKS,
+} from './handover.constants';
 
 const DAY_MS = 86_400_000;
 import type { ShiftDateRange, ShiftRecordRow } from './handover.types';
@@ -145,6 +148,25 @@ export const buildShiftDateRange = (
   };
 };
 
+/**
+ * 把班次时段上界扩展宽限期，得到兜底匹配窗口的上界。
+ *
+ * 规则 5 要求 handoverAt 必须晚于班次结束时间，因此按 [startAt, endAt]
+ * 匹配会漏掉所有合法交班记录。所有"无 employeeShiftIdSnapshot 兜底"场景
+ * 都必须使用本方法计算上界，保证各链路窗口口径一致。
+ */
+export const buildShiftGraceEndAt = (
+  shiftRange: ShiftDateRange,
+  graceHours = HANDOVER_SHIFT_GRACE_HOURS,
+): Date => new Date(shiftRange.endAt.getTime() + graceHours * 3_600_000);
+
+/**
+ * 判断两条班次记录是否为同一班次。
+ *
+ * 必须比较 date：EmployeeShift 有 (employeeId, date) 唯一约束，
+ * 同一员工在不同日期可以有完全相同的班次时段；漏掉 date 会把其它日期的
+ * 同时间段班次一起排除，导致"查找下一班"跳过真正的接班人班次。
+ */
 export const isSameShiftRecord = (
   left: ShiftRecordRow,
   right: ShiftRecordRow,
@@ -152,7 +174,32 @@ export const isSameShiftRecord = (
   left.employeeId === right.employeeId &&
   left.shiftType === right.shiftType &&
   left.startTime === right.startTime &&
-  left.endTime === right.endTime;
+  left.endTime === right.endTime &&
+  left.date?.getTime() === right.date?.getTime();
+
+/**
+ * 解析班次时刻文本，取第一个合法的 HH:mm。
+ *
+ * 自定义班次的 SHIFT_TIME_FALLBACKS 回落值是空串，若只用 ?? 兜底会把空串
+ * 传进 buildShiftDateRange，得到 [now, now] 的零长窗口，
+ * 使重复交班检测完全失效。这里保证最终结果一定是合法时刻。
+ */
+export const resolveShiftTimeText = (
+  value: string | null | undefined,
+  fallback: string,
+): string => {
+  const candidates = [
+    value,
+    fallback,
+    SHIFT_TIME_FALLBACKS[EmployeeShiftType.morning].startTime,
+  ];
+  return (
+    candidates.find(
+      (text): text is string =>
+        typeof text === 'string' && TIME_TEXT_PATTERN.test(text),
+    ) ?? SHIFT_TIME_FALLBACKS[EmployeeShiftType.morning].startTime
+  );
+};
 
 export const buildShiftMatchConditions = (
   shiftRecord: ShiftRecordRow,
@@ -161,8 +208,8 @@ export const buildShiftMatchConditions = (
   const fallbackShiftType = shiftRecord.shiftType ?? EmployeeShiftType.morning;
   const fallbackTime = SHIFT_TIME_FALLBACKS[fallbackShiftType];
   const shiftRange = buildShiftDateRange(
-    shiftRecord.startTime ?? fallbackTime.startTime,
-    shiftRecord.endTime ?? fallbackTime.endTime,
+    resolveShiftTimeText(shiftRecord.startTime, fallbackTime.startTime),
+    resolveShiftTimeText(shiftRecord.endTime, fallbackTime.endTime),
     handoverAt,
   );
   const conditions: Prisma.StoreHandoverRecordWhereInput[] = [
@@ -170,7 +217,8 @@ export const buildShiftMatchConditions = (
       employeeShiftIdSnapshot: null,
       handoverAt: {
         gte: shiftRange.startAt,
-        lte: shiftRange.endAt,
+        // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
+        lte: buildShiftGraceEndAt(shiftRange),
       },
       ...(shiftRecord.createdAt
         ? {

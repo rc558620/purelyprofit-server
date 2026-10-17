@@ -158,7 +158,10 @@ export class HandoverRecordsQueryService {
     const preset = query.preset ?? 'today';
 
     if (preset === '7d') {
-      return { startAt: new Date(addShanghaiDays(startAt.getTime(), -6)), endAt };
+      return {
+        startAt: new Date(addShanghaiDays(startAt.getTime(), -6)),
+        endAt,
+      };
     }
 
     if (preset === '30d') {
@@ -181,7 +184,26 @@ export class HandoverRecordsQueryService {
     if (Number.isNaN(startAt.getTime())) {
       throw new BadRequestException('日期格式不正确');
     }
-    const endAt = new Date(makeShanghaiMs(year, month - 1, day, 23, 59, 59, 999));
+    // 仅校验 NaN 会放过 2026-02-31 / 2026-13-45 这类越界日期：
+    // makeShanghaiMs 与 Date.UTC 一样会自动进位到其它月份，导致筛选结果与预期不符。
+    // 这里按日历独立校验（不依赖时区换算结果）。
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      !Number.isInteger(day) ||
+      month < 1 ||
+      month > 12 ||
+      day < 1
+    ) {
+      throw new BadRequestException('日期格式不正确');
+    }
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (day > daysInMonth) {
+      throw new BadRequestException('日期不存在');
+    }
+    const endAt = new Date(
+      makeShanghaiMs(year, month - 1, day, 23, 59, 59, 999),
+    );
     return { startAt, endAt };
   }
 

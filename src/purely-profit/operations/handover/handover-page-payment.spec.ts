@@ -224,6 +224,7 @@ describe('handover-page-payment', () => {
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券
               prepaidGrouponPlatform: null,
               prepaidGrouponCode: null,
+              prepaidAmount: 5500,
               sessionRenewRecords: [],
               space: { name: 'A22' },
               openOperatorNameSnapshot: null,
@@ -268,6 +269,7 @@ describe('handover-page-payment', () => {
               prepaidCustomerPaymentMethod: 'wechat', // 顾客用微信
               prepaidGrouponPlatform: null,
               prepaidGrouponCode: null,
+              prepaidAmount: 8800,
               sessionRenewRecords: [],
               space: { name: 'A01' },
               openOperatorNameSnapshot: null,
@@ -284,7 +286,8 @@ describe('handover-page-payment', () => {
       expect(result[0]!.label).toBe('微信');
     });
 
-    it('台位费顾客支付方式为团购券时应归入团购桶', () => {
+    it('台位费被开台团购券预付款覆盖时应归入团购桶', () => {
+      // 预付 55（团购券）≥ 台位费 55 → 台位费跟随开台支付方式
       const items: OrderItemRow[] = [
         {
           id: 3,
@@ -310,6 +313,7 @@ describe('handover-page-payment', () => {
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券开台
               prepaidGrouponPlatform: null,
               prepaidGrouponCode: null,
+              prepaidAmount: 5500, // 预付 55 元，恰好覆盖台位费
               sessionRenewRecords: [],
               space: { name: 'A22' },
               openOperatorNameSnapshot: null,
@@ -325,6 +329,50 @@ describe('handover-page-payment', () => {
       expect(result[0]!.method).toBe('groupon_voucher');
       expect(result[0]!.label).toBe('团购');
       expect(result[0]!.color).toBe('#b45309');
+      expect(result[0]!.amount).toBe(55);
+    });
+
+    it('台位费未被预付款覆盖时应归入结账支付方式桶', () => {
+      const items: OrderItemRow[] = [
+        {
+          id: 4,
+          productName: '台位费（固定）',
+          salePrice: 5500, // 55.00 元
+          quantity: 1,
+          product: null,
+          order: {
+            id: 4,
+            date: new Date(),
+            paymentMethod: SalesPaymentMethod.cash, // 结账时现金补收
+            manualEntry: false,
+            diningMode: null,
+            sourceChannel: null,
+            grouponCode: null,
+            operatorNameSnapshot: null,
+            operatorStaff: null,
+            scanOrder: null,
+            spaceSession: {
+              startTime: new Date(),
+              sessionItems: [],
+              prepaidPaymentMethod: SalesPaymentMethod.alipay,
+              prepaidCustomerPaymentMethod: 'groupon_voucher',
+              prepaidGrouponPlatform: null,
+              prepaidGrouponCode: null,
+              prepaidAmount: 2000, // 预付仅 20 元，不足以覆盖 55 元台位费
+              sessionRenewRecords: [],
+              space: { name: 'A22' },
+              openOperatorNameSnapshot: null,
+              openOperatorStaff: null,
+            },
+          },
+        },
+      ];
+
+      const result = mapPaymentItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.method).toBe('cash');
+      expect(result[0]!.label).toBe('现金');
       expect(result[0]!.amount).toBe(55);
     });
   });

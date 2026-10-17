@@ -1,5 +1,8 @@
 import { buildShiftDateRange, type ShiftRecordRow } from './handover.shared';
 
+// 统一复用 handover.utils 的实现，避免两份语义不一致的班次比较逻辑
+export { isSameShiftRecord } from './handover.shared';
+
 type ShiftWithCompletion = {
   shift: ShiftRecordRow;
   handedOver: boolean;
@@ -14,20 +17,6 @@ export function getShiftStartAt(shift: ShiftRecordRow): Date {
 /** 计算班次结束时间 */
 export function getShiftEndAt(shift: ShiftRecordRow): Date {
   return buildShiftDateRange(shift.startTime, shift.endTime, shift.date).endAt;
-}
-
-/** 判断两个班次是否为同一班次（按 employeeId + shiftType + date + time 比较） */
-export function isSameShiftRecord(
-  left: ShiftRecordRow,
-  right: ShiftRecordRow,
-): boolean {
-  return (
-    left.employeeId === right.employeeId &&
-    left.shiftType === right.shiftType &&
-    left.date.getTime() === right.date.getTime() &&
-    left.startTime === right.startTime &&
-    left.endTime === right.endTime
-  );
 }
 
 /**

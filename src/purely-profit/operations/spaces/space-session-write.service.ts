@@ -197,7 +197,9 @@ export class SpaceSessionWriteService {
               latestSession.storeId,
               operatorStaffId,
               'sale',
-              '空间管理追加点单',
+              // 备注携带会话 ID：结账时据此把流水回填销售单号，
+              // 交班库存列才能按「该笔销售后的库存」回溯
+              `空间管理追加点单（会话#${latestSession.id}）`,
             );
           }
         }

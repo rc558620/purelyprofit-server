@@ -78,6 +78,16 @@ export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {
   [EmployeeShiftType.custom]: '自定义班次',
 };
 
+/**
+ * 班次结束后允许交班定位/匹配的宽限期（小时）。
+ *
+ * 规则 5 要求交班必须发生在班次结束之后（handoverAt 恒 > endAt），
+ * 因此所有"按班次时间段兜底匹配交班记录"的窗口上界必须扩展为
+ * [startAt, endAt + 宽限]，否则合法交班记录永远落不进窗口，
+ * 会导致已完成交班的班次再次被判定为未交班（重复交班）。
+ */
+export const HANDOVER_SHIFT_GRACE_HOURS = 4;
+
 export const HANDOVER_NOTE_MAX_LENGTH = 500;
 export const HANDOVER_ADDITIONAL_ITEM_NAME_MAX_LENGTH = 20;
 export const HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH = 200;

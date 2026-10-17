@@ -2,6 +2,11 @@ import { Money } from '../../../shared/money.utils';
 import type { HandoverOrderItemDto } from './dto/handover-shared.dto';
 import type { OrderItemRow } from './handover.types';
 import { mapOrderItem } from './handover-order-item.mapper';
+import {
+  buildSpaceConsumptionPaymentIndex,
+  type SpaceConsumptionPaymentIndex,
+} from './handover-space-session-payment';
+import type { SaleStockSnapshotIndex } from './handover-stock-snapshot';
 
 /**
  * 将扫码订单商品规格按数量展开为 spec 序列，与 saleOrderItem 按顺序一一对应。
@@ -53,6 +58,8 @@ function buildAggregatedOrderItem(
   storeOwnerUserId: number | null,
   shiftOperatorName: string | null,
   refundedOrderIds: ReadonlySet<number>,
+  consumptionPaymentIndex?: SpaceConsumptionPaymentIndex,
+  saleStockIndex?: SaleStockSnapshotIndex,
 ): HandoverOrderItemDto {
   const first = items[0];
   const base = mapOrderItem(
@@ -60,6 +67,8 @@ function buildAggregatedOrderItem(
     storeOwnerUserId,
     shiftOperatorName,
     refundedOrderIds,
+    consumptionPaymentIndex,
+    saleStockIndex,
   );
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   // 整单金额 = 所有商品行金额之和（分），统一转元展示
@@ -91,7 +100,12 @@ export function aggregateRegularOrderItems(
   storeOwnerUserId: number | null,
   shiftOperatorName: string | null,
   refundedOrderIds: ReadonlySet<number>,
+  /** 销售时点库存快照：库存列按该笔销售扣减完成后的库存展示 */
+  saleStockIndex?: SaleStockSnapshotIndex,
 ): HandoverOrderItemDto[] {
+  // 空间会话消费行（台位费 / 追加点单）的支付方式归属索引，
+  // 与支付方式金额汇总（mapPaymentItems）共用同一套判定。
+  const consumptionPaymentIndex = buildSpaceConsumptionPaymentIndex(items);
   const orderGroups = new Map<number, OrderItemRow[]>();
   for (const item of items) {
     const group = orderGroups.get(item.order.id) ?? [];
@@ -136,12 +150,16 @@ export function aggregateRegularOrderItems(
               storeOwnerUserId,
               shiftOperatorName,
               refundedOrderIds,
+              consumptionPaymentIndex,
+              saleStockIndex,
             )
           : buildAggregatedOrderItem(
               group.items,
               storeOwnerUserId,
               shiftOperatorName,
               refundedOrderIds,
+              consumptionPaymentIndex,
+              saleStockIndex,
             );
       // 商品带规格时设置标记（前端渲染规格标签）
       if (group.hasSpec) {

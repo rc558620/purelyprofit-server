@@ -620,7 +620,7 @@ describe('SpaceSession concurrency fixes', () => {
         18,
         8,
         'sale',
-        '空间管理追加点单',
+        `空间管理追加点单（会话#${10}）`,
       );
     });
   });

@@ -21,6 +21,10 @@ import type {
   SettledSpaceSessionRow,
 } from './handover.shared';
 import {
+  buildSaleStockSnapshotIndex,
+  loadSaleStockSnapshotIndex,
+} from './handover-stock-snapshot';
+import {
   SALE_ORDER_ITEM_SELECT,
   SALE_ORDER_REFUND_SELECT,
   SETTLED_SPACE_SESSION_SELECT,
@@ -68,7 +72,12 @@ export const resolvePageShiftRange = async (
 /**
  * 查找同门店内，在本班次开始时间之后、完成的最新交班记录
  * 该交班时刻即为本班次的统计起点（过滤上一班未交班时段的数据）
+ *
  * 注：不按 employeeShiftIdSnapshot 过滤，因为老板主账号交班时不写 snapshot
+ *
+ * ⚠️ 这里刻意使用"全店最近一次交班"，而非按交班人收窄：
+ * 交接时刻是全店时间线的切分点，上一班延迟交班时其记录已覆盖到该时刻，
+ * 若按人收窄会让同一时段营收同时出现在两班的统计里（重复计算）。
  */
 const findShiftInitializedStartAt = async (
   prisma: PrismaService,
@@ -151,10 +160,22 @@ export const loadPageMetrics = async (
     membership.storeId,
   );
 
+  // 销售时点库存快照：库存列显示该笔销售扣减完成后的库存；
+  // 查不到流水的行按「当前库存 + 后续销量」倒推兜底（老订单/被退款流水）
+  const preciseStockIndex = await loadSaleStockSnapshotIndex(
+    prisma,
+    orderItems,
+  );
+  const saleStockIndex = buildSaleStockSnapshotIndex(
+    orderItems,
+    preciseStockIndex,
+  );
+
   return {
     orderCount,
     paymentOrderItems,
     orderItems,
+    saleStockIndex,
     saleOrderRefundItems: saleOrderRefunds,
     additionalRevenueAmount: dbCentsToOutputYuan(
       additionalRevenue._sum.totalRevenue,

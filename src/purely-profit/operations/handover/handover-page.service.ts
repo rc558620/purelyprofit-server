@@ -137,6 +137,8 @@ export class HandoverPageService {
         shiftContext.shiftInfo.operatorName,
         // 扫码点餐退款行（SaleOrderRefund）：负数退款行与下单行并存，保证账目平衡
         metrics.saleOrderRefundItems,
+        // 销售时点库存快照：库存列按该笔销售扣减完成后的库存展示
+        metrics.saleStockIndex,
       ),
       receiverName: shiftContext.receiverCandidate?.employeeName ?? '',
       canOperate: shiftContext.operationAccess.canOperate,
