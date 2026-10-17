@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { resolveClubGuestDisplayName } from '../../auth/auth.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ClubVoucherOrderRefundService } from '../../../purely-club/voucher-orders/club-voucher-order-refund.service';
@@ -43,6 +44,10 @@ export interface VoucherOrderRejectResult {
   status: 'refunded';
   refundAt: string;
   rejectedAt: string;
+  /** 拒绝操作员姓名快照（未关联员工行时为 null） */
+  rejectedByStaffName: string | null;
+  /** 拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员） */
+  rejectedByStaffRole: 'owner' | 'manager' | 'staff' | null;
 }
 
 /** 可操作状态：确认/拒绝仅对 pending 订单开放 */
@@ -73,6 +78,8 @@ export class VoucherOrdersService {
     const timeRange = this.buildTimeRange(query);
     const where: Prisma.ClubVoucherOrderWhereInput = {
       storeId,
+      // 未支付草稿单（用户弃付）不进商家端列表：与用户端列表口径一致（status not unpaid）
+      status: { not: 'unpaid' },
       ...(query.status && query.status !== VoucherOrderStatusFilter.ALL
         ? { status: query.status }
         : {}),
@@ -99,9 +106,17 @@ export class VoucherOrdersService {
       }),
       this.prisma.clubVoucherOrder.count({ where }),
     ]);
+    // 惰性过期：pending 且已过效期的订单就地转 expired（与用户端列表口径一致，
+    // 避免商家端仍把它们当「未确认」并允许确认/退款）
+    const expiredIds = await this.expireOverdueOrders(rows);
 
     return {
-      items: rows.map((row) => this.toListItem(row)),
+      items: rows.map((row) =>
+        this.toListItem({
+          ...row,
+          status: expiredIds.includes(row.id) ? 'expired' : row.status,
+        }),
+      ),
       total,
     };
   }
@@ -210,6 +225,8 @@ export class VoucherOrdersService {
       status: 'refunded',
       refundAt: result.refundAt,
       rejectedAt: result.rejectedAt,
+      rejectedByStaffName,
+      rejectedByStaffRole: operatorSnapshot.role,
     };
   }
 
@@ -338,6 +355,31 @@ export class VoucherOrdersService {
     return { gte: startAt, lte: endAt };
   }
 
+  /**
+   * 惰性过期：pending 且有效期已过的订单就地转 expired，返回本次被转的订单 ID 列表。
+   * 与用户端列表口径一致，避免商家端把已过期订单当「未确认」并允许确认/退款。
+   */
+  private async expireOverdueOrders(
+    rows: Array<{ id: number; status: string; expiresAt: Date | null }>,
+  ): Promise<number[]> {
+    const now = new Date();
+    const overdueIds = rows
+      .filter(
+        (row) =>
+          row.status === 'pending' &&
+          row.expiresAt !== null &&
+          row.expiresAt < now,
+      )
+      .map((row) => row.id);
+    if (overdueIds.length === 0) return [];
+
+    await this.prisma.clubVoucherOrder.updateMany({
+      where: { id: { in: overdueIds }, status: 'pending' },
+      data: { status: 'expired' },
+    });
+    return overdueIds;
+  }
+
   /** 订单实体 → 列表项（时间为 ISO 字符串，金额保持分单位） */
   private toListItem(row: {
     orderNo: string;
@@ -365,7 +407,8 @@ export class VoucherOrdersService {
     return {
       orderNo: row.orderNo,
       voucherCode: row.voucherCode,
-      guestName: row.guestName,
+      // 历史订单姓名快照可能为空（静默微信注册无昵称）：按快照手机号兜底派生展示名
+      guestName: resolveClubGuestDisplayName(row.guestName, row.guestPhone),
       guestPhone: row.guestPhone,
       categoryName: row.categoryName,
       productName: row.productName,

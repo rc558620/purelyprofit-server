@@ -14,7 +14,6 @@ import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -237,15 +236,15 @@ export class AuthController {
   @ApiOperation({
     summary: '发送 purely-profit 找回密码短信验证码',
     description:
-      '仅面向 purely-profit 账号找回密码。会先校验手机号是否已注册；未注册时返回 404，已注册时发送验证码。同一手机号 60 秒内不可重复发送。',
+      '仅面向 purely-profit 账号找回密码。无论手机号是否已注册都返回 200：' +
+      '已注册时发送验证码，未注册时仅返回通用提示（避免通过状态码差异枚举注册手机号）。' +
+      '同一手机号 60 秒内不可重复发送。',
   })
   @ApiOkResponse({
     description:
-      '已注册手机号返回发送成功 message 并发送验证码；同一手机号 60 秒内不可重复发送',
+      '已注册手机号返回发送成功 message 并发送验证码；未注册手机号返回通用提示且不发送验证码。' +
+      '同一手机号 60 秒内不可重复发送',
     type: ForgotPasswordResponseDto,
-  })
-  @ApiNotFoundResponse({
-    description: '手机号未注册，请先注册',
   })
   forgotPassword(
     @Body() dto: ForgotPasswordDto,

@@ -43,10 +43,11 @@ export class AuthCodeService {
     productScope: AuthProductScope,
     captchaToken?: string,
   ): Promise<SendRegisterCodeResponseDto> {
-    // 校验并消费拼图验证令牌
-    await this.captchaTokenService.validateAndConsume(captchaToken);
-
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
+
+    // 先做「必定失败」的前置校验，再消费拼图令牌：
+    // 手机号已注册或处于发送冷却时，用户刚完成的拼图不应被白白烧掉，
+    // 否则每次重试都要重新走一遍拼图验证。
     const existingUser = await this.authAccountLookupService.findUserByPhone(
       phone,
       productScope,
@@ -57,6 +58,9 @@ export class AuthCodeService {
     }
 
     await this.ensureSmsSendCooldown('register', productScope, phone);
+
+    // 校验并消费拼图验证令牌
+    await this.captchaTokenService.validateAndConsume(captchaToken);
 
     const registerCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(productScope, phone);

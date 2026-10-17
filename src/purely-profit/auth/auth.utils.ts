@@ -267,6 +267,26 @@ export function buildClubMemberDisplayName(
   return `${CLUB_MEMBER_DEFAULT_NAME_PREFIX}${phone.slice(-4)}`;
 }
 
+/**
+ * 订单顾客姓名展示兜底：历史订单的姓名快照可能为空（静默微信注册用户无昵称），
+ * 此时按快照手机号派生「纯利会员+后4位」（与顾客档案命名规则一致）供商家端展示；
+ * 手机号非真实手机号（占位标识）时返回 null，由前端走占位文案。
+ */
+export function resolveClubGuestDisplayName(
+  guestName: string | null | undefined,
+  guestPhone: string | null | undefined,
+): string | null {
+  const trimmedName = (guestName ?? '').trim();
+  if (trimmedName.length > 0) {
+    return trimmedName;
+  }
+  const phone = (guestPhone ?? '').trim();
+  if (!isMainlandMobilePhone(phone)) {
+    return null;
+  }
+  return buildClubMemberDisplayName(phone, null);
+}
+
 export function maskPhone(phone: string): string {
   if (!/^1\d{10}$/.test(phone)) {
     return phone;

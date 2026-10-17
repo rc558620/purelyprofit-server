@@ -20,5 +20,6 @@ export class ChangePasswordDto {
 
   @ApiProperty({ example: 'newPassword123', description: '确认新密码' })
   @IsString({ message: '确认新密码必须是字符串' })
+  @MinLength(1, { message: '确认新密码不能为空' })
   confirmPassword: string;
 }

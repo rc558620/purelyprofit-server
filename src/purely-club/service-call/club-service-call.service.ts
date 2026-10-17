@@ -293,6 +293,8 @@ export class ClubServiceCallService {
         clubUserId: params.clubUserId,
         source: 'scan_ordering',
         type: params.type,
+        tableId: params.tableId,
+        scanSessionId: params.sessionId,
         locationLabel: params.locationLabel,
         remark: params.remark,
         expiresAt: new Date(Date.now() + PENDING_SERVICE_CALL_TTL_MS),
@@ -301,6 +303,7 @@ export class ClubServiceCallService {
     this.realtimeService.publishCreated({
       id: serviceCall.id,
       storeId: serviceCall.storeId,
+      clubUserId: serviceCall.clubUserId,
       source: serviceCall.source,
       type: serviceCall.type,
       status: serviceCall.status,

@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { resolveClubGuestDisplayName } from '../../auth/auth.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   assertVoucherReadable,
@@ -78,7 +79,8 @@ export class SpaceSessionVoucherReadService {
     return {
       platform: order.platform,
       voucherCode: order.voucherCode ?? voucherCode.trim(),
-      guestName: order.guestName,
+      // 历史订单姓名快照可能为空（静默微信注册无昵称）：按快照手机号兜底派生展示名
+      guestName: resolveClubGuestDisplayName(order.guestName, order.guestPhone),
       guestPhone: order.guestPhone,
       personCount: order.personCount,
       guestType: order.guestType,

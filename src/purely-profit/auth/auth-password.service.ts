@@ -128,6 +128,16 @@ export class AuthPasswordService {
       throw new UnauthorizedException('当前密码错误');
     }
 
+    // 与 resetPassword 保持一致：新密码不能与当前密码相同。
+    // 否则一次空操作变更也会触发后续的全量会话淘汰与 token 重签。
+    const isSamePassword = await this.verifyPassword(
+      params.newPassword,
+      currentUser.password,
+    );
+    if (isSamePassword) {
+      throw new BadRequestException('新密码不能与当前密码相同');
+    }
+
     await this.updatePassword(currentUser.id, params.newPassword);
 
     return {

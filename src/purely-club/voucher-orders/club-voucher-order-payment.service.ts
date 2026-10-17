@@ -1,6 +1,10 @@
 // 团购券订单支付服务：创建订单草稿（JSAPI 下单 / 余额直接结算）→ 支付成功确认（生成券码 + 扣库存 + 起算有效期）
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Money } from '../../shared/money.utils';
+import {
+  buildClubMemberDisplayName,
+  getDisplayPhone,
+} from '../../purely-profit/auth/auth.utils';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
@@ -77,6 +81,10 @@ export class ClubVoucherOrderPaymentService {
     }
 
     const orderNo = buildVoucherOrderNo(Date.now());
+    // 顾客信息快照：静默微信登录拿不到昵称（user.name 为 null），
+    // 姓名兜底为「纯利会员+标识后4位」（与营销顾客档案命名规则一致），
+    // 保证商家端订单卡与开台回填都有可识别的顾客名；电话仅快照真实手机号。
+    const guestSnapshot = this.resolveGuestSnapshot(currentContext.user);
     const breakdownItems = buildVoucherOrderBreakdownItems(
       this.breakdownService,
       pricing,
@@ -118,8 +126,8 @@ export class ClubVoucherOrderPaymentService {
             userId: currentContext.user.id,
             customerId: context.customer.id,
             product: context.product,
-            guestName: currentContext.user.name,
-            guestPhone: currentContext.user.phone,
+            guestName: guestSnapshot.guestName,
+            guestPhone: guestSnapshot.guestPhone,
             quantity,
             personCount,
             remark: dto.remark,
@@ -164,6 +172,24 @@ export class ClubVoucherOrderPaymentService {
       status: 'unpaid',
       amountFen: pricing.paidAmountFen,
       paymentParams,
+    };
+  }
+
+  /**
+   * 顾客信息快照解析：
+   * - 姓名：昵称非空用昵称；否则按手机号/标识派生展示名「纯利会员+后4位」，
+   *   与加入门店时营销顾客档案的命名规则（buildClubMemberDisplayName）完全一致，
+   *   避免静默微信注册用户（无昵称）的订单在商家端显示占位「顾客」、开台回填无名字。
+   * - 电话：仅快照真实手机号；占位手机号（club_wechat:openid）不留存为空。
+   */
+  private resolveGuestSnapshot(user: {
+    name?: string | null;
+    phone?: string | null;
+  }): { guestName: string | null; guestPhone: string | null } {
+    const phone = user.phone ?? '';
+    return {
+      guestName: buildClubMemberDisplayName(phone, user.name),
+      guestPhone: getDisplayPhone(phone) || null,
     };
   }
 
