@@ -42,12 +42,26 @@ export class AuthWechatLoginService {
       await this.authAccountLookupService.findUserByWechatOpenid(params.openid);
 
     if (existingUser) {
-      // 每次登录刷新微信头像、昵称和 unionid
-      await this.authProfileService.updateWechatProfile(existingUser.id, {
-        nickname: params.nickname,
-        avatar: params.avatar,
-        unionid: params.unionid,
-      });
+      // 每次登录刷新微信头像、昵称和 unionid。
+      //
+      // 三个字段都为空时整段跳过：静默登录（`Taro.login()`，无授权弹窗）正是这种
+      // 形态，而它是**最高频**的登录方式（每次冷启动 / 每次 401 恢复都走一遍）。
+      // 写库本身是空 update（Prisma 仍发一条 SQL），真正的代价在
+      // `updateWechatProfile` 末尾的缓存失效 —— 它无条件清掉 JwtStrategy 的
+      // 5 分钟用户缓存，于是下一次鉴权请求必然回源数据库。高频静默登录下，
+      // 这份缓存等于从不存在。
+      const hasProfileUpdate =
+        params.nickname != null ||
+        params.avatar != null ||
+        params.unionid != null;
+
+      if (hasProfileUpdate) {
+        await this.authProfileService.updateWechatProfile(existingUser.id, {
+          nickname: params.nickname,
+          avatar: params.avatar,
+          unionid: params.unionid,
+        });
+      }
 
       // 若本次传入了手机号，写入 wechat_phone 前，先检查该手机号是否已被其他用户绑定
       if (params.phone) {

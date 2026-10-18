@@ -17,6 +17,7 @@ import { ClubMemberController } from '../src/purely-club/member/club-member.cont
 import { ClubMemberService } from '../src/purely-club/member/club-member.service';
 import { ClubCurrentStoreContextService } from '../src/purely-club/stores/club-current-store-context.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { RedisService } from '../src/redis/redis.service';
 
 const TEST_JWT_SECRET = 'club-member-test-secret';
 const jwtService = new JwtService({ secret: TEST_JWT_SECRET });
@@ -41,9 +42,15 @@ describe('Club member profile routes (e2e)', () => {
     getTokenVersion: jest.fn(),
   };
 
+  // JwtStrategy 鉴权时会读用户缓存（getJson），未命中再回库并回填（setJson）。
+  // 这里保持缓存未命中，让用例走真实的「查库 → 回填」路径。
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue('OK'),
+  };
+
   const clubMemberService = {
     getProfile: jest.fn(),
-    changePassword: jest.fn(),
     updateAvatar: jest.fn(),
     updateNickname: jest.fn(),
   };
@@ -75,6 +82,10 @@ describe('Club member profile routes (e2e)', () => {
         {
           provide: PrismaService,
           useValue: prismaService,
+        },
+        {
+          provide: RedisService,
+          useValue: redisService,
         },
         {
           provide: ClubCurrentStoreContextService,
@@ -155,10 +166,6 @@ describe('Club member profile routes (e2e)', () => {
       nickname: '俱乐部用户',
       avatar: 'https://cdn.example.com/avatar.png',
     });
-    clubMemberService.changePassword.mockResolvedValue({
-      message: '密码修改成功，旧登录态已失效',
-      access_token: 'club-next-token',
-    });
     clubMemberService.updateAvatar.mockResolvedValue({
       id: '201',
       phone: '13800138000',
@@ -204,49 +211,6 @@ describe('Club member profile routes (e2e)', () => {
         accountScope: 'purely_club',
       }),
     );
-  });
-
-  it('POST /api/club/member/change-password 调用当前密码修改链路', async () => {
-    await request(app.getHttpServer())
-      .post('/api/club/member/change-password')
-      .set('Authorization', `Bearer ${createToken()}`)
-      .send({
-        currentPassword: 'oldPassword123',
-        newPassword: 'newPassword123',
-        confirmPassword: 'newPassword123',
-      })
-      .expect(200)
-      .expect(({ body }) => {
-        expect(body).toEqual({
-          message: '密码修改成功，旧登录态已失效',
-          access_token: 'club-next-token',
-        });
-      });
-
-    expect(clubMemberService.changePassword).toHaveBeenCalledWith(
-      expect.objectContaining<Partial<AuthenticatedUser>>({
-        id: 201,
-        accountScope: 'purely_club',
-      }),
-      {
-        currentPassword: 'oldPassword123',
-        newPassword: 'newPassword123',
-        confirmPassword: 'newPassword123',
-      },
-    );
-  });
-
-  it('POST /api/club/member/change-password 密码长度不足时返回 400', async () => {
-    await request(app.getHttpServer())
-      .post('/api/club/member/change-password')
-      .set('Authorization', `Bearer ${createToken()}`)
-      .send({
-        currentPassword: '123',
-        newPassword: '456',
-      })
-      .expect(400);
-
-    expect(clubMemberService.changePassword).not.toHaveBeenCalled();
   });
 
   it('PATCH /api/club/member/profile/avatar 返回更新后的头像资料', async () => {

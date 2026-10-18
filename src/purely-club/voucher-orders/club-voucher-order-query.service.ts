@@ -25,13 +25,36 @@ export class ClubVoucherOrderQueryService {
   ): Promise<ClubVoucherOrderListResponseDto> {
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 50);
     const offset = Math.max(query.offset ?? 0, 0);
+    const now = new Date();
 
     const where: Prisma.ClubVoucherOrderWhereInput = {
       userId: currentContext.user.id,
       status: { not: 'unpaid' },
     };
     if (query.status && query.status !== 'all') {
-      where.status = query.status as ClubVoucherOrderStatus;
+      if (query.status === 'expired') {
+        // 「已过期」不能只按 DB 的 expired 状态查：过期翻转是惰性的（只在列表/详情被
+        // 读到时才翻转），而列表按下单时间倒序，最容易过期的老单排在末页，可能长期
+        // 未被翻阅而一直停在 pending，从本 Tab 系统性漏出。这里直接按 expiresAt 取并集。
+        where.OR = [
+          { status: 'expired' as ClubVoucherOrderStatus },
+          {
+            status: 'pending' as ClubVoucherOrderStatus,
+            expiresAt: { lt: now },
+          },
+        ];
+      } else if (query.status === 'pending') {
+        // 对称地：「待使用」要排除已到有效期但尚未翻转的单，避免首页混入已过期券
+        where.OR = [
+          { status: 'pending' as ClubVoucherOrderStatus, expiresAt: null },
+          {
+            status: 'pending' as ClubVoucherOrderStatus,
+            expiresAt: { gte: now },
+          },
+        ];
+      } else {
+        where.status = query.status as ClubVoucherOrderStatus;
+      }
     }
 
     // 按状态 Tab 对应的业务时间倒序排序（未知状态回退按下单时间倒序）

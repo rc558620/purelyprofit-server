@@ -327,17 +327,55 @@ describe('ClubRecordQueryService', () => {
       const rechargeCall =
         prismaService.marketingRecharge.findMany.mock.calls[0][0];
       expect(rechargeCall.where.OR).toBeDefined();
+      // 游标为 consume-31（kind 权重 2）：充值表中 refund(4)/recharge(3) 权重更高、
+      // 同刻时排在游标之前（已展示过）需排除；gift 展示为 bonus（权重 1）排在游标之后，
+      // 同刻记录整段取回且不带 id 阈值——跨表共用数字阈值会把它们整段漏掉。
       expect(rechargeCall.where.OR).toEqual([
         { createdAt: { lt: cursor.createdAt } },
-        {
-          createdAt: cursor.createdAt,
-          id: { lt: 31 },
-        },
+        { createdAt: cursor.createdAt, type: 'gift' },
       ]);
 
       const consumptionCall =
         prismaService.marketingConsumption.findMany.mock.calls[0][0];
       expect(consumptionCall.where.OR).toBeDefined();
+      // 消费表与游标同 kind（权重 2），同刻按数字主键取更小者
+      expect(consumptionCall.where.OR).toEqual([
+        { createdAt: { lt: cursor.createdAt } },
+        { createdAt: cursor.createdAt, id: { lt: 31 } },
+      ]);
+    });
+
+    it('同刻记录翻页：游标落在充值表时，消费表同刻记录不被数字阈值误排', async () => {
+      prismaService.marketingRecharge.findMany.mockResolvedValue([]);
+      prismaService.marketingConsumption.findMany.mockResolvedValue([]);
+      prismaService.marketingRecharge.count.mockResolvedValue(0);
+      prismaService.marketingConsumption.count.mockResolvedValue(0);
+
+      // PostgreSQL 事务内 now() 恒定，同事务批量写入的流水 createdAt 完全相同。
+      // 游标为充值记录（kind 权重 3，高于 consume 的 2），消费表同刻记录整体排在游标之后。
+      const cursor = {
+        createdAt: new Date('2024-11-18T14:20:00.000Z'),
+        id: 'recharge-9',
+      };
+
+      await service.listLedgerEntries(11, 98, { limit: 50, cursor });
+
+      const consumptionCall =
+        prismaService.marketingConsumption.findMany.mock.calls[0][0];
+      // 关键：消费表不得带 id 阈值，否则 consume-31（31 > 9）会被永久漏掉
+      expect(consumptionCall.where.OR).toEqual([
+        { createdAt: { lt: cursor.createdAt } },
+        { createdAt: cursor.createdAt },
+      ]);
+
+      const rechargeCall =
+        prismaService.marketingRecharge.findMany.mock.calls[0][0];
+      // 充值表：refund 排在游标之前需排除；recharge 与游标同 kind 取 id < 9；gift 排在其后整段取回
+      expect(rechargeCall.where.OR).toEqual([
+        { createdAt: { lt: cursor.createdAt } },
+        { createdAt: cursor.createdAt, type: 'recharge', id: { lt: 9 } },
+        { createdAt: cursor.createdAt, type: 'gift' },
+      ]);
     });
 
     it('无游标时不添加 cursor 过滤条件', async () => {

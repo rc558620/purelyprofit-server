@@ -30,8 +30,14 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  *    另一个账号的档案与资产。
  * 2. **只校验新手机号**。用户换号后旧号已经收不到短信，要求校验旧号等于功能
  *    不可用。安全性由「已登录（openid + JWT）」与 30 天冷静期共同保证。
- * 3. **按 clubUserId 定位档案，绝不按 phone 更新**。旧手机号是真实号码，可能
+ * 3. **主锚点是 clubUserId，绝不按 phone 批量更新**。旧手机号是真实号码，可能
  *    同时属于其他用户（历史数据、重复导入），按 phone 批量更新会串改他人档案。
+ *    `Member` 与 `MarketingCustomer` 现在都有 `clubUserId`（members 那列由迁移
+ *    20261007000000 新增、20261007000100 回填，与
+ *    `ClubStoreAccessService.buildMemberIdentityWhere` 的第 1 层同源），按它更新
+ *    既能覆盖全部门店，也碰不到他人档案。仍无 `clubUserId` 的存量档案才按
+ *    `(storeId, phone)` 兜底，且必须「同店唯一命中」才改（见
+ *    `resolveUnboundMemberIds`）。
  *    （首次绑定可以按 phone 更新，是因为占位值 `club_wechat:{openid}` 由 openid
  *    派生、在同一 appid 内天然唯一。）
  */
@@ -55,7 +61,7 @@ export class ClubPhoneRebindService {
    * | 字段 | 漏同步的后果 |
    * |---|---|
    * | `users.wechat_phone` | `needPhoneBind` 判定与后续登录的 phone 来源不更新 |
-   * | `Member.phone` | `findAccessibleStores` 正是按它匹配门店 → 用户**立刻失去全部门店访问权** |
+   * | `Member.phone` | `findAccessibleStores` 的两层匹配（`clubUserId` 优先、`phone` 兜底）里，无主档案只有 `phone` 这条路 → 漏同步就**立刻失去全部门店访问权** |
    * | `MarketingCustomer.phone` | 商家端（purelyProfit）仍展示、检索旧号 |
    *
    * 另外 JWT 的 `phone` 参与 `Member` 匹配，因此成功后必须**重新签发 token**，
@@ -97,6 +103,15 @@ export class ClubPhoneRebindService {
     if (existingPhoneUser && existingPhoneUser.id !== userId) {
       throw new ConflictException('该手机号已绑定其他账号，请更换手机号');
     }
+
+    // 跨产品线唯一：注册 / 登录即注册 / 微信登录都走
+    // `assertPhoneNotRegisteredInOtherScope`，换绑原先漏了这一道，于是可以把一个
+    // 商家端（purely_profit）在用的号码挂到 club 账号上，同号落进两条产品线。
+    // 排在验证码消费之前：它与验证码无关，先消费会白白损失一条短信。
+    await this.authAccountLookupService.assertPhoneNotRegisteredInOtherScope(
+      dto.phone,
+      'purely_club',
+    );
 
     // 3. 冷静期
     this.assertRebindAllowed(currentUser.phoneRebindAt);
@@ -185,19 +200,29 @@ export class ClubPhoneRebindService {
   /**
    * 换绑时把该用户在**所有门店**的档案由旧号改为新号。
    *
-   * 两处定位方式不同，原因在于两张表的可用键不同：
+   * 两条定位路径，按「档案是否已经带上本人身份锚点」区分：
    *
-   * | 表 | 定位方式 | 为什么 |
+   * | 路径 | 定位方式 | 覆盖的档案 |
    * |---|---|---|
-   * | `MarketingCustomer` | `clubUserId` | 有该列，且有 `(storeId, clubUserId)` 唯一约束 |
-   * | `Member` | `storeId IN (该用户有档案的门店)` + `phone = 旧号` | **既无 `clubUserId`，`customerId` 在现存数据里也全为 null**（该列是「可选、兼容历史数据」），无法靠关联定位 |
+   * | 主锚点 | `clubUserId = userId` | 回填迁移写过的存量档案、以及所有有该列的档案 |
+   * | 兜底 | `(storeId, phone = 旧号, clubUserId IS NULL)` 且**同店唯一命中** | 从未写过 `clubUserId` 的历史档案 |
    *
-   * 两处都**不跨门店按 `phone` 更新**：旧号是真实号码，可能同时属于其他用户，
-   * 无门店限定的 `phone` 更新会串改他人档案。（首次绑定可以按 `phone` 更新，
-   * 是因为占位值 `club_wechat:{openid}` 由 openid 派生、天然全局唯一。）
+   * 为什么不继续用「门店 + 旧号」作为唯一口径（`members.club_user_id` 出现前的写法）：
+   *
+   * 1. **漏更新**：`clubUserId` 已绑定但 `phone` 不再是旧号的档案（商家端改过会员
+   *    手机号、或同号多条里 phone 被历史改写过）命中 0 条 —— 若该档案
+   *    `clubUserId` 为 null，`findAccessibleStores` 的第 2 层就失配，用户当场失去
+   *    该门店；
+   * 2. **串改他人**：同门店存在另一条 `phone = 旧号` 的档案（他人档案或商家手工
+   *    建档）会被一并改成新号。商家端自己改手机号时特意要求「同店唯一命中」才改
+   *    （见 `marketing-customers.service.ts`），换绑没有理由比它更宽松。
+   *
+   * 主锚点那一步**不带门店限定**：`clubUserId = userId` 本身就锁定了身份，
+   * 且能顺带覆盖「有 Member 但没有 MarketingCustomer」的历史门店
+   * （`storeIds` 之外的门店也会被同步）。
    *
    * 两处都**不过滤 `deletedAt`**：软删除的档案仍然参与 `findAccessibleStores` 的
-   * `members.some({ phone })` 匹配（该查询没有过滤 deletedAt）。残留一条旧号档案，
+   * `members.some(...)` 匹配（该查询没有过滤 deletedAt）。残留一条旧号档案，
    * 就足以让后续绑定了该旧号的**另一个用户**看到本用户的门店与会员数据。
    *
    * `storeIds` 由 `prepareRebindTargets` 在写入前算好（认领孤儿 + 冲突校验），
@@ -215,13 +240,23 @@ export class ClubPhoneRebindService {
       data: { phone: nextPhone },
     });
 
-    // 不依赖 customerId：现存 Member 的 customer_id 全为 null，
-    // 按 customerId 更新会命中 0 条 → Member.phone 留在旧号 →
-    // 新 token 用新号匹配不到门店，用户当场失去全部门店访问权。
-    const memberResult =
-      storeIds.length > 0
+    // 主锚点：与 buildMemberIdentityWhere 第 1 层同源，不依赖 customerId
+    // （现存 Member 的 customer_id 全为 null，按它定位会命中 0 条）。
+    const memberResult = await tx.member.updateMany({
+      where: { clubUserId: userId },
+      data: { phone: nextPhone },
+    });
+
+    // 兜底：仍无 clubUserId 的存量档案，只在「同店唯一命中」时改。
+    const unboundMemberIds = await this.resolveUnboundMemberIds(
+      tx,
+      storeIds,
+      previousPhone,
+    );
+    const unboundMemberResult =
+      unboundMemberIds.length > 0
         ? await tx.member.updateMany({
-            where: { storeId: { in: storeIds }, phone: previousPhone },
+            where: { id: { in: unboundMemberIds } },
             data: { phone: nextPhone },
           })
         : { count: 0 };
@@ -232,37 +267,92 @@ export class ClubPhoneRebindService {
     // 必须放在 phone 更新之后——where 用的是新号。
     const previousAutoName = buildClubMemberDisplayName(previousPhone);
     const nextAutoName = buildClubMemberDisplayName(nextPhone);
-    const renameWhere = { phone: nextPhone, name: previousAutoName };
 
     const renamedCustomerResult = await tx.marketingCustomer.updateMany({
-      where: { clubUserId: userId, ...renameWhere },
+      where: { clubUserId: userId, phone: nextPhone, name: previousAutoName },
       data: { name: nextAutoName },
     });
-    const renamedMemberResult =
-      storeIds.length > 0
-        ? await tx.member.updateMany({
-            where: { storeId: { in: storeIds }, ...renameWhere },
-            data: { name: nextAutoName },
-          })
-        : { count: 0 };
+    const renamedMemberResult = await tx.member.updateMany({
+      where: {
+        phone: nextPhone,
+        name: previousAutoName,
+        OR: [
+          { clubUserId: userId },
+          ...(unboundMemberIds.length > 0
+            ? [{ id: { in: unboundMemberIds } }]
+            : []),
+        ],
+      },
+      data: { name: nextAutoName },
+    });
 
     this.logger.log(
       `rebindPhone 同步档案：${previousPhone} → ${nextPhone}，user ${userId}，` +
         `门店 ${storeIds.length} 家，` +
         `MarketingCustomer phone ${customerResult.count} 条 / name ${renamedCustomerResult.count} 条，` +
-        `Member phone ${memberResult.count} 条 / name ${renamedMemberResult.count} 条`,
+        `Member phone ${memberResult.count} 条（clubUserId）+ ${unboundMemberResult.count} 条（无主兜底）/ ` +
+        `name ${renamedMemberResult.count} 条`,
     );
+  }
+
+  /**
+   * 挑出可以安全改号的**无主**会员档案（`clubUserId IS NULL`）。
+   *
+   * 「无主」档案只靠 `phone` 与本人关联，换绑后 `previousPhone` 一改就彻底失联，
+   * 因此必须在本轮一起改到新号。判定收紧到三条同时成立：
+   *
+   * 1. 门店在 `storeIds` 内（本人确实与该门店有关系）；
+   * 2. `phone = 旧号` 且 `clubUserId IS NULL`（已归属任何 club 用户的档案走主锚点
+   *    那条路径，不在本方法的射程内，避免重复改写）；
+   * 3. **该门店内同号无主档案只有一条** —— 同店同号多条时无法判定哪条属于本人，
+   *    `updateMany` 会把它们一并改写，放大影响面。这与商家端改手机号
+   *    （`marketing-customers.service.ts`）的口径一致：宁可留下一条旧号档案交给
+   *    人工处理，也不能改错别人的档案。
+   *
+   * 不按 `deletedAt` 过滤，理由见 `syncPhoneAcrossProfiles` 的注释。
+   *
+   * @returns 可以安全改号的会员档案 id（空数组表示没有需要兜底的档案）
+   */
+  private async resolveUnboundMemberIds(
+    tx: Prisma.TransactionClient,
+    storeIds: number[],
+    previousPhone: string,
+  ): Promise<number[]> {
+    if (storeIds.length === 0) return [];
+
+    const candidates = await tx.member.findMany({
+      where: {
+        storeId: { in: storeIds },
+        phone: previousPhone,
+        clubUserId: null,
+      },
+      select: { id: true, storeId: true },
+    });
+
+    const countByStoreId = new Map<number, number>();
+    for (const candidate of candidates) {
+      countByStoreId.set(
+        candidate.storeId,
+        (countByStoreId.get(candidate.storeId) ?? 0) + 1,
+      );
+    }
+
+    return candidates
+      .filter((candidate) => countByStoreId.get(candidate.storeId) === 1)
+      .map((candidate) => candidate.id);
   }
 
   /**
    * 写入前准备：认领孤儿档案 → 算出门店范围 → 校验门店维度手机号唯一性。
    *
-   * 两件事都必须在 `tx.user.update` 之前完成：
+   * 三件事都必须在 `tx.user.update` 之前完成：
    * 1. **认领孤儿档案**（`claimUnboundCustomers`）：历史「邀请码入店」路径创建的
    *    顾客档案没带 `clubUserId`，不认领就整店漏同步；
-   * 2. **门店维度手机号唯一性**：商家端改手机号走 `ensureUniquePhone`
+   * 2. **算出门店范围**：取三处并集（见方法内的说明）。只按营销顾客档案算门店，
+   *    会漏掉「有 Member 但没有 MarketingCustomer」的历史门店；
+   * 3. **门店维度手机号唯一性**：商家端改手机号走 `ensureUniquePhone`
    *    （storeId + phone 唯一），换绑是批量 update，必须补同等校验，否则同门店
-   *    会留下两条同号顾客档案，`marketing-consumption-link` 按 `(storeId, phone)`
+   *    会留下两条同号档案，`marketing-consumption-link` 按 `(storeId, phone)`
    *    findFirst 关联时可能把消费挂到错误档案上。
    */
   private async prepareRebindTargets(
@@ -273,28 +363,70 @@ export class ClubPhoneRebindService {
   ): Promise<number[]> {
     await this.claimUnboundCustomers(tx, userId, previousPhone);
 
-    const customers = await tx.marketingCustomer.findMany({
-      where: { clubUserId: userId },
-      select: { storeId: true },
-    });
-    const storeIds = [...new Set(customers.map((item) => item.storeId))];
+    // 门店范围取三处并集：
+    // 1. 已绑定的营销顾客档案（原口径）；
+    // 2. 已绑定 clubUserId 的会员档案 —— 覆盖「有 Member 但没有 MarketingCustomer」
+    //    的历史门店，只按 1 算会整店漏同步；
+    // 3. 仍靠旧号关联的无主会员档案 —— 覆盖从未写过 clubUserId 的存量数据。
+    //    与 `claimUnboundCustomers` 同前提：此刻持有旧号的 club 用户就是本人
+    //    （`users.wechat_phone` 唯一，不存在第二个 club 账号握着同一个号）。
+    const [customers, boundMembers, unboundMembers] = await Promise.all([
+      tx.marketingCustomer.findMany({
+        where: { clubUserId: userId },
+        select: { storeId: true },
+      }),
+      tx.member.findMany({
+        where: { clubUserId: userId },
+        select: { storeId: true },
+      }),
+      tx.member.findMany({
+        where: { phone: previousPhone, clubUserId: null },
+        select: { storeId: true },
+      }),
+    ]);
 
-    if (storeIds.length > 0) {
-      const conflictingCustomer = await tx.marketingCustomer.findFirst({
-        where: {
-          storeId: { in: storeIds },
-          phone: nextPhone,
-          // 排除本人名下（含 null）的档案，只拦截真正属于他人的记录
-          clubUserId: { not: userId },
-          deletedAt: null,
-        },
-        select: { id: true, storeId: true },
-      });
-      if (conflictingCustomer) {
-        throw new ConflictException(
-          '该手机号已被门店内的其他顾客档案占用，请联系商家处理后再换绑',
-        );
-      }
+    const storeIds = [
+      ...new Set(
+        [...customers, ...boundMembers, ...unboundMembers].map(
+          (item) => item.storeId,
+        ),
+      ),
+    ];
+
+    if (storeIds.length === 0) return storeIds;
+
+    const conflictingCustomer = await tx.marketingCustomer.findFirst({
+      where: {
+        storeId: { in: storeIds },
+        phone: nextPhone,
+        // 排除本人名下（含 null）的档案，只拦截真正属于他人的记录
+        clubUserId: { not: userId },
+        deletedAt: null,
+      },
+      select: { id: true, storeId: true },
+    });
+    if (conflictingCustomer) {
+      throw new ConflictException(
+        '该手机号已被门店内的其他顾客档案占用，请联系商家处理后再换绑',
+      );
+    }
+
+    // 会员档案同样要查一遍：只校验顾客档案的话，同店可能留下两条同号**会员**，
+    // 而 `getSnapshotByStoreAndPhone`、`joinStoreByInviteCode` 的封禁判定都按
+    // `(storeId, phone)` findFirst 命中，会把别人的会员档当成自己的。
+    const conflictingMember = await tx.member.findFirst({
+      where: {
+        storeId: { in: storeIds },
+        phone: nextPhone,
+        clubUserId: { not: userId },
+        deletedAt: null,
+      },
+      select: { id: true, storeId: true },
+    });
+    if (conflictingMember) {
+      throw new ConflictException(
+        '该手机号已被门店内的其他会员档案占用，请联系商家处理后再换绑',
+      );
     }
 
     return storeIds;

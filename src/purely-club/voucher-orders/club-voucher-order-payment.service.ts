@@ -1,5 +1,11 @@
 // 团购券订单支付服务：创建订单草稿（JSAPI 下单 / 余额直接结算）→ 支付成功确认（生成券码 + 扣库存 + 起算有效期）
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Money } from '../../shared/money.utils';
 import {
   buildClubMemberDisplayName,
@@ -42,6 +48,7 @@ export class ClubVoucherOrderPaymentService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
     private readonly clubVoucherOrderContextService: ClubVoucherOrderContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
@@ -198,6 +205,18 @@ export class ClubVoucherOrderPaymentService {
     currentContext: ClubCurrentContext,
     orderNo: string,
   ): Promise<ClubVoucherOrderDraftView> {
+    // 开发态兜底开关（与 club-payment-confirmation.orchestrator 同一口径）：
+    // 手动 confirm-paid 只能用于本地/联调。生产环境该开关必须为 false
+    // （bootstrap 生产配置校验已强制），否则任意持订单号的人都能把未支付订单
+    // 标记成已支付并真实落账——直接拿到券码并扣掉库存。
+    const manualConfirmPaidEnabled =
+      this.configService.get<boolean>('club.manualConfirmPaidEnabled') ?? false;
+    if (!manualConfirmPaidEnabled) {
+      throw new ForbiddenException(
+        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+      );
+    }
+
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { orderNo, userId: currentContext.user.id },
     });
@@ -249,9 +268,25 @@ export class ClubVoucherOrderPaymentService {
         if (order.paidAmountFen !== expectedAmountFen) {
           throw new BadRequestException('订单金额不一致');
         }
-        // 幂等：已确认支付（pending/used/refunded/expired）直接返回现状
-        if (order.status !== 'unpaid') {
-          return { view: toVoucherOrderDraftView(order), paidOrder: null };
+        // 幂等闸门：先原子抢占 unpaid → pending。
+        // 这里的 updateMany 是「当前读 + 行级写锁」：并发的第二笔会阻塞到第一笔提交后
+        // 重新判定 status 条件，拿不到锁到的行（count=0）即说明已被结算。
+        // 微信支付回调与客户端 confirm-paid 会对同一单双触发，仅靠「先读再写」
+        // 会让两笔都读到 unpaid，从而重复扣库存/扣积分并生成两个券码。
+        // 后续扣减失败会随事务回滚，闸门一并释放回 unpaid。
+        const claimed = await tx.clubVoucherOrder.updateMany({
+          where: { id: orderId, status: 'unpaid' },
+          data: { status: 'pending' },
+        });
+        if (claimed.count !== 1) {
+          // 已被本次之外的链路结算：读取最新行返回现状（幂等）
+          const settled = await tx.clubVoucherOrder.findUnique({
+            where: { id: orderId },
+          });
+          if (!settled) {
+            throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+          }
+          return { view: toVoucherOrderDraftView(settled), paidOrder: null };
         }
 
         const product = await tx.marketingProduct.findUnique({

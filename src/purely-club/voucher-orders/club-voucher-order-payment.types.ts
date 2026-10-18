@@ -34,6 +34,8 @@ export interface VoucherOrderDraftRow {
 
 /** 余额支付结算所需订单字段 */
 export interface VoucherBalanceSettlementOrder {
+  /** 订单主键（结算后回写赠送积分快照用） */
+  id: number;
   storeId: number;
   orderNo: string;
   productName: string;

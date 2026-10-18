@@ -244,15 +244,90 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
     expect(customer?.name).toBe('纯利会员9910');
 
     // 端到端结论：按新号必须能查回该门店
-    // （这一条就是 findAccessibleStores 的真实查询形态）
+    // （这一条就是 ClubStoreAccessService.buildMemberIdentityWhere 的两层语义：
+    // 已绑定 clubUserId 的档案优先，无主档案才按 phone 认领）
     const accessibleStores = await prisma.store.findMany({
       where: {
         deletedAt: null,
-        members: { some: { phone: nextPhone, status: { not: 'banned' } } },
+        members: {
+          some: {
+            OR: [
+              { clubUserId: userId },
+              { phone: nextPhone, clubUserId: null },
+            ],
+            status: { not: 'banned' },
+          },
+        },
       },
       select: { id: true },
     });
     expect(accessibleStores.map((store) => store.id)).toContain(storeId);
+  });
+
+  it('Member 已绑定 clubUserId 时按 clubUserId 同步 —— 即使 phone 已不是旧号', async () => {
+    const [storeId] = await requireStoreIds(1);
+    const previousPhone = '13800139961';
+    const nextPhone = '13800139960';
+    const userId = await createBoundUser(previousPhone);
+
+    // 会员档的 phone 已被商家端改成另一个号码：旧实现按
+    // (storeId, phone = 旧号) 更新会命中 0 条，会员档永远停在旧值；
+    // 且该档若 clubUserId 为 null，findAccessibleStores 的第 2 层会失配，
+    // 用户当场失去这家门店。
+    const member = await prisma.member.create({
+      data: {
+        storeId,
+        name: '纯利会员9961',
+        phone: '13800139888',
+        clubUserId: userId,
+      },
+      select: { id: true },
+    });
+    createdMemberIds.push(member.id);
+    const customer = await prisma.marketingCustomer.create({
+      data: {
+        storeId,
+        clubUserId: userId,
+        name: '纯利会员9961',
+        phone: previousPhone,
+      },
+      select: { id: true },
+    });
+    createdCustomerIds.push(customer.id);
+
+    await service.rebindPhone(userId, { phone: nextPhone, code: '123456' });
+
+    const updatedMember = await prisma.member.findUnique({
+      where: { id: member.id },
+      select: { phone: true },
+    });
+    expect(updatedMember?.phone).toBe(nextPhone);
+
+    const updatedCustomer = await prisma.marketingCustomer.findUnique({
+      where: { id: customer.id },
+      select: { phone: true },
+    });
+    expect(updatedCustomer?.phone).toBe(nextPhone);
+  });
+
+  it('门店内已有其他会员档案占用新号时拒绝换绑', async () => {
+    const [storeId] = await requireStoreIds(1);
+    const previousPhone = '13800139971';
+    const nextPhone = '13800139970';
+    const userId = await createBoundUser(previousPhone);
+    await createProfiles(userId, storeId, previousPhone, '纯利会员9971');
+
+    // 商家手工建档占了新号：不拦的话换绑后同店留下两条同号会员，
+    // getSnapshotByStoreAndPhone 按 (storeId, phone) findFirst 会命中错的那条
+    const occupiedMember = await prisma.member.create({
+      data: { storeId, name: '手工建档', phone: nextPhone },
+      select: { id: true },
+    });
+    createdMemberIds.push(occupiedMember.id);
+
+    await expect(
+      service.rebindPhone(userId, { phone: nextPhone, code: '123456' }),
+    ).rejects.toThrow('该手机号已被门店内的其他会员档案占用');
   });
 
   it('多门店：该用户在所有门店的档案都要同步', async () => {

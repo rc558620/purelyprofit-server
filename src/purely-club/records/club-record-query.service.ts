@@ -14,6 +14,71 @@ import type { ClubRecordSummaryDto } from './dto/club-record.dto';
 /** 每页查询时从数据库多取的冗余条数，用于合并排序后仍能填满 limit */
 const QUERY_OVERFETCH = 2;
 
+/**
+ * 流水 kind 权重：desc 排序时值大的在前。
+ * 取值与复合 id 前缀的字典序一致（refund > recharge > consume > bonus），
+ * 使「排序 tie-break」与「游标 tie-break 过滤」基于同一个全序键 (createdAt, kindRank, numericId)。
+ *
+ * 为什么必须统一：PostgreSQL 事务内 now() 恒定，同事务批量写入的流水 createdAt 完全相同，
+ * 同刻记录真实存在。若排序按复合 id 字典序、过滤却按数字主键比较，两者规则不一致，
+ * 会把排序在游标之后的同刻记录整段漏掉（分页永远取不到）。
+ */
+const LEDGER_KIND_RANK: Record<string, number> = {
+  refund: 4,
+  recharge: 3,
+  consume: 2,
+  bonus: 1,
+};
+
+/** 充值表 type → kind 权重（gift 展示为 bonus，故取 bonus 的权重） */
+const RECHARGE_TYPE_KIND_RANK: ReadonlyArray<
+  readonly ['recharge' | 'gift' | 'refund', number]
+> = [
+  ['refund', LEDGER_KIND_RANK.refund],
+  ['recharge', LEDGER_KIND_RANK.recharge],
+  ['gift', LEDGER_KIND_RANK.bonus],
+];
+
+/** 解析复合 id（如 "recharge-18"）为 kind 权重与数字主键 */
+const parseCompositeId = (
+  compositeId: string,
+): { kindRank: number; numericId: number } => {
+  const separatorIndex = compositeId.lastIndexOf('-');
+  const prefix = compositeId.slice(0, separatorIndex);
+  const numericId = Number.parseInt(compositeId.slice(separatorIndex + 1), 10);
+
+  return {
+    kindRank: LEDGER_KIND_RANK[prefix] ?? 0,
+    numericId: Number.isNaN(numericId) ? 0 : numericId,
+  };
+};
+
+/** 流水条目倒序比较：createdAt desc → kindRank desc → numericId desc（全序，与游标过滤同源） */
+const compareLedgerEntriesDesc = (
+  left: ClubLedgerEntry,
+  right: ClubLedgerEntry,
+): number => {
+  const timeDiff = right.createdAt.getTime() - left.createdAt.getTime();
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+
+  const leftKey = parseCompositeId(left.id);
+  const rightKey = parseCompositeId(right.id);
+  const rankDiff = rightKey.kindRank - leftKey.kindRank;
+  if (rankDiff !== 0) {
+    return rankDiff;
+  }
+
+  return rightKey.numericId - leftKey.numericId;
+};
+
+/** 流水条目升序比较（余额快照正推用）：与倒序严格互逆，保证同刻条目先后关系一致 */
+const compareLedgerEntriesAsc = (
+  left: ClubLedgerEntry,
+  right: ClubLedgerEntry,
+): number => -compareLedgerEntriesDesc(left, right);
+
 @Injectable()
 export class ClubRecordQueryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -123,17 +188,13 @@ export class ClubRecordQueryService {
     // 储值账户流水口径：只有余额支付部分才影响储值余额
     const balanceConsumptionWhere = { balancePaid: { gt: 0 } };
 
-    // 构建 cursor 过滤条件：比上一页最后一条更早的记录
-    const cursorFilter = cursor
-      ? {
-          OR: [
-            { createdAt: { lt: cursor.createdAt } },
-            {
-              createdAt: cursor.createdAt,
-              id: { lt: this.extractNumericId(cursor.id) },
-            },
-          ],
-        }
+    // 构建 cursor 过滤条件：比上一页最后一条更早的记录。
+    // 充值表与消费表的 kind 构成不同，必须分别构造，否则跨表共用同一数字阈值会漏数据。
+    const rechargeCursorWhere = cursor
+      ? this.buildRechargeCursorWhere(cursor)
+      : {};
+    const consumptionCursorWhere = cursor
+      ? this.buildConsumptionCursorWhere(cursor)
       : {};
 
     // 充值表类型过滤：all/recharge 排除退款，consume 仅退款；消费表在 recharge 筛选下无需查询
@@ -150,7 +211,7 @@ export class ClubRecordQueryService {
             storeId,
             customerId,
             ...rechargeTypeFilter,
-            ...cursorFilter,
+            ...rechargeCursorWhere,
           },
           select: {
             id: true,
@@ -170,7 +231,7 @@ export class ClubRecordQueryService {
                 storeId,
                 customerId,
                 ...balanceConsumptionWhere,
-                ...cursorFilter,
+                ...consumptionCursorWhere,
               },
               select: {
                 id: true,
@@ -254,14 +315,15 @@ export class ClubRecordQueryService {
       }),
     ]);
 
-    return [
-      ...recharges.map((row) => this.mapRechargeRow(row)),
-      ...consumptions.map((row) => this.mapConsumptionRow(row)),
-    ]
-      .filter((entry): entry is ClubLedgerEntry => entry !== null)
-      .sort(
-        (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
-      );
+    return (
+      [
+        ...recharges.map((row) => this.mapRechargeRow(row)),
+        ...consumptions.map((row) => this.mapConsumptionRow(row)),
+      ]
+        .filter((entry): entry is ClubLedgerEntry => entry !== null)
+        // 与展示排序严格互逆：同刻条目按同样的 kind/主键次序正推，避免快照错序
+        .sort(compareLedgerEntriesAsc)
+    );
   }
 
   /**
@@ -277,25 +339,76 @@ export class ClubRecordQueryService {
       ...consumptionRows.map((row) => this.mapConsumptionRow(row)),
     ]
       .filter((entry): entry is ClubLedgerEntry => entry !== null)
-      .sort((left, right) => {
-        const timeDiff = right.createdAt.getTime() - left.createdAt.getTime();
-        if (timeDiff !== 0) {
-          return timeDiff;
-        }
-        return right.id.localeCompare(left.id);
-      })
+      .sort(compareLedgerEntriesDesc)
       .slice(0, limit);
   }
 
   /**
-   * 从复合 ID（如 "recharge-18"、"consume-31"）中提取数字 ID 部分。
-   * 用于 cursor 分页时的 id 比对。
+   * 构建充值表的游标过滤条件。
+   *
+   * 充值表一个表对应多种 kind（refund / recharge / gift→bonus），
+   * 需按 type 分别判定它们在全序 (createdAt, kindRank, numericId) 中的位置：
+   * - kind 权重小于游标：该 kind 整体排在游标之后（更旧）→ 同刻记录全取
+   * - kind 权重等于游标：与本页最后一条同 kind → 取数字主键更小者
+   * - kind 权重大于游标：该 kind 整体排在游标之前（更新）→ 已展示过，排除
    */
-  private extractNumericId(compositeId: string): number {
-    const parts = compositeId.split('-');
-    const numericPart = parts[parts.length - 1];
-    const parsed = Number.parseInt(numericPart, 10);
-    return Number.isNaN(parsed) ? 0 : parsed;
+  private buildRechargeCursorWhere(
+    cursor: NonNullable<ListLedgerEntriesOptions['cursor']>,
+  ) {
+    const { kindRank: cursorRank, numericId: cursorNumericId } =
+      parseCompositeId(cursor.id);
+
+    const sameMoment: Array<{
+      createdAt: Date;
+      type: 'recharge' | 'gift' | 'refund';
+      id?: { lt: number };
+    }> = [];
+
+    for (const [type, rank] of RECHARGE_TYPE_KIND_RANK) {
+      // 排在游标之前（更新）的同刻记录已展示过
+      if (rank > cursorRank) {
+        continue;
+      }
+
+      const condition: {
+        createdAt: Date;
+        type: 'recharge' | 'gift' | 'refund';
+        id?: { lt: number };
+      } = { createdAt: cursor.createdAt, type };
+
+      if (rank === cursorRank) {
+        condition.id = { lt: cursorNumericId };
+      }
+
+      sameMoment.push(condition);
+    }
+
+    return { OR: [{ createdAt: { lt: cursor.createdAt } }, ...sameMoment] };
+  }
+
+  /**
+   * 构建消费表的游标过滤条件（该表只对应 consume 一种 kind，权重固定）。
+   */
+  private buildConsumptionCursorWhere(
+    cursor: NonNullable<ListLedgerEntriesOptions['cursor']>,
+  ) {
+    const { kindRank: cursorRank, numericId: cursorNumericId } =
+      parseCompositeId(cursor.id);
+    const consumeRank = LEDGER_KIND_RANK.consume;
+
+    // 消费 kind 整体排在游标之前（更新）→ 同刻记录已展示过，全部排除
+    if (consumeRank > cursorRank) {
+      return { OR: [{ createdAt: { lt: cursor.createdAt } }] };
+    }
+
+    const condition: { createdAt: Date; id?: { lt: number } } = {
+      createdAt: cursor.createdAt,
+    };
+    if (consumeRank === cursorRank) {
+      condition.id = { lt: cursorNumericId };
+    }
+
+    return { OR: [{ createdAt: { lt: cursor.createdAt } }, condition] };
   }
 
   private mapRechargeRow(row: ClubRechargeLedgerRow): ClubLedgerEntry | null {

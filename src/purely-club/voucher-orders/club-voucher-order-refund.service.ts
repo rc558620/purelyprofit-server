@@ -1,6 +1,5 @@
 // 团购券订单退款服务：pending / used-未开台 可退；按支付渠道原路退回（微信/储值余额）+ 积分退回 + 库存回补（幂等）
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
@@ -10,6 +9,7 @@ import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-real
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+  CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE,
   CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
   CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
 } from './club-voucher-orders.constants';
@@ -36,6 +36,8 @@ export interface ClubVoucherMerchantRejectResult {
 /** 退款/拒绝回补所需订单字段 */
 type RefundRestoreOrder = {
   id: number;
+  /** 业务订单号（异常留痕用） */
+  orderNo: string;
   storeId: number;
   customerId: number | null;
   productId: number;
@@ -44,6 +46,8 @@ type RefundRestoreOrder = {
   quantity: number;
   /** 实付金额（分）；余额支付退款时原路退回该金额 */
   paidAmountFen: number;
+  /** 结算时赠送的积分个数快照（退款时按此回收） */
+  pointsAwarded: number;
 };
 
 @Injectable()
@@ -84,8 +88,15 @@ export class ClubVoucherOrderRefundService {
     if (order.status !== 'pending' && order.status !== 'used') {
       throw new BadRequestException(CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE);
     }
+    // 过期校验：expiresAt 已到但尚未被惰性翻转的单（用户从未打开过列表/详情）不能退，
+    // 否则同一张券会「看过详情页就不能退、没看过就能退」，退款资格不确定。
+    if (order.expiresAt && order.expiresAt < new Date()) {
+      throw new BadRequestException(CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE);
+    }
 
-    const refundNo = this.buildRefundNo();
+    // 退款单号由订单号确定性派生（微信 out_refund_no 即幂等键）：并发两笔或失败重试
+    // 都复用同一 refundNo，微信侧认定为同一笔退款，不会重复出款。
+    const refundNo = this.buildRefundNo(order.orderNo);
     // 原路退回：余额支付退回储值余额，微信支付走微信退款
     const refundByBalance = order.paymentChannel === 'balance';
 
@@ -121,6 +132,14 @@ export class ClubVoucherOrderRefundService {
           },
         });
         if (updated.count !== 1) {
+          // 走到这里时微信退款已被发起（占位在落库之前），必须留痕：出现「钱已退、
+          // 订单未变更」时按 refundNo 到微信商户平台核对。用户重试会命中同一 refundNo，
+          // 微信侧幂等不再重复出款，可直接把状态补齐。
+          if (!refundByBalance) {
+            this.logger.error(
+              `团购券退款落库失败，微信侧可能已出款，请人工核对: orderNo=${order.orderNo}, refundNo=${refundNo}`,
+            );
+          }
           throw new BadRequestException(
             CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
           );
@@ -190,8 +209,12 @@ export class ClubVoucherOrderRefundService {
     if (order.status !== 'pending' && order.status !== 'used') {
       throw new BadRequestException(CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE);
     }
+    // 过期校验：与用户端退款同一口径（过期券不可再退款）
+    if (order.expiresAt && order.expiresAt < new Date()) {
+      throw new BadRequestException(CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE);
+    }
 
-    const refundNo = this.buildRefundNo();
+    const refundNo = this.buildRefundNo(order.orderNo);
     // 原路退回：余额支付退回储值余额，微信支付走微信退款
     const refundByBalance = order.paymentChannel === 'balance';
 
@@ -230,6 +253,11 @@ export class ClubVoucherOrderRefundService {
           },
         });
         if (updated.count !== 1) {
+          if (!refundByBalance) {
+            this.logger.error(
+              `商家拒绝接单落库失败，微信侧可能已出款，请人工核对: orderNo=${order.orderNo}, refundNo=${refundNo}`,
+            );
+          }
           throw new BadRequestException(
             CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
           );
@@ -284,7 +312,13 @@ export class ClubVoucherOrderRefundService {
     });
   }
 
-  /** 余额退回：储值余额回补 + 累计消费回退与等级重算（与余额支付结算对称） */
+  /**
+   * 余额退回：储值余额回补 + 累计消费/到店次数回退 + 回收结算时赠送的积分 + 等级重算，
+   * 与 settleVoucherBalancePayment 完全对称。
+   *
+   * 说明：lastVisitAt 不回退。它是「最近一次消费发生的时间」这一既成事实记录，
+   * 而 totalSpent / visitCount / 积分属于账目额度，取消消费后必须账面回滚。
+   */
   private async restoreBalance(
     tx: Prisma.TransactionClient,
     order: RefundRestoreOrder,
@@ -293,12 +327,47 @@ export class ClubVoucherOrderRefundService {
 
     const customer = await tx.marketingCustomer.findFirst({
       where: { id: order.customerId, storeId: order.storeId, deletedAt: null },
-      select: { id: true, totalSpent: true },
+      select: { id: true, totalSpent: true, visitCount: true, points: true },
     });
     if (!customer) return;
 
-    // totalSpent 用绝对赋值避免历史数据异常导致负数
-    const newTotalSpent = Math.max(customer.totalSpent - order.paidAmountFen, 0);
+    // 回收结算时赠送的积分（与 awardPointsForSettlement 对称）。
+    // 顾客可能已把赠送的积分花掉，此时按「现有积分」为上限回收，绝不扣成负数，差额留痕跟进。
+    if (order.pointsAwarded > 0) {
+      const refundablePoints = Math.min(order.pointsAwarded, customer.points);
+      if (refundablePoints > 0) {
+        const deducted = await tx.marketingCustomer.updateMany({
+          where: { id: customer.id, points: { gte: refundablePoints } },
+          data: { points: { decrement: refundablePoints } },
+        });
+        if (deducted.count === 1) {
+          await tx.marketingPointsRecord.create({
+            data: {
+              storeId: order.storeId,
+              customerId: customer.id,
+              amount: -refundablePoints,
+              type: 'spend' as const,
+              description: `团购券退款回收赠送积分（${order.productName}）`,
+            },
+          });
+        }
+      }
+      if (refundablePoints < order.pointsAwarded) {
+        this.logger.error(
+          `团购券退款赠送积分未能足额回收（顾客积分已被使用），请人工核对: ` +
+            `orderNo=${order.orderNo}, customerId=${customer.id}, 应回收=${order.pointsAwarded}, 实回收=${refundablePoints}`,
+        );
+      }
+    }
+
+    // totalSpent / visitCount 用绝对赋值避免历史数据异常导致负数；
+    // visitCount 与结算时 increment: 1 对称回退——本笔消费既已取消，累计次数必须回滚，
+    // 否则会与已回退的 totalSpent 形成账实偏差（次数虚高、等级门槛失真）。
+    const newTotalSpent = Math.max(
+      customer.totalSpent - order.paidAmountFen,
+      0,
+    );
+    const newVisitCount = Math.max(customer.visitCount - 1, 0);
     // 与消费落账同源：读门店会员等级设置的可配置阈值
     const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
     await tx.marketingCustomer.update({
@@ -306,28 +375,19 @@ export class ClubVoucherOrderRefundService {
       data: {
         balance: { increment: order.paidAmountFen },
         totalSpent: newTotalSpent,
+        visitCount: newVisitCount,
         tier: calcCustomerTier(newTotalSpent, thresholds) as never,
       },
     });
   }
 
-  /** 生成退款单号：RF + 上海时区时间串 + 随机 HEX（全局唯一，幂等键） */
-  private buildRefundNo(): string {
-    const now = Date.now();
-    const shanghai = new Date(now + 8 * 60 * 60_000);
-    const pad = (value: number, width = 2): string =>
-      String(value).padStart(width, '0');
-    const serial = [
-      shanghai.getUTCFullYear(),
-      pad(shanghai.getUTCMonth() + 1),
-      pad(shanghai.getUTCDate()),
-      pad(shanghai.getUTCHours()),
-      pad(shanghai.getUTCMinutes()),
-      pad(shanghai.getUTCSeconds()),
-      pad(shanghai.getUTCMilliseconds(), 3),
-      randomBytes(2).toString('hex').toUpperCase(),
-    ].join('');
-    return `RF${serial}`;
+  /**
+   * 生成退款单号：RF + 订单号（微信 out_refund_no，同一订单恒定不变）。
+   * 必须由订单号确定性派生——随机值会让并发的两笔退款或失败重试在微信侧被当成多笔
+   * 不同退款：只有一笔能落到 DB，其余要么重复出款，要么「钱已退而订单状态未变更」。
+   */
+  private buildRefundNo(orderNo: string): string {
+    return `RF${orderNo.replace(/[^A-Za-z0-9_-]/g, '')}`;
   }
 
   private formatDateTime(date: Date): string {

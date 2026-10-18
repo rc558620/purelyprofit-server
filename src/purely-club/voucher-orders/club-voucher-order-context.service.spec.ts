@@ -37,14 +37,19 @@ describe('ClubVoucherOrderContextService', () => {
   });
 
   /** resolveOwnCustomer 是私有方法，这里按实现的语义直接驱动它的查询序列 */
-  const resolveOwnCustomer = (): Promise<{ id: number; balance: number } | null> =>
-    (service as unknown as {
-      resolveOwnCustomer: (p: {
-        storeId: number;
-        clubUserId: number;
-        phone: string;
-      }) => Promise<{ id: number; balance: number } | null>;
-    }).resolveOwnCustomer({
+  const resolveOwnCustomer = (): Promise<{
+    id: number;
+    balance: number;
+  } | null> =>
+    (
+      service as unknown as {
+        resolveOwnCustomer: (p: {
+          storeId: number;
+          clubUserId: number;
+          phone: string;
+        }) => Promise<{ id: number; balance: number } | null>;
+      }
+    ).resolveOwnCustomer({
       storeId: STORE_ID,
       clubUserId: MY_USER_ID,
       phone: MY_PHONE,

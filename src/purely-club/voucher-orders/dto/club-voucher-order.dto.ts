@@ -7,9 +7,14 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
+import {
+  CLUB_VOUCHER_MAX_PERSON_COUNT,
+  CLUB_VOUCHER_MAX_QUANTITY,
+} from '../club-voucher-orders.constants';
 import { type ClubVoucherOrderStatusValue } from '../club-voucher-orders.types';
 
 /** 创建团购券订单入参 */
@@ -17,11 +22,13 @@ export class CreateClubVoucherOrderDto {
   @ApiProperty({ example: 11, description: '当前选中的门店 ID' })
   @Type(() => Number)
   @IsInt({ message: 'storeId 必须是整数' })
+  @Min(1, { message: 'storeId 不合法' })
   storeId: number;
 
   @ApiProperty({ example: 18, description: '团购券商品 ID' })
   @Type(() => Number)
   @IsInt({ message: 'productId 必须是整数' })
+  @Min(1, { message: 'productId 不合法' })
   productId: number;
 
   @ApiPropertyOptional({
@@ -33,6 +40,9 @@ export class CreateClubVoucherOrderDto {
   @Type(() => Number)
   @IsInt({ message: 'quantity 必须是整数' })
   @Min(1, { message: 'quantity 最少为 1' })
+  @Max(CLUB_VOUCHER_MAX_QUANTITY, {
+    message: `quantity 最多为 ${CLUB_VOUCHER_MAX_QUANTITY}`,
+  })
   quantity?: number;
 
   @ApiPropertyOptional({
@@ -43,6 +53,9 @@ export class CreateClubVoucherOrderDto {
   @Type(() => Number)
   @IsInt({ message: 'personCount 必须是整数' })
   @Min(1, { message: 'personCount 最少为 1' })
+  @Max(CLUB_VOUCHER_MAX_PERSON_COUNT, {
+    message: `personCount 最多为 ${CLUB_VOUCHER_MAX_PERSON_COUNT}`,
+  })
   personCount?: number;
 
   @ApiPropertyOptional({
@@ -89,11 +102,13 @@ export class PreviewClubVoucherOrderDto {
   @ApiProperty({ example: 11, description: '当前选中的门店 ID' })
   @Type(() => Number)
   @IsInt({ message: 'storeId 必须是整数' })
+  @Min(1, { message: 'storeId 不合法' })
   storeId: number;
 
   @ApiProperty({ example: 18, description: '团购券商品 ID' })
   @Type(() => Number)
   @IsInt({ message: 'productId 必须是整数' })
+  @Min(1, { message: 'productId 不合法' })
   productId: number;
 
   @ApiPropertyOptional({
@@ -105,6 +120,9 @@ export class PreviewClubVoucherOrderDto {
   @Type(() => Number)
   @IsInt({ message: 'quantity 必须是整数' })
   @Min(1, { message: 'quantity 最少为 1' })
+  @Max(CLUB_VOUCHER_MAX_QUANTITY, {
+    message: `quantity 最多为 ${CLUB_VOUCHER_MAX_QUANTITY}`,
+  })
   quantity?: number;
 
   @ApiPropertyOptional({
@@ -115,6 +133,9 @@ export class PreviewClubVoucherOrderDto {
   @Type(() => Number)
   @IsInt({ message: 'personCount 必须是整数' })
   @Min(1, { message: 'personCount 最少为 1' })
+  @Max(CLUB_VOUCHER_MAX_PERSON_COUNT, {
+    message: `personCount 最多为 ${CLUB_VOUCHER_MAX_PERSON_COUNT}`,
+  })
   personCount?: number;
 
   @ApiPropertyOptional({

@@ -37,6 +37,7 @@ describe('ClubAuthService', () => {
     },
     member: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       deleteMany: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
@@ -79,6 +80,7 @@ describe('ClubAuthService', () => {
 
   const authAccountLookupServiceMock = {
     findUserByPhone: jest.fn(),
+    assertPhoneNotRegisteredInOtherScope: jest.fn(),
   };
 
   const authSessionServiceMock = {
@@ -1014,16 +1016,27 @@ describe('ClubAuthService', () => {
       // clearAllMocks 不会重置 mock 实现，需显式给回默认值，
       // 否则上一个用例设的「新号已属于他人」会泄漏到下一个用例
       authAccountLookupService.findUserByPhone.mockResolvedValue(null);
+      authAccountLookupService.assertPhoneNotRegisteredInOtherScope.mockResolvedValue(
+        undefined,
+      );
     };
 
     /** 让一次换绑走通到「写库 → 清缓存 → 签发 token」 */
     const prepareHappyPath = (
       storeIds: number[] = [37],
       userOverrides: CurrentUserOverrides = {},
-      options: { unboundCustomers?: { id: number; storeId: number }[] } = {},
+      options: {
+        unboundCustomers?: { id: number; storeId: number }[];
+        /** 已绑定 clubUserId 的会员档案所在门店（用于验证门店范围取并集） */
+        boundMemberStoreIds?: number[];
+        /** 仍无 clubUserId、只靠旧号关联的会员档案 */
+        unboundMembers?: { id: number; storeId: number }[];
+      } = {},
     ): void => {
       prepareCurrentUser(userOverrides);
       const unboundCustomers = options.unboundCustomers ?? [];
+      const unboundMembers = options.unboundMembers ?? [];
+      const boundMemberStoreIds = options.boundMemberStoreIds ?? storeIds;
       // 已认领的孤儿门店：认领后必须出现在「clubUserId=42 的门店」查询结果里，
       // 否则 storeIds 会漏掉它们，Member 也就整店不同步。
       const claimedStoreIds = new Set<number>();
@@ -1044,8 +1057,28 @@ describe('ClubAuthService', () => {
           return [];
         },
       );
+      // 按查询条件而非调用顺序返回：换绑内部会分别查「门店来源」与「门店内的无主档案」
+      prismaService.member.findMany.mockImplementation(
+        (args: { where?: Record<string, unknown> }) => {
+          const where = args?.where ?? {};
+          if (where.clubUserId === 42) {
+            return boundMemberStoreIds.map((storeId) => ({ storeId }));
+          }
+          if (where.clubUserId === null) {
+            // 带 storeId 的是「门店内无主档案」扫描，需按门店范围过滤
+            const scoped = where.storeId as { in: number[] } | undefined;
+            return scoped
+              ? unboundMembers.filter((item) =>
+                  scoped.in.includes(item.storeId),
+                )
+              : unboundMembers;
+          }
+          return [];
+        },
+      );
       // 门店侧手机号唯一性检查：默认无冲突
       prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
+      prismaService.member.findFirst.mockResolvedValue(null);
       prismaService.marketingCustomer.updateMany.mockImplementation(
         (args: { where?: Record<string, unknown> }) => {
           const where = args?.where ?? {};
@@ -1172,28 +1205,97 @@ describe('ClubAuthService', () => {
       }
     });
 
-    it('Member 按「该用户有档案的门店 + 旧号」定位，不依赖 customerId', async () => {
+    it('Member 的主锚点是 clubUserId，绝不按旧 phone 批量更新', async () => {
       prepareHappyPath([37, 38]);
 
       await service.rebindPhone(42, dto);
 
-      // 线上事故：现存 Member 的 customer_id 全为 null，按 customerId 定位会命中 0 条，
-      // Member.phone 留在旧号 → 新 token 用新号匹配不到门店 → 用户当场失去全部门店访问权
+      // 线上事故：现存 Member 的 customer_id 全为 null，按 customerId 定位会命中 0 条；
+      // 而按 (storeId + 旧号) 定位又会漏掉「clubUserId 已绑定但 phone 已变」的档案、
+      // 并把同店同号的其他档案一并改掉。members.club_user_id 到位后统一按它更新。
       expect(prismaService.member.updateMany).toHaveBeenCalledWith({
-        where: { storeId: { in: [37, 38] }, phone: PREVIOUS_PHONE },
+        where: { clubUserId: 42 },
         data: { phone: dto.phone },
       });
     });
 
-    it('Member 定位必须限定门店，否则会串改其他用户的档案', async () => {
+    it('Member 更新必须带身份锚点，绝不出现无锚点的 phone 批量更新', async () => {
       prepareHappyPath([37]);
 
       await service.rebindPhone(42, dto);
 
+      // 旧号是真实号码，可能同时属于其他用户：任何一步 updateMany 都必须锁定
+      // 「本人」（clubUserId）或「已确认属于本人的具体 id」；OR 的每条分支同理。
+      const isAnchored = (where: Record<string, unknown>): boolean => {
+        if (where.clubUserId !== undefined || where.id !== undefined) {
+          return true;
+        }
+        const branches = where.OR as Record<string, unknown>[] | undefined;
+        return (
+          Array.isArray(branches) &&
+          branches.every(
+            (branch) =>
+              branch.clubUserId !== undefined || branch.id !== undefined,
+          )
+        );
+      };
+
       for (const call of prismaService.member.updateMany.mock.calls) {
         const where = (call[0] as { where: Record<string, unknown> }).where;
-        expect(where.storeId).toBeDefined();
+        expect(isAnchored(where)).toBe(true);
       }
+    });
+
+    it('无 clubUserId 的无主会员档案按「门店 + 旧号」兜底更新', async () => {
+      prepareHappyPath([37], {}, { unboundMembers: [{ id: 501, storeId: 37 }] });
+
+      await service.rebindPhone(42, dto);
+
+      // 存量档案从未写过 clubUserId，仍只靠 phone 与本人关联，必须一并改到新号
+      expect(prismaService.member.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [501] } },
+        data: { phone: dto.phone },
+      });
+    });
+
+    it('同门店存在多条同号无主会员档案时保持不动 —— 无法判定哪条属于本人', async () => {
+      // 历史重复导入会留下同店同号多条：updateMany 会把它们一并改写，
+      // 与商家端改手机号（ensureUniquePhone）同一口径 —— 宁可漏改也不改错他人。
+      prepareHappyPath(
+        [37],
+        {},
+        {
+          unboundMembers: [
+            { id: 501, storeId: 37 },
+            { id: 502, storeId: 37 },
+          ],
+        },
+      );
+
+      await service.rebindPhone(42, dto);
+
+      // 没有任何一步按 id 改写：两条都在观望，交给人工 / 迁移脚本处理
+      const idScopedCalls = prismaService.member.updateMany.mock.calls.filter(
+        (call) =>
+          (call[0] as { where: { id?: unknown } }).where.id !== undefined,
+      );
+      expect(idScopedCalls).toHaveLength(0);
+    });
+
+    it('门店范围并入 Member 侧门店 —— 有 Member 但没有顾客档案的门店不能漏', async () => {
+      // 营销顾客档案只覆盖门店 37，会员档案还落在门店 38（历史手工建档形态）
+      prepareHappyPath([37], {}, { boundMemberStoreIds: [37, 38] });
+
+      await service.rebindPhone(42, dto);
+
+      expect(prismaService.member.findMany).toHaveBeenCalledWith({
+        where: {
+          storeId: { in: [37, 38] },
+          phone: PREVIOUS_PHONE,
+          clubUserId: null,
+        },
+        select: { id: true, storeId: true },
+      });
     });
 
     it('同步自动生成的展示名 —— 否则商家端一直显示旧号后 4 位', async () => {
@@ -1209,9 +1311,9 @@ describe('ClubAuthService', () => {
       });
       expect(prismaService.member.updateMany).toHaveBeenCalledWith({
         where: {
-          storeId: { in: [37] },
           phone: dto.phone,
           name: '纯利会员4011',
+          OR: [{ clubUserId: 42 }],
         },
         data: { name: '纯利会员4010' },
       });
@@ -1289,11 +1391,61 @@ describe('ClubAuthService', () => {
         where: { id: 901, clubUserId: null },
         data: { clubUserId: 42 },
       });
-      // Member 同步的门店范围必须包含被认领的门店
-      expect(prismaService.member.updateMany).toHaveBeenCalledWith({
-        where: { storeId: { in: [37, 55] }, phone: PREVIOUS_PHONE },
-        data: { phone: dto.phone },
+      // 被认领的门店必须进入 Member 兜底的门店范围，否则该店整家漏同步
+      expect(prismaService.member.findMany).toHaveBeenCalledWith({
+        where: {
+          storeId: { in: [37, 55] },
+          phone: PREVIOUS_PHONE,
+          clubUserId: null,
+        },
+        select: { id: true, storeId: true },
       });
+    });
+
+    it('门店内已有他人会员档案占用新号时拒绝换绑，且不写库', async () => {
+      prepareHappyPath();
+      // 只校验顾客档案的话，同店会留下两条同号**会员**：
+      // getSnapshotByStoreAndPhone / joinStoreByInviteCode 的封禁判定都按
+      // (storeId, phone) findFirst 命中，会把别人的会员档当成自己的。
+      prismaService.member.findFirst.mockResolvedValue({
+        id: 888,
+        storeId: 37,
+      });
+
+      await expect(service.rebindPhone(42, dto)).rejects.toThrow(
+        '该手机号已被门店内的其他会员档案占用',
+      );
+
+      expect(prismaService.user.update).not.toHaveBeenCalled();
+      expect(prismaService.member.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('新号已注册在商家端（另一产品线）时拒绝换绑', async () => {
+      // 注册 / 登录即注册 / 微信登录都做了这道检查，换绑原先漏了它，
+      // 于是可以把商家端在用的号码挂到 club 账号上，同号落进两条产品线。
+      prepareHappyPath();
+      authAccountLookupService.assertPhoneNotRegisteredInOtherScope.mockRejectedValue(
+        new ConflictException('该手机号已在商家端注册，请使用其他手机号'),
+      );
+
+      await expect(service.rebindPhone(42, dto)).rejects.toThrow(
+        '该手机号已在商家端注册',
+      );
+
+      expect(prismaService.user.update).not.toHaveBeenCalled();
+    });
+
+    it('跨产品线校验不消费验证码（与验证码无关的失败不该白白损失短信）', async () => {
+      prepareHappyPath();
+      authAccountLookupService.assertPhoneNotRegisteredInOtherScope.mockRejectedValue(
+        new ConflictException('该手机号已在商家端注册，请使用其他手机号'),
+      );
+
+      await expect(service.rebindPhone(42, dto)).rejects.toThrow();
+
+      expect(
+        authCodeVerifyService.ensureRegisterCodeValid,
+      ).not.toHaveBeenCalled();
     });
 
     it('门店内已有他人占用新号时拒绝换绑，且不写库', async () => {

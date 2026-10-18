@@ -5,6 +5,7 @@ import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-real
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+  CLUB_VOUCHER_VERIFY_EXPIRED_MESSAGE,
   CLUB_VOUCHER_VERIFY_NOT_ALLOWED_MESSAGE,
 } from './club-voucher-orders.constants';
 
@@ -38,6 +39,7 @@ export class ClubVoucherOrderVerifyService {
         voucherCode: true,
         status: true,
         verifyAt: true,
+        expiresAt: true,
       },
     });
     if (!order) {
@@ -54,6 +56,11 @@ export class ClubVoucherOrderVerifyService {
     }
     if (order.status !== 'pending') {
       throw new BadRequestException(CLUB_VOUCHER_VERIFY_NOT_ALLOWED_MESSAGE);
+    }
+    // 过期校验：惰性过期只在列表/详情被读到时才翻转，未翻转的过期券状态仍是 pending，
+    // 此处必须按 expiresAt 判定，否则一张过期券可以被成功核销。
+    if (order.expiresAt && order.expiresAt < new Date()) {
+      throw new BadRequestException(CLUB_VOUCHER_VERIFY_EXPIRED_MESSAGE);
     }
 
     const now = new Date();

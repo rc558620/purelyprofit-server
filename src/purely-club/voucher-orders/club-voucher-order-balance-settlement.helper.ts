@@ -70,7 +70,7 @@ export async function settleVoucherBalancePayment(
   }
 
   // 赠送消费积分（受积分规则 enabled 开关控制）
-  await awardPointsForSettlement(
+  const awardedPoints = await awardPointsForSettlement(
     tx,
     {
       storeId: order.storeId,
@@ -80,7 +80,16 @@ export async function settleVoucherBalancePayment(
     customerId,
   );
 
+  // 回写赠送积分快照：退款必须按「当时实际赠送」回收。
+  // 不能退款时重算——积分规则开关或双倍积分活动可能已变化，重算会多退/少退。
+  if (awardedPoints > 0) {
+    await tx.clubVoucherOrder.update({
+      where: { id: order.id },
+      data: { pointsAwarded: awardedPoints },
+    });
+  }
+
   logger.log(
-    `团购券余额支付结算: orderNo=${order.orderNo}, customerId=${customerId}, 扣款=${balancePaidFen}分`,
+    `团购券余额支付结算: orderNo=${order.orderNo}, customerId=${customerId}, 扣款=${balancePaidFen}分, 赠送积分=${awardedPoints}`,
   );
 }

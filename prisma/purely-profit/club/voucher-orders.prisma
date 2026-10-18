@@ -49,6 +49,8 @@ model ClubVoucherOrder {
   pointsDeductFen      Int                       @default(0) @map("points_deduct_fen")
   /// 实际扣减积分个数
   pointsUsed           Int                       @default(0) @map("points_used")
+  /// 结算时赠送的积分个数快照（仅余额支付；退款时按此数回收，避免重算受积分规则/双倍活动变更影响）
+  pointsAwarded        Int                       @default(0) @map("points_awarded")
   /// 支付渠道：wechat=微信支付 balance=储值余额
   paymentChannel       String                    @default("wechat") @map("payment_channel")
   /// 微信支付交易单号

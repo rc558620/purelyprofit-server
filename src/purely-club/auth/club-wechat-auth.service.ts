@@ -56,6 +56,13 @@ export class ClubWechatAuthService {
   private static readonly SESSION_KEY_CACHE_PREFIX = 'club:wechat:session_key:';
   /** session_key 有效期与微信一致（默认 5 天），这里设 5 天 */
   private static readonly SESSION_KEY_TTL_SECONDS = 5 * 24 * 60 * 60;
+  /**
+   * 调用微信服务端接口的超时（毫秒）。
+   *
+   * 微信侧挂起不会自行断开，缺了超时这些请求会一直占着连接与 worker；
+   * 客户端（小程序）到点就放弃，服务端却还在等，故障期会迅速放大。
+   */
+  private static readonly WECHAT_API_TIMEOUT_MS = 5_000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -84,6 +91,9 @@ export class ClubWechatAuthService {
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: { 'User-Agent': 'purelyprofit-server/1.0' },
+        signal: AbortSignal.timeout(
+          ClubWechatAuthService.WECHAT_API_TIMEOUT_MS,
+        ),
       });
       raw = (await response.json()) as WechatCode2SessionRawResponse;
     } catch (error) {
@@ -119,18 +129,40 @@ export class ClubWechatAuthService {
       );
     }
 
-    // 缓存 session_key 到 Redis，供后续需要时读取
-    await this.redisService.set(
-      `${ClubWechatAuthService.SESSION_KEY_CACHE_PREFIX}${raw.openid}`,
-      raw.session_key,
-      ClubWechatAuthService.SESSION_KEY_TTL_SECONDS,
-    );
+    await this.cacheSessionKey(raw.openid, raw.session_key);
 
     return {
       openid: raw.openid,
       unionid: raw.unionid,
       sessionKey: raw.session_key,
     };
+  }
+
+  /**
+   * 缓存 session_key，供后续需要时读取。
+   *
+   * 明确降级为「尽力而为」，写失败只记日志不中断登录：
+   * 1. 目前没有任何读取方 —— 手机号解密走的是 access_token 通道
+   *    （`getPhoneNumber`），这份缓存是纯预留；
+   * 2. Redis 命令超时是常态抖动之一，让它抛出去等于把一次**本可成功**的登录
+   *    打成 500 —— 而登录失败在客户端会一路放大到清会话。
+   * 为一个没人读的值赌上整个登录链路，不划算。
+   */
+  private async cacheSessionKey(
+    openid: string,
+    sessionKey: string,
+  ): Promise<void> {
+    try {
+      await this.redisService.set(
+        `${ClubWechatAuthService.SESSION_KEY_CACHE_PREFIX}${openid}`,
+        sessionKey,
+        ClubWechatAuthService.SESSION_KEY_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `缓存微信 session_key 失败（不阻断登录，openid=${openid}）：${String(error)}`,
+      );
+    }
   }
 
   /**
@@ -160,6 +192,9 @@ export class ClubWechatAuthService {
           'User-Agent': 'purelyprofit-server/1.0',
         },
         body: JSON.stringify({ code: phoneCode }),
+        signal: AbortSignal.timeout(
+          ClubWechatAuthService.WECHAT_API_TIMEOUT_MS,
+        ),
       });
       raw = (await response.json()) as WechatGetPhoneNumberRawResponse;
     } catch (error) {
@@ -236,6 +271,9 @@ export class ClubWechatAuthService {
     try {
       const response = await fetch(url.toString(), {
         headers: { 'User-Agent': 'purelyprofit-server/1.0' },
+        signal: AbortSignal.timeout(
+          ClubWechatAuthService.WECHAT_API_TIMEOUT_MS,
+        ),
       });
       result = (await response.json()) as typeof result;
     } catch (error) {
