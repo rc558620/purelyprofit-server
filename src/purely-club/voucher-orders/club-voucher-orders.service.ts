@@ -1,5 +1,6 @@
 // 团购券订单聚合服务：对外编排创建/列表/详情/核销/退款/支付确认
 import { Injectable } from '@nestjs/common';
+import { Money } from '../../shared/money.utils';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
@@ -64,6 +65,13 @@ export class ClubVoucherOrdersService {
       memberDiscountRate: pricing.memberDiscountRate,
       memberWins: pricing.memberWins,
     });
+    // 余额支付充足性：由后端按顾客实时余额与实付金额判断，前端仅展示。
+    // 提示文案同服务订单 preview 口径（含当前余额与需支付金额），
+    // 否则券商品在「去充值」弹窗里只能显示无金额的兜底文案。
+    const balanceEnough = context.customer.balance >= pricing.paidAmountFen;
+    const insufficientBalanceMessage = balanceEnough
+      ? null
+      : `当前余额 ¥${Money.fromDbCents(context.customer.balance).toFixedOutputYuan()}，本次需支付 ¥${Money.fromDbCents(pricing.paidAmountFen).toFixedOutputYuan()}，请先充值`;
     return {
       originalAmountFen: pricing.originalAmountFen,
       discountAmountFen: pricing.discountAmountFen,
@@ -71,8 +79,8 @@ export class ClubVoucherOrdersService {
       pointsDeductFen: pricing.pointsDeductFen,
       pointsUsed: pricing.pointsUsed,
       personCount,
-      // 余额支付充足性：由后端按顾客实时余额与实付金额判断，前端仅展示
-      balanceEnough: context.customer.balance >= pricing.paidAmountFen,
+      balanceEnough,
+      insufficientBalanceMessage,
       memberAmountFen: pricing.memberAmountFen,
       afterDiscountAmountFen: pricing.afterDiscountAmountFen,
       reduceFen: pricing.reduceFen,

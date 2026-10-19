@@ -148,8 +148,13 @@ describe('CustodyReadService 统计缓存口径', () => {
     expect(prisma.custodyOrder.count).toHaveBeenCalled();
   });
 
-  it('无任何到期临界点时口径永不漂移，缓存可一直复用', async () => {
-    const { service, writeSummaryCache, readSummaryCache } = buildService({
+  /*
+   * 无到期临界点时口径并不「永不漂移」：monthPickupCount 的统计区间按月平移，
+   * 临界点因此退化为下月 1 日。此前漏掉这一条，门店在存的全是长期有效单时
+   * validUntil 会写成 null（永不失效），跨月后「本月取出次数」一直挂着上月的数字。
+   */
+  it('无到期临界点时，口径临界点退化为下月 1 日', async () => {
+    const { service, writeSummaryCache, readSummaryCache, prisma } = buildService({
       nextExpireAt: null,
       nextEnteringWindowAt: null,
     });
@@ -158,19 +163,50 @@ describe('CustodyReadService 统计缓存口径', () => {
 
     expect(writeSummaryCache).toHaveBeenCalledWith(STORE_ID, {
       stats: expect.objectContaining({ storedCount: 3 }),
-      validUntil: null,
+      validUntil: '2026-11-01T00:00:00.000Z',
     });
 
-    // 无临界点 → 后续任何时刻都命中缓存
+    // 月内任何时刻都未漂移，正常命中缓存
     readSummaryCache.mockResolvedValue({
       stats: { storedCount: 3, storedQty: 12, expiringCount: 0, monthPickupCount: 5 },
-      validUntil: null,
+      validUntil: '2026-11-01T00:00:00.000Z',
     });
-    const later = await service.getSummary(
+    const sameMonth = await service.getSummary(
       STORE_ID,
-      new Date('2027-01-01T00:00:00.000Z'),
+      new Date('2026-10-20T00:00:00.000Z'),
     );
-    expect(later.storedCount).toBe(3);
+    expect(sameMonth.storedCount).toBe(3);
+    // 月内命中缓存：没有再聚合（一次聚合本身会调 2 次 count：在存量 + 临期量）
+    expect(prisma.custodyOrder.count).toHaveBeenCalledTimes(2);
+    expect(readSummaryCache).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * 核心回归：缓存写在 10 月，口径临界点是 11-01。
+   * 当前时间已经翻到下个月，monthPickupCount 的统计区间整体平移，
+   * 缓存里的「本月取出次数」是上月的数字，必须重算。
+   */
+  it('跨月后重新聚合，避免「本月取出次数」挂着上月数字', async () => {
+    const { service, prisma } = buildService({
+      cached: {
+        stats: {
+          storedCount: 9,
+          storedQty: 40,
+          expiringCount: 1,
+          monthPickupCount: 8,
+        },
+        validUntil: '2026-11-01T00:00:00.000Z',
+      },
+    });
+
+    const stats = await service.getSummary(
+      STORE_ID,
+      new Date('2026-11-02T00:00:00.000Z'),
+    );
+
+    // 重算后的实时值，而不是缓存里的 8
+    expect(stats.monthPickupCount).toBe(5);
+    expect(prisma.custodyOrder.count).toHaveBeenCalled();
   });
 
   it('临期窗口的进入时刻也算临界点（取两个临界点中较早的那个）', async () => {

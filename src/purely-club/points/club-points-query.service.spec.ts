@@ -43,7 +43,9 @@ describe('ClubPointsQueryService', () => {
         points: 580,
       });
       // 锚点命中即收手，不会再退化到手机号匹配
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(1);
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
+        1,
+      );
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
         where: {
           storeId: 11,
@@ -72,17 +74,17 @@ describe('ClubPointsQueryService', () => {
         2,
       );
       // 少了 clubUserId: null 限定，同门店里属于他人的同号档案会被当作自己的
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenLastCalledWith(
-        {
-          where: {
-            storeId: 11,
-            phone: 'club_wechat:oOPENID123',
-            clubUserId: null,
-            deletedAt: null,
-          },
-          select: { id: true, points: true },
+      expect(
+        prismaService.marketingCustomer.findFirst,
+      ).toHaveBeenLastCalledWith({
+        where: {
+          storeId: 11,
+          phone: 'club_wechat:oOPENID123',
+          clubUserId: null,
+          deletedAt: null,
         },
-      );
+        select: { id: true, points: true },
+      });
     });
 
     it('P1：未绑手机号用户按 clubUserId 认人，而非捞同门店任意 phone=null 的顾客', async () => {
@@ -229,7 +231,7 @@ describe('ClubPointsQueryService', () => {
   });
 
   describe('listPointsRecords', () => {
-    it('返回指定顾客的积分明细列表与 baseEffect 默认值', async () => {
+    it('返回积分明细，并额外返回余额快照基准（全量流水）', async () => {
       const rows = [
         {
           id: 18,
@@ -247,7 +249,19 @@ describe('ClubPointsQueryService', () => {
 
       expect(result.items).toEqual(rows);
       expect(result.total).toBe(1);
-      expect(result.baseEffect).toBe(0);
+      // 快照基准：不早于本页最旧一条（含被类型筛选排除的流水），按时间 + ID 升序
+      const balanceCall =
+        prismaService.marketingPointsRecord.findMany.mock.calls[1][0];
+      expect(balanceCall.where).toEqual({
+        storeId: 11,
+        customerId: 98,
+        createdAt: { gte: new Date('2024-11-20T10:30:00.000Z') },
+      });
+      expect(balanceCall.orderBy).toEqual([
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
+      expect(result.balanceRecords).toEqual(rows);
     });
 
     it('按 earn 筛选时 where 条件包含 amount > 0', async () => {
@@ -276,12 +290,11 @@ describe('ClubPointsQueryService', () => {
       prismaService.marketingPointsRecord.findMany.mockResolvedValue([]);
       prismaService.marketingPointsRecord.count.mockResolvedValue(0);
 
-      const result = await service.listPointsRecords(11, 98, 'all', {
+      await service.listPointsRecords(11, 98, 'all', {
         limit: 20,
         cursor: {
           createdAt: '2024-11-20T10:30:00.000Z',
           id: 18,
-          totalEffect: 500,
         },
       });
 
@@ -296,8 +309,25 @@ describe('ClubPointsQueryService', () => {
         },
       ]);
       expect(findManyCall.take).toBe(20);
-      // baseEffect 取自游标的累计变动量
-      expect(result.baseEffect).toBe(500);
+      // 空结果时不额外查快照基准
+      expect(
+        prismaService.marketingPointsRecord.findMany,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P1：total 为符合筛选条件的总条数，不带游标条件', async () => {
+      prismaService.marketingPointsRecord.findMany.mockResolvedValue([]);
+      prismaService.marketingPointsRecord.count.mockResolvedValue(0);
+
+      await service.listPointsRecords(11, 98, 'earn', {
+        limit: 20,
+        cursor: { createdAt: '2024-11-20T10:30:00.000Z', id: 18 },
+      });
+
+      // 带上游标条件会让第 2 页起 total 变成「剩余条数」，与 DTO 语义不符
+      expect(prismaService.marketingPointsRecord.count).toHaveBeenCalledWith({
+        where: { storeId: 11, customerId: 98, amount: { gt: 0 } },
+      });
     });
   });
 });

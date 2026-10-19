@@ -329,7 +329,16 @@ export class CustodyReadService {
       }),
     ]);
 
-    const boundaries: number[] = [];
+    /*
+     * 统计随时间漂移有三个来源，各自对应一个临界时间点：
+     * 1. 在存单越过 expireAt → 惰性过期，跌出 storedCount / storedQty；
+     * 2. 存单进入临期窗口（expireAt − 临期阈值）→ expiringCount 加一；
+     * 3. 自然月翻篇 → monthPickupCount 的统计区间整体平移，必须清零重算。
+     *    少了这一条，门店在存的全是长期有效单（无到期临界点）时 boundaries 只剩空、
+     *    validUntil 退化成 null 即「永不漂移」，跨月后「本月取出次数」会一直挂着上月的数字。
+     * 取三个临界点中最早的那个作为口径有效截止时间，在此之前统计不随时间变化。
+     */
+    const boundaries: number[] = [this.buildNextMonthStart(now).getTime()];
     if (nextExpiring?.expireAt) {
       boundaries.push(nextExpiring.expireAt.getTime());
     }
@@ -339,8 +348,7 @@ export class CustodyReadService {
           CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
       );
     }
-    const validUntil =
-      boundaries.length > 0 ? new Date(Math.min(...boundaries)) : null;
+    const validUntil = new Date(Math.min(...boundaries));
 
     return {
       stats: {
@@ -366,6 +374,17 @@ export class CustodyReadService {
   private buildMonthStart(now: Date): Date {
     return new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+    );
+  }
+
+  /**
+   * 下个自然月的起始时间（UTC）：monthPickupCount 的统计区间在这个时刻整体平移。
+   *
+   * Date.UTC 会自行处理月份溢出（12 月 → 次年 1 月），无需额外归一。
+   */
+  private buildNextMonthStart(now: Date): Date {
+    return new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0),
     );
   }
 }

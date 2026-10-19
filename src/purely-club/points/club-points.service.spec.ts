@@ -93,7 +93,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
-        baseEffect: 0,
+        balanceRecords: rows,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 800,
@@ -136,7 +136,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: [],
         total: 0,
-        baseEffect: 0,
+        balanceRecords: [],
       });
       // summary 仍返回真实全量统计
       clubPointsQueryService.calculateSummary.mockResolvedValue({
@@ -178,19 +178,18 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 20,
-        baseEffect: 500,
+        balanceRecords: rows,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 800,
         totalRedeemed: 350,
       });
 
-      // 构造合法游标：createdAt + id + totalEffect
+      // 构造合法游标：createdAt + id
       const cursor = Buffer.from(
         JSON.stringify({
           createdAt: '2024-11-20T10:30:00.000Z',
           id: 18,
-          totalEffect: 500,
         }),
         'utf8',
       ).toString('base64url');
@@ -210,16 +209,59 @@ describe('ClubPointsService', () => {
           cursor: {
             createdAt: '2024-11-20T10:30:00.000Z',
             id: 18,
-            totalEffect: 500,
           },
         },
       );
-      // nextCursor 的 totalEffect = baseEffect + 本页变动量（500 + 120）
+      // 游标只回传定位所需的最后一条时间与 ID
       expect(result.nextCursor).not.toBeNull();
       const decoded = JSON.parse(
         Buffer.from(result.nextCursor ?? '', 'base64url').toString('utf8'),
-      ) as { totalEffect?: number };
-      expect(decoded.totalEffect).toBe(620);
+      ) as { createdAt?: string; id?: number };
+      expect(decoded.id).toBe(18);
+      expect(decoded.createdAt).toBe('2024-11-20T10:30:00.000Z');
+    });
+
+    it('兼容旧游标：带 totalEffect 的历史游标仍可解析', async () => {
+      const customer = { id: 98, points: 580 };
+      clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
+        customer,
+      );
+      clubPointsQueryService.listPointsRecords.mockResolvedValue({
+        items: [],
+        total: 0,
+        balanceRecords: [],
+      });
+      clubPointsQueryService.calculateSummary.mockResolvedValue({
+        totalEarned: 800,
+        totalRedeemed: 350,
+      });
+
+      const legacyCursor = Buffer.from(
+        JSON.stringify({
+          createdAt: '2024-11-20T10:30:00.000Z',
+          id: 18,
+          totalEffect: 500,
+        }),
+        'utf8',
+      ).toString('base64url');
+
+      await expect(
+        service.listRecords(currentContext, {
+          type: 'earn',
+          limit: 20,
+          cursor: legacyCursor,
+        }),
+      ).resolves.toMatchObject({ total: 0 });
+
+      expect(clubPointsQueryService.listPointsRecords).toHaveBeenCalledWith(
+        11,
+        98,
+        'earn',
+        {
+          limit: 20,
+          cursor: { createdAt: '2024-11-20T10:30:00.000Z', id: 18 },
+        },
+      );
     });
 
     it('非法游标抛出 BadRequestException', async () => {
@@ -228,17 +270,37 @@ describe('ClubPointsService', () => {
       ).rejects.toThrow('分页游标解析失败');
     });
 
-    it('分页快照以 baseEffect 为基准连续正推', async () => {
-      const customer = { id: 98, points: 580 };
-      // 第二页：仅一条 -50 的记录，游标之前已加载累计 500
+    it('P1：筛选「获得」时快照仍为真实余额（不被排除的消耗带偏）', async () => {
+      const customer = { id: 98, points: 120 };
+      // 真实流水：E1(+100) → S(-30) → E2(+50)，当前余额 120
       const rows = [
         {
-          id: 12,
-          amount: -50,
-          type: 'spend' as const,
-          description: '积分抵扣',
-          createdAt: new Date('2024-11-19T10:00:00.000Z'),
+          id: 13,
+          amount: 50,
+          type: 'earn' as const,
+          description: '消费获得积分',
+          createdAt: new Date('2024-11-21T10:00:00.000Z'),
         },
+        {
+          id: 11,
+          amount: 100,
+          type: 'earn' as const,
+          description: '消费获得积分',
+          createdAt: new Date('2024-11-20T10:00:00.000Z'),
+        },
+      ];
+      const balanceRecords = [
+        {
+          id: 11,
+          amount: 100,
+          createdAt: new Date('2024-11-20T10:00:00.000Z'),
+        },
+        {
+          id: 12,
+          amount: -30,
+          createdAt: new Date('2024-11-20T12:00:00.000Z'),
+        },
+        { id: 13, amount: 50, createdAt: new Date('2024-11-21T10:00:00.000Z') },
       ];
 
       clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
@@ -246,18 +308,116 @@ describe('ClubPointsService', () => {
       );
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
-        total: 3,
-        baseEffect: 500,
+        total: 2,
+        balanceRecords,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
-        totalEarned: 800,
-        totalRedeemed: 350,
+        totalEarned: 150,
+        totalRedeemed: 30,
+      });
+
+      const result = await service.listRecords(currentContext, {
+        type: 'earn',
+      });
+
+      // 起点 = 120 - (100 - 30 + 50) = 0 → E1 后 100、S 后 70、E2 后 120
+      // 若误用筛选后的 rows 正推，E1 会被算成 70
+      expect(result.items.map((item) => item.balanceSnapshot)).toEqual([
+        120, 100,
+      ]);
+    });
+
+    it('P1：同一事务写入的同刻记录按 ID 正推，快照不互换', async () => {
+      const customer = { id: 98, points: 110 };
+      const sameTime = new Date('2024-11-20T10:00:00.000Z');
+      // 同刻（Postgres now() 取事务开始时间）：先抵扣 -30，后获得 +100
+      const rows = [
+        {
+          id: 22,
+          amount: 100,
+          type: 'earn' as const,
+          description: '消费获得积分',
+          createdAt: sameTime,
+        },
+        {
+          id: 21,
+          amount: -30,
+          type: 'spend' as const,
+          description: '积分抵扣',
+          createdAt: sameTime,
+        },
+      ];
+      const balanceRecords = [
+        { id: 21, amount: -30, createdAt: sameTime },
+        { id: 22, amount: 100, createdAt: sameTime },
+      ];
+
+      clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
+        customer,
+      );
+      clubPointsQueryService.listPointsRecords.mockResolvedValue({
+        items: rows,
+        total: 2,
+        balanceRecords,
+      });
+      clubPointsQueryService.calculateSummary.mockResolvedValue({
+        totalEarned: 100,
+        totalRedeemed: 30,
       });
 
       const result = await service.listRecords(currentContext, {});
 
-      // 起点 = 580 - 500 - (-50) = 130；扣减 -50 后余额快照 = 80
-      expect(result.items[0].balanceSnapshot).toBe(80);
+      // 起点 = 110 - 70 = 40 → 抵扣后 10、获得后 110
+      expect(
+        result.items.map((item) => [item.id, item.balanceSnapshot]),
+      ).toEqual([
+        ['points-22', 110],
+        ['points-21', 10],
+      ]);
+    });
+
+    it('P1：旧调用未返回 balanceRecords 时，倒序 rows 的同刻记录仍按 ID 定序', async () => {
+      const customer = { id: 98, points: 110 };
+      const sameTime = new Date('2024-11-20T10:00:00.000Z');
+      const rows = [
+        {
+          id: 22,
+          amount: 100,
+          type: 'earn' as const,
+          description: '消费获得积分',
+          createdAt: sameTime,
+        },
+        {
+          id: 21,
+          amount: -30,
+          type: 'spend' as const,
+          description: '积分抵扣',
+          createdAt: sameTime,
+        },
+      ];
+
+      clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
+        customer,
+      );
+      // 查询层未返回快照基准（旧调用）：回退为本页 rows，排序必须自己补足 ID 次序
+      clubPointsQueryService.listPointsRecords.mockResolvedValue({
+        items: rows,
+        total: 2,
+        balanceRecords: [],
+      });
+      clubPointsQueryService.calculateSummary.mockResolvedValue({
+        totalEarned: 100,
+        totalRedeemed: 30,
+      });
+
+      const result = await service.listRecords(currentContext, {});
+
+      expect(
+        result.items.map((item) => [item.id, item.balanceSnapshot]),
+      ).toEqual([
+        ['points-22', 110],
+        ['points-21', 10],
+      ]);
     });
   });
 });

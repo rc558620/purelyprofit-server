@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ScanOrderStatus, ScanOrderingSessionStatus } from '@prisma/client';
+import {
+  Prisma,
+  ScanOrderStatus,
+  ScanOrderingSessionStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
@@ -9,6 +13,14 @@ import {
   toOrderAmountSummary,
 } from './club-scan-ordering-order.mapper';
 
+/** 在途订单状态：只要会话里还有这些订单，这一轮用餐就还没结束 */
+const IN_FLIGHT_ORDER_STATUSES: ScanOrderStatus[] = [
+  ScanOrderStatus.pending_payment,
+  ScanOrderStatus.pending_acceptance,
+  ScanOrderStatus.preparing,
+  ScanOrderStatus.served,
+];
+
 @Injectable()
 export class ClubScanOrderingOrderQueryService {
   constructor(
@@ -16,13 +28,41 @@ export class ClubScanOrderingOrderQueryService {
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
+  /**
+   * 「当前用餐轮次」的 active 会话口径：未过期，或虽然已过期但仍有在途订单。
+   *
+   * 会话 TTL（SESSION_TTL_MS = 4h）只限制 C 端继续点餐，不能让在途订单凭空消失：
+   * - `getCurrentSession`（继续点餐）本就是这个口径；
+   * - 商家端桌台查询同样认可「已过期 + 有在途订单」的 active 会话，
+   *   并注明「不能让待接单/制作中订单变成空桌」。
+   * 只有订单列表此前用 `expiresAt > now` 一刀切，导致扫码超过 TTL 后顾客端
+   * 订单追踪页看不到仍在制作的订单，商家端却仍占用桌台。
+   */
+  private currentRoundSessionWhere(
+    now: Date,
+  ): Prisma.ScanOrderingSessionWhereInput {
+    return {
+      status: ScanOrderingSessionStatus.active,
+      deletedAt: null,
+      OR: [
+        { expiresAt: { gt: now } },
+        {
+          orders: {
+            some: {
+              deletedAt: null,
+              status: { in: IN_FLIGHT_ORDER_STATUSES },
+            },
+          },
+        },
+      ],
+    };
+  }
+
   private async activeDiningRoundIds(clubUserId: number): Promise<string[]> {
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId,
-        status: ScanOrderingSessionStatus.active,
-        deletedAt: null,
-        expiresAt: { gt: new Date() },
+        ...this.currentRoundSessionWhere(new Date()),
       },
       select: { diningRoundId: true },
     });
@@ -33,14 +73,7 @@ export class ClubScanOrderingOrderQueryService {
     user: AuthenticatedUser,
     query: ListClubScanOrdersQueryDto,
   ): Promise<unknown> {
-    // 默认只显示进行中的订单（如果没有指定 status 过滤）
-    // 进行中状态包括：pending_payment, pending_acceptance, preparing, served
-    const activeStates = [
-      ScanOrderStatus.pending_payment,
-      ScanOrderStatus.pending_acceptance,
-      ScanOrderStatus.preparing,
-      ScanOrderStatus.served,
-    ];
+    const now = new Date();
 
     // 与 upsertSession 复用 diningRoundId 的时间窗口同口径：
     // 只会话活跃时间落在该窗口内的 left 会话才属于当前用餐轮次。
@@ -57,16 +90,30 @@ export class ClubScanOrderingOrderQueryService {
         // 同时要求 left 会话最近仍活跃（lastActiveAt 落在窗口内），避免跨天清桌后
         // 旧会话的退款/历史订单重新出现在新一轮订单详情中。
         OR: [
-          {
-            status: ScanOrderingSessionStatus.active,
-            expiresAt: { gt: new Date() },
-            deletedAt: null,
-          },
+          this.currentRoundSessionWhere(now),
           {
             status: ScanOrderingSessionStatus.left,
-            lastActiveAt: { gte: new Date(Date.now() - activeRoundWindowMs) },
+            lastActiveAt: {
+              gte: new Date(now.getTime() - activeRoundWindowMs),
+            },
             diningRoundId: {
               in: await this.activeDiningRoundIds(user.id),
+            },
+          },
+          // 跨轮次但仍有未闭环订单的 left 会话：顾客重新扫码时，若旧会话 lastActiveAt
+          // 超出 upsertSession 的轮次复用窗口，会开出新 diningRoundId（新轮次），
+          // 旧轮次会话随即不满足上面的「同轮次」条件。而旧轮次里的 served 单既不属于
+          // 当前轮次（不会出现在当前订单），又因 served 非终态进不了历史接口
+          // —— 顾客重扫后订单直接「消失」（真实故障：A01 凌晨订单不见了）。
+          // 这里把它们并入当前订单，直到自动归档把 served 闭环为 completed。
+          // 终态订单（已退款/已完成/已取消）不受影响，仍受上面窗口限制，避免跨天回流。
+          {
+            status: ScanOrderingSessionStatus.left,
+            orders: {
+              some: {
+                deletedAt: null,
+                status: { in: IN_FLIGHT_ORDER_STATUSES },
+              },
             },
           },
         ],
@@ -98,7 +145,7 @@ export class ClubScanOrderingOrderQueryService {
               ? { status: query.status as ScanOrderStatus }
               : {
                   OR: [
-                    { status: { in: activeStates } },
+                    { status: { in: IN_FLIGHT_ORDER_STATUSES } },
                     // 已退款不再参与桌台履约或清桌校验，但顾客在本次有效用餐
                     // 会话中仍需能查看退款结果并继续点餐。
                     {
@@ -113,6 +160,8 @@ export class ClubScanOrderingOrderQueryService {
             id: true,
             orderNo: true,
             status: true,
+            // 乐观锁版本：待支付订单在追踪页「继续支付」时要原样带回
+            version: true,
             paymentStatus: true,
             fulfillmentStatus: true,
             payableAmount: true,

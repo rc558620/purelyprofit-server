@@ -1,4 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -71,6 +72,8 @@ describe('ClubScanOrderingSessionService - createOrRestoreSession', () => {
           provide: ClubCurrentStoreContextService,
           useValue: currentStoreContextService,
         },
+        // 未配置会话有效期时回落到服务内置默认（4 小时）
+        { provide: ConfigService, useValue: { get: () => undefined } },
       ],
     }).compile();
     service = module.get<ClubScanOrderingSessionService>(

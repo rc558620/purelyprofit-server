@@ -173,6 +173,13 @@ export class ClubVoucherOrderPreviewResponseDto {
   })
   balanceEnough?: boolean;
 
+  @ApiPropertyOptional({
+    example: '当前余额 ¥0.00，本次需支付 ¥128.50，请先充值',
+    description:
+      '余额不足时的完整提示文案（含金额，后端拼装）；余额足够时为 null，前端直接展示不做计算',
+  })
+  insufficientBalanceMessage?: string | null;
+
   @ApiProperty({
     example: 8800,
     description: '会员价小计（分）= 商品会员价 × 数量',

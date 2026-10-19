@@ -42,10 +42,9 @@ export class ListClubPointsRecordsQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    example:
-      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTgsInRvdGFsRWZmZWN0IjoxMjB9',
+    example: 'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTh9',
     description:
-      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。内部编码了上一页最后一条积分的创建时间、ID 与已加载记录累计变动量，用于稳定翻页并保证余额快照连续',
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。内部编码了上一页最后一条积分的创建时间与 ID，用于稳定翻页（同刻记录按 ID 补足次序）',
   })
   @IsOptional()
   @IsString({ message: 'cursor 必须是字符串' })
@@ -120,8 +119,7 @@ export class ClubPointsRecordsResponseDto {
   total: number;
 
   @ApiPropertyOptional({
-    example:
-      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTgsInRvdGFsRWZmZWN0IjoxMjB9',
+    example: 'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTh9',
     description:
       '下一页游标值，原样传给下次请求的 cursor 参数即可；为 null 表示已到最后一页',
     nullable: true,

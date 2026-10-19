@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -15,7 +16,8 @@ import type {
   UpdateClubScanSessionDto,
 } from './dto/club-scan-ordering.dto';
 
-const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+/** 会话有效期默认值（4 小时）。可用 `scanOrdering.sessionTtlMs` 覆盖。 */
+const DEFAULT_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 
 /** 会话响应里的桌台快照；区域 / 桌型按查询口径可选。 */
 interface SessionTableSnapshot {
@@ -50,7 +52,19 @@ export class ClubScanOrderingSessionService {
     private readonly qrTokenService: ClubScanOrderingQrTokenService,
     private readonly storeAccessService: ClubStoreAccessService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * 会话有效期：决定 expiresAt（继续点餐的边界）与 diningRound 复用窗口。
+   * 未配置或配置非法时回落到默认 4 小时，行为与改造前完全一致。
+   */
+  private get sessionTtlMs(): number {
+    const configured = this.configService.get<number>('scanOrdering.sessionTtlMs');
+    return configured && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_SESSION_TTL_MS;
+  }
 
   async createOrRestoreSession(
     user: AuthenticatedUser,
@@ -104,7 +118,7 @@ export class ClubScanOrderingSessionService {
     );
 
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+    const expiresAt = new Date(now.getTime() + this.sessionTtlMs);
 
     // 每次使用新的扫码凭据进入桌台都创建新的点餐会话。购物车以 sessionId 为边界，
     // 不能复用上次未结算会话，否则新一轮扫码会看到旧购物车条目。
@@ -249,9 +263,9 @@ export class ClubScanOrderingSessionService {
         tableId,
         clubUserId,
         status: { in: ['active', 'left'] },
-        // 只允许复用最近 SESSION_TTL_MS 内的 diningRound，防止跨天/跨轮次复用
+        // 只允许复用最近一个会话有效期内的 diningRound，防止跨天/跨轮次复用
         // 导致旧会话的退款订单出现在新订单详情中——清桌后的旧会话不应再与当前用餐关联
-        lastActiveAt: { gte: new Date(now.getTime() - SESSION_TTL_MS) },
+        lastActiveAt: { gte: new Date(now.getTime() - this.sessionTtlMs) },
       },
       orderBy: { lastActiveAt: 'desc' },
       select: { diningRoundId: true },

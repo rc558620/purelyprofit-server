@@ -313,6 +313,44 @@ export default () => ({
       process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_MAX_RETRIES ?? '3',
       10,
     ),
+    /**
+     * 自动清桌阈值（毫秒，日间）：最后一笔订单履约（或会话最后活跃）落在日间时段时，
+     * 超过该时长即归档会话并把桌台置为空桌。
+     * 只看最后活动、不等会话 TTL 过期 —— 否则 4 小时 TTL 会成为下限，
+     * 午市 12 点的单要拖到 18 点才释放，翻台与统计口径都被拖慢。
+     * 默认 2 小时；联调时可临时设 SCAN_ORDERING_SESSION_ARCHIVE_IDLE_MS=180000（3 分钟）加速验证。
+     */
+    sessionArchiveIdleMs: parseInt(
+      process.env.SCAN_ORDERING_SESSION_ARCHIVE_IDLE_MS ?? '7200000',
+      10,
+    ),
+    /**
+     * 自动清桌阈值（毫秒，夜间）：最后活动落在夜间窗口时改用该阈值，
+     * 并且额外要求会话 expiresAt 已过期，避免把还在座的夜宵 / 火锅客人清掉。
+     */
+    sessionArchiveNightIdleMs: parseInt(
+      process.env.SCAN_ORDERING_SESSION_ARCHIVE_NIGHT_IDLE_MS ?? '7200000',
+      10,
+    ),
+    /** 夜间窗口起始小时（上海时区，含）：最后活动小时 >= 该值按夜间口径处理。 */
+    sessionArchiveNightStartHour: parseInt(
+      process.env.SCAN_ORDERING_SESSION_ARCHIVE_NIGHT_START_HOUR ?? '22',
+      10,
+    ),
+    /** 夜间窗口结束小时（上海时区，不含）：最后活动小时 < 该值按夜间口径处理。 */
+    sessionArchiveNightEndHour: parseInt(
+      process.env.SCAN_ORDERING_SESSION_ARCHIVE_NIGHT_END_HOUR ?? '6',
+      10,
+    ),
+    /**
+     * 扫码点餐桌台会话有效期（毫秒）：决定会话 expiresAt 与 diningRound 复用窗口。
+     * 默认 4 小时（与改造前硬编码一致）；仅联调期临时调小以压缩自动清桌观察周期，生产不要改。
+     * 归档时刻 ≈ 会话创建 + 本值 + sessionArchiveIdleMs。
+     */
+    sessionTtlMs: parseInt(
+      process.env.SCAN_ORDERING_SESSION_TTL_MS ?? '14400000',
+      10,
+    ),
   },
 
   /**

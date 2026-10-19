@@ -27,7 +27,12 @@ export class ClubScanOrderingMenuQueryService {
     if (!session)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
 
-    // 轻量查询：仅取分类 id+version 计算 menuVersion（不拉 products/specs/options）
+    // 轻量查询：只取 id+version 计算 menuVersion（不拉名称/图片/金额等大字段）
+    //
+    // 商品与规格维度**必须**进 hash：改价、库存预留（下单即 bump 商品 version）、
+    // 上下架、规格增删都是商品级变更，只 bump 商品/规格的 version 而不动分类 version。
+    // 若只按分类计算，这些最高频的菜单变更不会改变 menuVersion → 缓存 key 不变 →
+    // TTL 内持续把旧价格/旧库存返回给顾客（key 的契约见 buildClubMenuCacheKey）。
     const versionRows = await this.prisma.scanOrderingMenuCategory.findMany({
       where: {
         storeId: session.storeId,
@@ -36,10 +41,52 @@ export class ClubScanOrderingMenuQueryService {
         products: { some: { deletedAt: null } },
       },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      select: { id: true, version: true },
+      select: {
+        id: true,
+        version: true,
+        products: {
+          where: { deletedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            version: true,
+            isActive: true,
+            specGroups: {
+              where: { isActive: true },
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              select: {
+                id: true,
+                version: true,
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                  select: { id: true, version: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     const menuVersion = createHash('sha256')
-      .update(JSON.stringify(versionRows.map((item) => [item.id, item.version])))
+      .update(
+        JSON.stringify(
+          versionRows.map((category) => [
+            category.id,
+            category.version,
+            category.products.map((product) => [
+              product.id,
+              product.version,
+              product.isActive,
+              product.specGroups.map((group) => [
+                group.id,
+                group.version,
+                group.options.map((option) => [option.id, option.version]),
+              ]),
+            ]),
+          ]),
+        ),
+      )
       .digest('hex');
 
     // 缓存命中检查：menuVersion 不变即命中

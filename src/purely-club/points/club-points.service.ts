@@ -7,6 +7,7 @@ import type {
   ListClubPointsRecordsQueryDto,
 } from './dto/club-points-record.dto';
 import type {
+  ClubPointsBalanceRecordRow,
   ClubPointsCursorPayload,
   ClubPointsCustomerRecord,
   ClubPointsRecordRow,
@@ -51,13 +52,14 @@ export class ClubPointsService {
       };
     }
 
-    // 筛选条件下推到 DB 层，确保 total 与 items 语义一致；游标携带累计变动量供余额快照正推
+    // 筛选条件下推到 DB 层，确保 total 与 items 语义一致；
+    // 余额快照基准由查询层另取全量流水（balanceRecords），不受筛选影响
     const filterType = query.type ?? 'all';
     const cursor = this.buildCursor(query);
     const {
       items: rows,
       total,
-      baseEffect,
+      balanceRecords,
     } = await this.clubPointsQueryService.listPointsRecords(
       currentContext.store.id,
       customer.id,
@@ -70,7 +72,12 @@ export class ClubPointsService {
 
     const [items, summary] = await Promise.all([
       Promise.resolve(
-        this.buildItems(rows, customer, currentContext.store.name, baseEffect),
+        this.buildItems(
+          rows,
+          customer,
+          currentContext.store.name,
+          balanceRecords,
+        ),
       ),
       this.clubPointsQueryService.calculateSummary(
         currentContext.store.id,
@@ -78,14 +85,12 @@ export class ClubPointsService {
       ),
     ]);
 
-    // 计算下一页游标：本页有记录时，编码最后一条的时间、ID 与已加载累计变动量
-    const pageEffect = rows.reduce((sum, row) => sum + row.amount, 0);
+    // 计算下一页游标：本页有记录时，编码最后一条的时间与 ID
     const lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
     const nextCursor = lastRow
       ? this.encodeCursor({
           createdAt: lastRow.createdAt.toISOString(),
           id: lastRow.id,
-          totalEffect: baseEffect + pageEffect,
         })
       : null;
 
@@ -93,8 +98,11 @@ export class ClubPointsService {
   }
 
   /**
-   * 从查询参数中解析单参数游标（base64url 编码的 { createdAt, id, totalEffect }）。
+   * 从查询参数中解析单参数游标（base64url 编码的 { createdAt, id }）。
    * 不传表示第一页；格式非法时抛出 400 明确提示调用方。
+   *
+   * 兼容说明：旧游标额外带 totalEffect（曾用于快照正推），现已不再需要，
+   * 但仍接受以免历史游标在发版后直接 400。
    */
   private buildCursor(
     query: ListClubPointsRecordsQueryDto,
@@ -106,7 +114,6 @@ export class ClubPointsService {
     let payload: {
       createdAt?: string;
       id?: number;
-      totalEffect?: number;
     };
     try {
       // JSON.parse 返回 any，此处用窄类型断言限定解析结果结构
@@ -115,7 +122,6 @@ export class ClubPointsService {
       ) as {
         createdAt?: string;
         id?: number;
-        totalEffect?: number;
       };
     } catch {
       throw new BadRequestException('分页游标解析失败');
@@ -123,9 +129,7 @@ export class ClubPointsService {
 
     if (
       typeof payload.id !== 'number' ||
-      typeof payload.createdAt !== 'string' ||
-      typeof payload.totalEffect !== 'number' ||
-      !Number.isFinite(payload.totalEffect)
+      typeof payload.createdAt !== 'string'
     ) {
       throw new BadRequestException('分页游标格式不合法');
     }
@@ -138,11 +142,10 @@ export class ClubPointsService {
     return {
       createdAt: createdAt.toISOString(),
       id: payload.id,
-      totalEffect: payload.totalEffect,
     };
   }
 
-  /** 将上一页最后一条积分记录的时间、ID 与累计变动量编码为单参数游标（base64url JSON） */
+  /** 将上一页最后一条积分记录的时间与 ID 编码为单参数游标（base64url JSON） */
   private encodeCursor(payload: ClubPointsCursorPayload): string {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   }
@@ -151,28 +154,36 @@ export class ClubPointsService {
    * 将积分记录行转换为前端 DTO，并计算每条记录后的积分余额快照。
    *
    * 余额快照算法（正推法，与 ClubRecordViewService 一致）：
-   * 1. 按时间正序排列
-   * 2. 起始积分 = customer.points - baseEffect - 本页已加载记录的 amount 之和
-   *    （baseEffect 为游标之前已加载记录的累计变动量，首屏为 0，保证跨页快照连续）
+   * 1. 对 balanceRecords（不早于本页最旧一条的全量流水）按时间 + ID 正序排列
+   * 2. 起始积分 = customer.points - balanceRecords 变动量之和 = 最旧一条发生前的积分
    * 3. 从最旧到最新逐条累加，得到每条记录后的快照
    * 4. 最终仍按倒序输出（最新在前）
+   *
+   * ⚠️ 快照基准必须是**不受类型筛选影响的全量流水**（balanceRecords）。
+   * 若误用按 Tab 过滤后的 rows，被排除的流水（如筛选「获得」时被排除的消耗）
+   * 会让反推起点偏离真实余额，除最新一条外的快照全部失真。
+   * 升序必须与展示排序（createdAt desc, id desc）严格互逆：同一事务写入的记录
+   * createdAt 相同（Postgres now() 取事务开始时间），此时只能靠 ID 定序。
    */
   private buildItems(
     rows: ClubPointsRecordRow[],
     customer: ClubPointsCustomerRecord,
     storeName: string,
-    baseEffect: number,
+    balanceRecords: ClubPointsBalanceRecordRow[] = [],
   ): ClubPointsRecordDto[] {
     if (rows.length === 0) {
       return [];
     }
 
-    const ascending = [...rows].sort(
-      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    // 快照基准缺省（旧调用/查询层未返回）时回退为本页 rows，保证向后兼容
+    const balanceRows = balanceRecords.length > 0 ? balanceRecords : rows;
+
+    const ascending = [...balanceRows].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id,
     );
 
-    const pageEffect = ascending.reduce((sum, r) => sum + r.amount, 0);
-    let runningPoints = customer.points - baseEffect - pageEffect;
+    const totalEffect = ascending.reduce((sum, r) => sum + r.amount, 0);
+    let runningPoints = customer.points - totalEffect;
 
     const snapshotMap = new Map<number, number>();
     for (const row of ascending) {
