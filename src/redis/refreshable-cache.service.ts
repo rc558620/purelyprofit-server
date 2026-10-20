@@ -12,6 +12,14 @@ export class RefreshableCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(RefreshableCacheService.name);
   private readonly backgroundRefreshTasks = new Map<string, Promise<void>>();
   private readonly backgroundRefreshTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * 未命中路径的并发去重（singleflight）：同一 cacheKey 的在途 load 共用一个 Promise。
+   *
+   * 没有去重时，N 个并发未命中会各自执行一次 loadValue + 一次写回。营销概览的
+   * loadValue 内部有 10 个 Prisma 查询（含重聚合），缓存刚失效或首次访问时，
+   * 商家端一次页面加载的多个并行请求会把这份重查询放大 N 倍，直接冲击 DB。
+   */
+  private readonly inflightLoads = new Map<string, Promise<unknown>>();
   private readonly refreshQueue: ConcurrencyLimiter;
 
   constructor(
@@ -81,6 +89,22 @@ export class RefreshableCacheService implements OnModuleDestroy {
       return normalizedCached.payload.data;
     }
 
+    const inflight = this.inflightLoads.get(options.cacheKey);
+    if (inflight) {
+      return inflight as Promise<T>;
+    }
+
+    const loadTask = this.loadAndWrite(options).finally(() => {
+      this.inflightLoads.delete(options.cacheKey);
+    });
+    this.inflightLoads.set(options.cacheKey, loadTask);
+
+    return loadTask;
+  }
+
+  private async loadAndWrite<T>(
+    options: RefreshableCacheLoadOptions<T>,
+  ): Promise<T> {
     const loadedValue = await options.loadValue();
     await this.writeRefreshableJson(
       options.cacheKey,
@@ -103,8 +127,27 @@ export class RefreshableCacheService implements OnModuleDestroy {
       refreshAt: now + Math.max(0, refreshAfterMs),
       data,
     };
-    await this.redisService.setJson(cacheKey, payload, ttlSeconds);
+    await this.redisService.setJson(
+      cacheKey,
+      payload,
+      this.applyTtlJitter(ttlSeconds),
+    );
     return payload;
+  }
+
+  /**
+   * 给 TTL 加 ±10% 随机抖动。
+   *
+   * 预热任务会集中创建一批 key，TTL 完全相同时它们会在同一秒集体失效，
+   * 造成周期性穿透（营销概览一次 load 就是 10 个查询）。抖动把失效时刻摊开。
+   * 抖动幅度远小于 refreshAfterMs 的提前刷新窗口，不影响后台刷新节奏。
+   */
+  private applyTtlJitter(ttlSeconds: number): number {
+    if (ttlSeconds <= 0) {
+      return ttlSeconds;
+    }
+
+    return Math.max(1, Math.round(ttlSeconds * (0.9 + Math.random() * 0.2)));
   }
 
   scheduleBackgroundRefresh(

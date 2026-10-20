@@ -34,6 +34,15 @@ import {
 const CHARGE_ISOLATION_LEVEL: Prisma.TransactionIsolationLevel =
   Prisma.TransactionIsolationLevel.Serializable;
 
+/**
+ * 发送结果写回的批大小。
+ *
+ * 逐条 updateMany 是业务约束（见 persistResults），但把整批号码一次性并发出去，
+ * 万人群发就是上万个并发 UPDATE，会瞬间打满 Prisma 连接池、把同进程其它模块的
+ * 查询一起拖慢。改为批内并行、批间串行后，峰值并发恒定为本常量。
+ */
+const SMS_PERSIST_BATCH_SIZE = 50;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -535,13 +544,11 @@ export class SmsBroadcastService {
     taskId: number,
     results: SmsSendResultItem[],
   ): Promise<void> {
-    const operations: Promise<unknown>[] = [];
-
     /*
      * 逐条写回——不能按 RequestId 分组批量：SerialNo 是**一个号码一条**，
      * 分组会串行覆盖掉别条的流水号，而流水号一旦丢了就永远等不到送达回执。
      */
-    for (const item of results) {
+    const pendingItems = results.filter((item) => {
       /*
        * 通道没给明确结果的（NO_PROVIDER_STATUS）：保持 pending，跳过不写。
        *
@@ -549,28 +556,37 @@ export class SmsBroadcastService {
        * 判成功又可能吞钱。留成 pending 交给补偿任务重发，重发耗尽后才判死退费，
        * 是唯一既不吃亏也不白送的处理方式。
        */
-      if (!item.ok && item.code === SMS_NO_PROVIDER_STATUS_CODE) {
-        continue;
-      }
+      return !(item.ok === false && item.code === SMS_NO_PROVIDER_STATUS_CODE);
+    });
 
-      operations.push(
-        this.prisma.smsBroadcastRecipient.updateMany({
-          where: { taskId, phone: item.phone },
-          data: {
-            status: item.ok ? 'success' : 'failed',
-            providerCode: item.ok ? 'Ok' : item.code,
-            providerMessage: item.message,
-            providerRequestId: item.requestId,
-            serialNo: item.serialNo,
-          },
-        }),
-      );
-    }
-
-    if (operations.length === 0) {
+    if (pendingItems.length === 0) {
       return;
     }
-    await Promise.all(operations);
+
+    // 逐条写回的条数不变，只把「一次性全并发」改成批内并行、批间串行，
+    // 避免万人群发起上万个并发 UPDATE 打满连接池。
+    for (
+      let offset = 0;
+      offset < pendingItems.length;
+      offset += SMS_PERSIST_BATCH_SIZE
+    ) {
+      await Promise.all(
+        pendingItems
+          .slice(offset, offset + SMS_PERSIST_BATCH_SIZE)
+          .map((item) =>
+            this.prisma.smsBroadcastRecipient.updateMany({
+              where: { taskId, phone: item.phone },
+              data: {
+                status: item.ok ? 'success' : 'failed',
+                providerCode: item.ok ? 'Ok' : item.code,
+                providerMessage: item.message,
+                providerRequestId: item.requestId,
+                serialNo: item.serialNo,
+              },
+            }),
+          ),
+      );
+    }
   }
 
   /**

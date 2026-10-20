@@ -38,7 +38,11 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
 
   const prisma = {
     space: { findFirst: jest.fn() },
-    spaceQrCode: { upsert: jest.fn() },
+    spaceQrCode: {
+      upsert: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
   };
   const commerceAccessService = { ensureCanAccessStore: jest.fn() };
   const user = { id: 1 } as unknown as AuthenticatedUser;
@@ -66,9 +70,9 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
     return module.get<SpaceQrCodeService>(SpaceQrCodeService);
   };
 
-  /** 库里只存摘要 + 密文：明文由密文还原 */
+  /** 库里只存摘要 + 密文：明文由密文还原（预览/下载走 findUnique 只读） */
   const mockStoredQrCode = (token: string): void => {
-    prisma.spaceQrCode.upsert.mockResolvedValue({
+    prisma.spaceQrCode.findUnique.mockResolvedValue({
       tokenCiphertext: encryptSpaceQrToken(token, KEY),
     });
   };
@@ -172,7 +176,9 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
 
   describe('密文不可用时拒绝出图（明文列已删除，没有回退）', () => {
     it('密文缺失时抛错并提示轮换', async () => {
-      prisma.spaceQrCode.upsert.mockResolvedValue({ tokenCiphertext: null });
+      prisma.spaceQrCode.findUnique.mockResolvedValue({
+        tokenCiphertext: null,
+      });
       const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
 
       await expect(service.getPreview(user, 7)).rejects.toThrow(
@@ -182,7 +188,7 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
     });
 
     it('密文解不开时抛错并指向密钥配置', async () => {
-      prisma.spaceQrCode.upsert.mockResolvedValue({
+      prisma.spaceQrCode.findUnique.mockResolvedValue({
         tokenCiphertext: encryptSpaceQrToken(SPACE_TOKEN, randomBytes(32)),
       });
       const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
@@ -195,7 +201,7 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
 
     it('密钥轮换后上一代密钥仍能出图', async () => {
       const previousKey = randomBytes(32);
-      prisma.spaceQrCode.upsert.mockResolvedValue({
+      prisma.spaceQrCode.findUnique.mockResolvedValue({
         tokenCiphertext: encryptSpaceQrToken(SPACE_TOKEN, previousKey),
       });
       const service = await buildService({

@@ -57,18 +57,25 @@ export class ProductsScanOrderingSyncService {
     }
   }
 
+  /**
+   * 同步规格组，返回规格是否真的被重建。
+   *
+   * 返回值供调用方判断要不要重查商品：create/update 的返回值里已经带上规格快照，
+   * 只有真的重建过规格才需要再查一次，未变更时省掉一次带三层嵌套的重查。
+   */
   async syncSpecifications(
     storeId: number,
     productId: number,
     groups: ProductSpecGroupDto[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const existingMenuProduct = await this.findMenuProduct(storeId, productId);
     // 空规格短路：全业态放开规格配置后，未配置规格的商品（含每次编辑保存）不得
     // 凭空生成幽灵宿主，否则非餐饮门店每次编辑商品都会静默多出一条菜单商品记录。
-    if (groups.length === 0 && !existingMenuProduct) return;
+    if (groups.length === 0 && !existingMenuProduct) return false;
     const menuProduct =
       existingMenuProduct ??
       (await this.createGhostMenuProduct(storeId, productId));
+    let specificationsChanged = false;
     await this.prisma.$transaction(async (tx) => {
       // 无变更则不重建：规格组/选项当前是「物理删除后重建」，选项 ID 会漂移，
       // 历史订单退款时按 specOptionId 恢复规格库存就会静默丢失（风险 #5）。
@@ -95,6 +102,8 @@ export class ProductsScanOrderingSyncService {
         },
       });
       if (this.hasSameSpecifications(currentGroups, groups)) return;
+
+      specificationsChanged = true;
 
       await tx.scanOrderingSpecOption.deleteMany({
         where: { group: { menuProductId: menuProduct.id } },
@@ -140,6 +149,7 @@ export class ProductsScanOrderingSyncService {
       });
     });
     await this.invalidateCache(storeId);
+    return specificationsChanged;
   }
 
   /**

@@ -6,6 +6,7 @@ import { buildCacheInvalidatorRegistry } from './cache-invalidator.registry';
 import { profitDashboardHomeCacheInvalidatorProvider } from './cache-invalidator-profit-dashboard-home.provider';
 import { profitDetailCacheInvalidatorProvider } from './cache-invalidator-profit-detail.provider';
 import { salesReadCacheInvalidatorProvider } from './cache-invalidator-sales-read.provider';
+import { spacesReadCacheInvalidatorProvider } from './cache-invalidator-spaces.provider';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type { RedisService } from './redis.service';
 
@@ -19,6 +20,7 @@ export type ProfitReadCacheInvalidatorRegistry = {
   invalidateMarketingOverview: (storeId: number) => Promise<void>;
   invalidateMarketingCustomerDerived: (storeId: number) => Promise<void>;
   invalidateSalesReadCaches: (storeId: number) => Promise<void>;
+  invalidateSpacesReadCaches: (storeId: number) => Promise<void>;
   invalidateProfitDetail: (storeId: number) => Promise<void>;
   invalidateCostsCaches: (storeId: number) => Promise<void>;
 };
@@ -32,6 +34,7 @@ const profitReadCacheInvalidatorProviders: readonly CacheInvalidatorProvider<
   marketingOverviewCacheInvalidatorProvider,
   marketingCustomerDerivedCacheInvalidatorProvider,
   salesReadCacheInvalidatorProvider,
+  spacesReadCacheInvalidatorProvider,
   profitDetailCacheInvalidatorProvider,
   costsCacheInvalidatorProvider,
 ];

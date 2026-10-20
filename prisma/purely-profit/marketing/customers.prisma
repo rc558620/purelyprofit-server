@@ -40,6 +40,10 @@ model MarketingCustomer {
   member             Member?                 @relation("MemberCustomer")
 
   @@unique([storeId, clubUserId], map: "uq_marketing_customers_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
+  /// 换绑 / 账号合并 / C 端绑定会按 club_user_id 直接定位顾客（不带 storeId），
+  /// 上面的唯一索引前导列是 store_id 用不上，缺这条就是全表扫描。
+  /// 曾在 20261007100000 被当作未声明漂移 DROP，20261020150000 重建。
+  @@index([clubUserId], map: "idx_marketing_customers_club_user", where: raw("(club_user_id IS NOT NULL)"))
   @@index([storeId, phone], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, externalIdentifier], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)], where: raw("(deleted_at IS NULL)"))

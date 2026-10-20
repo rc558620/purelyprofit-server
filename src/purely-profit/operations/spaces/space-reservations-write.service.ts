@@ -142,6 +142,10 @@ export class SpaceReservationsWriteService {
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(
       reservation.storeId,
     );
+    // 预约变更影响空间 reserved 运行态与看板/列表
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      reservation.storeId,
+    );
 
     return toSpaceReservationResponse(reservation);
   }
@@ -280,6 +284,10 @@ export class SpaceReservationsWriteService {
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(
       reservation.storeId,
     );
+    // 预约变更影响空间 reserved 运行态与看板/列表
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      reservation.storeId,
+    );
 
     return toSpaceReservationResponse(updated);
   }
@@ -355,6 +363,10 @@ export class SpaceReservationsWriteService {
 
     // 首页动态依赖预约数据（预约/包间即将开始）
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      reservation.storeId,
+    );
+    // 预约取消影响空间 reserved 运行态与看板/列表
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
       reservation.storeId,
     );
 

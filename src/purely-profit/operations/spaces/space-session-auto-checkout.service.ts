@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
@@ -361,28 +362,45 @@ export class SpaceSessionAutoCheckoutService {
   }
 
   private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {
-    const sessions = await this.prisma.spaceSession.findMany({
-      where: {
-        status: PrismaSpaceSessionStatus.active,
-        endTime: null,
-        billingMode: PrismaSpaceBillingMode.countdown,
-        autoCheckout: true,
-        // BUG-1/2 fix: 扩展门店预筛选，同时匹配开台预付与有续费记录的会话
-        // BUG-4 fix: 无预付但有有效台位费（hourlyRate > 0）的会话也需被调度扫描
-        OR: [
-          { prepaidPaymentMethod: { not: null } },
-          { prepaidCustomerPaymentMethod: { not: null } },
-          { prepaidVoucherFaceAmount: { not: null } },
-          { sessionRenewRecords: { some: {} } },
-          { hourlyRate: { gt: 0 } },
-        ],
-        countdownMinutes: { not: null },
-      },
-      select: { storeId: true },
-      distinct: ['storeId'],
-      orderBy: { storeId: 'asc' },
-    });
+    // 索引列等值条件（命中 (status, autoCheckout, billingMode, endTime) 复合索引）
+    const baseWhere = {
+      status: PrismaSpaceSessionStatus.active,
+      endTime: null,
+      billingMode: PrismaSpaceBillingMode.countdown,
+      autoCheckout: true,
+      countdownMinutes: { not: null },
+    } satisfies Prisma.SpaceSessionWhereInput;
 
-    return sessions.map((session) => session.storeId);
+    // 性能：原实现把「预付费/台位费」标量条件与「有续费记录」半连接塞进同一个 OR，
+    // 计划器难以同时利用复合索引与半连接。拆成两条形态简单的查询，
+    // 门店维度取并集 —— 与旧 OR 语义完全一致（BUG-1/2/4 的匹配范围不变）。
+    const [prepaidOrRatedSessions, renewedSessions] = await Promise.all([
+      this.prisma.spaceSession.findMany({
+        where: {
+          ...baseWhere,
+          OR: [
+            { prepaidPaymentMethod: { not: null } },
+            { prepaidCustomerPaymentMethod: { not: null } },
+            { prepaidVoucherFaceAmount: { not: null } },
+            { hourlyRate: { gt: 0 } },
+          ],
+        },
+        select: { storeId: true },
+      }),
+      this.prisma.spaceSession.findMany({
+        where: {
+          ...baseWhere,
+          sessionRenewRecords: { some: {} },
+        },
+        select: { storeId: true },
+      }),
+    ]);
+
+    return Array.from(
+      new Set([
+        ...prepaidOrRatedSessions.map((session) => session.storeId),
+        ...renewedSessions.map((session) => session.storeId),
+      ]),
+    ).sort((left, right) => left - right);
   }
 }

@@ -19,10 +19,7 @@ import type {
   MarketingRechargeDto,
   MarketingRechargesResponseDto,
 } from './dto/marketing-response.dto';
-import {
-  buildRechargeCountWhere,
-  enrichRefundGiftCleared,
-} from './marketing.domain';
+import { enrichRefundGiftCleared } from './marketing.domain';
 import { mapRechargeRow } from './marketing.mapper';
 import {
   queryCustomerGiftBalanceCents,
@@ -81,12 +78,12 @@ export class MarketingRechargesService {
       endMs: query.endMs,
     };
 
-    const [rows, total] = await Promise.all([
-      queryRechargePage(this.prisma, { ...listQuery, skip, take }),
-      this.prisma.marketingRecharge.count({
-        where: buildRechargeCountWhere(listQuery),
-      }),
-    ]);
+    // 总数由 COUNT(*) OVER() 随分页一起取回，不再单独发一条 count
+    const { items: rows, total } = await queryRechargePage(this.prisma, {
+      ...listQuery,
+      skip,
+      take,
+    });
 
     return {
       items: rows.map(mapRechargeRow),
@@ -111,15 +108,12 @@ export class MarketingRechargesService {
       query.page,
       query.pageSize,
     );
-    const [rows, total] = await Promise.all([
-      queryCustomerRechargePage(this.prisma, customerId, skip, take),
-      this.prisma.marketingRecharge.count({
-        where: {
-          customerId,
-          type: { in: ['recharge', 'gift'] },
-        },
-      }),
-    ]);
+    const { items: rows, total } = await queryCustomerRechargePage(
+      this.prisma,
+      customerId,
+      skip,
+      take,
+    );
 
     return {
       items: rows.map(mapRechargeRow),
@@ -144,15 +138,12 @@ export class MarketingRechargesService {
       query.page,
       query.pageSize,
     );
-    const [rows, total] = await Promise.all([
-      queryCustomerRefundPage(this.prisma, customerId, skip, take),
-      this.prisma.marketingRecharge.count({
-        where: {
-          customerId,
-          type: 'refund',
-        },
-      }),
-    ]);
+    const { items: rows, total } = await queryCustomerRefundPage(
+      this.prisma,
+      customerId,
+      skip,
+      take,
+    );
 
     const items = await enrichRefundGiftCleared(this.prisma, customerId, rows);
 

@@ -46,6 +46,7 @@ describe('SpaceReservationsWriteService', () => {
 
   const cacheInvalidatorService = {
     invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+    invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const membershipDowngradeService = {

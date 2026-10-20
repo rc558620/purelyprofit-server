@@ -108,26 +108,32 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('200'),
         },
       ])
+      // 日趋势与品类分布已合并为一条 GROUPING SETS 查询：
+      // 日趋势行 bucketAt 非空、categoryName 为 NULL；品类行反之。
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-05-12T00:00:00.000Z'),
+          categoryName: null,
           revenue: new Prisma.Decimal('1300'),
           profit: new Prisma.Decimal('500'),
+          quantity: 2,
         },
         {
           bucketAt: new Date('2026-05-13T00:00:00.000Z'),
+          categoryName: null,
           revenue: new Prisma.Decimal('900'),
           profit: new Prisma.Decimal('300'),
+          quantity: 1,
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           categoryName: '饮品',
           revenue: new Prisma.Decimal('1300'),
           profit: new Prisma.Decimal('500'),
           quantity: 2,
         },
         {
+          bucketAt: null,
           categoryName: '零食',
           revenue: new Prisma.Decimal('900'),
           profit: new Prisma.Decimal('300'),
@@ -160,22 +166,25 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('400'),
         },
       ])
+      // 成本日趋势与成本构成同样合并为一条 GROUPING SETS 查询
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-05-12T00:00:00.000Z'),
+          category: null,
           amount: new Prisma.Decimal('800'),
         },
         {
           bucketAt: new Date('2026-05-13T00:00:00.000Z'),
+          category: null,
           amount: new Prisma.Decimal('300'),
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           category: 'purchase',
           amount: new Prisma.Decimal('800'),
         },
         {
+          bucketAt: null,
           category: 'utilities',
           amount: new Prisma.Decimal('300'),
         },
@@ -248,7 +257,7 @@ describe('BusinessAnalysisService', () => {
         },
       ],
     });
-    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
   });
 
   it('getAnalysis 会把同一商品的不同名称分组累加，避免改名导致排行数据丢失', async () => {
@@ -264,7 +273,7 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([])
       // 同一 productId=1 的商品改过名，SQL 返回两行
       .mockResolvedValueOnce([
@@ -293,7 +302,7 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([]);
 
     const response = await service.getAnalysis(user, {
@@ -330,7 +339,7 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([])
       // 模拟 SQL 按销量维度排序后的返回顺序（销量 9 > 3，但利润 2 < 3）
       .mockResolvedValueOnce([
@@ -359,7 +368,7 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([]);
 
     const response = await service.getAnalysis(user, {
@@ -391,7 +400,7 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -400,7 +409,7 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([]);
 
     await service.getAnalysis(user, { period: 'today' });
@@ -448,7 +457,7 @@ describe('BusinessAnalysisService', () => {
           previousOrderCount: 0,
         },
       ])
-      .mockResolvedValueOnce([])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -457,7 +466,7 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
-      .mockResolvedValueOnce([])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([]);
 
     await service.getAnalysis(user, {
@@ -476,7 +485,7 @@ describe('BusinessAnalysisService', () => {
       }),
       false,
     );
-    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
   });
 
   it('year 周期不会再被 90 天旧上限截断，6 月趋势点仍会返回', async () => {
@@ -493,15 +502,17 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('0'),
         },
       ])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-06-08T00:00:00.000Z'),
+          categoryName: null,
           revenue: new Prisma.Decimal('10000'),
           profit: new Prisma.Decimal('8000'),
+          quantity: 1,
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           categoryName: '饮品',
           revenue: new Prisma.Decimal('10000'),
           profit: new Prisma.Decimal('8000'),
@@ -525,14 +536,15 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-06-08T00:00:00.000Z'),
+          category: null,
           amount: new Prisma.Decimal('2000'),
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           category: 'purchase',
           amount: new Prisma.Decimal('2000'),
         },
@@ -575,15 +587,17 @@ describe('BusinessAnalysisService', () => {
           previousProfit: new Prisma.Decimal('0'),
         },
       ])
+      // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
+          categoryName: null,
           revenue: new Prisma.Decimal('2829334'),
           profit: new Prisma.Decimal('2829334'),
+          quantity: 2,
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           categoryName: '饮品',
           revenue: new Prisma.Decimal('2829334'),
           profit: new Prisma.Decimal('2829334'),
@@ -607,14 +621,15 @@ describe('BusinessAnalysisService', () => {
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
+      // 成本日趋势 + 成本构成（已合并为一条查询）
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
+          category: null,
           amount: new Prisma.Decimal('50000'),
         },
-      ])
-      .mockResolvedValueOnce([
         {
+          bucketAt: null,
           category: 'purchase',
           amount: new Prisma.Decimal('50000'),
         },

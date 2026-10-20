@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { ScanOrderFulfillmentStatus, ScanOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
@@ -28,6 +29,7 @@ export class ScanOrderingOrderRejectService {
     private readonly stockRestoreService: ScanOrderingRefundStockRestoreService,
     private readonly transitionService: ScanOrderingRefundTransitionService,
     private readonly realtimeService: ScanOrderingRefundRealtimeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /** 按支付状态与渠道分流拒单：余额原路退款 / 退款任务 / 直接关闭。 */
@@ -112,6 +114,9 @@ export class ScanOrderingOrderRejectService {
         operatorType,
       );
     });
+    // 事务内已创建销售单并冲销（manualEntry 场景：Bridge 建 SaleOrder 后立即写
+    // SaleOrderRefund），因写链路收到 transactionClient 不自清缓存，此处补失效。
+    await this.cacheInvalidatorService.invalidateSalesDerived(context.storeId);
     await this.realtimeService.publishOrderStatusAfterChange(context.orderId);
   }
 
@@ -186,6 +191,9 @@ export class ScanOrderingOrderRejectService {
         input.user,
       );
     });
+    // 独立事务内已写入 SaleOrderRefund（不依赖后续 completeRefund 确认），
+    // 故在此处提交后立即失效销售衍生缓存，避免退款金额滞后一个 TTL。
+    await this.cacheInvalidatorService.invalidateSalesDerived(input.storeId);
     await this.realtimeService.publishOrderStatusAfterChange(input.orderId);
   }
 

@@ -17,6 +17,7 @@ import {
   TX_TIMEOUT_MEDIUM,
 } from '../../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import {
   bindVoucherOnOpen,
@@ -56,6 +57,7 @@ export class SpaceSessionOpenService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly commissionCoreService: CommissionCoreService,
     private readonly downgradeService: MembershipDowngradeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   // 注意：MembershipDowngradeService 来自 PlatformMembershipAccessModule，
@@ -342,6 +344,11 @@ export class SpaceSessionOpenService {
         usedStoreName: '', // 开台 service 无门店名上下文，由 C 端查详情接口获取
       });
     }
+
+    // 开台改变空间运行态（idle → occupied）与看板活跃会话摘要
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      space.storeId,
+    );
 
     return toSpaceSessionResponse(session);
   }

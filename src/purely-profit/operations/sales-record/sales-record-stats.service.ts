@@ -55,6 +55,23 @@ export class SalesRecordStatsService {
 
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
+
+    return this.getCachedStats(storeId, query, callerIsSubAccount);
+  }
+
+  /**
+   * 带缓存的经营统计（跳过门店解析，由调用方保证 storeId 与子账号身份可信）。
+   *
+   * ⚠️ stats 接口与销售记录列表 summary **必须共享这一份缓存 payload**：
+   * 二者周期参数、`clampHistoryRange` 结果、子账号作用域判定完全同源，
+   * 且 stats 响应含 `compareLastPeriod`。若列表侧单独起一套「只算当期」的缓存键，
+   * 两侧会互相写入缺字段的值。故此处统一出口，禁止再开平行键。
+   */
+  async getCachedStats(
+    storeId: number,
+    query: SalesStatsQueryDto,
+    callerIsSubAccount: boolean,
+  ): Promise<SalesStatsResponseDto> {
     const cacheKey = buildSalesStatsCacheKey(storeId, {
       scope: callerIsSubAccount ? 'sub_account' : 'owner',
       period: query.period,

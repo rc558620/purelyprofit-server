@@ -547,16 +547,44 @@ describe('ClubMemberService', () => {
       currentLevelLabel: '普通会员',
       currentRequiredConsume: 0,
       totalConsume: 0,
-      nextLevel: null,
-      nextLevelLabel: null,
-      nextRequiredConsume: null,
+      nextLevel: 'gold',
+      nextLevelLabel: '黄金会员',
+      nextRequiredConsume: 0,
       amountToNextLevel: 0,
-      progressPct: 100,
-      isTopLevel: true,
+      progressPct: 0,
+      isTopLevel: false,
       heldLevel: 'regular',
       heldLevelLabel: '普通会员',
       heldLevelVisible: false,
     });
+  });
+
+  it('getLevelStatus 未充值用户保留升级引导（regular 不在可见等级中，不误判为最高等级）', async () => {
+    prismaService.member.findFirst.mockResolvedValue(
+      createMember({
+        id: 9,
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      }),
+    );
+    // 门店沿用默认等级配置：gold 门槛 0（充值即享）/ platinum 5000 / diamond 10000
+    prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      null,
+    );
+    // 未创建会员档案 + 无充值流水 → 累计充值 0
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: null },
+    });
+
+    const status = await service.getLevelStatus(currentContext);
+
+    expect(status.currentLevel).toBe('regular');
+    expect(status.isTopLevel).toBe(false);
+    expect(status.nextLevel).toBe('gold');
+    expect(status.nextLevelLabel).toBe('黄金会员');
+    expect(status.amountToNextLevel).toBe(0);
+    // 尚未产生消费，进度为 0 而非满格
+    expect(status.progressPct).toBe(0);
   });
 
   it('getLevels 返回当前门店的黄金铂金钻石等级配置列表', async () => {

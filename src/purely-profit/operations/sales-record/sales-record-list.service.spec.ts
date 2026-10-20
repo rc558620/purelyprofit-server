@@ -6,6 +6,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SalesRecordListService } from './sales-record-list.service';
+import { SalesRecordStatsService } from './sales-record-stats.service';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 
 describe('SalesRecordListService', () => {
@@ -36,6 +37,11 @@ describe('SalesRecordListService', () => {
 
   const platformMembershipAccessService = {
     clampHistoryRange: jest.fn(),
+  };
+
+  /** 列表 summary 复用 stats 的缓存结果，此处按「当期无数据」默认返回零值 */
+  const salesRecordStatsService = {
+    getCachedStats: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -88,6 +94,13 @@ describe('SalesRecordListService', () => {
           empty: false,
         }),
     );
+    salesRecordStatsService.getCachedStats.mockResolvedValue({
+      totalRevenue: 0,
+      totalProfit: 0,
+      orderCount: 0,
+      avgOrderValue: 0,
+      compareLastPeriod: null,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -98,6 +111,10 @@ describe('SalesRecordListService', () => {
         {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
+        },
+        {
+          provide: SalesRecordStatsService,
+          useValue: salesRecordStatsService,
         },
       ],
     }).compile();
@@ -882,5 +899,37 @@ describe('SalesRecordListService', () => {
         }),
       }),
     );
+  });
+
+  it('list 的 summary 取自 stats 缓存，不再执行全店范围聚合', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    salesRecordStatsService.getCachedStats.mockResolvedValue({
+      totalRevenue: 128,
+      totalProfit: 36,
+      orderCount: 4,
+      avgOrderValue: 32,
+      compareLastPeriod: 12.5,
+    });
+
+    const result = await service.list(user, { storeId: 18, period: 'month' });
+
+    // 金额与客单价透传 stats 结果；列表不展示环比，固定为 null
+    expect(result.summary).toEqual({
+      totalRevenue: 128,
+      totalProfit: 36,
+      orderCount: 4,
+      avgOrderValue: 32,
+      compareLastPeriod: null,
+    });
+    // 子账号作用域按主账号 owner 解析进入（本用户 subjectType 为 owner）
+    expect(salesRecordStatsService.getCachedStats).toHaveBeenCalledWith(
+      18,
+      expect.objectContaining({ storeId: 18, period: 'month' }),
+      false,
+    );
+    // $queryRaw 是 aggregateOrderStats 的专用通道：列表侧不得再触发
+    expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 });

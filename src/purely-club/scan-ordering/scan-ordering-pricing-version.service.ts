@@ -18,6 +18,58 @@ import { PrismaService } from '../../prisma/prisma.service';
  * - 必须覆盖商品启用/停售、价格变更、版本变更、规格组/规格项变更等场景；
  * - 无任何变更时，同一购物车预览版本稳定一致。
  */
+/** 参与定价版本计算的购物车行（Prisma 查询结果的结构子集）。 */
+export interface PricingVersionCartItemSource {
+  id: number;
+  version: number;
+  quantity: number;
+  menuProductId: number;
+  specs: Array<{ specOptionId: number }>;
+}
+
+/** 参与定价版本计算的规格项（Prisma 查询结果的结构子集）。 */
+export interface PricingVersionSpecOptionSource {
+  id: number;
+  version: number;
+  extraPrice: number;
+  isActive: boolean;
+  stockQuantity: number | null;
+}
+
+/** 参与定价版本计算的规格组（Prisma 查询结果的结构子集）。 */
+export interface PricingVersionSpecGroupSource {
+  id: number;
+  version: number;
+  selectionType: string;
+  minSelections: number;
+  maxSelections: number | null;
+  isActive: boolean;
+  options: PricingVersionSpecOptionSource[];
+}
+
+/** 参与定价版本计算的菜单商品（Prisma 查询结果的结构子集）。 */
+export interface PricingVersionProductSource {
+  id: number;
+  version: number;
+  basePrice: number;
+  isActive: boolean;
+  stockMode: string;
+  stockQuantity: number | null;
+  specGroups: PricingVersionSpecGroupSource[];
+}
+
+/**
+ * 调用方已加载的定价快照。
+ *
+ * preview / create 都会先跑一次 priceCart（购物车行 + 商品 + 规格），
+ * 再由本服务重算一遍同样的行与商品。传入快照可复用前者的数据，
+ * 省掉 2 次查询；不传时行为与原来完全一致。
+ */
+export interface PricingVersionSnapshot {
+  cartItems: PricingVersionCartItemSource[];
+  products: PricingVersionProductSource[];
+}
+
 @Injectable()
 export class ScanOrderingPricingVersionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -35,19 +87,17 @@ export class ScanOrderingPricingVersionService {
    * 7. 优惠券状态：null（当前无优惠券）
    * 8. 服务费规则：null
    * 9. 税费规则：null
+   *
+   * @param snapshot 调用方（priceCart）已加载的购物车行与商品；缺省时自行加载。
+   *   规格项始终由本服务按「购物车行实际选中的规格」单独查询——该集合与商品
+   *   的规格组结构无关，复用商品数据会改变 hash 输入。
    */
-  async computePricingVersion(sessionId: number): Promise<string> {
-    const cartItems = await this.prisma.scanOrderingCartItem.findMany({
-      where: { sessionId, status: 'active', deletedAt: null },
-      select: {
-        id: true,
-        version: true,
-        quantity: true,
-        menuProductId: true,
-        specs: { select: { specOptionId: true } },
-      },
-      orderBy: { id: 'asc' },
-    });
+  async computePricingVersion(
+    sessionId: number,
+    snapshot?: PricingVersionSnapshot,
+  ): Promise<string> {
+    const { cartItems, products } =
+      snapshot ?? (await this.loadSnapshot(sessionId));
 
     if (cartItems.length === 0) {
       return this.hashStableJson({
@@ -57,41 +107,6 @@ export class ScanOrderingPricingVersionService {
         specOptions: [],
       });
     }
-
-    const productIds = [
-      ...new Set(cartItems.map((item) => item.menuProductId)),
-    ];
-    const products = await this.prisma.scanOrderingMenuProduct.findMany({
-      where: { id: { in: productIds }, deletedAt: null },
-      select: {
-        id: true,
-        version: true,
-        basePrice: true,
-        isActive: true,
-        stockMode: true,
-        stockQuantity: true,
-        specGroups: {
-          where: { isActive: true },
-          select: {
-            id: true,
-            version: true,
-            selectionType: true,
-            minSelections: true,
-            maxSelections: true,
-            isActive: true,
-            options: {
-              select: {
-                id: true,
-                version: true,
-                extraPrice: true,
-                isActive: true,
-                stockQuantity: true,
-              },
-            },
-          },
-        },
-      },
-    });
 
     const specOptionIds = new Set<number>();
     for (const item of cartItems) {
@@ -169,6 +184,66 @@ export class ScanOrderingPricingVersionService {
     };
 
     return this.hashStableJson(stablePayload);
+  }
+
+  /**
+   * 自行加载购物车行与商品（调用方未提供快照时）。
+   *
+   * 与 priceCart 的取数口径保持一致：购物车行按 id 升序（hash 输入里
+   * cartItems 不做排序，行序必须稳定），商品只过滤 deletedAt，规格组只过
+   * 滤 isActive，规格项**不过滤** isActive（失效但仍在用规格的旧行也要进 hash）。
+   */
+  private async loadSnapshot(
+    sessionId: number,
+  ): Promise<PricingVersionSnapshot> {
+    const cartItems = await this.prisma.scanOrderingCartItem.findMany({
+      where: { sessionId, status: 'active', deletedAt: null },
+      select: {
+        id: true,
+        version: true,
+        quantity: true,
+        menuProductId: true,
+        specs: { select: { specOptionId: true } },
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (cartItems.length === 0) return { cartItems, products: [] };
+
+    const productIds = [
+      ...new Set(cartItems.map((item) => item.menuProductId)),
+    ];
+    const products = await this.prisma.scanOrderingMenuProduct.findMany({
+      where: { id: { in: productIds }, deletedAt: null },
+      select: {
+        id: true,
+        version: true,
+        basePrice: true,
+        isActive: true,
+        stockMode: true,
+        stockQuantity: true,
+        specGroups: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            version: true,
+            selectionType: true,
+            minSelections: true,
+            maxSelections: true,
+            isActive: true,
+            options: {
+              select: {
+                id: true,
+                version: true,
+                extraPrice: true,
+                isActive: true,
+                stockQuantity: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    return { cartItems, products };
   }
 
   /**

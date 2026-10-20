@@ -21,6 +21,7 @@ export async function computeCustomerFinance(
     rechargeSummary,
     refundSummary,
     consumptionPointsSummary,
+    giftBalanceCents,
   ] = await Promise.all([
     queryCustomerRecentRecharges(prisma, customerId, 5),
     queryCustomerRecentConsumptions(prisma, customerId, 5),
@@ -36,14 +37,12 @@ export async function computeCustomerFinance(
       where: { customerId },
       _sum: { pointsDeducted: true },
     }),
+    // 与上面 5 个查询无依赖，并行发起省 1 次往返（原实现串行 await）
+    queryCustomerGiftBalanceCents(prisma, customerId),
   ]);
 
   const totalRechargeCents = rechargeSummary._sum.amount ?? 0;
   const totalRefundCents = refundSummary._sum.amount ?? 0;
-  const giftBalanceCents = await queryCustomerGiftBalanceCents(
-    prisma,
-    customerId,
-  );
 
   // B2: 最大可退金额受当前实际余额约束
   const principalRefundableCents = Math.max(

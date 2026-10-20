@@ -22,7 +22,11 @@ import {
   CUSTODY_VERIFY_TOKEN_INVALID_MESSAGE,
 } from './custody.constants';
 import { isPickable, type CustodyStatusValue } from './custody.domain';
-import { mapCustodyOrder, mapVerifyPreview } from './custody.mapper';
+import {
+  mapCustodyOrder,
+  mapVerifyPreview,
+  type CustodyOrderMappingSource,
+} from './custody.mapper';
 import { CustodyPickupVerifyService } from './custody-pickup-verify.service';
 import { CustodyReadService } from './custody-read.service';
 import { CustodyRealtimePublisher } from './custody-realtime.publisher';
@@ -89,14 +93,17 @@ export class CustodyPickupService {
       throw new BadRequestException(CUSTODY_PICKUP_CODE_INVALID_MESSAGE);
     }
 
-    const verifyToken = await this.custodyCodeService.issueVerifyToken(
-      dto.code,
-      {
-        custodyOrderId: order.id,
+    // 签发令牌与清除失败计数互不依赖，合并为一次往返（核销是高频热路径）
+    const verifyToken =
+      await this.custodyCodeService.issueVerifyTokenAndClearFailure(
         storeId,
-      },
-    );
-    await this.clearFailure(storeId, lockId);
+        lockId,
+        dto.code,
+        {
+          custodyOrderId: order.id,
+          storeId,
+        },
+      );
 
     // 高风险场景在确认前就把「是否需要后四位」告诉店员，
     // 避免店员填完数量点确认才被后端打回，白白烧掉一次性令牌
@@ -135,10 +142,7 @@ export class CustodyPickupService {
       dto.idempotencyKey,
     );
     if (duplicated) {
-      const replayed = await this.findOrder(
-        storeId,
-        duplicated.custodyOrderId,
-      );
+      const replayed = await this.findOrder(storeId, duplicated.custodyOrderId);
       // 幂等命中：原样回放存单，经手角色按原存档店员解析
       return {
         order: mapCustodyOrder(
@@ -227,9 +231,21 @@ export class CustodyPickupService {
       }
     });
 
-    const latest = await this.findOrder(storeId, order.id);
-    await this.custodyCodeService.cancelPickupCode(tokenPayload.pickupCode);
-    await this.custodyCodeService.invalidateSummaryCache(storeId);
+    /*
+     * 取出结果在本次请求内已完全确定（取出量、剩余量、是否取完），
+     * 直接拼出映射入参，不必在事务后再回读同一行。
+     */
+    const latest: CustodyOrderMappingSource = {
+      ...order,
+      remainingQty,
+      status: remainingQty === 0 ? 'finished' : 'stored',
+    };
+    // 取件码失效 + 门店级缓存 + 会员汇总合并为一次往返
+    await this.custodyCodeService.invalidateAfterWrite({
+      storeId,
+      memberId: order.memberId,
+      pickupCode: tokenPayload.pickupCode,
+    });
     this.logger.log(
       `[custody] 取出 storeId=${storeId} orderId=${order.id} qty=${dto.qty} 剩余=${remainingQty}`,
     );
@@ -256,7 +272,7 @@ export class CustodyPickupService {
         now,
         await this.custodyReadService.resolveOperatorRole(
           storeId,
-          latest.createdByStaffId,
+          order.createdByStaffId,
         ),
       ),
     };
@@ -352,10 +368,6 @@ export class CustodyPickupService {
     lockId: number,
   ): Promise<void> {
     await this.custodyCodeService.registerConfirmFailure(storeId, lockId);
-  }
-
-  private async clearFailure(storeId: number, lockId: number): Promise<void> {
-    await this.custodyCodeService.clearConfirmFailures(storeId, lockId);
   }
 
   /**

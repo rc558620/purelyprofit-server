@@ -8,11 +8,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import QRCode from 'qrcode';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { MarketingSharedService } from './marketing-shared.service';
 import { MarketingInviteQrIssueService } from './marketing-invite-qr-issue.service';
 
 jest.mock('qrcode', () => ({
-  toDataURL: jest.fn(async () => 'data:image/png;base64,QR_IMAGE'),
+  // 真实 toDataURL 返回 Promise<string>，用 mockResolvedValue 既匹配异步签名，又避免 async 箭头缺少 await 的 lint 报错
+  toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,QR_IMAGE'),
 }));
 
 /** 取被 mock 的 qrcode.toDataURL，用于断言「空载荷时根本没出图」。 */
@@ -77,11 +80,10 @@ describe('MarketingInviteQrIssueService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      // 返回 Promise 即可，无需 async 包裹（避免 async 箭头无 await 的 lint 报错）
       $transaction: jest
         .fn()
-        .mockImplementation(async (arr: Promise<unknown>[]) =>
-          Promise.all(arr),
-        ),
+        .mockImplementation((arr: Promise<unknown>[]) => Promise.all(arr)),
     };
     marketingSharedService = {
       resolveMembershipManagedStoreId: jest.fn().mockResolvedValue(18),
@@ -91,9 +93,18 @@ describe('MarketingInviteQrIssueService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketingInviteQrIssueService,
+        StoreInviteQrImageService,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: configService },
         { provide: MarketingSharedService, useValue: marketingSharedService },
+        {
+          provide: RedisService,
+          useValue: {
+            // 默认未命中，走真实出图（qrcode 已被本文件 mock）
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 

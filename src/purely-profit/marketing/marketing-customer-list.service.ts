@@ -120,12 +120,14 @@ export class MarketingCustomerListService {
       this.prisma.marketingCustomer.count({ where }),
     ]);
 
-    // 对 avatar 为 null 的行，通过多种路径从 users 表 fallback 获取头像
-    await this.fillAvatarsFromUsers(rows);
-
-    // F9: 实时从 marketing_consumptions 聚合 totalSpent / visitCount / lastVisitAt，
-    // 作为权威值覆盖物化字段，避免历史数据迁移/事务不一致导致的金额与次数错位
-    await this.overrideMetricsFromConsumptions(rows);
+    // 两个后处理互不依赖（读 users / 读 consumptions，改写字段也不重叠），并行省 1 次往返
+    await Promise.all([
+      // 对 avatar 为 null 的行，通过多种路径从 users 表 fallback 获取头像
+      this.fillAvatarsFromUsers(rows),
+      // F9: 实时从 marketing_consumptions 聚合 totalSpent / visitCount / lastVisitAt，
+      // 作为权威值覆盖物化字段，避免历史数据迁移/事务不一致导致的金额与次数错位
+      this.overrideMetricsFromConsumptions(rows),
+    ]);
 
     return {
       items: rows.map(mapCustomerRow),

@@ -3,6 +3,11 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  buildCacheRefreshTaskKey,
+  buildSpacesDashboardCacheKey,
+} from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import {
   GetSpacesDashboardQueryDto,
   type SpaceDashboardFilterOptionsDto,
   type SpaceDashboardSpaceItemDto,
@@ -19,6 +24,15 @@ import {
   type DashboardSpaceSummaryBundle,
 } from './space-dashboard-summary.service';
 
+/**
+ * 看板缓存策略（与 sales-stats 同模式）：
+ * 看板是轮询型页面，单次请求要跑 ~8 条 SQL（含当日销售三表聚合），
+ * 命中缓存后降为 1 次 Redis GET。写路径（开台/结账/续费/换房/加单/
+ * 标记可用/预约变更/空间增删改）主动失效，TTL 只兜底。
+ */
+const SPACES_DASHBOARD_CACHE_TTL_SECONDS = 15;
+const SPACES_DASHBOARD_CACHE_REFRESH_AFTER_MS = 5_000;
+
 @Injectable()
 export class SpaceDashboardService {
   private readonly logger = new Logger(SpaceDashboardService.name);
@@ -27,6 +41,7 @@ export class SpaceDashboardService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly summaryService: SpaceDashboardSummaryService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async getSpacesDashboard(
@@ -51,6 +66,19 @@ export class SpaceDashboardService {
       return this.buildEmptyDashboard();
     }
 
+    const cacheKey = buildSpacesDashboardCacheKey(storeId);
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACES_DASHBOARD_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACES_DASHBOARD_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.buildDashboard(storeId),
+    });
+  }
+
+  private async buildDashboard(
+    storeId: number,
+  ): Promise<SpacesDashboardResponseDto> {
     const [spaces, sessionStats, dashboardSummaries, lastSettledMap] =
       await Promise.all([
         this.findSpacesByStore(storeId),
@@ -154,6 +182,8 @@ export class SpaceDashboardService {
     const statusRange = getReservationStatusRange();
 
     // Space.status 已移除，需要关联查询 session 和 reservation
+    // 性能：只保留 _count（过滤条件与旧的嵌套 sessions/reservations 数组完全一致），
+    // 由 _count 直接推导状态，省掉 2 条嵌套关系加载 SQL。
     return this.prisma.space.findMany({
       where: { storeId, deletedAt: null },
       include: {
@@ -169,17 +199,6 @@ export class SpaceDashboardService {
               },
             },
           },
-        },
-        sessions: {
-          where: { status: 'active' },
-          select: { id: true },
-        },
-        reservations: {
-          where: {
-            status: 'pending',
-            reservedAt: { gte: statusRange.start, lte: statusRange.end },
-          },
-          select: { id: true },
         },
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
@@ -221,8 +240,8 @@ export class SpaceDashboardService {
     lastSettledMap: Map<number, Date>,
   ): ReturnType<typeof deriveSpaceStatusFromCounts> {
     return deriveSpaceStatusFromCounts({
-      activeSessions: space.sessions.length,
-      pendingReservations: space.reservations.length,
+      activeSessions: space._count.sessions,
+      pendingReservations: space._count.reservations,
       enableDirtyRoom: space.enableDirtyRoom,
       lastSettledEndTime: lastSettledMap.get(space.id) ?? null,
       cleanedAt: space.cleanedAt,

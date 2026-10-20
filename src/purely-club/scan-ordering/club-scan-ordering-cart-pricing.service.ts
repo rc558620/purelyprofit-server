@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { ScanOrderingPromotionAdapter } from './scan-ordering-promotion.adapter';
+import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
+import type { PricingVersionSnapshot } from './scan-ordering-pricing-version.service';
 import type {
   PromotionAdapterInput,
   PromotionAdapterResult,
@@ -29,15 +31,50 @@ export class ClubScanOrderingCartPricingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly promotionAdapter: ScanOrderingPromotionAdapter,
+    private readonly pricingVersionService: ScanOrderingPricingVersionService,
   ) {}
 
   async priceCart(
     sessionId: number,
     storeId: number,
   ): Promise<PricedCartItem[]> {
+    return (await this.loadPricedCart(sessionId, storeId)).items;
+  }
+
+  /**
+   * 一次取数同时产出定价结果与定价版本。
+   *
+   * priceCart 与 computePricingVersion 原本各自重查一遍购物车行 + 商品
+   * （含规格组/规格项），这里复用同一份快照，preview / create 各少 2 次查询。
+   * hash 输入维度保持不变：商品只按 deletedAt 过滤、规格组只按 isActive 过滤、
+   * 规格项**不按 isActive 过滤**（与 ScanOrderingPricingVersionService 同口径），
+   * 行序按 id 升序（cartItems 在 hash 输入里不排序，行序必须稳定）。
+   */
+  async priceCartWithPricingVersion(
+    sessionId: number,
+    storeId: number,
+  ): Promise<{ items: PricedCartItem[]; pricingVersion: string }> {
+    const { items, snapshot } = await this.loadPricedCart(sessionId, storeId);
+    const pricingVersion =
+      await this.pricingVersionService.computePricingVersion(
+        sessionId,
+        snapshot,
+      );
+    return { items, pricingVersion };
+  }
+
+  private async loadPricedCart(
+    sessionId: number,
+    storeId: number,
+  ): Promise<{
+    items: PricedCartItem[];
+    snapshot: PricingVersionSnapshot;
+  }> {
     const cartItems = await this.prisma.scanOrderingCartItem.findMany({
       where: { sessionId, status: 'active', deletedAt: null },
       include: { specs: true },
+      // 与定价版本计算同口径：hash 输入里的 cartItems 不做排序，行序必须稳定
+      orderBy: { id: 'asc' },
     });
     if (cartItems.length === 0) throw new ConflictException('购物车为空');
     const products = await this.prisma.scanOrderingMenuProduct.findMany({
@@ -54,9 +91,13 @@ export class ClubScanOrderingCartPricingService {
         // 必须与加购（loadProduct）和菜单查询同口径过滤 isActive，
         // 否则已停用的规格组仍会参与 minSelections 校验，把老购物车行判成
         // 「规格已更新」，而加购时却根本看不到这些组——前后口径打架。
+        //
+        // 规格项**不加** isActive 过滤：一是与定价版本计算同口径（失效但仍在
+        // 用的规格也要进 hash），二是 resolveCartItemSpecs 自身已按 isActive 过滤，
+        // 放开过滤不会改变它的判定结果。
         specGroups: {
           where: { isActive: true },
-          include: { options: { where: { isActive: true } } },
+          include: { options: true },
         },
       },
     });
@@ -72,7 +113,7 @@ export class ClubScanOrderingCartPricingService {
         `购物车中存在已删除商品（菜单商品 ID：${missingProductIds}）`,
       );
     }
-    return cartItems.map((cartItem) => {
+    const items = cartItems.map((cartItem) => {
       const product = requireSellableProduct(
         products.find((item) => item.id === cartItem.menuProductId),
         cartItem.quantity,
@@ -101,6 +142,7 @@ export class ClubScanOrderingCartPricingService {
         specs,
       };
     });
+    return { items, snapshot: { cartItems, products } };
   }
 
   async resolvePromotions(

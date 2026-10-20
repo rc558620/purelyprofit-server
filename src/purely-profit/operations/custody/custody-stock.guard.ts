@@ -35,10 +35,23 @@ async function lockProductRow(
 }
 
 /**
+ * 冻结校验结果：把本次读到的物理库存带出，供同一事务内的台账复用。
+ *
+ * 此前台账要自己再读一遍商品行算 before/after，同一事务内读两遍纯属浪费。
+ */
+export interface CustodyFrozenStockContext {
+  /** 物理库存（可用库存 = 物理库存 − 在存冻结量） */
+  physicalStock: number;
+}
+
+/**
  * 冻结口径校验：寄存量不得超过可用库存。
  *
- * 可用库存 = 物理库存 − 在存冻结量；sold 口径不占库存，跳过校验。
+ * 可用库存 = 物理库存 − 在存冻结量；sold 口径不占库存，只校验商品存在性。
  * 这里只读不写：冻结只是"占用可用额度"，物理库存保持不变，由库存侧按聚合口径扣减。
+ *
+ * 商品存在性由本函数统一收口（两种口径都校验）：调用方不再各查一遍商品，
+ * 一次写入从「3 次读同一行」降到「1 次」。
  *
  * 调用方必须把它与随后的落库/状态流转放进同一事务，否则锁随自动提交释放，
  * 并发下仍会超额冻结。
@@ -46,11 +59,23 @@ async function lockProductRow(
 export async function ensureCustodyFrozenStockAvailable(
   client: CustodyStockGuardClient,
   input: CustodyFrozenStockScope,
-): Promise<void> {
-  if (input.stockMode !== 'frozen' || input.productId === null) {
-    return;
+): Promise<CustodyFrozenStockContext | null> {
+  if (input.productId === null) {
+    return null;
   }
   const productId = input.productId;
+
+  // sold 口径不占可用库存，也不必串行化同一商品的冻结校验：只读存在性
+  if (input.stockMode !== 'frozen') {
+    const existing = await client.product.findFirst({
+      where: { id: productId, storeId: input.storeId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException(CUSTODY_PRODUCT_NOT_FOUND_MESSAGE);
+    }
+    return null;
+  }
 
   await lockProductRow(client, productId);
 
@@ -73,4 +98,5 @@ export async function ensureCustodyFrozenStockAvailable(
       `商品【${product.name}】可用库存不足，当前可用 ${available}，无法按冻结库存口径寄存 ${input.totalQty}`,
     );
   }
+  return { physicalStock: product.stock };
 }

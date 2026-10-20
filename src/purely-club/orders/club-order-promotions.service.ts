@@ -3,6 +3,7 @@ import { ClubMemberLevelsService } from '../member/member-levels/club-member-lev
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
+import type { ClubActivePromotionRecord } from '../shared/club-promotion.repository';
 import {
   type ClubPricingCandidate,
   type ClubServicePromotionType,
@@ -11,6 +12,19 @@ import {
 } from './club-order-promotions.utils';
 
 export type { ClubServicePromotionType };
+
+/**
+ * 同一请求内可复用的定价上下文。
+ *
+ * `resolvePricing` 原本每条购物车行都要重新拉一次门店活动与消费次数，
+ * 而二者在同一请求内对所有行完全一致。调用方可先用
+ * {@link ClubOrderPromotionsService.preloadPricingContext} 预加载一次再透传，
+ * 把「每行 2 次查询」压到「每请求 2 次查询」。
+ */
+export interface ClubPricingSharedContext {
+  promotions: ClubActivePromotionRecord[];
+  consumptionCount: number;
+}
 
 export interface ClubServicePricingResolution {
   /** 最终应付金额（分）= 竞争胜出价 - 满减 */
@@ -67,6 +81,25 @@ export class ClubOrderPromotionsService {
   ) {}
 
   /**
+   * 预加载一次门店定价上下文（活动列表 + 消费次数），供多行定价复用。
+   *
+   * 语义不变性：消费次数只参与「首单折扣」判定，同一请求内本就是同一个值，
+   * 预加载一次不会改变任何一行的判定结果。
+   */
+  async preloadPricingContext(
+    storeId: number,
+    customerId: number,
+  ): Promise<ClubPricingSharedContext> {
+    const [promotions, consumptionCount] = await Promise.all([
+      this.clubPromotionRepository.loadActivePromotions(storeId),
+      this.prisma.marketingConsumption.count({
+        where: { storeId, customerId },
+      }),
+    ]);
+    return { promotions, consumptionCount };
+  }
+
+  /**
    * 解析服务商品定价（活动折扣竞争 + 满减）
    *
    * 计算流水线：
@@ -81,22 +114,20 @@ export class ClubOrderPromotionsService {
    *
    * @param amountFen 商品单价（分），即 context.product.price（已是会员价）
    * @param options.skipReduce true 时跳过满减计算，由调用方基于订单总额重新计算
+   * @param options.context 预加载的定价上下文；缺省时自行加载（单行调用方无需感知）
    */
   async resolvePricing(
     storeId: number,
     customerId: number,
     amountFen: number,
-    options?: { skipReduce?: boolean },
+    options?: {
+      skipReduce?: boolean;
+      context?: ClubPricingSharedContext;
+    },
   ): Promise<ClubServicePricingResolution> {
-    const [promotions, consumptionCount] = await Promise.all([
-      this.clubPromotionRepository.loadActivePromotions(storeId),
-      this.prisma.marketingConsumption.count({
-        where: {
-          storeId,
-          customerId,
-        },
-      }),
-    ]);
+    const { promotions, consumptionCount } =
+      options?.context ??
+      (await this.preloadPricingContext(storeId, customerId));
 
     // 1. 会员基准价 = product.price（已是会员价，不再施加会员等级折扣）
     //
@@ -191,22 +222,25 @@ export class ClubOrderPromotionsService {
    * 基于订单总金额计算满减优惠明细（含门槛规则，用于生成“满xxx减xxx”展示标签）
    *
    * @param orderTotalFen 订单总额（分）= 折扣后单价 × 数量
+   * @param promotions 已加载的活动列表；缺省时自行加载（复用调用方上下文可省一次 Redis GET）
    */
   async resolveOrderReduceDetail(
     storeId: number,
     orderTotalFen: number,
+    promotions?: ClubActivePromotionRecord[],
   ): Promise<{
     totalReduceFen: number;
     reduceRules: Array<{ thresholdFen: number; reduceAmountFen: number }>;
   }> {
-    const promotions =
-      await this.clubPromotionRepository.loadActivePromotions(storeId);
+    const activePromotions =
+      promotions ??
+      (await this.clubPromotionRepository.loadActivePromotions(storeId));
     let totalReduceFen = 0;
     const reduceRules: Array<{
       thresholdFen: number;
       reduceAmountFen: number;
     }> = [];
-    for (const promotion of promotions) {
+    for (const promotion of activePromotions) {
       if (promotion.type !== 'reduce') continue;
       const reduceConfig = resolveReduceConfig(promotion.params);
       if (!reduceConfig || orderTotalFen < reduceConfig.thresholdFen) continue;

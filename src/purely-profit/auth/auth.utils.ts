@@ -244,6 +244,22 @@ export function isClubWechatMemberPhone(phone: string): boolean {
   return phone.startsWith(CLUB_WECHAT_MEMBER_PHONE_PREFIX);
 }
 
+/**
+ * 从微信占位手机号（`club_wechat:{openid}`）还原 openid。
+ *
+ * 未绑定手机号的微信登录用户没有真实手机号，openid 就记在这个占位值里，
+ * 因此调起 JSAPI 支付时不必依赖前端透传 openid —— 服务端可自行还原。
+ * 非占位值（真实手机号 / 其它格式）返回 null，调用方据此降级处理。
+ */
+export function parseClubWechatMemberOpenid(phone: string): string | null {
+  if (!isClubWechatMemberPhone(phone)) {
+    return null;
+  }
+
+  const openid = phone.slice(CLUB_WECHAT_MEMBER_PHONE_PREFIX.length).trim();
+  return openid.length > 0 ? openid : null;
+}
+
 export function getDisplayPhone(phone: string): string {
   return isMainlandMobilePhone(phone) ? phone : '';
 }

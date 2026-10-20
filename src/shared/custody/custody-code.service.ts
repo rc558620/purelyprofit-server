@@ -1,17 +1,30 @@
 // 客存验证码服务：取件码 / 核销预留令牌的签发与消费，以及核销失败计数锁，统一走 Redis
+//
+// 同时是客存模块唯一的 Redis 访问出口：门店统计、列表总数、门店快照、门店配置、
+// 会员汇总的缓存读写与失效都收在此处，业务侧不直接拼 key。
+// 好处是失效矩阵集中在一处可见，新增写路径时不会漏掉某个 key。
 import { randomBytes, randomInt } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
+import { safeJsonStringify } from '../../redis/redis-json.util';
 import {
   CODE_ISSUE_MAX_RETRY,
   CONFIRM_FAIL_MAX_ATTEMPTS,
   CONFIRM_FAIL_WINDOW_TTL_SECONDS,
   CUSTODY_CODE_LENGTH,
   CUSTODY_CONFIRM_FAIL_KEY_PREFIX,
+  CUSTODY_MEMBER_SUMMARY_CACHE_TTL_SECONDS,
+  CUSTODY_MEMBER_SUMMARY_KEY_PREFIX,
   CUSTODY_PICKUP_CODE_KEY_PREFIX,
   CUSTODY_PICKUP_ORDER_KEY_PREFIX,
+  CUSTODY_SETTINGS_CACHE_TTL_SECONDS,
+  CUSTODY_SETTINGS_KEY_PREFIX,
+  CUSTODY_STORE_SNAPSHOT_KEY_PREFIX,
+  CUSTODY_STORE_SNAPSHOT_TTL_SECONDS,
   CUSTODY_SUMMARY_CACHE_TTL_SECONDS,
   CUSTODY_SUMMARY_KEY_PREFIX,
+  CUSTODY_TOTAL_CACHE_TTL_SECONDS,
+  CUSTODY_TOTAL_KEY_PREFIX,
   CUSTODY_VERIFY_TOKEN_KEY_PREFIX,
   PICKUP_CODE_TTL_SECONDS,
   VERIFY_TOKEN_LENGTH,
@@ -19,6 +32,7 @@ import {
 } from './custody-code.constants';
 import type {
   CustodyPickupCodePayload,
+  CustodyStoreSnapshot,
   CustodyVerifyTokenPayload,
   IssuedShortCode,
 } from './custody-code.types';
@@ -66,11 +80,6 @@ export class CustodyCodeService {
       this.buildFailKey(storeId, staffId),
       CONFIRM_FAIL_WINDOW_TTL_SECONDS,
     );
-  }
-
-  /** 清除核销失败计数（校验成功后调用） */
-  async clearConfirmFailures(storeId: number, staffId: number): Promise<void> {
-    await this.redisService.del(this.buildFailKey(storeId, staffId));
   }
 
   /** 签发取件码（1 分钟内有效，同一存单重复签发会覆盖上一枚） */
@@ -124,30 +133,11 @@ export class CustodyCodeService {
     );
   }
 
-  /** 签发核销预留令牌：确认取出阶段凭此令牌做二次校验，避免取件码被重复核销 */
-  async issueVerifyToken(
-    pickupCode: string,
-    payload: Omit<CustodyVerifyTokenPayload, 'pickupCode'>,
-  ): Promise<string> {
-    const token = randomBytes(VERIFY_TOKEN_LENGTH).toString('hex');
-    await this.redisService.setJson(
-      `${CUSTODY_VERIFY_TOKEN_KEY_PREFIX}${token}`,
-      { ...payload, pickupCode } satisfies CustodyVerifyTokenPayload,
-      VERIFY_TOKEN_TTL_SECONDS,
-    );
-    return token;
-  }
-
   /** 消费核销预留令牌：原子读取并删除，重复提交只可能成功一次 */
   consumeVerifyToken(token: string): Promise<CustodyVerifyTokenPayload | null> {
     return this.redisService.getJsonAndDelete<CustodyVerifyTokenPayload>(
       `${CUSTODY_VERIFY_TOKEN_KEY_PREFIX}${token}`,
     );
-  }
-
-  /** 失效门店统计缓存：任何客存写操作后都必须调用 */
-  async invalidateSummaryCache(storeId: number): Promise<void> {
-    await this.redisService.del(`${CUSTODY_SUMMARY_KEY_PREFIX}${storeId}`);
   }
 
   /** 读取门店统计缓存（未命中返回 null） */
@@ -164,6 +154,147 @@ export class CustodyCodeService {
       summary,
       CUSTODY_SUMMARY_CACHE_TTL_SECONDS,
     );
+  }
+
+  /** 读取门店快照（未命中返回 null） */
+  readStoreSnapshot(storeId: number): Promise<CustodyStoreSnapshot | null> {
+    return this.redisService.getJson<CustodyStoreSnapshot>(
+      `${CUSTODY_STORE_SNAPSHOT_KEY_PREFIX}${storeId}`,
+    );
+  }
+
+  /** 写入门店快照 */
+  async writeStoreSnapshot(
+    storeId: number,
+    snapshot: CustodyStoreSnapshot,
+  ): Promise<void> {
+    await this.redisService.setJson(
+      `${CUSTODY_STORE_SNAPSHOT_KEY_PREFIX}${storeId}`,
+      snapshot,
+      CUSTODY_STORE_SNAPSHOT_TTL_SECONDS,
+    );
+  }
+
+  /** 读取门店客存配置缓存（未命中返回 null） */
+  readSettingsCache<T>(storeId: number): Promise<T | null> {
+    return this.redisService.getJson<T>(
+      `${CUSTODY_SETTINGS_KEY_PREFIX}${storeId}`,
+    );
+  }
+
+  /** 写入门店客存配置缓存 */
+  async writeSettingsCache<T>(storeId: number, settings: T): Promise<void> {
+    await this.redisService.setJson(
+      `${CUSTODY_SETTINGS_KEY_PREFIX}${storeId}`,
+      settings,
+      CUSTODY_SETTINGS_CACHE_TTL_SECONDS,
+    );
+  }
+
+  /** 读取该筛选组合下的列表总数（未命中返回 null） */
+  readTotal(storeId: number, filterKey: string): Promise<number | null> {
+    return this.redisService.hgetJson<number>(
+      `${CUSTODY_TOTAL_KEY_PREFIX}${storeId}`,
+      filterKey,
+    );
+  }
+
+  /** 写入该筛选组合下的列表总数 */
+  async writeTotal(
+    storeId: number,
+    filterKey: string,
+    total: number,
+  ): Promise<void> {
+    await this.redisService.hsetJson(
+      `${CUSTODY_TOTAL_KEY_PREFIX}${storeId}`,
+      filterKey,
+      total,
+      CUSTODY_TOTAL_CACHE_TTL_SECONDS,
+    );
+  }
+
+  /** 读取会员维度汇总缓存（未命中返回 null） */
+  readMemberSummary<T>(storeId: number, memberId: number): Promise<T | null> {
+    return this.redisService.getJson<T>(
+      `${CUSTODY_MEMBER_SUMMARY_KEY_PREFIX}${storeId}:${memberId}`,
+    );
+  }
+
+  /** 写入会员维度汇总缓存 */
+  async writeMemberSummary<T>(
+    storeId: number,
+    memberId: number,
+    summary: T,
+  ): Promise<void> {
+    await this.redisService.setJson(
+      `${CUSTODY_MEMBER_SUMMARY_KEY_PREFIX}${storeId}:${memberId}`,
+      summary,
+      CUSTODY_MEMBER_SUMMARY_CACHE_TTL_SECONDS,
+    );
+  }
+
+  /**
+   * 客存写操作后的缓存收尾：门店级（统计 + 各筛选组合的总数）、会员级汇总，
+   * 以及可选的残留取件码，全部合并为一次 DEL 往返。
+   *
+   * 分开调用是 3 次串行往返，而核销是高频热路径；且门店级与会员级的失效
+   * 本来就该在同一步完成，漏掉会员侧会导致小程序徽标停在旧值。
+   *
+   * @param params.storeId 门店
+   * @param params.memberId 受影响的会员（存单归属）；为 null 表示无人可通知
+   * @param params.pickupCode 本次核销掉的取件码（取出后该码必须失效）
+   */
+  async invalidateAfterWrite(params: {
+    storeId: number;
+    memberId?: number | null;
+    pickupCode?: string | null;
+  }): Promise<void> {
+    const { storeId, memberId, pickupCode } = params;
+    const keys = [
+      `${CUSTODY_SUMMARY_KEY_PREFIX}${storeId}`,
+      `${CUSTODY_TOTAL_KEY_PREFIX}${storeId}`,
+    ];
+    if (memberId !== null && memberId !== undefined) {
+      keys.push(`${CUSTODY_MEMBER_SUMMARY_KEY_PREFIX}${storeId}:${memberId}`);
+    }
+    if (pickupCode) {
+      keys.push(this.buildPickupKey(pickupCode));
+    }
+    await this.redisService.delMany(keys);
+  }
+
+  /** 配置更新后的缓存收尾：配置缓存本身 + 受配置影响的门店级缓存 */
+  async invalidateAfterSettingsUpdate(storeId: number): Promise<void> {
+    await this.redisService.delMany([
+      `${CUSTODY_SETTINGS_KEY_PREFIX}${storeId}`,
+      `${CUSTODY_SUMMARY_KEY_PREFIX}${storeId}`,
+      `${CUSTODY_TOTAL_KEY_PREFIX}${storeId}`,
+    ]);
+  }
+
+  /**
+   * 签发核销令牌并清除该店员的失败计数（合并为一次往返）。
+   *
+   * 两者互不依赖：令牌签发失败不应留下失败计数，计数清除失败也不该让
+   * 店员一直被锁。分开 await 是两次串行往返，合并后省掉一次。
+   */
+  async issueVerifyTokenAndClearFailure(
+    storeId: number,
+    lockId: number,
+    pickupCode: string,
+    payload: Omit<CustodyVerifyTokenPayload, 'pickupCode'>,
+  ): Promise<string> {
+    const token = randomBytes(VERIFY_TOKEN_LENGTH).toString('hex');
+    await this.redisService.executePipeline((pipeline) => {
+      pipeline.set(
+        `${CUSTODY_VERIFY_TOKEN_KEY_PREFIX}${token}`,
+        safeJsonStringify({ ...payload, pickupCode }),
+        'EX',
+        VERIFY_TOKEN_TTL_SECONDS,
+      );
+      pipeline.del(this.buildFailKey(storeId, lockId));
+    });
+    return token;
   }
 
   private buildPickupKey(code: string): string {

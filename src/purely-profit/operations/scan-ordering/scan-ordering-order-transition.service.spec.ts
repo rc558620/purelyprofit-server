@@ -6,6 +6,7 @@ import {
   ScanOrderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
@@ -68,6 +69,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     ),
   };
 
+  const cacheInvalidatorService = {
+    invalidateSalesDerived: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     publishOrderStatusChanged = realtimeService.publishOrderStatusChanged;
@@ -95,6 +100,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
         {
           provide: ScanOrderingOrderStockService,
           useValue: orderStockService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();

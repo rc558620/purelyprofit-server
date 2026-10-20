@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsService } from './space-reservations.service';
 import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { SpacesStatusService } from './spaces-status.service';
@@ -111,6 +112,10 @@ describe('SpacesWriteService', () => {
   const spacesStatusService = {
     markSpaceReady: jest.fn(),
     deriveSpaceStatus: jest.fn().mockResolvedValue('idle'),
+  };
+
+  const cacheInvalidatorService = {
+    invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -240,6 +245,10 @@ describe('SpacesWriteService', () => {
             get: (key: string) =>
               key === 'jwt.secret' ? 'test-jwt-secret' : undefined,
           },
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();

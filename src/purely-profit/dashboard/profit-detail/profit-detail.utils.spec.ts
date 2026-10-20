@@ -4,7 +4,9 @@ import type { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import {
   aggregateCosts,
+  aggregateCostsTotal,
   aggregateSales,
+  aggregateSalesTotals,
   createEmptySalesAggregation,
 } from './profit-detail.domain';
 import {
@@ -273,13 +275,13 @@ describe('profit-detail.utils', () => {
       saleRows: [{ id: 'sale' }],
       costRows: [{ id: 'cost' }],
     });
+    // 首页不带游标条件（cursor 为 null 时游标 where 展开为空对象），也不再传 skip
     expect(saleFindMany).toHaveBeenCalledWith({
       ...buildSaleOrderItemQuery(18, {
         start: previousRange.start,
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT,
-      skip: 0,
       take: 5000,
     });
     expect(costFindMany).toHaveBeenCalledWith({
@@ -288,9 +290,56 @@ describe('profit-detail.utils', () => {
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_COST_RECORD_SELECT,
-      skip: 0,
       take: 5000,
     });
+  });
+
+  it('fetchProfitRows 在满页时按游标翻页，不再用 skip 深分页', async () => {
+    const saleFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        { id: 1, order: { date: new Date(2026, 4, 12, 10, 0, 0, 0) } },
+      ])
+      .mockResolvedValueOnce([]);
+    const costFindMany = jest.fn().mockResolvedValueOnce([]);
+    const prisma = {
+      saleOrderItem: { findMany: saleFindMany },
+      costRecord: { findMany: costFindMany },
+    } as unknown as PrismaService;
+    const currentRange: ProfitAccessibleRange = {
+      start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+      clamped: false,
+      empty: false,
+    };
+
+    const result = await fetchProfitRows(
+      prisma,
+      18,
+      currentRange,
+      currentRange,
+      1,
+    );
+
+    // 满 1 行触发第二页；第二页为空即停止
+    expect(saleFindMany).toHaveBeenCalledTimes(2);
+    expect(result.saleRows).toHaveLength(1);
+    // 第二页带上（日期, id）游标，且不再出现 skip
+    expect(saleFindMany.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        take: 1,
+        where: expect.objectContaining({
+          OR: [
+            { order: { date: { gt: new Date(2026, 4, 12, 10, 0, 0, 0) } } },
+            {
+              order: { date: new Date(2026, 4, 12, 10, 0, 0, 0) },
+              id: { gt: 1 },
+            },
+          ],
+        }),
+      }),
+    );
+    expect(saleFindMany.mock.calls[1][0]).not.toHaveProperty('skip');
   });
 
   it('空态 helper 会返回稳定的默认结构', () => {
@@ -324,6 +373,7 @@ describe('profit-detail.utils', () => {
   it('aggregateSales 会过滤区间外数据并合并商品统计', () => {
     const rows: SaleOrderItemRow[] = [
       {
+        id: 1,
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
@@ -338,6 +388,7 @@ describe('profit-detail.utils', () => {
         },
       },
       {
+        id: 2,
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
@@ -352,6 +403,7 @@ describe('profit-detail.utils', () => {
         },
       },
       {
+        id: 3,
         productId: null,
         productName: '快照商品',
         categoryName: '零食',
@@ -366,6 +418,7 @@ describe('profit-detail.utils', () => {
         },
       },
       {
+        id: 4,
         productId: 3,
         productName: '区间外商品',
         categoryName: '饮品',
@@ -380,6 +433,7 @@ describe('profit-detail.utils', () => {
         },
       },
       {
+        id: 5,
         productId: null,
         productName: '续费抵扣',
         categoryName: '场地费',
@@ -449,21 +503,25 @@ describe('profit-detail.utils', () => {
   it('aggregateCosts 会过滤区间外数据并累计天维度与分类维度成本', () => {
     const rows: CostRecordRow[] = [
       {
+        id: 1,
         category: 'rent',
         amount: 800,
         date: new Date(2026, 4, 12, 9, 0, 0, 0),
       },
       {
+        id: 2,
         category: 'purchase',
         amount: 300,
         date: new Date(2026, 4, 13, 9, 0, 0, 0),
       },
       {
+        id: 3,
         category: 'rent',
         amount: 150,
         date: new Date(2026, 4, 13, 11, 0, 0, 0),
       },
       {
+        id: 4,
         category: 'marketing',
         amount: 400,
         date: new Date(2026, 4, 10, 9, 0, 0, 0),
@@ -839,5 +897,123 @@ describe('profit-detail.utils', () => {
         },
       ],
     });
+  });
+
+  it('标量聚合与完整聚合的汇总口径完全一致，且不再构建上一周期用不到的明细', () => {
+    const rows: SaleOrderItemRow[] = [
+      {
+        id: 1,
+        productId: 1,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 650,
+        profit: 250,
+        quantity: 2,
+        image: null,
+        order: {
+          id: 1,
+          date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 2,
+        productId: 1,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 650,
+        profit: 250,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 2,
+          date: new Date(2026, 4, 12, 13, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 3,
+        productId: null,
+        productName: '续费抵扣',
+        categoryName: '场地费',
+        salePrice: -3000,
+        profit: -3000,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 3,
+          date: new Date(2026, 4, 12, 14, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 4,
+        productId: 3,
+        productName: '区间外商品',
+        categoryName: '饮品',
+        salePrice: 800,
+        profit: 200,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 4,
+          date: new Date(2026, 4, 20, 10, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+    ];
+    const start = new Date(2026, 4, 12, 0, 0, 0, 0).getTime();
+    const end = new Date(2026, 4, 12, 23, 59, 59, 999).getTime();
+
+    const full = aggregateSales(rows, start, end);
+    const totals = aggregateSalesTotals(rows, start, end);
+
+    // 标量必须与完整聚合逐项一致（抵扣行与区间外行同样被排除）
+    expect(totals.revenue.equals(full.revenue)).toBe(true);
+    expect(totals.totalProfit.equals(full.totalProfit)).toBe(true);
+    expect(totals.goodsCost.equals(full.goodsCost)).toBe(true);
+    expect(totals.orderCount).toBe(full.orderCount);
+    expect(totals.orderCount).toBe(2);
+
+    // 明细容器为空：上一周期的日趋势/商品排行下游从未读取
+    expect(totals.dailyRevenueMap.size).toBe(0);
+    expect(totals.dailyProfitMap.size).toBe(0);
+    expect(totals.dailyGoodsCostMap.size).toBe(0);
+    expect(totals.rankMap.size).toBe(0);
+    expect(full.rankMap.size).toBeGreaterThan(0);
+  });
+
+  it('aggregateCostsTotal 只累计总成本，且与完整聚合口径一致', () => {
+    const rows: CostRecordRow[] = [
+      {
+        id: 1,
+        category: 'rent',
+        amount: 800,
+        date: new Date(2026, 4, 12, 9, 0, 0, 0),
+      },
+      {
+        id: 2,
+        category: 'purchase',
+        amount: 300,
+        date: new Date(2026, 4, 12, 11, 0, 0, 0),
+      },
+      {
+        id: 3,
+        category: 'rent',
+        amount: 150,
+        date: new Date(2026, 4, 20, 9, 0, 0, 0),
+      },
+    ];
+    const start = new Date(2026, 4, 12, 0, 0, 0, 0).getTime();
+    const end = new Date(2026, 4, 12, 23, 59, 59, 999).getTime();
+
+    const full = aggregateCosts(rows, start, end);
+    const totals = aggregateCostsTotal(rows, start, end);
+
+    expect(totals.totalCost.equals(full.totalCost)).toBe(true);
+    expect(totals.totalCost.equals(Money.fromDbCents(1100))).toBe(true);
+    expect(totals.dailyCostMap.size).toBe(0);
+    expect(totals.categoryCostMap.size).toBe(0);
+    expect(full.categoryCostMap.size).toBeGreaterThan(0);
   });
 });

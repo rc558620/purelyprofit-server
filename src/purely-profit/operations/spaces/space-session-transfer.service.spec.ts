@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 
@@ -40,6 +41,10 @@ describe('SpaceSessionTransferService', () => {
 
   const reservationsStateService = {
     resolveReservationBackStatus: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -111,6 +116,10 @@ describe('SpaceSessionTransferService', () => {
         {
           provide: SpaceReservationsStateService,
           useValue: reservationsStateService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();

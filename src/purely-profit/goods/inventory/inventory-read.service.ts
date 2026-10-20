@@ -15,7 +15,9 @@ import type {
 import {
   buildEmptyInventoryStatsResponse,
   buildInventoryStats,
+  buildInventoryStatsFromAggregate,
   matchesInventoryFilters,
+  resolveInventoryAlertLevel,
   sortInventoryProducts,
 } from './inventory.domain';
 import {
@@ -27,8 +29,10 @@ import {
 } from './inventory.mapper';
 import {
   queryInventoryAdjustmentPage,
+  queryInventoryAlertProducts,
   queryInventoryProducts,
-  queryInventoryStatsRows,
+  queryInventoryReportRows,
+  queryInventoryStatsAggregate,
 } from './inventory.query';
 import type {
   InventoryAdjustmentsListQueryInput,
@@ -111,10 +115,16 @@ export class InventoryReadService {
     return this.listAllProductsByStoreId(storeId, query);
   }
 
-  async getReport(
+  /**
+   * 报表数据的统一入口校验：门店可见性 + 导出配额。
+   *
+   * JSON 报表与 CSV 导出共用，避免两条链路各自维护一份权限判断而漂移——
+   * 尤其不能让 CSV 绕过 ensureReportExportEnabled（D1 修复过的越权导出）。
+   */
+  private async resolveReportStoreId(
     user: AuthenticatedUser,
     query: InventoryReportQueryInput,
-  ): Promise<InventoryReportResponseDto> {
+  ): Promise<number | null> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -123,7 +133,7 @@ export class InventoryReadService {
     );
 
     if (storeId === null) {
-      return buildEmptyInventoryReportResponse();
+      return null;
     }
 
     const callerIsSubAccount =
@@ -133,6 +143,19 @@ export class InventoryReadService {
         storeId,
         callerIsSubAccount,
       );
+    }
+
+    return storeId;
+  }
+
+  async getReport(
+    user: AuthenticatedUser,
+    query: InventoryReportQueryInput,
+  ): Promise<InventoryReportResponseDto> {
+    const storeId = await this.resolveReportStoreId(user, query);
+
+    if (storeId === null) {
+      return buildEmptyInventoryReportResponse();
     }
 
     /*
@@ -151,24 +174,39 @@ export class InventoryReadService {
   }
 
   /**
-   * 流式导出库存报表 CSV，O(1) 内存占用。
+   * 流式导出库存报表 CSV。
+   *
+   * 不走 getReport：报表接口要返回明细（含价格、图片、时间戳），而 CSV 只用 5 列，
+   * 这里改查只含报表列的轻量行，省掉整行传输与内存占用；
+   * 筛选与排序复用同一套 domain 口径，保证与 JSON 报表内容一致。
    */
   async streamReportCsv(
     reply: ServerResponse,
     user: AuthenticatedUser,
     query: InventoryReportQueryInput,
   ): Promise<void> {
-    const report = await this.getReport(user, query);
+    const storeId = await this.resolveReportStoreId(user, query);
+
+    const rows =
+      storeId === null
+        ? []
+        : await queryInventoryReportRows(this.prisma, storeId, query);
+
+    const sorted = sortInventoryProducts(
+      rows.filter((row) => matchesInventoryFilters(row, query)),
+      query.sortBy,
+    );
+
     safeStreamCsvExport(
       reply,
       'inventory-report.csv',
       ['商品名称', '分类', '当前库存', '预警阈值', '库存状态'],
-      report.products.map((row) => [
+      sorted.map((row) => [
         row.name,
         row.category,
         row.stock,
         row.alertThreshold,
-        row.alertLevel,
+        resolveInventoryAlertLevel(row.stock, row.alertThreshold),
       ]),
     );
   }
@@ -228,11 +266,12 @@ export class InventoryReadService {
       return buildEmptyInventoryStatsResponse();
     }
 
-    const products = await queryInventoryStatsRows(
+    /* 概况只统计不返回明细：交给库内一次聚合，避免把全店 SKU 拉回内存 */
+    const aggregate = await queryInventoryStatsAggregate(
       this.prisma,
       resolvedStoreId,
     );
-    return buildInventoryStats(products);
+    return buildInventoryStatsFromAggregate(aggregate);
   }
 
   /**
@@ -249,19 +288,24 @@ export class InventoryReadService {
   ): Promise<PaginatedInventoryProductsResponseDto> {
     if (hasDomainFilter) {
       /*
-       * 域层筛选（alertOnly / alertLevel=warning）无法下推到 DB，
-       * 必须全量加载后内存 filter + slice，确保 total 与筛选结果一致。
+       * 域层筛选（alertOnly / alertLevel=warning）涉及 stock <= alert_threshold 的
+       * 跨字段比较，Prisma 无法表达，但 raw SQL 可以：直接在库内过滤出预警行，
+       * 不再把全店在售商品拉回内存再 filter。
+       * 排序仍留在内存（预警级别/库存量/名称的排序规则在 domain 层，下推会复制一份口径）。
        */
-      const result = await queryInventoryProducts(this.prisma, storeId, query);
-      const filteredAndSorted = sortInventoryProducts(
-        result.items.filter((p) => matchesInventoryFilters(p, query)),
-        query.sortBy,
-      );
-      const paginated = filteredAndSorted.slice(skip, skip + pageSize);
+      const alertProducts = await queryInventoryAlertProducts(this.prisma, {
+        storeId,
+        keyword: query.keyword,
+        category: query.category,
+        // 两者同时传入时，与 matchesInventoryFilters 一致：alertLevel 优先
+        mode: query.alertLevel === 'warning' ? 'warning' : 'alertOnly',
+      });
+      const sorted = sortInventoryProducts(alertProducts, query.sortBy);
+      const paginated = sorted.slice(skip, skip + pageSize);
 
       return buildPaginatedInventoryProductsResponse({
         items: paginated,
-        total: filteredAndSorted.length,
+        total: sorted.length,
         page,
         pageSize,
       });

@@ -63,10 +63,12 @@ export class MarketingConsumptionsService {
       query.page,
       query.pageSize,
     );
-    const [rows, total] = await Promise.all([
-      queryCustomerConsumptionPage(this.prisma, customerId, skip, take),
-      this.prisma.marketingConsumption.count({ where: { customerId } }),
-    ]);
+    const { items: rows, total } = await queryCustomerConsumptionPage(
+      this.prisma,
+      customerId,
+      skip,
+      take,
+    );
 
     return {
       items: rows.map(mapConsumptionRow),

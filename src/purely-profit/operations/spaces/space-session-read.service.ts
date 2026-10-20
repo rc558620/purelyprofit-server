@@ -85,35 +85,49 @@ export class SpaceSessionReadService {
   ): Promise<SpaceSessionResponseDto | null> {
     void requestId;
     // B1 fix: 软删除空间不可查看会话，与 listSpaces 的 deletedAt: null 口径一致
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, deletedAt: null },
-      select: {
-        id: true,
-        storeId: true,
-      },
-    });
-
-    if (!space) {
-      throw new NotFoundException('空间不存在');
-    }
-
-    await this.commerceAccessService.ensureCanAccessStore(
-      user,
-      space.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
-
+    // 性能：空间存在性校验与会话查询合并为一次 findFirst（relation filter 保证
+    // 只命中未删除空间上的 active 会话）。查不到时再补一次轻量空间校验，
+    // 用于区分「空间不存在（404）」与「无活跃会话（返回 null）」。
     const session = await this.prisma.spaceSession.findFirst({
       where: {
-        spaceId: space.id,
+        spaceId,
         status: PrismaSpaceSessionStatus.active,
+        space: { deletedAt: null },
       },
       include: SPACE_SESSION_FULL_INCLUDE,
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
 
-    return session ? toSpaceSessionResponse(session) : null;
+    if (!session) {
+      const space = await this.prisma.space.findFirst({
+        where: { id: spaceId, deletedAt: null },
+        select: { id: true, storeId: true },
+      });
+
+      if (!space) {
+        throw new NotFoundException('空间不存在');
+      }
+
+      // 与原顺序一致：空间存在但无活跃会话时，仍先鉴权再返回 null，
+      // 避免越权请求通过 null/404 差异探测其他门店空间
+      await this.commerceAccessService.ensureCanAccessStore(
+        user,
+        space.storeId,
+        'space:view',
+        '无权查看该门店空间会话',
+      );
+
+      return null;
+    }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      session.storeId,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
+
+    return toSpaceSessionResponse(session);
   }
 
   async listSpaceSessions(
@@ -184,39 +198,26 @@ export class SpaceSessionReadService {
   ): Promise<SpaceSessionResponseDto> {
     void requestId;
     // P3 fix: 先鉴权后查询，与 getActiveSpaceSession / listSpaceSessions 的鉴权顺序一致
-    // Step 1: 轻量查询检查会话存在性 + 软删除过滤
-    const sessionMeta = await this.prisma.spaceSession.findFirst({
+    // 性能：存在性检查与完整加载合并为一次 findFirst（relation filter 已保证
+    // 只命中未删除空间上的会话），省掉一次串行往返。
+    const session = await this.prisma.spaceSession.findFirst({
       where: {
         id: sessionId,
         space: { deletedAt: null },
       },
-      select: {
-        id: true,
-        storeId: true,
-      },
-    });
-
-    if (!sessionMeta) {
-      throw new NotFoundException('空间会话不存在');
-    }
-
-    // Step 2: 鉴权
-    await this.commerceAccessService.ensureCanAccessStore(
-      user,
-      sessionMeta.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
-
-    // Step 3: 鉴权通过后加载完整数据
-    const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionMeta.id },
       include: SPACE_SESSION_FULL_INCLUDE,
     });
 
     if (!session) {
       throw new NotFoundException('空间会话不存在');
     }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      session.storeId,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
 
     return toSpaceSessionResponse(session);
   }

@@ -10,6 +10,23 @@ import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-sessi
 describe('ClubSelfOrderingSessionBridgeService', () => {
   let service: ClubSelfOrderingSessionBridgeService;
 
+  /**
+   * 批量读商品行的替身：按请求的 productId 列表返回对应库存。
+   *
+   * 库存写路径已把逐条 findFirst 合并为一次 findMany（where.id.in），
+   * 这里按同样的入参形状回数据。
+   */
+  const stubProductsWithStock =
+    (colaStock: number, chipsStock: number) =>
+    ({ where }: { where: { id: { in: number[] } } }) =>
+      Promise.resolve(
+        where.id.in.map((id) =>
+          id === 101
+            ? { id: 101, name: '可口可乐', stock: colaStock }
+            : { id: 201, name: '乐事薯片', stock: chipsStock },
+        ),
+      );
+
   /** 事务内客户端 mock */
   const tx = {
     spaceSessionItem: {
@@ -18,8 +35,9 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
       createMany: jest.fn(),
     },
     spaceSession: { update: jest.fn(), findUnique: jest.fn() },
-    product: { findFirst: jest.fn(), update: jest.fn() },
-    inventoryAdjustmentLog: { create: jest.fn() },
+    /** 库存写路径统一走批量读商品行 */
+    product: { findMany: jest.fn(), update: jest.fn() },
+    inventoryAdjustmentLog: { createMany: jest.fn() },
     // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
     custodyOrder: { groupBy: jest.fn().mockResolvedValue([]) },
   };
@@ -61,16 +79,9 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     tx.spaceSession.update.mockResolvedValue({});
     tx.spaceSession.findUnique.mockResolvedValue({ storeId: 7 });
     // 可乐库存 10、薯片库存 1（后者用于覆盖库存不足场景）
-    tx.product.findFirst.mockImplementation(
-      ({ where }: { where: { id: number } }) =>
-        Promise.resolve(
-          where.id === 101
-            ? { id: 101, name: '可口可乐', stock: 10 }
-            : { id: 201, name: '乐事薯片', stock: 1 },
-        ),
-    );
+    tx.product.findMany.mockImplementation(stubProductsWithStock(10, 1));
     tx.product.update.mockResolvedValue({});
-    tx.inventoryAdjustmentLog.create.mockResolvedValue({});
+    tx.inventoryAdjustmentLog.createMany.mockResolvedValue({ count: 2 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -178,10 +189,11 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
       where: { id: 201 },
       data: { stock: { increment: -1 } },
     });
-    expect(tx.inventoryAdjustmentLog.create).toHaveBeenCalledTimes(2);
-    expect(tx.inventoryAdjustmentLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    /* 多条流水合并为一次 createMany */
+    expect(tx.inventoryAdjustmentLog.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryAdjustmentLog.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
           storeId: 7,
           productId: 101,
           beforeStock: 10,
@@ -190,19 +202,12 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
           adjustType: 'sale',
           note: '会员自助下单',
         }),
-      }),
-    );
+      ]),
+    });
   });
 
   it('库存不足时扣至 0 且不阻断入账（支付已发生，不能回滚落账）', async () => {
-    tx.product.findFirst.mockImplementation(
-      ({ where }: { where: { id: number } }) =>
-        Promise.resolve(
-          where.id === 101
-            ? { id: 101, name: '可口可乐', stock: 1 }
-            : { id: 201, name: '乐事薯片', stock: 0 },
-        ),
-    );
+    tx.product.findMany.mockImplementation(stubProductsWithStock(1, 0));
 
     await expect(append()).resolves.toBeUndefined();
 
@@ -211,16 +216,16 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
       where: { id: 101 },
       data: { stock: { increment: -1 } },
     });
-    expect(tx.inventoryAdjustmentLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    expect(tx.inventoryAdjustmentLog.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
           productId: 101,
           delta: -1,
           afterStock: 0,
           note: expect.stringContaining('库存不足'),
         }),
-      }),
-    );
+      ]),
+    });
     // 薯片库存已为 0：无可扣量，不产生流水噪音
     expect(tx.product.update).not.toHaveBeenCalledWith({
       where: { id: 201 },
@@ -229,7 +234,7 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
   });
 
   it('商品不存在时跳过扣减，不影响账单入账', async () => {
-    tx.product.findFirst.mockResolvedValue(null);
+    tx.product.findMany.mockResolvedValue([]);
 
     await expect(append()).resolves.toBeUndefined();
 

@@ -67,15 +67,20 @@ export class ClubCustodyWriteService {
      * 真正占用发生在这一刻。校验与状态流转放进同一事务并锁住商品行，
      * 否则多张待确认存单各自通过校验、被会员逐个确认后冻结量会超过物理库存。
      */
+    // 在条件里直接收窄 productId，事务内两处（校验与台账）都能拿到非空类型
+    const frozenScope =
+      order.stockMode === 'frozen' && order.productId !== null
+        ? {
+            storeId: context.store.id,
+            productId: order.productId,
+            stockMode: order.stockMode,
+            totalQty: order.remainingQty,
+          }
+        : null;
     await this.prisma.$transaction(async (tx) => {
-      if (order.stockMode === 'frozen' && order.productId !== null) {
-        await ensureCustodyFrozenStockAvailable(tx, {
-          storeId: context.store.id,
-          productId: order.productId,
-          stockMode: order.stockMode,
-          totalQty: order.remainingQty,
-        });
-      }
+      const stockContext = frozenScope
+        ? await ensureCustodyFrozenStockAvailable(tx, frozenScope)
+        : null;
       // 条件更新：并发下只有第一次确认能成功
       const updated = await tx.custodyOrder.updateMany({
         where: {
@@ -94,22 +99,31 @@ export class ClubCustodyWriteService {
        * 冻结台账：确认这一刻才真正占用可用库存（draft 不算占用），
        * 必须在此留痕，否则门店盘点时对不上「为什么这件商品突然不能卖了」。
        */
-      if (order.stockMode === 'frozen' && order.productId !== null) {
+      if (frozenScope) {
         await writeCustodyFreezeLog(tx, {
           storeId: context.store.id,
-          productId: order.productId,
+          productId: frozenScope.productId,
           productName: order.productName,
           qty: order.remainingQty,
           beforeRemainingQty: 0,
           afterRemainingQty: order.remainingQty,
           operatorStaffId: order.createdByStaffId,
           orderNo: order.orderNo,
+          // 复用冻结校验已读到的物理库存，台账不再重读同一行
+          physicalStock: stockContext?.physicalStock ?? null,
           note: `客存存入占用 ${order.remainingQty}${order.unit}（存单 ${order.orderNo}，物理库存未变动）`,
         });
       }
     });
 
-    await this.custodyCodeService.invalidateSummaryCache(context.store.id);
+    /*
+     * 会员确认会让「待确认」减少、「在存」增加：
+     * 会员汇总缓存与门店缓存都要失效，否则小程序徽标停在旧值。
+     */
+    await this.custodyCodeService.invalidateAfterWrite({
+      storeId: context.store.id,
+      memberId,
+    });
     this.logClubWrite('confirm', context, orderId, {
       orderNo: order.orderNo,
       before: { status: order.status },
@@ -160,7 +174,11 @@ export class ClubCustodyWriteService {
       throw new ConflictException('存单状态已变更，请返回列表重新查看');
     }
 
-    await this.custodyCodeService.invalidateSummaryCache(context.store.id);
+    // 拒绝会软删草稿：会员侧「待确认」徽标必须同步减少
+    await this.custodyCodeService.invalidateAfterWrite({
+      storeId: context.store.id,
+      memberId,
+    });
     this.logClubWrite('reject', context, orderId, { orderNo: order.orderNo });
     this.realtimeService.publishStoreRejected(context.store.id, {
       custodyOrderId: orderId,

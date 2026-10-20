@@ -284,29 +284,55 @@ export async function generateOrderNo(
       ${buildSalesOrderSequenceLockKey(date)}
     )
   `;
-  // 手工补录单与普通销售单各自独立计数（按 manual_entry 区分），
-  // 避免两类号段互相挤占序号导致跳号。
-  // 号段必须单调递增：用「当日已有最大序号 + 1」而非「当日单据条数 + 1」。
-  // 按条数推导时，删除中间单据会让 count 回落，新单算出已被占用的序号，
-  // 撞 @@unique([storeId, orderNo]) 导致后续录单持续失败。
-  const existingOrderNos = await client.saleOrder.findMany({
-    where: {
-      storeId,
-      manualEntry: variant === 'manual',
-      date: {
-        gte: dayStart,
-        lte: dayEnd,
-      },
-    },
-    select: { orderNo: true },
-  });
 
-  const maxSerial = existingOrderNos.reduce((max, { orderNo }) => {
-    const matched = /-(\d+)$/.exec(orderNo);
-    if (!matched) return max;
-    const serial = Number.parseInt(matched[1], 10);
-    return Number.isSafeInteger(serial) && serial > max ? serial : max;
-  }, 0);
+  return buildOrderNo(
+    date,
+    (await queryMaxSerial(client, storeId, dayStart, dayEnd, variant)) + 1,
+    variant,
+  );
+}
 
-  return buildOrderNo(date, maxSerial + 1, variant);
+/**
+ * 取当日指定号段已占用的最大序号，在 SQL 侧求 MAX，仅返回 1 行整数。
+ *
+ * 手工补录单与普通销售单各自独立计数（按 manual_entry 区分），
+ * 避免两类号段互相挤占序号导致跳号。
+ * 号段必须单调递增：用「当日已有最大序号 + 1」而非「当日单据条数 + 1」。
+ * 按条数推导时，删除中间单据会让 count 回落，新单算出已被占用的序号，
+ * 撞 @@unique([storeId, orderNo]) 导致后续录单持续失败。
+ *
+ * 原实现拉取当日全部 order_no 到 Node 侧逐个正则求最大值，此处改为 SQL 侧求值：
+ * 网络传输与内存占用从 O(当日单据数) 降为 1 行，并缩短 pg_advisory_xact_lock
+ * 的持锁时间（锁持有期间不再读取大结果集），缓解同日同店并发录单的锁等待。
+ *
+ * ⚠️ 必须按【数值】求 MAX，不能依赖 order_no 的字典序倒序 LIMIT 1：
+ * 序号为零填充字符串，超过 999 后 "1000" 的字典序小于 "999"，
+ * 字典序取最大值会倒退回已被占用的序号。
+ */
+async function queryMaxSerial(
+  client: Prisma.TransactionClient,
+  storeId: number,
+  dayStart: Date,
+  dayEnd: Date,
+  variant: SalesOrderNoVariant,
+): Promise<number> {
+  // regexp_match 无匹配时返回 NULL，::integer 与 MAX 均忽略 NULL，
+  // 由 COALESCE 兜底为 0（当日无单据 / 订单号格式异常时序号从 1 起算）。
+  // 用 [0-9] 而非 \d，规避模板字符串与 SQL 的转义歧义。
+  const rows = await client.$queryRaw<[{ max_serial: number | null }]>`
+    SELECT COALESCE(
+      MAX((regexp_match(order_no, '-([0-9]+)$'))[1]::integer),
+      0
+    )::integer AS max_serial
+    FROM sale_orders
+    WHERE store_id = ${storeId}
+      AND manual_entry = ${variant === 'manual'}
+      AND date >= ${dayStart}
+      AND date <= ${dayEnd}
+  `;
+
+  const value = rows[0]?.max_serial;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : 0;
 }

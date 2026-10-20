@@ -2,9 +2,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { CUSTODY_EXPIRING_SOON_DAYS } from './custody.constants';
 import {
+  buildCustodyFilterKey,
   isExpiringSoon,
   parseIsoDate,
   resolveCustodyOperatorRole,
+  resolveCustodyOperatorRoleFromMembership,
   resolveCustodyOperatorRoleFromStaff,
 } from './custody.domain';
 
@@ -112,5 +114,67 @@ describe('resolveCustodyOperatorRoleFromStaff', () => {
       ),
     ).toBe('staff');
     expect(resolveCustodyOperatorRoleFromStaff(null, 7)).toBe('staff');
+  });
+});
+
+/*
+ * 登录态推导与员工档案解析必须等价：发起存入的经手人就是当前登录者，
+ * 写链路直接读登录态省掉两次查询，但结果不能与读链路分叉，
+ * 否则同一个人在列表里是主账号、在自己刚建的单里变成操作员。
+ */
+describe('resolveCustodyOperatorRoleFromMembership', () => {
+  it('登录用户即门店主账号时判为主账号（与员工档案解析同口径）', () => {
+    expect(
+      resolveCustodyOperatorRoleFromMembership({ role: 'manager' }, 7, 7),
+    ).toBe('owner');
+  });
+
+  it('员工角色为 owner 时判为主账号', () => {
+    expect(
+      resolveCustodyOperatorRoleFromMembership({ role: 'owner' }, 12, 7),
+    ).toBe('owner');
+  });
+
+  it('店长子账号判为店长，其余及无登录态一律兜底为操作员', () => {
+    expect(
+      resolveCustodyOperatorRoleFromMembership(
+        { role: 'staff', subAccountRole: 'manager' },
+        12,
+        7,
+      ),
+    ).toBe('manager');
+    expect(
+      resolveCustodyOperatorRoleFromMembership(
+        { role: 'staff', subAccountRole: 'cashier' },
+        12,
+        7,
+      ),
+    ).toBe('staff');
+    expect(resolveCustodyOperatorRoleFromMembership(null, 12, 7)).toBe('staff');
+  });
+});
+
+describe('buildCustodyFilterKey', () => {
+  const base = { status: 'stored', expiring: false, keyword: '' };
+
+  it('同一筛选组合得到同一个键，不同组合互不串号', () => {
+    expect(buildCustodyFilterKey(base)).toBe(
+      buildCustodyFilterKey({ ...base }),
+    );
+    expect(buildCustodyFilterKey(base)).not.toBe(
+      buildCustodyFilterKey({ ...base, status: 'all' }),
+    );
+    expect(buildCustodyFilterKey(base)).not.toBe(
+      buildCustodyFilterKey({ ...base, expiring: true }),
+    );
+    expect(buildCustodyFilterKey(base)).not.toBe(
+      buildCustodyFilterKey({ ...base, keyword: '茅台' }),
+    );
+  });
+
+  it('关键字首尾空格不影响键（与查询去空格口径一致）', () => {
+    expect(buildCustodyFilterKey({ ...base, keyword: '  茅台  ' })).toBe(
+      buildCustodyFilterKey({ ...base, keyword: '茅台' }),
+    );
   });
 });

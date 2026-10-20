@@ -7,6 +7,7 @@ import {
   PrismaService,
   TX_TIMEOUT_SHORT,
 } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { SpaceResponseDto } from './dto/space.dto';
@@ -23,6 +24,7 @@ export class SpacesStatusService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async markSpaceReady(
@@ -71,16 +73,16 @@ export class SpacesStatusService {
         }
 
         // 校验通过后，标记清洁完成
-        await transaction.space.update({
+        const updatedRow = await transaction.space.update({
           where: { id: spaceId },
           data: { cleanedAt: new Date() },
+          select: { cleanedAt: true },
         });
 
         // 事务内重新获取完整空间数据并推导状态
-        const updated = await transaction.space.findUniqueOrThrow({
-          where: { id: spaceId },
-          include: SPACE_WITH_RELATIONS_INCLUDE,
-        });
+        // 性能：update 已返回最新 cleanedAt，复用上方 findFirst 已加载的关系数据，
+        // 不再重复 findUniqueOrThrow 同一行
+        const updated = { ...space, cleanedAt: updatedRow.cleanedAt };
 
         const [pendingReservation, lastSettled] = await Promise.all([
           transaction.spaceReservation.findFirst({
@@ -112,12 +114,20 @@ export class SpacesStatusService {
           cleanedAt: updated.cleanedAt,
         });
 
-        return toSpaceResponse({ ...updated, status });
+        return {
+          response: toSpaceResponse({ ...updated, status }),
+          storeId: space.storeId,
+        };
       },
       { timeout: TX_TIMEOUT_SHORT },
     );
 
-    return result;
+    // 标记可用直接改变空间运行态（cleaning → idle）
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      result.storeId,
+    );
+
+    return result.response;
   }
 
   /**

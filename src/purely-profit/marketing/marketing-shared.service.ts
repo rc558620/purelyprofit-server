@@ -58,12 +58,25 @@ export class MarketingSharedService {
     return resolvedStoreId;
   }
 
+  /**
+   * 校验当前用户对指定门店的营销权限 + 门店套餐是否开通营销能力。
+   *
+   * @param options.skipFeatureCheck 调用方已通过 {@link resolveMembershipManagedStoreId}
+   *   对**同一个 storeId** 做过套餐能力校验时置 true，跳过重复的
+   *   store_membership_profile 读取。套餐能力只取决于门店、与
+   *   marketing:view / marketing:manage 权限无关，同一请求内校验一次即可，
+   *   重复校验只是多一次无意义的主键查询。
+   */
   async ensureMarketingStoreAccess(
     user: AuthenticatedUser,
     storeId: number,
     permission: MarketingPermission,
+    options: { skipFeatureCheck?: boolean } = {},
   ): Promise<void> {
     await this.accessService.ensureCanAccess(user, storeId, permission);
+    if (options.skipFeatureCheck) {
+      return;
+    }
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
     await this.platformMembershipAccessService.ensureMarketingFeatureEnabled(

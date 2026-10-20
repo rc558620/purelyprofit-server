@@ -192,12 +192,21 @@ export async function queryCustomerRecentConsumptions(
   `;
 }
 
+interface RechargeRowWithTotal extends MarketingRechargeRow {
+  _total: number;
+}
+
+/**
+ * 分页 + 总数一次查询：`COUNT(*) OVER()` 在 LIMIT 之前对全量匹配行计数，
+ * 与单独发一条 count 语义等价，但省掉一次往返和一次连接占用。
+ * 写法与 queryPointsRecordPage 保持一致。
+ */
 export async function queryRechargePage(
   prisma: PrismaService,
   input: MarketingRechargeListQueryInput & { skip: number; take: number },
-): Promise<MarketingRechargeRow[]> {
-  return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT ${RECHARGE_COLUMNS}
+): Promise<{ items: MarketingRechargeRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<RechargeRowWithTotal[]>`
+    SELECT ${RECHARGE_COLUMNS}, COUNT(*) OVER()::int AS _total
     ${RECHARGE_FROM}
     WHERE r.store_id = ${input.storeId}
       ${input.customerId ? Prisma.sql`AND r.customer_id = ${input.customerId}` : Prisma.empty}
@@ -206,6 +215,8 @@ export async function queryRechargePage(
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${input.take} OFFSET ${input.skip}
   `;
+
+  return { items: rows, total: rows[0]?._total ?? 0 };
 }
 
 export async function queryCustomerRechargePage(
@@ -213,15 +224,17 @@ export async function queryCustomerRechargePage(
   customerId: number,
   skip: number,
   take: number,
-): Promise<MarketingRechargeRow[]> {
-  return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT ${RECHARGE_COLUMNS}
+): Promise<{ items: MarketingRechargeRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<RechargeRowWithTotal[]>`
+    SELECT ${RECHARGE_COLUMNS}, COUNT(*) OVER()::int AS _total
     ${RECHARGE_FROM}
     WHERE r.customer_id = ${customerId}
       AND r.type IN ('recharge', 'gift')
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
+
+  return { items: rows, total: rows[0]?._total ?? 0 };
 }
 
 export async function queryCustomerRefundPage(
@@ -229,15 +242,17 @@ export async function queryCustomerRefundPage(
   customerId: number,
   skip: number,
   take: number,
-): Promise<MarketingRechargeRow[]> {
-  return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT ${RECHARGE_COLUMNS}
+): Promise<{ items: MarketingRechargeRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<RechargeRowWithTotal[]>`
+    SELECT ${RECHARGE_COLUMNS}, COUNT(*) OVER()::int AS _total
     ${RECHARGE_FROM}
     WHERE r.customer_id = ${customerId}
       AND r.type = 'refund'
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
+
+  return { items: rows, total: rows[0]?._total ?? 0 };
 }
 
 export async function queryRechargeRowById(
@@ -316,19 +331,25 @@ export async function queryCustomerPointsRecordPage(
   return { items: rows, total };
 }
 
+interface ConsumptionRowWithTotal extends MarketingConsumptionRow {
+  _total: number;
+}
+
 export async function queryCustomerConsumptionPage(
   prisma: PrismaService,
   customerId: number,
   skip: number,
   take: number,
-): Promise<MarketingConsumptionRow[]> {
-  return prisma.$queryRaw<MarketingConsumptionRow[]>`
-    SELECT ${CONSUMPTION_COLUMNS}
+): Promise<{ items: MarketingConsumptionRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<ConsumptionRowWithTotal[]>`
+    SELECT ${CONSUMPTION_COLUMNS}, COUNT(*) OVER()::int AS _total
     ${CONSUMPTION_FROM}
     WHERE co.customer_id = ${customerId}
     ORDER BY co.created_at DESC, co.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
+
+  return { items: rows, total: rows[0]?._total ?? 0 };
 }
 
 export async function queryConsumptionRowById(

@@ -73,6 +73,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
   const cacheInvalidatorService = {
     invalidateMembersDerived: jest.fn().mockResolvedValue(undefined),
+    invalidateSalesDerived: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {

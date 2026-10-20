@@ -81,7 +81,8 @@ export class CustodySettingsService {
       update: { ...data, allowCrossStorePickup: false },
     });
 
-    await this.custodyCodeService.invalidateSummaryCache(storeId);
+    // 配置变了，门店级缓存（统计 / 各筛选组合的总数）与配置缓存一并失效
+    await this.custodyCodeService.invalidateAfterSettingsUpdate(storeId);
     this.logger.log(`[custody] 配置更新 storeId=${storeId}`);
     this.auditLogService.record({
       userId: user.id,

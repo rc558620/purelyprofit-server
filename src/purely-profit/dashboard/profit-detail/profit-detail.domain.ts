@@ -125,6 +125,56 @@ export function aggregateSales(
   };
 }
 
+/**
+ * 只累计标量汇总（收入 / 利润 / 商品成本 / 订单数），不构建日维度与商品排行 Map。
+ *
+ * 上一周期（previous）在下游只用于环比：mapper 只消费 revenue，service 只消费
+ * totalProfit（算 previousNetProfit）。此前 previous 复用 aggregateSales，
+ * 会为同一批行再建满 dailyRevenueMap / dailyProfitMap / dailyGoodsCostMap /
+ * rankMap——等于一半聚合开销在做从未被读取的死计算。这里按实际消费面裁剪，
+ * 明细容器一律返回空 Map，结构保持兼容。
+ */
+export function aggregateSalesTotals(
+  rows: SaleOrderItemRow[],
+  start: number,
+  end: number,
+): SalesAggregationResult {
+  let revenue = Money.zero();
+  let totalProfit = Money.zero();
+  let goodsCost = Money.zero();
+  const seenOrderIds = new Set<number>();
+
+  for (const row of rows) {
+    // 与 aggregateSales 保持同一切除口径：排除抵扣行、排除区间外行
+    if (isDeductionItem({ productName: row.productName })) {
+      continue;
+    }
+
+    const timestamp = row.order.date.getTime();
+    if (timestamp < start || timestamp > end) {
+      continue;
+    }
+
+    const itemRevenue = Money.fromDbCents(row.salePrice).multiply(row.quantity);
+    const itemProfit = Money.fromDbCents(row.profit).multiply(row.quantity);
+    revenue = revenue.add(itemRevenue);
+    totalProfit = totalProfit.add(itemProfit);
+    goodsCost = goodsCost.add(itemRevenue.subtract(itemProfit));
+    seenOrderIds.add(row.order.id);
+  }
+
+  return {
+    revenue,
+    totalProfit,
+    goodsCost,
+    orderCount: seenOrderIds.size,
+    dailyRevenueMap: new Map<number, Money>(),
+    dailyProfitMap: new Map<number, Money>(),
+    dailyGoodsCostMap: new Map<number, Money>(),
+    rankMap: new Map<string, AggregatedRankProduct>(),
+  };
+}
+
 export function aggregateCosts(
   rows: CostRecordRow[],
   start: number,
@@ -158,6 +208,34 @@ export function aggregateCosts(
     totalCost,
     dailyCostMap,
     categoryCostMap,
+  };
+}
+
+/**
+ * 同 aggregateSalesTotals：只累计总成本，不建日维度与分类 Map。
+ * 上一周期的成本只被消费 totalCost（算 previousNetProfit 与成本环比），
+ * dailyCostMap / categoryCostMap 从未被读取。
+ */
+export function aggregateCostsTotal(
+  rows: CostRecordRow[],
+  start: number,
+  end: number,
+): CostAggregationResult {
+  let totalCost = Money.zero();
+
+  for (const row of rows) {
+    const timestamp = row.date.getTime();
+    if (timestamp < start || timestamp > end) {
+      continue;
+    }
+
+    totalCost = totalCost.add(Money.fromDbCents(row.amount));
+  }
+
+  return {
+    totalCost,
+    dailyCostMap: new Map<number, Money>(),
+    categoryCostMap: new Map<CostRecordRow['category'], Money>(),
   };
 }
 

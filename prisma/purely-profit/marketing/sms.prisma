@@ -135,6 +135,10 @@ model SmsBroadcastRecipient {
   // 回执只带流水号，必须能按 serialNo 快速定位明细
   @@index([serialNo])
   @@index([taskId, deliveryStatus])
+  // 回执核销定时任务不带 taskId，只按「无回执 + 有流水号」扫创建时间窗口
+  @@index([createdAt], map: "idx_sms_recipients_pending_delivery", where: raw("(delivery_status IS NULL AND serial_no IS NOT NULL)"))
+  // 退费兜底扫描不带 taskId，只按「未退 + 提交失败」扫（幂等闸门 refunded_at）
+  @@index([id], map: "idx_sms_recipients_unrefunded_failed", where: raw("(status = 'failed' AND refunded_at IS NULL)"))
   @@map("sms_broadcast_recipients")
 }
 

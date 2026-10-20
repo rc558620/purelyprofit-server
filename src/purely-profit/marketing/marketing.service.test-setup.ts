@@ -35,6 +35,7 @@ import {
   MarketingTransactionsFacadeService,
 } from './marketing.service';
 import { MarketingSharedService } from './marketing-shared.service';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 
 export interface MarketingPrismaServiceMock {
   marketingCustomer: {
@@ -251,6 +252,9 @@ function createRedisServiceMock() {
     setIfAbsent: jest.fn().mockResolvedValue(true),
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
+    // 二维码图片缓存：默认未命中，走真实出图（qrcode 已被本文件 mock）
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -329,6 +333,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       MarketingPromotionsService,
       MarketingProductCategoriesService,
       MarketingProductsService,
+      StoreInviteQrImageService,
       { provide: PrismaService, useValue: prismaService },
       { provide: RedisService, useValue: createRedisServiceMock() },
       {

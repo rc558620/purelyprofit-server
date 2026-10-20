@@ -37,6 +37,20 @@ export function buildProfitDashboardHomeActivitiesCacheKey(
   return `profit:dashboard:home-chunk:activities:store:${storeId}`;
 }
 
+/**
+ * 首页「能力快照」缓存键，必须带 userId。
+ *
+ * capability 依赖登录用户身份（子账号角色/配额/业态），不能进门店级共享缓存；
+ * 它只驱动前端 UI 展示，安全裁决由 PermissionsGuard + resolveSingleStoreId 完成，
+ * 因此允许一个短 TTL 的陈旧窗口。
+ */
+export function buildProfitDashboardHomeCapabilityCacheKey(
+  userId: number,
+  storeId: number,
+): string {
+  return `profit:dashboard:home-capability:user:${userId}:store:${storeId}`;
+}
+
 export function buildProfitDashboardHomePattern(storeId: number): string {
   return `profit:dashboard:home:store:${storeId}:period:*`;
 }

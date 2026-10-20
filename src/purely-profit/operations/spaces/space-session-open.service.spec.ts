@@ -6,6 +6,7 @@ import { RedisLockService } from '../../../redis/redis-lock.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
 import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 import { aNonNegativeNumber } from '../../../spec-matchers';
@@ -78,6 +79,10 @@ describe('SpaceSessionOpenService', () => {
     createSettledRecords: jest.fn().mockResolvedValue(undefined),
     markSettledRecordsIncluded: jest.fn(),
     listConfigRecords: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -153,6 +158,7 @@ describe('SpaceSessionOpenService', () => {
           useValue: commissionCoreService,
         },
         { provide: MembershipDowngradeService, useValue: downgradeService },
+        { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
       ],
     }).compile();
 

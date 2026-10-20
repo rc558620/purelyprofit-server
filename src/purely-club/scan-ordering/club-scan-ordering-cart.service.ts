@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
@@ -16,6 +17,11 @@ import type {
   UpdateClubScanCartItemDto,
 } from './dto/club-scan-ordering.dto';
 
+/** 购物车行（含规格快照行）查询返回类型。 */
+type CartItemWithSpecs = Prisma.ScanOrderingCartItemGetPayload<{
+  include: { specs: true };
+}>;
+
 @Injectable()
 export class ClubScanOrderingCartService {
   constructor(
@@ -25,13 +31,29 @@ export class ClubScanOrderingCartService {
 
   async getCart(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
     const session = await this.requireSession(user, sessionId);
-    const items = await this.prisma.scanOrderingCartItem.findMany({
-      where: { sessionId: session.id, status: 'active', deletedAt: null },
+    const items = await this.loadCartItems(session.id);
+    return this.toCartPayload(session.id, items);
+  }
+
+  /** 购物车行查询（写操作后复用，避免再走一次 requireSession）。 */
+  private loadCartItems(sessionId: number): Promise<CartItemWithSpecs[]> {
+    return this.prisma.scanOrderingCartItem.findMany({
+      where: { sessionId, status: 'active', deletedAt: null },
       orderBy: { updatedAt: 'asc' },
       include: { specs: true },
     });
+  }
+
+  /**
+   * 组装购物车响应：加购 / 改量 / 删除是 C 端最高频写操作，写入方已持有会话，
+   * 不必再 requireSession 一次来拼响应（每次写操作省 2 次查询）。
+   */
+  private toCartPayload(
+    sessionId: number,
+    items: CartItemWithSpecs[],
+  ): unknown {
     return {
-      sessionId: session.id,
+      sessionId,
       // 行级乐观锁版本之和：只用于粗粒度变更检测，不能当 cartVersion 用
       version: this.cartVersion(items),
       // 与 preview / create 同口径的购物车版本，可直接用于下单校验
@@ -130,7 +152,8 @@ export class ClubScanOrderingCartService {
         throw error;
       }
     }
-    return this.getCart(user, session.id);
+    // 会话与购物车行都已在本次写操作中取过，直接组装响应
+    return this.toCartPayload(session.id, await this.loadCartItems(session.id));
   }
 
   /** 购物车行写入：同规格已存在则累加，否则新建。 */
@@ -221,7 +244,11 @@ export class ClubScanOrderingCartService {
     });
     if (result.count === 0)
       throw new ConflictException('购物车已更新，请刷新后重试');
-    return this.getCart(user, item.sessionId);
+    // item.session 已校验过归属与有效期（ensureSessionOwner），无需重查会话
+    return this.toCartPayload(
+      item.sessionId,
+      await this.loadCartItems(item.sessionId),
+    );
   }
 
   async removeCartItem(
@@ -245,7 +272,11 @@ export class ClubScanOrderingCartService {
     });
     if (result.count === 0)
       throw new ConflictException('购物车已更新，请刷新后重试');
-    return this.getCart(user, item.sessionId);
+    // item.session 已校验过归属与有效期（ensureSessionOwner），无需重查会话
+    return this.toCartPayload(
+      item.sessionId,
+      await this.loadCartItems(item.sessionId),
+    );
   }
 
   /** 读取菜单商品（含共享商品库存），不存在或不可售时抛错。 */

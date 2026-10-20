@@ -66,6 +66,10 @@ model CustodyOrder {
   @@unique([storeId, orderNo], map: "uq_custody_orders_store_order_no")
   @@unique([storeId, idempotencyKey], map: "uq_custody_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
   @@index([storeId, status, createdAt(sort: Desc)], map: "idx_custody_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
+  /// 默认 Tab（status=all）不带 status 条件，上面那条索引的前导列是 status，
+  /// 无法用于 ORDER BY created_at DESC 的有序扫描，会退化成全表扫描 + 排序。
+  /// 本索引补齐「全部状态按创建时间倒序」的默认分页路径。
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_custody_orders_store_created", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, memberId, status], map: "idx_custody_orders_store_member_status", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, productId, status], map: "idx_custody_orders_store_product_status", where: raw("((deleted_at IS NULL) AND (product_id IS NOT NULL))"))
   @@index([storeId, expireAt], map: "idx_custody_orders_store_expire", where: raw("((status = 'stored'::\"CustodyStatus\") AND (deleted_at IS NULL))"))

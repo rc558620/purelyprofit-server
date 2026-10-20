@@ -14,6 +14,7 @@ export {
   buildProfitDashboardHomeStatsCacheKey,
   buildProfitDashboardHomeTrendCacheKey,
   buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomeCapabilityCacheKey,
   buildProfitDashboardHomePattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomeAllPattern,

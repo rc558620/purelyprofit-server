@@ -46,7 +46,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
   const pricingVersionService = { computePricingVersion: jest.fn() };
   const cartPricing = {
-    priceCart: jest.fn(),
+    priceCartWithPricingVersion: jest.fn(),
     cartVersion: jest.fn(),
     resolvePromotions: jest.fn(),
     calculateAmounts: jest.fn(),
@@ -167,6 +167,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     status: 'active',
     expiresAt: new Date(Date.now() + 3600_000),
     deletedAt: null,
+    // 桌台及其区域/类型由 requireSession 一并查出，供 order.created 通知拼位置
+    table: { name: 'A01', area: { name: '1楼' }, type: { name: '大厅' } },
   };
 
   const pricedItem = {
@@ -240,11 +242,12 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       type: { name: '大厅' },
     });
 
-    cartPricing.priceCart.mockResolvedValue([pricedItem]);
+    // 定价与定价版本同批返回（生产实现共用一次取数）
+    cartPricing.priceCartWithPricingVersion.mockResolvedValue({
+      items: [pricedItem],
+      pricingVersion: dto.pricingVersion,
+    });
     cartPricing.cartVersion.mockReturnValue(dto.cartVersion);
-    pricingVersionService.computePricingVersion.mockResolvedValue(
-      dto.pricingVersion,
-    );
     cartPricing.resolvePromotions.mockResolvedValue(promotionResult);
     cartPricing.calculateAmounts.mockReturnValue(amounts);
     cartPricing.reserveFiniteSpecStock.mockResolvedValue(undefined);
@@ -405,7 +408,10 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   });
 
   it('定价版本不一致时拒绝下单（价格被篡改防护）', async () => {
-    pricingVersionService.computePricingVersion.mockResolvedValue('pv-2');
+    cartPricing.priceCartWithPricingVersion.mockResolvedValue({
+      items: [pricedItem],
+      pricingVersion: 'pv-2',
+    });
 
     await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
       '订单价格已变化',
@@ -426,7 +432,10 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   });
 
   it('同一商品重复出现在同一订单时会先聚合后预留，不会误报库存不足', async () => {
-    cartPricing.priceCart.mockResolvedValue([pricedItem, duplicatePricedItem]);
+    cartPricing.priceCartWithPricingVersion.mockResolvedValue({
+      items: [pricedItem, duplicatePricedItem],
+      pricingVersion: dto.pricingVersion,
+    });
     cartPricing.cartVersion.mockReturnValue(2);
     cartPricing.calculateAmounts.mockReturnValue({
       ...amounts,
@@ -544,7 +553,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       },
     });
     // 闸门位于定价与事务之前：被拦时不应有任何定价与落库动作
-    expect(cartPricing.priceCart).not.toHaveBeenCalled();
+    expect(cartPricing.priceCartWithPricingVersion).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(quotaService.consumeWithinOrderTransaction).not.toHaveBeenCalled();
   });

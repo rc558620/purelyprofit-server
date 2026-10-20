@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import type { ChainableCommander } from 'ioredis';
 import { recordRedisOperation } from '../observability';
 import { pipelineUnlinkByPattern } from './redis-pipeline.util';
 import { safeJsonStringify } from './redis-json.util';
@@ -189,6 +190,70 @@ export class RedisService
     ttlSeconds?: number,
   ): Promise<void> {
     await this.set(key, safeJsonStringify(value), ttlSeconds);
+  }
+
+  /**
+   * 以 pipeline 执行一组互不依赖的命令，合并为一次网络往返。
+   *
+   * 业务侧把「签发令牌 + 清除失败计数」这类无依赖的写操作丢进同一个 pipeline，
+   * 热路径上的串行 RTT 就能摊平。pipeline 不保证原子性，需要原子性请用 multi。
+   */
+  async executePipeline(
+    build: (pipeline: ChainableCommander) => void,
+  ): Promise<void> {
+    await this.observeRedisCommand('PIPELINE', async () => {
+      const pipeline = this.client.pipeline();
+      build(pipeline);
+      await pipeline.exec();
+    });
+  }
+
+  /** 读取 hash 字段的 JSON 值（字段不存在返回 null） */
+  async hgetJson<T>(key: string, field: string): Promise<T | null> {
+    const raw = await this.observeRedisCommand(
+      'HGET',
+      () => this.client.hget(key, field),
+      (result) => (result === null ? 'miss' : 'hit'),
+    );
+    if (raw === null) return null;
+    return JSON.parse(raw) as T;
+  }
+
+  /**
+   * 写入 hash 字段并可选刷新整个键的 TTL。
+   *
+   * HSET 与 EXPIRE 走同一条 pipeline：分开执行是两次往返，
+   * 而写路径上并发量高时这两次往返是纯粹的浪费。
+   */
+  async hsetJson(
+    key: string,
+    field: string,
+    value: unknown,
+    ttlSeconds?: number,
+  ): Promise<void> {
+    await this.executePipeline((pipeline) => {
+      pipeline.hset(key, field, safeJsonStringify(value));
+      if (ttlSeconds) pipeline.expire(key, ttlSeconds);
+    });
+  }
+
+  /**
+   * 读取 hash 多个字段的 JSON 值。
+   *
+   * 用于「一个键里按维度分字段缓存」的场景（如门店下各筛选组合的列表总数）：
+   * 一次往返取回全部字段，缺失的字段由调用方回源。
+   */
+  async hgetAllJson<T>(key: string): Promise<Record<string, T>> {
+    const raw = await this.observeRedisCommand(
+      'HGETALL',
+      () => this.client.hgetall(key),
+      (result) => (Object.keys(result).length === 0 ? 'miss' : 'hit'),
+    );
+    const parsed: Record<string, T> = {};
+    for (const [field, value] of Object.entries(raw)) {
+      parsed[field] = JSON.parse(value) as T;
+    }
+    return parsed;
   }
 
   /**

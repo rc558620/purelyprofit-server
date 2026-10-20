@@ -72,6 +72,13 @@ export {
 } from './keys/sales.cache-keys';
 
 export {
+  buildSpacesDashboardCacheKey,
+  buildSpacesDashboardPattern,
+  buildSpacesListCacheKey,
+  buildSpacesListPattern,
+} from './keys/spaces.cache-keys';
+
+export {
   buildProfitDetailCacheKey,
   buildProfitDetailPattern,
   buildProfitDetailAllPattern,

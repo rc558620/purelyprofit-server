@@ -3,6 +3,7 @@ import type { InventoryStatsResponseDto } from './dto/inventory.dto';
 import type {
   InventoryProductListQueryInput,
   InventoryProductRecord,
+  InventoryStatsAggregate,
   InventoryStatsRow,
 } from './inventory.types';
 
@@ -29,8 +30,12 @@ export function resolveInventoryAlertLevel(
   return 'normal';
 }
 
+/**
+ * 预警筛选只用到 stock 与 alertThreshold：
+ * 参数收窄后，CSV 导出的轻量行（只查 4 个字段）也能复用同一口径。
+ */
 export function matchesInventoryFilters(
-  product: InventoryProductRecord,
+  product: Pick<InventoryProductRecord, 'stock' | 'alertThreshold'>,
   query: InventoryProductListQueryInput,
 ): boolean {
   const level = resolveInventoryAlertLevel(
@@ -49,10 +54,13 @@ export function matchesInventoryFilters(
   return true;
 }
 
-export function sortInventoryProducts(
-  products: InventoryProductRecord[],
+/** 排序只用到 name / stock / alertThreshold，泛型收窄后轻量行也能复用 */
+export function sortInventoryProducts<
+  T extends Pick<InventoryProductRecord, 'name' | 'stock' | 'alertThreshold'>,
+>(
+  products: T[],
   sortBy: InventoryProductListQueryInput['sortBy'] = 'alert',
-): InventoryProductRecord[] {
+): T[] {
   const sorted = [...products];
 
   sorted.sort((left, right) => {
@@ -116,6 +124,27 @@ export function buildInventoryStats(
     dangerCount,
     normalCount,
     totalStockValue: Money.fromDbCents(totalStockValueCents).toOutputYuan(),
+  };
+}
+
+/**
+ * 由库内聚合结果直接构建概况（供 /inventory/stats 使用）。
+ *
+ * 分级与金额口径在 SQL 侧已算完（见 queryInventoryStatsAggregate），
+ * 这里只做单位换算。若调整 buildInventoryStats 的口径，
+ * 必须同步 SQL 里的 FILTER 条件，否则概况卡片与报表明细会出现两套数字。
+ */
+export function buildInventoryStatsFromAggregate(
+  aggregate: InventoryStatsAggregate,
+): InventoryStatsResponseDto {
+  return {
+    totalSkuCount: aggregate.totalSkuCount,
+    warningCount: aggregate.warningCount,
+    dangerCount: aggregate.dangerCount,
+    normalCount: aggregate.normalCount,
+    totalStockValue: Money.fromDbCents(
+      aggregate.totalStockValueCents,
+    ).toOutputYuan(),
   };
 }
 

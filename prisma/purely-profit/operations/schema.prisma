@@ -198,6 +198,15 @@ model ScanOrders {
   @@index([storeId, tableId, status, createdAt(sort: Desc)], map: "idx_scan_orders_table_active", where: raw("((status = ANY (ARRAY['pending_payment'::\"ScanOrderStatus\", 'pending_acceptance'::\"ScanOrderStatus\", 'preparing'::\"ScanOrderStatus\", 'served'::\"ScanOrderStatus\"])) AND (deleted_at IS NULL))"))
   @@index([clubUserId, diningRoundId, createdAt(sort: Desc)])
   @@index([storeId, tableId, diningRoundId, createdAt(sort: Desc)])
+  // 按会话查订单：C 端 listOrders 的 session.orders、getCurrentSession 的
+  // orders: { some } 子查询、商家端 dashboard 计数、会话自动归档都走这条路径。
+  // PG 不会为外键自动建索引，缺失时上述高频读全部退化为 Seq Scan。
+  @@index([sessionId, createdAt(sort: Desc)], map: "idx_scan_orders_session_created", where: raw("(session_id IS NOT NULL AND deleted_at IS NULL)"))
+  // 超时扫描（acceptance-expiration）每 60s 按 status + paid_at / accepted_at 过滤，
+  // 现有索引均带 storeId 前缀或用不上（idx_scan_orders_payment_expiry 只覆盖
+  // payment_expires_at），缺索引时为全表扫描。
+  @@index([status, paidAt], map: "idx_scan_orders_status_paid_at", where: raw("(deleted_at IS NULL)"))
+  @@index([status, acceptedAt], map: "idx_scan_orders_status_accepted_at", where: raw("(deleted_at IS NULL)"))
   @@map("scan_orders")
 }
 

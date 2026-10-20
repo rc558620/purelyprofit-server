@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { createScanOrderingSystemUser } from '../../../purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingOrderRejectService } from './scan-ordering-order-reject.service';
@@ -31,6 +32,7 @@ export class ScanOrderingOrderRefundHandlingService {
     private readonly wechatRefundService: ScanOrderingOrderRefundWechatService,
     private readonly transitionService: ScanOrderingRefundTransitionService,
     private readonly realtimeService: ScanOrderingRefundRealtimeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /** 拒绝待接单订单：已支付订单进入退款流程，未支付订单直接关闭。 */
@@ -68,6 +70,10 @@ export class ScanOrderingOrderRefundHandlingService {
         provider,
       }),
     );
+    // 销售单已在上述事务内被冲销（SaleOrderRefund）：该事务由此处开启，
+    // 写链路因传入 transactionClient 不会自清缓存，故在提交后立即失效
+    // 销售衍生缓存（sales stats/report），避免 TTL 内展示未回退的营业额。
+    await this.cacheInvalidatorService.invalidateSalesDerived(storeId);
     if (updated) this.realtimeService.publishRefundCompleted(updated);
   }
 

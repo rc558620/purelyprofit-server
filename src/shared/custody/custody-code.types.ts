@@ -24,3 +24,15 @@ export interface IssuedShortCode {
   /** 过期时间（ISO 字符串，UTC） */
   expiresAt: string;
 }
+
+/**
+ * 门店快照缓存载荷：角色判定（ownerId）与推送载荷（name）都要用。
+ *
+ * 两者都是低频变更的门店级数据，合成一份缓存可让读链路与推送链路共用。
+ */
+export interface CustodyStoreSnapshot {
+  /** 门店主账号的登录用户 ID：主账号身份的权威依据 */
+  ownerId: number | null;
+  /** 门店名：推送给会员时指明是哪家门店 */
+  name: string;
+}

@@ -23,13 +23,41 @@ import type {
 } from './dto/custody-response.dto';
 
 /**
+ * 映射出参所需的存单字段集。
+ *
+ * 用结构类型而非实体类型：写链路在事务内已知状态流转结果（如作废后的
+ * void / 取出后的 finished），可以直接用「原行 + 本次变更」拼出映射入参，
+ * 不必再回查一次数据库。实体行是它的超集，同样满足。
+ */
+export interface CustodyOrderMappingSource {
+  id: number;
+  orderNo: string;
+  memberNameSnapshot: string | null;
+  memberPhoneSnapshot: string | null;
+  productName: string;
+  specName: string | null;
+  unit: string;
+  totalQty: number;
+  remainingQty: number;
+  location: string | null;
+  storedAt: Date;
+  expireAt: Date | null;
+  status: string;
+  stockMode: string;
+  createdByNameSnapshot: string | null;
+  voidReason: string | null;
+  note: string | null;
+  image: string | null;
+}
+
+/**
  * 实体 → 存单 DTO（状态按到期时间惰性派生）。
  *
  * createdByRole 由调用方解析后传入：读链路按店员档案联表解析，
  * 写链路直接取当前登录主体的角色，mapper 不自行查库。
  */
 export function mapCustodyOrder(
-  record: CustodyOrder,
+  record: CustodyOrderMappingSource,
   now: Date,
   createdByRole: CustodyOperatorRole,
 ): CustodyOrderResponseDto {

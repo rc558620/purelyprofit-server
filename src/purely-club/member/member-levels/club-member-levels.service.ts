@@ -91,8 +91,14 @@ export class ClubMemberLevelsService {
     const currentIndex = configs.findIndex(
       (config) => config.level === currentLevelConfig.level,
     );
+    // 当前等级不在可展示列表中：典型场景是未充值用户的 regular 兜底等级 ——
+    // 它只作为「未产生消费时的计算态」存在，并不在后台配置的可见等级里，
+    // 因此 findIndex 必然返回 -1。此时下一级应取最低可见等级，
+    // 不能因为查不到索引就判定为「已达最高等级」，否则未充值用户会彻底丢失升级引导。
     const nextLevelConfig =
-      currentIndex >= 0 ? (configs[currentIndex + 1] ?? null) : null;
+      currentIndex >= 0
+        ? (configs[currentIndex + 1] ?? null)
+        : (configs[0] ?? null);
 
     if (!nextLevelConfig) {
       return {
@@ -136,7 +142,34 @@ export class ClubMemberLevelsService {
     };
   }
 
-  private async loadLevelSettings(
+  /**
+   * 并发去重：同一门店的在途请求共用一个 Promise。
+   * 会员等级页会并发请求 account / level-status / levels，三个接口都要读同一份配置，
+   * 去重后一次页面加载只查一次配置表；不做时间缓存，后台改配置后仍立即生效。
+   */
+  private readonly inflightSettingsRequests = new Map<
+    number,
+    Promise<MarketingMemberLevelConfigValue[]>
+  >();
+
+  private loadLevelSettings(
+    storeId: number,
+  ): Promise<MarketingMemberLevelConfigValue[]> {
+    const inflight = this.inflightSettingsRequests.get(storeId);
+
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = this.fetchLevelSettings(storeId).finally(() => {
+      this.inflightSettingsRequests.delete(storeId);
+    });
+    this.inflightSettingsRequests.set(storeId, request);
+
+    return request;
+  }
+
+  private async fetchLevelSettings(
     storeId: number,
   ): Promise<MarketingMemberLevelConfigValue[]> {
     const fallback = cloneDefaultMarketingMemberLevelSettings();

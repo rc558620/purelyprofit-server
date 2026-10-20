@@ -10,11 +10,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { reportStoreInviteQrBaseUrlStatus } from '../../shared/store-invite-qr-base-url-status.utils';
 import {
   assertUsableStoreInviteQrPayload,
-  buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
   STORE_INVITE_QR_PROTOCOL_LEGACY,
   STORE_INVITE_QR_PROTOCOL_V1,
 } from '../stores/store-invite-code-qr.utils';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 import { MarketingSharedService } from './marketing-shared.service';
 import type { MarketingInviteCodeDto } from './dto/marketing-invite-code.dto';
@@ -42,6 +42,7 @@ export class MarketingInviteCodeService implements OnModuleInit {
     private readonly marketingSharedService: MarketingSharedService,
     private readonly inviteCodeService: StoreInviteCodeService,
     private readonly configService: ConfigService,
+    private readonly inviteQrImageService: StoreInviteQrImageService,
   ) {}
 
   /**
@@ -139,7 +140,8 @@ export class MarketingInviteCodeService implements OnModuleInit {
 
     return {
       inviteCode,
-      inviteCodeQrCodeImageUrl: await buildStoreInviteQrImageDataUrl(payload),
+      inviteCodeQrCodeImageUrl:
+        await this.inviteQrImageService.toImageDataUrl(payload),
       isActive: true,
       inviteQrPayloadVersion: isV1Url
         ? STORE_INVITE_QR_PROTOCOL_V1
@@ -164,6 +166,8 @@ export class MarketingInviteCodeService implements OnModuleInit {
       user,
       resolvedStoreId,
       'marketing:manage',
+      // 上面 resolveMembershipManagedStoreId 已对该 storeId 校验过套餐营销能力
+      { skipFeatureCheck: true },
     );
     return resolvedStoreId;
   }

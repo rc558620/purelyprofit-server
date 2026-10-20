@@ -17,6 +17,7 @@ import {
   TX_TIMEOUT_MEDIUM,
 } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type {
   RenewSpaceSessionDto,
   RenewSpaceSessionResponseDto,
@@ -39,6 +40,7 @@ export class SpaceSessionRenewService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly redisLockService: RedisLockService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async renewSession(
@@ -247,6 +249,11 @@ export class SpaceSessionRenewService {
           };
         },
         { timeout: TX_TIMEOUT_MEDIUM },
+      );
+
+      // 续费改变看板活跃会话摘要（续费次数 / 倒计时到期时间）
+      await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+        session.storeId,
       );
 
       return {

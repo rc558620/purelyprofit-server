@@ -4,6 +4,8 @@
 // 时间字段一律由调用方传入后端生成的 Date，在此转 ISO，禁止前端造业务时间。
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CustodyCodeService } from '../../../shared/custody/custody-code.service';
+import { resolveCustodyStoreSnapshot } from '../../../shared/custody/custody-store-snapshot';
 import { CustodyRealtimeService } from '../../../purely-club/custody/custody-realtime.service';
 
 /** 建单推送所需的最小存单字段 */
@@ -43,6 +45,7 @@ export class CustodyRealtimePublisher {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly custodyCodeService: CustodyCodeService,
     private readonly realtimeService: CustodyRealtimeService,
   ) {}
 
@@ -111,12 +114,18 @@ export class CustodyRealtimePublisher {
     });
   }
 
-  /** 推送载荷需要门店名；取不到时降级为空串，不阻断主流程 */
+  /**
+   * 推送载荷需要门店名。
+   *
+   * 走门店快照缓存：每次核销 / 存入推送都读一遍门店表纯属浪费，
+   * 而门店名几乎不变。取不到时降级为空串，不阻断主流程。
+   */
   private async resolveStoreName(storeId: number): Promise<string> {
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { name: true },
-    });
-    return store?.name ?? '';
+    const snapshot = await resolveCustodyStoreSnapshot(
+      this.prisma,
+      this.custodyCodeService,
+      storeId,
+    );
+    return snapshot.name;
   }
 }

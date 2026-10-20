@@ -169,6 +169,18 @@ export const toSpaceReservationResponse = (
 const SHANGHAI_OFFSET_HOURS = 8;
 
 /**
+ * 模块级复用的 Intl 格式化器。
+ * `new Intl.DateTimeFormat()` 构造开销高（~百微秒级），而 getTodayRange /
+ * getReservationStatusRange 在每个请求里会被调用 2-4 次，必须复用同一实例。
+ */
+const SHANGHAI_DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
  * 获取当前上海时区的日期部分（年/月/日）。
  * 使用 Intl.DateTimeFormat 保证跨平台一致性。
  */
@@ -177,12 +189,7 @@ const getShanghaiDateParts = (): {
   month: number;
   day: number;
 } => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
+  const parts = SHANGHAI_DATE_PARTS_FORMATTER.formatToParts(new Date());
 
   const get = (type: string) =>
     Number(parts.find((p) => p.type === type)!.value);

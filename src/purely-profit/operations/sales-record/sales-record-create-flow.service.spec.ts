@@ -10,6 +10,8 @@ describe('SalesRecordCreateFlowService', () => {
 
   const transactionClient = {
     $executeRaw: jest.fn(),
+    // 订单号生成：SQL 侧 MAX 聚合，返回单行 max_serial
+    $queryRaw: jest.fn(),
     saleOrder: {
       count: jest.fn(),
       findMany: jest.fn(),
@@ -52,9 +54,7 @@ describe('SalesRecordCreateFlowService', () => {
   it('createRecord 会创建订单、扣减库存并写入财务流水', async () => {
     const orderDate = new Date('2026-05-14T11:30:00.000Z');
     const createdAt = new Date('2026-05-14T11:35:00.000Z');
-    transactionClient.saleOrder.findMany.mockResolvedValue([
-      { orderNo: '#20260514-003' },
-    ]);
+    transactionClient.$queryRaw.mockResolvedValue([{ max_serial: 3 }]);
     transactionClient.saleOrder.create.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -175,7 +175,7 @@ describe('SalesRecordCreateFlowService', () => {
     });
 
     expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(transactionClient.saleOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(1);
     expect(transactionClient.saleOrder.create).toHaveBeenCalledTimes(1);
     expect(inventoryService.recordSaleDeduction).toHaveBeenCalledWith(
       transactionClient,
@@ -203,9 +203,7 @@ describe('SalesRecordCreateFlowService', () => {
   it('createRecord 复用外层事务时不应再次开启事务', async () => {
     const orderDate = new Date('2026-05-14T12:10:00.000Z');
     const createdAt = new Date('2026-05-14T12:12:00.000Z');
-    transactionClient.saleOrder.findMany.mockResolvedValue([
-      { orderNo: '#20260514-004' },
-    ]);
+    transactionClient.$queryRaw.mockResolvedValue([{ max_serial: 4 }]);
     transactionClient.saleOrder.create.mockResolvedValue({
       id: 15,
       storeId: 18,
@@ -281,9 +279,7 @@ describe('SalesRecordCreateFlowService', () => {
   it('createRecord 在跳过库存校验时不会触发扣减', async () => {
     const orderDate = new Date('2026-05-14T12:10:00.000Z');
     const createdAt = new Date('2026-05-14T12:12:00.000Z');
-    transactionClient.saleOrder.findMany.mockResolvedValue([
-      { orderNo: '#20260514-004' },
-    ]);
+    transactionClient.$queryRaw.mockResolvedValue([{ max_serial: 4 }]);
     transactionClient.saleOrder.create.mockResolvedValue({
       id: 15,
       storeId: 18,
@@ -355,11 +351,8 @@ describe('SalesRecordCreateFlowService', () => {
   it('订单号按当日最大序号递增，删除中间单据后不会复用已占用序号', async () => {
     const orderDate = new Date('2026-05-14T13:00:00.000Z');
     const createdAt = new Date('2026-05-14T13:02:00.000Z');
-    // 模拟 #002 已被删除：现存单据只有 2 条，但最大序号仍是 003
-    transactionClient.saleOrder.findMany.mockResolvedValue([
-      { orderNo: '#20260514-001' },
-      { orderNo: '#20260514-003' },
-    ]);
+    // 模拟 #002 已被删除：SQL 侧 MAX 直接返回当前最大序号 003
+    transactionClient.$queryRaw.mockResolvedValue([{ max_serial: 3 }]);
     transactionClient.saleOrder.create.mockResolvedValue({
       id: 16,
       storeId: 18,

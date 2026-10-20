@@ -2,6 +2,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CustodyCodeService } from '../../../shared/custody/custody-code.service';
+import { resolveCustodyStoreSnapshot } from '../../../shared/custody/custody-store-snapshot';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
@@ -10,6 +11,8 @@ import {
   CUSTODY_PICKUP_RECORD_LIMIT,
 } from './custody.constants';
 import {
+  buildCustodyFilterKey,
+  resolveCustodyOperatorRoleFromMembership,
   resolveCustodyOperatorRoleFromStaff,
   type CustodyOperatorRole,
 } from './custody.domain';
@@ -18,7 +21,7 @@ import {
   mapCustodySettings,
   mapPickupRecord,
 } from './custody.mapper';
-import { buildListQuery, encodeCursor } from './custody.query';
+import { buildCountWhere, buildListQuery, encodeCursor } from './custody.query';
 import type {
   CustodyOrderDetailResponseDto,
   CustodyOrderListResponseDto,
@@ -50,6 +53,17 @@ interface CustodySummaryCachePayload {
 export class CustodyReadService {
   private readonly logger = new Logger(CustodyReadService.name);
 
+  /**
+   * 门店统计聚合的在途任务：storeId → 聚合 Promise。
+   *
+   * 只用于合并同一门店的并发聚合（防缓存击穿），任务结束即从表中移除，
+   * 不做长期缓存（真正的缓存仍在 Redis，且带口径有效期）。
+   */
+  private readonly summaryInFlight = new Map<
+    number,
+    Promise<CustodyStatsDto>
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -66,7 +80,7 @@ export class CustodyReadService {
     const query = buildListQuery({ ...params, storeId }, now);
     const [records, total, summary] = await Promise.all([
       this.prisma.custodyOrder.findMany(query),
-      this.prisma.custodyOrder.count({ where: query.where }),
+      this.resolveTotal(storeId, params, now),
       this.getSummary(storeId, now),
     ]);
 
@@ -90,6 +104,29 @@ export class CustodyReadService {
         : null;
 
     return { items, nextCursor, total, summary };
+  }
+
+  /**
+   * 列表总条数：优先读缓存，未命中才落库 count。
+   *
+   * 总条数只随写操作变化、不随时间漂移，而任何客存写操作都会整键失效，
+   * 因此可以安全缓存——列表是最热的读路径，省掉它等于每请求少一次全量 count。
+   */
+  private async resolveTotal(
+    storeId: number,
+    params: Omit<CustodyListParams, 'storeId'>,
+    now: Date,
+  ): Promise<number> {
+    const filterKey = buildCustodyFilterKey(params);
+    const cached = await this.custodyCodeService.readTotal(storeId, filterKey);
+    if (cached !== null) {
+      return cached;
+    }
+    const total = await this.prisma.custodyOrder.count({
+      where: buildCountWhere({ ...params, storeId }, now),
+    });
+    await this.custodyCodeService.writeTotal(storeId, filterKey, total);
+    return total;
   }
 
   /** 详情：存单 + 最近取出流水 */
@@ -142,6 +179,29 @@ export class CustodyReadService {
   }
 
   /**
+   * 当前登录主体作为经手人时的角色：直接从登录态推导，完全不查库。
+   *
+   * 仅用于「存单经手人就是当前登录者」的路径（如发起存入）；
+   * 展示历史经手人的路径必须用 resolveOperatorRole 按员工档案解析。
+   * 门店快照走缓存，因此这里通常连门店表都不用读。
+   */
+  async resolveSelfRole(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): Promise<CustodyOperatorRole> {
+    const snapshot = await resolveCustodyStoreSnapshot(
+      this.prisma,
+      this.custodyCodeService,
+      storeId,
+    );
+    return resolveCustodyOperatorRoleFromMembership(
+      user.currentMembership,
+      user.id,
+      snapshot.ownerId,
+    );
+  }
+
+  /**
    * 批量解析店员角色：一次查询覆盖存单经手与取出流水两个来源的 staffId。
    *
    * 主账号判定以 store.ownerId 为权威依据（历史店员行的 role 可能未同步，
@@ -159,11 +219,8 @@ export class CustodyReadService {
       return new Map();
     }
 
-    const [store, staffs] = await Promise.all([
-      this.prisma.store.findUnique({
-        where: { id: storeId },
-        select: { ownerId: true },
-      }),
+    const [ownerUserId, staffs] = await Promise.all([
+      this.resolveStoreOwnerId(storeId),
       this.prisma.staff.findMany({
         where: { id: { in: uniqueIds } },
         select: {
@@ -176,7 +233,6 @@ export class CustodyReadService {
         },
       }),
     ]);
-    const ownerUserId = store?.ownerId ?? null;
 
     return new Map(
       staffs.map((staff) => [
@@ -201,10 +257,38 @@ export class CustodyReadService {
     return (staffId === null ? undefined : roleById.get(staffId)) ?? 'staff';
   }
 
-  /** 门店配置读取：不存在时返回默认口径，不落库 */
+  /**
+   * 门店主账号的登录用户 ID：走门店快照缓存。
+   *
+   * 主账号判定是权威依据（员工行的 role 可能未同步），但门店行几乎不变，
+   * 每个列表 / 详情请求都读一遍纯属浪费。
+   */
+  private async resolveStoreOwnerId(storeId: number): Promise<number | null> {
+    const snapshot = await resolveCustodyStoreSnapshot(
+      this.prisma,
+      this.custodyCodeService,
+      storeId,
+    );
+    return snapshot.ownerId;
+  }
+
+  /**
+   * 门店配置读取：优先读缓存，未命中时落库；无记录时返回默认口径，不落库。
+   *
+   * 配置是写路径（发起存入 / 核销校验 / 确认取出）都要读一遍的门店级数据，
+   * 而它只在「门店改配置」时才变，更新接口会主动失效缓存。
+   */
   async getSettings(storeId: number): Promise<CustodySettingsDto> {
-    const record = await this.findSetting(storeId);
-    return mapCustodySettings(record);
+    const cached =
+      await this.custodyCodeService.readSettingsCache<CustodySettingsDto>(
+        storeId,
+      );
+    if (cached) {
+      return cached;
+    }
+    const settings = mapCustodySettings(await this.findSetting(storeId));
+    await this.custodyCodeService.writeSettingsCache(storeId, settings);
+    return settings;
   }
 
   /** 门店配置实体读取（写服务复用） */
@@ -234,6 +318,29 @@ export class CustodyReadService {
       }
     }
 
+    /*
+     * 缓存失效的瞬间，同门店的并发请求会各自跑一遍聚合（缓存击穿）。
+     * 同一门店共用同一个在途 Promise：只有一个请求真正落库聚合，其余复用结果。
+     * 统计口径是门店级的，这样做不会引入个人数据串号。
+     */
+    const inFlight = this.summaryInFlight.get(storeId);
+    if (inFlight) {
+      return inFlight;
+    }
+    const task = this.recomputeSummary(storeId, now);
+    this.summaryInFlight.set(storeId, task);
+    try {
+      return await task;
+    } finally {
+      this.summaryInFlight.delete(storeId);
+    }
+  }
+
+  /** 重新聚合并回写缓存（统计缓存的单飞体） */
+  private async recomputeSummary(
+    storeId: number,
+    now: Date,
+  ): Promise<CustodyStatsDto> {
     const aggregated = await this.aggregateSummary(storeId, now);
     await this.custodyCodeService.writeSummaryCache(storeId, {
       stats: aggregated.stats,
@@ -271,76 +378,61 @@ export class CustodyReadService {
     };
 
     /*
-     * 统计随时间漂移只有两个来源，各自对应一个临界时间点：
-     * 1. 在存单越过 expireAt → 惰性过期，跌出 storedCount / storedQty；
-     * 2. 存单进入临期窗口（expireAt − 临期阈值）→ expiringCount 加一。
-     * 取两个临界点中最早的那个作为口径有效截止时间，
-     * 在此之前统计不随时间变化，缓存可以安全复用。
+     * 在存单量、在存件数、最近的到期临界点三者同条件，合并成一次 aggregate
+     * （count + sum + min）：分开是三条几乎一样的 SQL，
+     * 而列表统计每次首屏都要跑一遍。
      */
-    const [
-      storedCount,
-      storedQtyAgg,
-      expiringCount,
-      monthPickupCount,
-      nextExpiring,
-      nextEnteringWindow,
-    ] = await Promise.all([
-      this.prisma.custodyOrder.count({ where: activeStoredWhere }),
-      this.prisma.custodyOrder.aggregate({
-        where: activeStoredWhere,
-        _sum: { remainingQty: true },
-      }),
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: now, lte: expiringEdge },
-        },
-      }),
-      this.prisma.custodyPickup.count({
-        where: {
-          storeId,
-          deletedAt: null,
-          pickedAt: { gte: monthStart },
-        },
-      }),
-      // 最近的「跌出在存」临界点
-      this.prisma.custodyOrder.findFirst({
-        where: {
-          storeId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: now },
-        },
-        orderBy: { expireAt: 'asc' },
-        select: { expireAt: true },
-      }),
-      // 最近的「进入临期窗口」临界点
-      this.prisma.custodyOrder.findFirst({
-        where: {
-          storeId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: expiringEdge },
-        },
-        orderBy: { expireAt: 'asc' },
-        select: { expireAt: true },
-      }),
-    ]);
+    const [storedAgg, expiringCount, monthPickupCount, nextEnteringWindow] =
+      await Promise.all([
+        this.prisma.custodyOrder.aggregate({
+          where: activeStoredWhere,
+          _count: { _all: true },
+          _sum: { remainingQty: true },
+          _min: { expireAt: true },
+        }),
+        this.prisma.custodyOrder.count({
+          where: {
+            storeId,
+            deletedAt: null,
+            status: 'stored',
+            expireAt: { gt: now, lte: expiringEdge },
+          },
+        }),
+        this.prisma.custodyPickup.count({
+          where: {
+            storeId,
+            deletedAt: null,
+            pickedAt: { gte: monthStart },
+          },
+        }),
+        // 最近的「进入临期窗口」临界点
+        this.prisma.custodyOrder.findFirst({
+          where: {
+            storeId,
+            deletedAt: null,
+            status: 'stored',
+            expireAt: { gt: expiringEdge },
+          },
+          orderBy: { expireAt: 'asc' },
+          select: { expireAt: true },
+        }),
+      ]);
 
     /*
      * 统计随时间漂移有三个来源，各自对应一个临界时间点：
      * 1. 在存单越过 expireAt → 惰性过期，跌出 storedCount / storedQty；
+     *    临界点直接取聚合带出的最小到期时间（与 storedCount 出自同一份在存集合，
+     *    因此不必再单独查一次「最近的到期单」）。
      * 2. 存单进入临期窗口（expireAt − 临期阈值）→ expiringCount 加一；
      * 3. 自然月翻篇 → monthPickupCount 的统计区间整体平移，必须清零重算。
      *    少了这一条，门店在存的全是长期有效单（无到期临界点）时 boundaries 只剩空、
      *    validUntil 退化成 null 即「永不漂移」，跨月后「本月取出次数」会一直挂着上月的数字。
-     * 取三个临界点中最早的那个作为口径有效截止时间，在此之前统计不随时间变化。
+     * 取所有临界点中最早的那个作为口径有效截止时间，在此之前统计不随时间变化。
      */
     const boundaries: number[] = [this.buildNextMonthStart(now).getTime()];
-    if (nextExpiring?.expireAt) {
-      boundaries.push(nextExpiring.expireAt.getTime());
+    const nextExpiring = storedAgg._min.expireAt;
+    if (nextExpiring) {
+      boundaries.push(nextExpiring.getTime());
     }
     if (nextEnteringWindow?.expireAt) {
       boundaries.push(
@@ -352,8 +444,8 @@ export class CustodyReadService {
 
     return {
       stats: {
-        storedCount,
-        storedQty: storedQtyAgg._sum.remainingQty ?? 0,
+        storedCount: storedAgg._count._all,
+        storedQty: storedAgg._sum.remainingQty ?? 0,
         expiringCount,
         monthPickupCount,
       },

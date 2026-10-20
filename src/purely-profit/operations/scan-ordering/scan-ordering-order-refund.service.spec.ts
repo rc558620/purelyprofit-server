@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
@@ -84,6 +85,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     get: jest.fn(),
   };
 
+  const cacheInvalidatorService = {
+    invalidateSalesDerived: jest.fn(),
+  };
+
   const wechatRefundService = {
     requestRefund: jest.fn(),
   };
@@ -124,6 +129,7 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
       refundTasks: [],
     });
     configService.get.mockReturnValue('development');
+    cacheInvalidatorService.invalidateSalesDerived.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -150,6 +156,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
         },
         { provide: ConfigService, useValue: configService },
         { provide: ClubWechatRefundService, useValue: wechatRefundService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
       ],
     }).compile();
 

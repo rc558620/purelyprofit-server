@@ -15,6 +15,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ConcurrencyLimiter } from '../../../redis/concurrency-limiter.util';
 import type { SmsSendResultItem } from './sms.types';
 import {
   SMS_DELIVERY_PULL_MAX_LIMIT,
@@ -82,6 +83,15 @@ const SmsClient = tencentcloudSms.sms.v20210111.Client;
 
 /** 腾讯云 SendSms 单次请求的手机号硬上限 */
 const TENCENT_SMS_MAX_PHONE_COUNT = 200;
+
+/**
+ * 分片的并发上限。
+ *
+ * 分片本身必须保留（腾讯云单请求 200 号上限），但没必要串行：一次 2000 人群发
+ * = 10 个分片，串行就是 10 次外网 RTT 首尾相接。限并发 5 后墙钟时间约为串行的
+ * 1/5，同时不会把通道侧 QPS 打高到触发限流。
+ */
+const TENCENT_SMS_CHUNK_CONCURRENCY = 5;
 
 /** 凭证缺失时（仅非生产环境）的降级返回码 */
 const DEV_MODE_CODE = 'DEV_MODE_NO_CREDENTIAL';
@@ -180,13 +190,14 @@ export class SmsTencentProvider {
       }));
     }
 
-    const results: SmsSendResultItem[] = [];
-    for (const chunk of this.chunk(mobiles, TENCENT_SMS_MAX_PHONE_COUNT)) {
-      const chunkResults = await this.sendChunk(chunk, content);
-      results.push(...chunkResults);
-    }
+    const chunks = this.chunk(mobiles, TENCENT_SMS_MAX_PHONE_COUNT);
+    const limiter = new ConcurrencyLimiter(TENCENT_SMS_CHUNK_CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunks.map((chunk) => limiter.run(() => this.sendChunk(chunk, content))),
+    );
 
-    return results;
+    // Promise.all 按入参顺序收集结果，展开后仍与入参号码顺序一致
+    return chunkResults.flat();
   }
 
   private async sendChunk(

@@ -28,6 +28,7 @@ import {
 } from './space-session-items.shared';
 import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inventory-stock.write';
 import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type { SpaceSessionItemDto } from './dto/space-session-items.request.dto';
 
 @Injectable()
@@ -35,6 +36,7 @@ export class SpaceSessionWriteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly specPricing: ProductSpecPricingService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async addItemsToSession(
@@ -232,6 +234,11 @@ export class SpaceSessionWriteService {
         });
       },
       { timeout: TX_TIMEOUT_MEDIUM },
+    );
+
+    // 追加商品改变看板活跃会话摘要（商品消耗）
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      session.storeId,
     );
 
     return toSpaceSessionResponse(updated);

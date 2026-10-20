@@ -105,11 +105,14 @@ export class ScanOrderingOrderService {
     const where = this.buildListWhere(storeId, query, startOfDay, endOfDay);
     const limit = query.limit ?? 100;
     const orders = await this.fetchOrderPage(where, limit);
-    const guestNameMap = await this.fetchGuestNameMap(orders);
     const pageOrders = orders.slice(0, limit);
     // “首单/加餐”判定以 diningRoundId 维度计算：同一用餐轮次（diningRoundId 相同）
-    // 内的累计下单序号，跨桌或清桌（diningRoundId 重新生成）会重新从 1 开始
-    const sequences = await this.fetchDiningRoundSequences(pageOrders);
+    // 内的累计下单序号，跨桌或清桌（diningRoundId 重新生成）会重新从 1 开始。
+    // 昵称与序号都只依赖订单页、互不依赖，并行发起省一次往返。
+    const [guestNameMap, sequences] = await Promise.all([
+      this.fetchGuestNameMap(orders),
+      this.fetchDiningRoundSequences(pageOrders),
+    ]);
     return {
       items: pageOrders.map((order) =>
         toOrderListItem({

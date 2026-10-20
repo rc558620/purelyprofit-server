@@ -237,7 +237,15 @@ export class ScanOrderingOrderRefundBalanceService {
 
     // 退款会原路返还/回收 marketing_customers.points 并回补 balance，
     // 这些正是会员中心「可用积分」的事实源，必须连带失效会员侧缓存。
-    await this.cacheInvalidatorService.invalidateMembersDerived(input.storeId);
+    //
+    // 同一事务内已冲销销售单（SaleOrderRefund），而销售/报表侧只读缓存
+    // （sales stats 60s / report 60s）在订单未传 transactionClient 时不会被
+    // 写链路清理，留置到 TTL 会让商家看到「已退款但营业额未回退」。
+    // 故此处按门店一并失效销售衍生缓存，保持金额事实源一致。
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateMembersDerived(input.storeId),
+      this.cacheInvalidatorService.invalidateSalesDerived(input.storeId),
+    ]);
 
     return result;
   }

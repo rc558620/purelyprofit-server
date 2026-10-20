@@ -243,6 +243,8 @@ export class MarketingMemberLevelSettingsService {
       user,
       resolvedStoreId,
       'marketing:manage',
+      // 上面 resolveMembershipManagedStoreId 已对该 storeId 校验过套餐营销能力
+      { skipFeatureCheck: true },
     );
 
     return resolvedStoreId;

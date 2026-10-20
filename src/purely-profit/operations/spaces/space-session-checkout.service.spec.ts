@@ -46,6 +46,7 @@ describe('SpaceSessionCheckoutService', () => {
   };
   const cacheInvalidatorService = {
     invalidateSalesDerived: jest.fn(),
+    invalidateSpacesReadCaches: jest.fn(),
   };
   const redisClient = {
     set: jest.fn(),
@@ -73,6 +74,9 @@ describe('SpaceSessionCheckoutService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     cacheInvalidatorService.invalidateSalesDerived.mockResolvedValue(undefined);
+    cacheInvalidatorService.invalidateSpacesReadCaches.mockResolvedValue(
+      undefined,
+    );
     redisClient.set.mockResolvedValue('OK');
     redisClient.eval.mockResolvedValue(1);
     prismaService.$transaction.mockImplementation(

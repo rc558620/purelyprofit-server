@@ -4,7 +4,6 @@ import type {
   MarketingCustomerListQueryInput,
   MarketingProductListQueryInput,
   MarketingPromotionListQueryInput,
-  MarketingRechargeListQueryInput,
   MarketingRechargeRow,
 } from './marketing.types';
 import type { MarketingProductSortValue } from './marketing.utils';
@@ -84,23 +83,6 @@ export function buildCustomerWhere(
   }
 
   return where;
-}
-
-export function buildRechargeCountWhere(
-  input: MarketingRechargeListQueryInput,
-): Prisma.MarketingRechargeWhereInput {
-  return {
-    storeId: input.storeId,
-    ...(input.customerId ? { customerId: input.customerId } : {}),
-    ...(input.startMs || input.endMs
-      ? {
-          createdAt: {
-            ...(input.startMs ? { gte: new Date(input.startMs) } : {}),
-            ...(input.endMs ? { lte: new Date(input.endMs) } : {}),
-          },
-        }
-      : {}),
-  };
 }
 
 export function buildPromotionWhere(

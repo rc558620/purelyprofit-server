@@ -23,7 +23,9 @@ import type {
 } from './profit-detail.types';
 import {
   aggregateCosts,
+  aggregateCostsTotal,
   aggregateSales,
+  aggregateSalesTotals,
   createEmptySalesAggregation,
 } from './profit-detail.domain';
 import {
@@ -301,9 +303,10 @@ export class ProfitDetailService {
       clampedCurrentRange.start,
       clampedCurrentRange.end,
     );
+    // 上一周期只用于环比，走标量聚合：不建日维度与排行 Map（下游从未读取）
     const previousSales = clampedPreviousRange.empty
       ? createEmptySalesAggregation()
-      : aggregateSales(
+      : aggregateSalesTotals(
           saleRows,
           clampedPreviousRange.start,
           clampedPreviousRange.end,
@@ -313,13 +316,14 @@ export class ProfitDetailService {
       clampedCurrentRange.start,
       clampedCurrentRange.end,
     );
+    // 同上：上一周期成本只消费 totalCost
     const previousCosts = clampedPreviousRange.empty
       ? {
           totalCost: Money.zero(),
           dailyCostMap: new Map<number, Money>(),
           categoryCostMap: new Map(),
         }
-      : aggregateCosts(
+      : aggregateCostsTotal(
           costRows,
           clampedPreviousRange.start,
           clampedPreviousRange.end,

@@ -3,8 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { parseClubWechatMemberOpenid } from '../../purely-profit/auth/auth.utils';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import { buildOrderNo } from '../orders/club-order-drafts.utils';
 import type { ClubRechargeOrderMetadata } from '../orders/club-order-drafts.types';
@@ -32,7 +32,6 @@ export class ClubRechargeCreationService {
     private readonly clubRechargePackagesService: ClubRechargePackagesService,
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
-    private readonly configService: ConfigService,
   ) {}
 
   async createOrder(
@@ -40,31 +39,37 @@ export class ClubRechargeCreationService {
     dto: CreateClubRechargeOrderDto,
   ): Promise<ClubRechargeOrderResponseDto> {
     this.assertSameCurrentStore(currentContext, dto.storeId);
+    const packages =
+      await this.clubRechargePackagesService.loadPackagesForStore(
+        currentContext.store.id,
+      );
+
+    // Bug 6 修复：先解析套餐再建档。
+    // 此前 requireCurrentCustomer 跑在套餐校验之前，用户选中已下架套餐（或
+    // packageId / customAmount 同时传入）时，下单虽然失败，却已经建好 / 认领了
+    // 一条 marketingCustomer 档案，留下孤儿数据。建档是「确定要落账」的动作，
+    // 必须放在所有前置校验之后。
+    const selection = this.resolveRechargeOrderSelection(dto, packages);
     const customer =
       await this.clubRechargeContextService.requireCurrentCustomer(
         currentContext.store.id,
         currentContext.user.id,
         currentContext.user.phone,
       );
-    const packages =
-      await this.clubRechargePackagesService.loadPackagesForStore(
-        currentContext.store.id,
-      );
-    const selection = this.resolveRechargeOrderSelection(dto, packages);
 
     // 预生成订单号以保证 JSAPI out_trade_no 与 draft orderNo 一致
     const now = Date.now();
     const orderNo = buildOrderNo('recharge', now);
 
-    // 若前端未传 openid，需确认开发态兜底已启用才允许创建草稿
-    if (!dto.openid) {
-      const manualConfirmEnabled =
-        this.configService.get<boolean>('club.manualConfirmPaidEnabled') ??
-        false;
-      if (!manualConfirmEnabled) {
-        throw new BadRequestException('请先完成微信授权后再充值');
-      }
-    }
+    // Bug 1 修复：前端不下发 openid，微信用户的 openid 由服务端从占位身份还原。
+    // 两者都拿不到时不再抛错，而是与 service / 扫码点餐 / 自助点餐同口径：
+    // 不调起真实微信支付，草稿保留开发态 mock 支付参数，由前端开发态兜底
+    // （confirm-paid）收口。此前这里对「无 openid + 未开手动确认」直接抛
+    // BadRequest，而生产环境 club.manualConfirmPaidEnabled 强制为 false，
+    // 导致生产每次点「微信支付」都失败，充值链路整体不可用。
+    const openid =
+      dto.openid?.trim() ||
+      parseClubWechatMemberOpenid(currentContext.user.phone);
 
     // 先创建草稿（含 mock 支付参数），再调用微信下单
     // 这样微信下单失败时可以删除草稿回滚，避免产生无法支付的孤立草稿
@@ -84,7 +89,7 @@ export class ClubRechargeCreationService {
     });
 
     // 微信 JSAPI 下单：成功后更新草稿中的支付参数
-    if (dto.openid) {
+    if (openid) {
       try {
         const paymentParams =
           await this.clubWechatJsapiService.createJsapiPaymentParams({
@@ -92,7 +97,7 @@ export class ClubRechargeCreationService {
             orderNo,
             description: '会员充值',
             amountFen: selection.rechargeAmountFen,
-            openid: dto.openid,
+            openid,
           });
         draft = await this.clubOrderDraftsService.updateDraftPaymentParams(
           draft,

@@ -19,6 +19,8 @@ describe('InventoryService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
+      /** 批量写库存调整流水（补货/销售扣减等返回值被丢弃的路径） */
+      createMany: jest.fn(),
       deleteMany: jest.fn(),
     },
     product: {
@@ -86,6 +88,8 @@ describe('InventoryService', () => {
     platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
       undefined,
     );
+    /* 盘点调整用「加锁 + 读库存」合并查询取商品行，默认查不到 */
+    prismaService.$queryRaw.mockResolvedValue([]);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 10,
@@ -170,6 +174,42 @@ describe('InventoryService', () => {
       },
     ]);
     prismaService.product.count.mockResolvedValue(3);
+    /*
+     * alertOnly 走 raw SQL 下推：库存 <= 阈值的行由数据库过滤后返回，
+     * 这里模拟「薯片（库存 20 > 阈值 5）已被库内过滤掉」的结果。
+     */
+    prismaService.$queryRaw.mockResolvedValue([
+      {
+        id: 101,
+        name: '雪碧',
+        category: '饮品',
+        code: 'SP001',
+        price: 450,
+        profit: 150,
+        costPrice: 300,
+        unit: '瓶',
+        stock: 2,
+        alertThreshold: 3,
+        image: null,
+        createdAt,
+        updatedAt,
+      },
+      {
+        id: 102,
+        name: '可乐',
+        category: '饮品',
+        code: 'KL001',
+        price: 500,
+        profit: 180,
+        costPrice: null,
+        unit: '瓶',
+        stock: 0,
+        alertThreshold: 3,
+        image: 'https://img.example.com/cola.png',
+        createdAt,
+        updatedAt,
+      },
+    ]);
 
     await expect(
       readService.listProducts(user, {
@@ -221,7 +261,9 @@ describe('InventoryService', () => {
       },
     });
 
-    expect(prismaService.product.findMany).toHaveBeenCalled();
+    /* 预警筛选下推到 raw SQL，不再用 Prisma findMany 全量加载 */
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
+    expect(prismaService.product.findMany).not.toHaveBeenCalled();
     /* D8 优化：有域层筛选时回退内存分页，不再执行冗余 COUNT 查询 */
     expect(prismaService.product.count).not.toHaveBeenCalled();
   });
@@ -306,11 +348,10 @@ describe('InventoryService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    prismaService.product.findFirst.mockResolvedValue({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 10,
-    });
+    /* 加锁与读库存合并为一次查询：这里直接返回商品行 */
+    prismaService.$queryRaw.mockResolvedValue([
+      { id: 101, name: '可口可乐 330ml', stock: 10 },
+    ]);
     prismaService.inventoryAdjustmentLog.create.mockResolvedValue({
       id: 31,
       productId: 101,

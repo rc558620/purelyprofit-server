@@ -55,6 +55,36 @@ export function buildListQuery(
   params: CustodyListParams,
   now: Date,
 ): CustodyListQuery {
+  const conditions = buildFilterConditions(params, now);
+  if (params.cursor) {
+    conditions.push(buildCursorCondition(decodeCursor(params.cursor)));
+  }
+
+  return {
+    where: { AND: conditions },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: params.limit + 1,
+  };
+}
+
+/**
+ * 构建总条数的查询条件：与列表同筛选，但**不含游标**。
+ *
+ * 总条数是全量口径。带上游标条件后，翻到第 N 页时总数会跟着游标一路变小，
+ * 前端拿到的就不再是一个稳定值；去掉游标后总数还可按筛选组合缓存。
+ */
+export function buildCountWhere(
+  params: CustodyListParams,
+  now: Date,
+): Prisma.CustodyOrderWhereInput {
+  return { AND: buildFilterConditions(params, now) };
+}
+
+/** 构建列表与总条数共用的筛选条件（不含游标） */
+function buildFilterConditions(
+  params: CustodyListParams,
+  now: Date,
+): Prisma.CustodyOrderWhereInput[] {
   // 用 AND 数组拼装：状态条件与关键字条件都可能带 OR，直接展开会互相覆盖
   const conditions: Prisma.CustodyOrderWhereInput[] = [
     { storeId: params.storeId, deletedAt: null },
@@ -78,15 +108,8 @@ export function buildListQuery(
   if (Object.keys(keywordCondition).length > 0) {
     conditions.push(keywordCondition);
   }
-  if (params.cursor) {
-    conditions.push(buildCursorCondition(decodeCursor(params.cursor)));
-  }
 
-  return {
-    where: { AND: conditions },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: params.limit + 1,
-  };
+  return conditions;
 }
 
 /** 构建详情查询条件 */
@@ -129,7 +152,16 @@ function buildStatusCondition(
   }
 }
 
-/** 关键字条件：会员姓名/手机号快照/商品名/存放位置 */
+/**
+ * 关键字条件：会员姓名/手机号快照/商品名/存放位置。
+ *
+ * 统一走 insensitive（生成 ILIKE）：店员在小键盘/中文输入法下随手敲出的
+ * 大小写并不规范，默认的 contains 在 PostgreSQL 是大小写敏感的 LIKE，
+ * 会出现「输入小写搜不到大写会员名」这种看起来像没数据的问题。
+ *
+ * 注意 `%kw%` 的前后通配走不了 B-tree：单店存单量级到几十万行且搜索变慢时，
+ * 应在这些列上补 pg_trgm 的 GIN 索引（Prisma 不表达，需手写迁移）。
+ */
 function buildKeywordCondition(keyword: string): Prisma.CustodyOrderWhereInput {
   const trimmed = keyword.trim();
   if (!trimmed) {
@@ -137,10 +169,10 @@ function buildKeywordCondition(keyword: string): Prisma.CustodyOrderWhereInput {
   }
   return {
     OR: [
-      { memberNameSnapshot: { contains: trimmed } },
-      { memberPhoneSnapshot: { contains: trimmed } },
-      { productName: { contains: trimmed } },
-      { location: { contains: trimmed } },
+      { memberNameSnapshot: { contains: trimmed, mode: 'insensitive' } },
+      { memberPhoneSnapshot: { contains: trimmed, mode: 'insensitive' } },
+      { productName: { contains: trimmed, mode: 'insensitive' } },
+      { location: { contains: trimmed, mode: 'insensitive' } },
     ],
   };
 }

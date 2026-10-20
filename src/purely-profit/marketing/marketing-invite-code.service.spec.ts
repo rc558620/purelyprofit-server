@@ -7,8 +7,10 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { MarketingInviteCodeService } from './marketing-invite-code.service';
 import { MarketingSharedService } from './marketing-shared.service';
 
@@ -78,10 +80,19 @@ describe('MarketingInviteCodeService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketingInviteCodeService,
+        StoreInviteQrImageService,
         { provide: PrismaService, useValue: prisma },
         { provide: MarketingSharedService, useValue: marketingSharedService },
         { provide: StoreInviteCodeService, useValue: inviteCodeService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: RedisService,
+          useValue: {
+            // 默认未命中，走真实出图（qrcode 已被本文件 mock）
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -189,7 +200,10 @@ describe('MarketingInviteCodeService', () => {
 
       expect(
         marketingSharedService.ensureMarketingStoreAccess,
-      ).toHaveBeenCalledWith(user, 18, 'marketing:manage');
+      ).toHaveBeenCalledWith(user, 18, 'marketing:manage', {
+        // 已由 resolveMembershipManagedStoreId 校验过套餐能力，不重复查
+        skipFeatureCheck: true,
+      });
       expect(inviteCodeService.regenerateForStore).toHaveBeenCalledWith(18);
       expect(result).toEqual({
         inviteCode: 'XY56ZW78',
@@ -253,12 +267,20 @@ describe('MarketingInviteCodeService', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           MarketingInviteCodeService,
+          StoreInviteQrImageService,
           { provide: PrismaService, useValue: prisma },
           { provide: MarketingSharedService, useValue: marketingSharedService },
           { provide: StoreInviteCodeService, useValue: inviteCodeService },
           {
             provide: ConfigService,
             useValue: { get: jest.fn().mockReturnValue(baseUrl) },
+          },
+          {
+            provide: RedisService,
+            useValue: {
+              get: jest.fn().mockResolvedValue(null),
+              set: jest.fn().mockResolvedValue(undefined),
+            },
           },
         ],
       }).compile();

@@ -45,3 +45,38 @@ export const CODE_ISSUE_MAX_RETRY = 5;
  * 且惰性过期会让统计随时间漂移，缓存不宜过长。
  */
 export const CUSTODY_SUMMARY_CACHE_TTL_SECONDS = 60;
+
+/** 门店快照 key 前缀（店主 userId + 门店名：角色判定与推送载荷都要用） */
+export const CUSTODY_STORE_SNAPSHOT_KEY_PREFIX = 'custody:store:';
+
+/**
+ * 门店快照缓存有效期（秒）。
+ *
+ * 店主与门店名极少变更，缓存只为避免「每个请求都读一遍门店行」；
+ * 缓存本身不接失效钩子，靠短 TTL 兜底一致性。
+ */
+export const CUSTODY_STORE_SNAPSHOT_TTL_SECONDS = 60;
+
+/** 门店客存配置缓存 key 前缀 */
+export const CUSTODY_SETTINGS_KEY_PREFIX = 'custody:settings:';
+
+/** 门店客存配置缓存有效期（秒）：配置更新会主动失效，TTL 只是兜底 */
+export const CUSTODY_SETTINGS_CACHE_TTL_SECONDS = 30;
+
+/**
+ * 列表总数缓存 key 前缀。
+ *
+ * 存成 hash：字段是筛选组合（状态 Tab / 到期预警 / 关键字）的指纹，
+ * 门店任一筛选组合的总数都放在同一个键里，写操作整键删除即可全量失效，
+ * 无需按 pattern 扫描（SCAN 成本随键空间增长）。
+ */
+export const CUSTODY_TOTAL_KEY_PREFIX = 'custody:total:';
+
+/** 列表总数缓存有效期（秒）：总数只随写操作变化，写操作会主动失效 */
+export const CUSTODY_TOTAL_CACHE_TTL_SECONDS = 30;
+
+/** C 端会员维度汇总缓存 key 前缀（会员已天然限定门店） */
+export const CUSTODY_MEMBER_SUMMARY_KEY_PREFIX = 'custody:member-summary:';
+
+/** C 端会员维度汇总缓存有效期（秒） */
+export const CUSTODY_MEMBER_SUMMARY_CACHE_TTL_SECONDS = 30;

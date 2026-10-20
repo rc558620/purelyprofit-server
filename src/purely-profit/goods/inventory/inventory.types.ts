@@ -66,6 +66,29 @@ export interface InventoryStatsRow {
   costPrice: number | null;
 }
 
+/** 库存报表 / CSV 导出的最小行：只含报表真正展示的列 */
+export interface InventoryReportRow {
+  name: string;
+  category: string;
+  stock: number;
+  alertThreshold: number;
+}
+
+/**
+ * 库存概况的库内聚合结果（单行）。
+ *
+ * 与 InventoryStatsRow 是同一口径的两种取数方式：
+ * 报表场景还要返回明细行，走 InventoryStatsRow；概况卡片不需要明细，走本聚合。
+ */
+export interface InventoryStatsAggregate {
+  totalSkuCount: number;
+  dangerCount: number;
+  warningCount: number;
+  normalCount: number;
+  /** 库存总成本（单位：分），与 buildInventoryStats 的整数分口径一致 */
+  totalStockValueCents: number;
+}
+
 export interface InventoryAdjustmentRecord {
   id: number;
   productId: number;

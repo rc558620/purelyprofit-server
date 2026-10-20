@@ -11,7 +11,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
-import type { ClubServicePricingResolution } from './club-order-promotions.service';
+import type {
+  ClubPricingSharedContext,
+  ClubServicePricingResolution,
+} from './club-order-promotions.service';
 import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown.service';
 import {
   calcPointsRedeemDetail,
@@ -44,12 +47,22 @@ export class ClubMarketingPreviewService {
     lines: ClubMarketingPreviewLine[],
     usePoints: boolean,
   ): Promise<ClubMarketingPreviewResult> {
-    const memberDiscountRate =
-      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
+    // 会员折扣率与「门店活动 + 消费次数」预加载互不依赖，串行会各占一次往返。
+    // 扫码点餐每次改动购物车都会走这里，并行后省掉一次串行等待。
+    const [memberDiscountRate, pricingContext] = await Promise.all([
+      this.clubOrderPromotionsService.resolveMemberDiscountRate(
         storeId,
         clubUserId,
         phone,
-      );
+      ),
+      // 与原实现一致：没有行时不预加载，避免无谓的 Redis GET + COUNT
+      lines.length > 0
+        ? this.clubOrderPromotionsService.preloadPricingContext(
+            storeId,
+            customerId,
+          )
+        : Promise.resolve(undefined),
+    ]);
     const {
       resolutions,
       competition,
@@ -61,6 +74,7 @@ export class ClubMarketingPreviewService {
       customerId,
       lines,
       memberDiscountRate,
+      pricingContext,
     );
     const pointsPreview = await this.resolveMarketingPointsPreview(
       storeId,
@@ -99,14 +113,19 @@ export class ClubMarketingPreviewService {
     customerId: number,
     lines: ClubMarketingPreviewLine[],
     memberDiscountRate: number | null,
+    // 由 previewMarketingLines 预加载后透传（与会员折扣率并行），为空时才自取
+    context?: ClubPricingSharedContext,
   ): Promise<ClubLinesPricingResult> {
+    // 门店活动与消费次数对所有行完全一致：预加载一次后透传，避免每行各来一次
+    // Redis GET + MySQL COUNT（N 行 = 2N 次查询 → 2 次）。
+    // 消费次数只参与首单折扣判定，同一请求内本来就是同一个值，语义不变。
     const resolutions = await Promise.all(
       lines.map((line) =>
         this.clubOrderPromotionsService.resolvePricing(
           storeId,
           customerId,
           line.unitAmountFen,
-          { skipReduce: true },
+          { skipReduce: true, context },
         ),
       ),
     );
@@ -121,6 +140,7 @@ export class ClubMarketingPreviewService {
       await this.clubOrderPromotionsService.resolveOrderReduceDetail(
         storeId,
         competition.beforeReduceAmountFen,
+        context?.promotions,
       );
     const orderDiscountAmountFen = reduceDetail.totalReduceFen;
     const payableAmountFen = Math.max(

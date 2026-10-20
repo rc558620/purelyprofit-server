@@ -117,9 +117,13 @@ describe('SpaceSessionWriteService 规格落库', () => {
         ),
     };
     const specPricingService = { price: jest.fn() };
+    const cacheInvalidatorService = {
+      invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new SpaceSessionWriteService(
       prismaService as unknown as PrismaService,
       specPricingService as unknown as ProductSpecPricingService,
+      cacheInvalidatorService as never,
     );
     const deps = {
       ensureCanAccessStore: jest.fn().mockResolvedValue(undefined),

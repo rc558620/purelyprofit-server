@@ -11,7 +11,6 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
-import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
@@ -45,7 +44,6 @@ export class ClubScanOrderingOrderService {
     private readonly prisma: PrismaService,
     private readonly quotaService: ClubNewCustomerQuotaService,
     private readonly unpaidOrderClosureService: ScanOrderingUnpaidOrderClosureService,
-    private readonly pricingVersionService: ScanOrderingPricingVersionService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly cartPricingService: ClubScanOrderingCartPricingService,
     private readonly checkoutService: ClubScanOrderingCheckoutService,
@@ -105,16 +103,16 @@ export class ClubScanOrderingOrderService {
     // 额度按门店独立计算：在别家店扣过不影响本店判定，本店扣过才算老客。
     await this.quotaService.assertAvailableForOrder(session.storeId, user.id);
 
-    const pricedItems = await this.cartPricingService.priceCart(
-      session.id,
-      session.storeId,
-    );
+    // 定价与定价版本共用一次取数（省掉版本计算的重复查询）
+    const { items: pricedItems, pricingVersion } =
+      await this.cartPricingService.priceCartWithPricingVersion(
+        session.id,
+        session.storeId,
+      );
     const cartVersion = this.cartPricingService.cartVersion(pricedItems);
     if (cartVersion !== dto.cartVersion) {
       throw new ConflictException('购物车已更新，请刷新后重新确认订单');
     }
-    const pricingVersion =
-      await this.pricingVersionService.computePricingVersion(session.id);
     if (dto.pricingVersion !== pricingVersion) {
       throw new ConflictException('订单价格已变化，请重新确认订单');
     }
@@ -257,31 +255,16 @@ export class ClubScanOrderingOrderService {
       this.logger.log(
         `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
       );
-      // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置单独查一次并静默降级，
-      // 查询失败不阻塞下单主流程与实时通知（通知退化为仅展示商品摘要与金额）
-      let tableName: string | null = null;
-      let locationLabel: string | null = null;
-      if (session.tableId) {
-        try {
-          const table = await this.prisma.scanOrderingTable.findUnique({
-            where: { id: session.tableId },
-            select: {
-              name: true,
-              area: { select: { name: true } },
-              type: { select: { name: true } },
-            },
-          });
-          tableName = table?.name ?? null;
-          // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
-          locationLabel =
-            [table?.area?.name, table?.type?.name, table?.name]
-              .filter((value): value is string => Boolean(value?.trim()))
-              .join(' · ') || null;
-        } catch {
-          tableName = null;
-          locationLabel = null;
-        }
-      }
+      // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置已由 requireSession
+      // 一并查出，桌台缺失时静默降级（仅展示商品摘要与金额）
+      const table = session.table;
+      const tableName = table?.name ?? null;
+      // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
+      const locationLabel = table
+        ? [table.area?.name, table.type?.name, table.name]
+            .filter((value): value is string => Boolean(value?.trim()))
+            .join(' · ') || null
+        : null;
       this.realtimeService.publishOrderCreated({
         storeId: session.storeId,
         orderId: result.id,
@@ -430,6 +413,18 @@ export class ClubScanOrderingOrderService {
         status: 'active',
         expiresAt: { gt: new Date() },
         deletedAt: null,
+      },
+      // 带上桌台及其区域/类型：下单成功后的实时通知要拼「区域 · 类型 · 桌位」，
+      // 随会话一次查出，省掉提交后再补查 scanOrderingTable 的那一次往返
+      // （通知是 fire-and-forget，查询本不该卡在关键路径上）。
+      include: {
+        table: {
+          select: {
+            name: true,
+            area: { select: { name: true } },
+            type: { select: { name: true } },
+          },
+        },
       },
     });
     if (!session?.tableId)

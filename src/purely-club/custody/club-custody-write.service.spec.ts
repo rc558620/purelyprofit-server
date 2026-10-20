@@ -74,7 +74,7 @@ const buildService = (
     findMemberId: jest.fn().mockResolvedValue(MEMBER_ID),
   };
   const custodyCodeService = {
-    invalidateSummaryCache: jest.fn().mockResolvedValue(undefined),
+    invalidateAfterWrite: jest.fn().mockResolvedValue(undefined),
   };
   const auditLogService = { record: jest.fn() };
   const realtimeService = {

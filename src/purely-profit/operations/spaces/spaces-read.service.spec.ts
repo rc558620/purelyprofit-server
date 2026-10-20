@@ -8,6 +8,7 @@ import { SpaceSessionReadService } from './space-session-read.service';
 import { aValidDate } from '../../../spec-matchers';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpacesReadService } from './spaces-read.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 
 type SpaceRecord = {
   id: number;
@@ -47,6 +48,14 @@ describe('SpacesReadService', () => {
 
   const commerceAccessService = {
     resolveViewStoreId: jest.fn(),
+  };
+
+  // 缓存 mock：直接透传 loadValue，模拟「缓存未命中走回源」
+  const refreshableCacheService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
   };
 
   const user: AuthenticatedUser = {
@@ -111,6 +120,10 @@ describe('SpacesReadService', () => {
         SpacesReadService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: RefreshableCacheService,
+          useValue: refreshableCacheService,
+        },
       ],
     }).compile();
 
@@ -285,13 +298,8 @@ describe('SpaceSessionReadService 状态修复', () => {
   });
 
   it('getSpaceSessionDetail 直接返回当前会话详情', async () => {
-    // P3 fix: getSpaceSessionDetail 改为先鉴权后查询，第一步用 findFirst 取轻量元数据
+    // 性能优化：存在性检查与完整加载合并为一次 findFirst（带完整 include）
     prismaService.spaceSession.findFirst.mockResolvedValueOnce({
-      id: 9,
-      storeId: 18,
-    });
-
-    prismaService.spaceSession.findUnique.mockResolvedValueOnce({
       id: 9,
       storeId: 18,
       spaceId: 7,
@@ -331,7 +339,8 @@ describe('SpaceSessionReadService 状态修复', () => {
 
     const result = await service.getSpaceSessionDetail(user, 9);
 
-    expect(prismaService.spaceSession.findUnique).toHaveBeenCalledTimes(1);
+    expect(prismaService.spaceSession.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaService.spaceSession.findUnique).not.toHaveBeenCalled();
     expect(result.status).toBe('active');
     expect(result.orderId).toBeUndefined();
   });

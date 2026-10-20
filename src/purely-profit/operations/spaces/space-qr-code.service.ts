@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import {
   Injectable,
   InternalServerErrorException,
@@ -172,20 +173,58 @@ export class SpaceQrCodeService implements OnModuleInit {
   }> {
     const space = await this.getAccessibleSpace(user, spaceId);
 
-    const token = randomUUID();
-    const qrCode = await this.prisma.spaceQrCode.upsert({
+    // 读路径不写库：已存在直接读密文；不存在才补建（历史空间建码遗漏的兜底）。
+    // 旧实现用 upsert(update: {})，行已存在时仍会执行 SELECT + UPDATE
+    // （还会推 updated_at），预览/下载这类高频读操作不应产生写放大。
+    const qrCode = await this.findOrCreateQrCodeCiphertext(space);
+
+    return { token: this.restoreToken(qrCode), space };
+  }
+
+  /**
+   * 读取空间码密文；缺失时补建一条（token 只进内存，不出现在返回值里）。
+   *
+   * 并发补建用 P2002（spaceId 唯一约束）兜底：输掉竞争的一方回读已建行，
+   * 不会重复建码，也不会让已印物料失效。
+   */
+  private async findOrCreateQrCodeCiphertext(space: {
+    id: number;
+    storeId: number;
+  }): Promise<string | null> {
+    const existing = await this.prisma.spaceQrCode.findUnique({
       where: { spaceId: space.id },
-      create: {
-        spaceId: space.id,
-        storeId: space.storeId,
-        ...buildSpaceQrTokenSecrets(token, this.readTokenKeyConfig()),
-      },
-      // 已存在的行不动：预览 / 下载**不会**轮换 token，否则已印物料会凭空失效
-      update: {},
       select: { tokenCiphertext: true },
     });
 
-    return { token: this.restoreToken(qrCode.tokenCiphertext), space };
+    if (existing) {
+      return existing.tokenCiphertext;
+    }
+
+    const token = randomUUID();
+    try {
+      const created = await this.prisma.spaceQrCode.create({
+        data: {
+          spaceId: space.id,
+          storeId: space.storeId,
+          ...buildSpaceQrTokenSecrets(token, this.readTokenKeyConfig()),
+        },
+        select: { tokenCiphertext: true },
+      });
+      return created.tokenCiphertext;
+    } catch (error) {
+      const isDuplicate =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002';
+      if (!isDuplicate) {
+        throw error;
+      }
+
+      const raced = await this.prisma.spaceQrCode.findUnique({
+        where: { spaceId: space.id },
+        select: { tokenCiphertext: true },
+      });
+      return raced?.tokenCiphertext ?? null;
+    }
   }
 
   /**

@@ -528,6 +528,108 @@ describe('ClubRechargeService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  // Bug 6 修复：建档排在套餐校验之后。此前选到不存在的套餐也会先建 / 认领顾客档案，
+  // 下单失败却留下一条孤儿 marketingCustomer。
+  it('createOrder 在套餐不存在时不建顾客档案也不建草稿', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+
+    await expect(
+      service.createOrder(currentContext, { storeId: 11, packageId: '404' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prismaService.marketingCustomer.findFirst).not.toHaveBeenCalled();
+    expect(prismaService.marketingCustomer.update).not.toHaveBeenCalled();
+    expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
+  });
+
+  // Bug 1 修复：前端不下发 openid，服务端从微信用户的占位手机号还原。
+  // 此前「无 openid + 关闭手动确认」直接抛 BadRequest，而生产环境必须关闭该开关，
+  // 导致生产每次点支付都失败。
+  it('createOrder 前端未传 openid 时从微信用户身份还原并正常 JSAPI 下单', async () => {
+    // 生产环境口径：手动确认已关闭
+    configService.get.mockImplementation((key: string) => {
+      const configMap: Record<string, boolean> = {
+        'club.manualConfirmPaidEnabled': false,
+      };
+      return configMap[key];
+    });
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({
+        id: 18,
+        name: '储值赠 20%',
+        description: '最受欢迎',
+        params: { rechargeAmount: 50000, giftRatio: 0.2 },
+      }),
+    ]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 66 });
+    clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue({
+      timeStamp: '1773556800',
+      nonceStr: 'wx-nonce',
+      package: 'prepay_id=club_RCWX123',
+      signType: 'RSA',
+      paySign: 'WX-SIGN',
+    });
+    const baseDraft = {
+      ...createRechargeDraft(),
+      id: 'RCWX123',
+      orderNo: 'RCWX123',
+      userId: 301,
+      phone: 'club_wechat:oOPENID123',
+      customerId: 66,
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(baseDraft);
+    clubOrderDraftsService.updateDraftPaymentParams.mockResolvedValue(baseDraft);
+
+    await expect(
+      service.createOrder(wechatCurrentContext, {
+        storeId: 11,
+        packageId: '18',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'RCWX123' }));
+
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openid: 'oOPENID123',
+        amountFen: 50000,
+      }),
+    );
+  });
+
+  // Bug 1 修复：手机号登录用户没有 openid 时不抛错，
+  // 与 service / 扫码点餐同口径 —— 草稿保留开发态兜底支付参数，由前端 confirm-paid 收口
+  it('createOrder 在拿不到 openid 时不抛错，草稿不带真实支付参数', async () => {
+    configService.get.mockImplementation((key: string) => {
+      const configMap: Record<string, boolean> = {
+        'club.manualConfirmPaidEnabled': false,
+      };
+      return configMap[key];
+    });
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
+
+    await expect(
+      service.createOrder(currentContext, {
+        storeId: 11,
+        packageId: 'default-500',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'RC123' }));
+
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).not.toHaveBeenCalled();
+    expect(
+      clubOrderDraftsService.updateDraftPaymentParams,
+    ).not.toHaveBeenCalled();
+    // 不带 paymentParams → createDraftPayload 生成开发态 mock 参数
+    const [createDraftParams] = clubOrderDraftsService.createDraft.mock
+      .calls[0] as [Record<string, unknown>];
+    expect(createDraftParams).not.toHaveProperty('paymentParams');
+  });
+
   it('getOrderStatus 返回充值订单状态', async () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(createRechargeDraft());
 

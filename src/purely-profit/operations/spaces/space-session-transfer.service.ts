@@ -7,6 +7,7 @@ import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type {
   TransferSpaceSessionDto,
   TransferSpaceSessionResponseDto,
@@ -21,6 +22,7 @@ export class SpaceSessionTransferService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly reservationsStateService: SpaceReservationsStateService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async transferSession(
@@ -306,6 +308,11 @@ export class SpaceSessionTransferService {
         sourceSpaceStatus,
       };
     });
+
+    // 换房同时改变源/目标两个空间的运行态与看板摘要
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      session.storeId,
+    );
 
     return {
       ok: true,

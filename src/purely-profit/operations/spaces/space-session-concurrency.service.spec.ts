@@ -6,6 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.write';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { aValidDate, aNonNegativeNumber } from '../../../spec-matchers';
 import { SpaceSessionWriteService } from './space-session-write.service';
 import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
@@ -52,6 +53,10 @@ describe('SpaceSession concurrency fixes', () => {
       releaseLock: jest.fn(),
     };
 
+    const cacheInvalidatorService = {
+      invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
+    };
+
     beforeEach(async () => {
       jest.clearAllMocks();
       prismaService.$transaction.mockImplementation((callback) =>
@@ -71,6 +76,10 @@ describe('SpaceSession concurrency fixes', () => {
           { provide: PrismaService, useValue: prismaService },
           { provide: CommerceAccessService, useValue: commerceAccessService },
           { provide: RedisLockService, useValue: redisLockService },
+          {
+            provide: CacheInvalidatorService,
+            useValue: cacheInvalidatorService,
+          },
         ],
       }).compile();
 
@@ -287,6 +296,10 @@ describe('SpaceSession concurrency fixes', () => {
       findOperatorStaffIdForStore: jest.fn(),
     };
 
+    const cacheInvalidatorService = {
+      invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
+    };
+
     beforeEach(async () => {
       jest.clearAllMocks();
       prismaService.$transaction.mockImplementation((callback) =>
@@ -304,6 +317,10 @@ describe('SpaceSession concurrency fixes', () => {
           SpaceSessionWriteService,
           { provide: PrismaService, useValue: prismaService },
           { provide: ProductSpecPricingService, useValue: specPricingService },
+          {
+            provide: CacheInvalidatorService,
+            useValue: cacheInvalidatorService,
+          },
         ],
       }).compile();
 

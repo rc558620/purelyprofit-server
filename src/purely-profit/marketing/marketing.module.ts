@@ -8,6 +8,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { NewCustomerQuotaModule } from '../member/new-customer-quota/new-customer-quota.module';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { MarketingAccessService } from './marketing-access.service';
 import {
   EntryQrPosterController,
@@ -72,6 +73,7 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingService,
     EntryQrPosterService,
     StoreInviteCodeService,
+    StoreInviteQrImageService,
     MarketingInviteCodeService,
     MarketingInviteQrIssueService,
     MarketingOverviewFacadeService,

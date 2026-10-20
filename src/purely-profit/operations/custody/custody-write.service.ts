@@ -20,11 +20,17 @@ import {
   CUSTODY_DISABLED_MESSAGE,
   CUSTODY_MEMBER_NOT_FOUND_MESSAGE,
   CUSTODY_ORDER_NOT_FOUND_MESSAGE,
-  CUSTODY_PRODUCT_NOT_FOUND_MESSAGE,
   CUSTODY_RESEND_REQUIRE_DRAFT_MESSAGE,
 } from './custody.constants';
-import { resolveExpireAt, type CustodyStockModeValue } from './custody.domain';
-import { mapCustodyOrder } from './custody.mapper';
+import {
+  resolveExpireAt,
+  type CustodyOperatorRole,
+  type CustodyStockModeValue,
+} from './custody.domain';
+import {
+  mapCustodyOrder,
+  type CustodyOrderMappingSource,
+} from './custody.mapper';
 import {
   createCustodyOrderRecord,
   findIdempotentOrder,
@@ -71,11 +77,15 @@ export class CustodyWriteService {
       throw new BadRequestException(CUSTODY_DISABLED_MESSAGE);
     }
 
-    const existing = await findIdempotentOrder(
-      this.prisma,
-      storeId,
-      dto.idempotencyKey,
-    );
+    /*
+     * 幂等查询与会员查询互不依赖，并行发掉省一次往返。
+     * 商品存在性不再在这里单独查：事务内的冻结校验会统一收口（两种口径都校验），
+     * 一次建单因此少两趟数据库。
+     */
+    const [existing, member] = await Promise.all([
+      findIdempotentOrder(this.prisma, storeId, dto.idempotencyKey),
+      this.findMember(storeId, dto.memberPhone),
+    ]);
     if (existing) {
       // 诊断：幂等命中直接重放已存在的单，不会再次推送。前端重复提交同一
       // idempotencyKey 时表现为「点了没反应、小程序毫无动静」，此前全链路无痕。
@@ -85,9 +95,6 @@ export class CustodyWriteService {
       );
       return this.replayExistingOrder(storeId, existing, now);
     }
-
-    const member = await this.findMember(storeId, dto.memberPhone);
-    await this.ensureProductExists(storeId, dto.productId);
 
     const staffId =
       await this.commerceAccessService.findOperatorStaffIdForStore(
@@ -126,7 +133,7 @@ export class CustodyWriteService {
     // 校验、落库、台账必须在同一事务内：并发建单否则会各自读到同一份可用库存并双双通过校验，
     // 台账也不能与占用动作分离，否则盘点时对不上。
     const order = await this.prisma.$transaction(async (tx) => {
-      await ensureCustodyFrozenStockAvailable(tx, input);
+      const stockContext = await ensureCustodyFrozenStockAvailable(tx, input);
       const created = await createCustodyOrderRecord(
         tx,
         input,
@@ -148,13 +155,19 @@ export class CustodyWriteService {
           afterRemainingQty: created.remainingQty,
           operatorStaffId: input.createdByStaffId,
           orderNo: created.orderNo,
+          // 用冻结校验已读到的物理库存，台账不再重读同一行
+          physicalStock: stockContext?.physicalStock ?? null,
           note: `客存存入占用 ${input.totalQty}${input.unit}（存单 ${created.orderNo}，物理库存未变动）`,
         });
       }
       return created;
     });
 
-    await this.custodyCodeService.invalidateSummaryCache(storeId);
+    // 草稿单会让会员侧「待确认」徽标变化，会员汇总缓存必须一并失效
+    await this.custodyCodeService.invalidateAfterWrite({
+      storeId,
+      memberId: input.member.memberId,
+    });
     this.logWrite('存入', user.id, storeId, {
       orderId: order.id,
       orderNo: order.orderNo,
@@ -174,13 +187,33 @@ export class CustodyWriteService {
       order: mapCustodyOrder(
         order,
         now,
-        await this.custodyReadService.resolveOperatorRole(
-          storeId,
-          order.createdByStaffId,
-        ),
+        await this.resolveCreatorRole(user, storeId, order.createdByStaffId),
       ),
       requireMemberConfirm,
     };
+  }
+
+  /**
+   * 回写响应时的经手角色：经手人是当前登录者时直接从登录态推导，不查库。
+   *
+   * 发起存入的经手人恒为当前登录者；但幂等重放命中的存单可能是别的店员建的，
+   * 那条路径回退到按员工档案解析，避免把别人的角色显示成自己的。
+   */
+  private async resolveCreatorRole(
+    user: AuthenticatedUser,
+    storeId: number,
+    createdByStaffId: number | null,
+  ): Promise<CustodyOperatorRole> {
+    if (createdByStaffId === null) {
+      return 'staff';
+    }
+    if (createdByStaffId === user.currentMembership?.staffId) {
+      return this.custodyReadService.resolveSelfRole(user, storeId);
+    }
+    return this.custodyReadService.resolveOperatorRole(
+      storeId,
+      createdByStaffId,
+    );
   }
 
   /** 作废：仅草稿 / 在存（含惰性过期）可作废，必须填写原因 */
@@ -263,24 +296,37 @@ export class CustodyWriteService {
       }
     });
 
-    const latest = await this.findOrder(storeId, orderId);
-    await this.custodyCodeService.invalidateSummaryCache(storeId);
+    /*
+     * 作废结果在本次请求内已完全确定（状态 / 作废人 / 时间 / 原因），
+     * 直接拼出映射入参，不必在事务后再回读同一行。
+     * 并发下真正改状态的那一次才记账，与重读拿到的结果一致。
+     */
+    const voided: CustodyOrderMappingSource = {
+      ...order,
+      status: 'void',
+      voidReason: dto.reason,
+    };
+    // 在存单量变化直接影响会员侧汇总，会员缓存与门店缓存一并失效
+    await this.custodyCodeService.invalidateAfterWrite({
+      storeId,
+      memberId: order.memberId,
+    });
     this.logWrite('作废', user.id, storeId, {
       orderId,
-      orderNo: latest.orderNo,
+      orderNo: voided.orderNo,
       before: { status: order.status, remainingQty: order.remainingQty },
-      after: { status: latest.status, reason: dto.reason },
+      after: { status: 'void', reason: dto.reason },
     });
     // 会员侧需知情：存单被作废后取件码全部失效
-    this.realtimePublisher.publishVoided(storeId, latest, dto.reason, now);
+    this.realtimePublisher.publishVoided(storeId, order, dto.reason, now);
 
     return {
       order: mapCustodyOrder(
-        latest,
+        voided,
         now,
         await this.custodyReadService.resolveOperatorRole(
           storeId,
-          latest.createdByStaffId,
+          order.createdByStaffId,
         ),
       ),
     };
@@ -368,22 +414,6 @@ export class CustodyWriteService {
       throw new NotFoundException(CUSTODY_MEMBER_NOT_FOUND_MESSAGE);
     }
     return member;
-  }
-
-  private async ensureProductExists(
-    storeId: number,
-    productId: number | undefined,
-  ): Promise<void> {
-    if (productId === undefined) {
-      return;
-    }
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, storeId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!product) {
-      throw new NotFoundException(CUSTODY_PRODUCT_NOT_FOUND_MESSAGE);
-    }
   }
 
   private async findOrder(storeId: number, orderId: number) {

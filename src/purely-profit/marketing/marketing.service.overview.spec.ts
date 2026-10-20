@@ -39,13 +39,6 @@ describe('MarketingService overview', () => {
     context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
     );
-    // F9: 活跃会员数以 marketing_consumptions 实时聚合为准（6 个不同 customerId）
-    context.prismaService.marketingConsumption.groupBy.mockResolvedValueOnce(
-      Array.from({ length: 6 }, (_, i) => ({
-        customerId: i + 1,
-        _count: { _all: 3 },
-      })),
-    );
     context.prismaService.marketingCustomer.aggregate.mockResolvedValue({
       _sum: { balance: 88000 },
     });
@@ -54,7 +47,11 @@ describe('MarketingService overview', () => {
       .mockResolvedValueOnce({ _sum: { totalAmount: 23000 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 55000 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(7);
+    // F9: 活跃会员数以 marketing_consumptions 实时聚合为准。
+    // COUNT(DISTINCT customer_id) 下推后走 $queryRaw，是本次请求的第 1 个原生查询，
+    // 其后依次是 30 日趋势、月度趋势。
     context.prismaService.$queryRaw
+      .mockResolvedValueOnce([{ activeMemberCount: 6 }])
       .mockResolvedValueOnce([
         { date: new Date('2026-05-14T00:00:00.000Z'), total: 12000 },
         { date: new Date('2026-05-15T00:00:00.000Z'), total: 8000 },
@@ -176,7 +173,9 @@ describe('MarketingService overview', () => {
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(0);
+    // 第 1 个原生查询：活跃会员数 COUNT(DISTINCT customer_id)
     context.prismaService.$queryRaw
+      .mockResolvedValueOnce([{ activeMemberCount: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     context.prismaService.marketingRecharge.findMany.mockResolvedValue([]);
@@ -207,7 +206,9 @@ describe('MarketingService overview', () => {
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(0);
+    // 第 1 个原生查询：活跃会员数 COUNT(DISTINCT customer_id)
     context.prismaService.$queryRaw
+      .mockResolvedValueOnce([{ activeMemberCount: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     context.prismaService.marketingRecharge.findMany.mockResolvedValue([]);

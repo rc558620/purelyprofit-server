@@ -50,9 +50,10 @@ describe('MarketingService recharges', () => {
           promotionName: '储值赠 20%',
           note: '活动储值',
           createdAt: new Date('2026-05-15T09:00:00.000Z'),
+          // 总数随分页一起由 COUNT(*) OVER() 取回，不再单独 count
+          _total: 1,
         },
       ]);
-    context.prismaService.marketingRecharge.count.mockResolvedValue(1);
 
     const result = await context.service.listCustomerRecharges(
       context.user,

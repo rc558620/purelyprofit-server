@@ -9,32 +9,37 @@ import type { InventoryTransactionClient } from './inventory.types';
  */
 export function createInventoryTransactionMock(): {
   transaction: InventoryTransactionClient;
-  productFindFirst: jest.Mock;
+  /** 批量读商品行（库存写路径统一入口） */
+  productFindMany: jest.Mock;
   productUpdate: jest.Mock;
   logCreate: jest.Mock;
+  /** 批量写库存调整日志（返回值被丢弃的批量变更路径） */
+  logCreateMany: jest.Mock;
   logFindMany: jest.Mock;
   logDeleteMany: jest.Mock;
   custodyOrderGroupBy: jest.Mock;
   queryRaw: jest.Mock;
 } {
-  const productFindFirst = jest.fn();
+  const productFindMany = jest.fn().mockResolvedValue([]);
   const productUpdate = jest.fn();
   const logCreate = jest.fn();
+  const logCreateMany = jest.fn().mockResolvedValue({ count: 0 });
   const logFindMany = jest.fn();
   const logDeleteMany = jest.fn();
   // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
   const custodyOrderGroupBy = jest.fn().mockResolvedValue([]);
-  // 行锁 SELECT ... FOR UPDATE
+  // 行锁 + 读库存合并后的 SELECT ... FOR UPDATE
   const queryRaw = jest.fn().mockResolvedValue([]);
 
   return {
     transaction: {
       product: {
-        findFirst: productFindFirst,
+        findMany: productFindMany,
         update: productUpdate,
       },
       inventoryAdjustmentLog: {
         create: logCreate,
+        createMany: logCreateMany,
         findMany: logFindMany,
         deleteMany: logDeleteMany,
       },
@@ -43,9 +48,10 @@ export function createInventoryTransactionMock(): {
       },
       $queryRaw: queryRaw,
     } as unknown as InventoryTransactionClient,
-    productFindFirst,
+    productFindMany,
     productUpdate,
     logCreate,
+    logCreateMany,
     logFindMany,
     logDeleteMany,
     custodyOrderGroupBy,

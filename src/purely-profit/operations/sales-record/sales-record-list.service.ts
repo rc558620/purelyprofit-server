@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { Money } from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -20,12 +19,12 @@ import {
 } from './sales-record-enrichment';
 import { mapSalesRecordResponse } from './sales-record.domain';
 import {
-  aggregateOrderStats,
   countSaleOrders,
   querySaleOrders,
   queryScanOrderingDetails,
   querySpaceSessionSpecDetails,
 } from './sales-record.query';
+import { SalesRecordStatsService } from './sales-record-stats.service';
 import {
   buildEmptySalesListResponse,
   buildSalesCurrentRange,
@@ -37,6 +36,7 @@ export class SalesRecordListService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+    private readonly salesRecordStatsService: SalesRecordStatsService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -71,12 +71,24 @@ export class SalesRecordListService {
       return buildEmptySalesListResponse(page, take);
     }
 
-    const orders = await querySaleOrders(this.prisma, {
+    // 分页数据、「总数」与「汇总」三者互不依赖，提前一并发出，
+    // 避免总查询耗时变成各查询串行累加。
+    const ordersPromise = querySaleOrders(this.prisma, {
       storeId,
       range: { start: range.start, end: range.end },
       skip,
       take,
     });
+    // 汇总（summary）复用 stats 接口的缓存结果：两者的周期解析、clampHistoryRange
+    // 与子账号作用域判定完全同源，可共享同一份缓存。常态命中缓存，
+    // 不必每次列表请求都对全店范围重做一遍 items/refunds 聚合。
+    const statsPromise = this.salesRecordStatsService.getCachedStats(
+      storeId,
+      query,
+      callerIsSubAccount,
+    );
+
+    const orders = await ordersPromise;
     // 收集扫码点餐订单 ID（仅餐饮账号的扫码订单存在，普通订单为空）
     const scanOrderIds = orders
       .map((order) => order.scanOrderId)
@@ -85,16 +97,13 @@ export class SalesRecordListService {
     const nonScanSaleOrderIds = orders
       .filter((order) => order.scanOrderId === null)
       .map((order) => order.id);
-    const [total, currentStats, scanOrderingDetails, spaceSessionSpecs] =
+    const [total, stats, scanOrderingDetails, spaceSessionSpecs] =
       await Promise.all([
         countSaleOrders(this.prisma, {
           storeId,
           range: { start: range.start, end: range.end },
         }),
-        aggregateOrderStats(this.prisma, storeId, {
-          start: range.start,
-          end: range.end,
-        }),
+        statsPromise,
         queryScanOrderingDetails(this.prisma, scanOrderIds),
         querySpaceSessionSpecDetails(this.prisma, nonScanSaleOrderIds),
       ]);
@@ -127,16 +136,12 @@ export class SalesRecordListService {
       );
     });
 
+    // 四个字段与 stats 接口同口径；列表侧不展示环比，故固定为 null
     const summary: SalesStatsResponseDto = {
-      totalRevenue: currentStats.totalRevenue,
-      totalProfit: currentStats.totalProfit,
-      orderCount: currentStats.orderCount,
-      avgOrderValue:
-        currentStats.orderCount > 0
-          ? Money.fromInputYuan(currentStats.totalRevenue)
-              .divide(currentStats.orderCount)
-              .toOutputYuan()
-          : 0,
+      totalRevenue: stats.totalRevenue,
+      totalProfit: stats.totalProfit,
+      orderCount: stats.orderCount,
+      avgOrderValue: stats.avgOrderValue,
       compareLastPeriod: null,
     };
 

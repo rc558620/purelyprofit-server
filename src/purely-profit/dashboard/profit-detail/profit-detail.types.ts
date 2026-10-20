@@ -53,6 +53,8 @@ export interface ProfitAccessibleRange extends ProfitDateRange {
 
 export const PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT =
   Prisma.validator<Prisma.SaleOrderItemSelect>()({
+    // 翻页游标需要主键（见 profit-detail.query 的 RowCursor），排序键为 (order.date, id)
+    id: true,
     productId: true,
     productName: true,
     categoryName: true,
@@ -83,6 +85,8 @@ export type SaleOrderItemRow = Prisma.SaleOrderItemGetPayload<{
 
 export const PROFIT_DETAIL_COST_RECORD_SELECT =
   Prisma.validator<Prisma.CostRecordSelect>()({
+    // 翻页游标需要主键（见 profit-detail.query 的 RowCursor），排序键为 (date, id)
+    id: true,
     category: true,
     amount: true,
     date: true,

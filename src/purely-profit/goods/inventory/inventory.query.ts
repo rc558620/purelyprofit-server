@@ -5,20 +5,21 @@ import type {
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
   InventoryProductPageResult,
+  InventoryProductRecord,
   InventoryProductStoreRecord,
-  InventoryStatsRow,
+  InventoryReportRow,
+  InventoryStatsAggregate,
   InventoryThresholdUpdateRecord,
 } from './inventory.types';
 
-export async function queryInventoryProducts(
-  prisma: PrismaService,
+/** 库存商品列表的公共过滤条件：门店 + 在售 + 分类 + 关键字 + 可下推的预警级别 */
+function buildInventoryProductWhere(
   storeId: number,
   query: InventoryProductListQueryInput,
-  pagination?: { skip: number; take: number },
-): Promise<InventoryProductPageResult> {
+): Prisma.ProductWhereInput {
   /* BUG-7: 将 alertLevel 过滤下推到数据库层，减少内存过滤 */
   const alertWhere = buildAlertWhereCondition(query.alertLevel);
-  const where: Prisma.ProductWhereInput = {
+  return {
     storeId,
     deletedAt: null,
     isActive: true,
@@ -43,6 +44,40 @@ export async function queryInventoryProducts(
       : {}),
     ...alertWhere,
   };
+}
+
+/** 报表导出专用字段：库存报表与 CSV 只用到这 4 列，不必拉整行 */
+const inventoryReportRowSelect = {
+  name: true,
+  category: true,
+  stock: true,
+  alertThreshold: true,
+} as const;
+
+/**
+ * 库存报表的轻量查询：与 queryInventoryProducts 同一过滤口径，只取报表实际用到的列。
+ *
+ * CSV 导出原本走 getReport，会把整行（含价格、图片、时间戳）全量拉出再只取 5 列；
+ * 大店导出时这部分行传输与内存占用都是纯浪费。
+ */
+export async function queryInventoryReportRows(
+  prisma: PrismaService,
+  storeId: number,
+  query: InventoryProductListQueryInput,
+): Promise<InventoryReportRow[]> {
+  return prisma.product.findMany({
+    where: buildInventoryProductWhere(storeId, query),
+    select: inventoryReportRowSelect,
+  });
+}
+
+export async function queryInventoryProducts(
+  prisma: PrismaService,
+  storeId: number,
+  query: InventoryProductListQueryInput,
+  pagination?: { skip: number; take: number },
+): Promise<InventoryProductPageResult> {
+  const where = buildInventoryProductWhere(storeId, query);
 
   /*
    * D4/D8 修复：
@@ -192,20 +227,138 @@ export async function updateInventoryAlertThresholdRecord(
   });
 }
 
-export async function queryInventoryStatsRows(
+/** 库存概况聚合行：$queryRaw 下 COUNT/SUM 为 bigint，需显式转 number */
+interface InventoryStatsAggregateRow {
+  totalSkuCount: bigint | number;
+  dangerCount: bigint | number;
+  warningCount: bigint | number;
+  normalCount: bigint | number;
+  totalStockValueCents: bigint | number | null;
+}
+
+/** raw 查询返回的库存商品行：列名与 products 表一致，仅做 snake_case → camelCase 别名 */
+interface InventoryAlertProductRow {
+  id: number;
+  name: string;
+  category: string;
+  code: string;
+  price: number;
+  profit: number;
+  costPrice: number | null;
+  unit: string;
+  stock: number;
+  alertThreshold: number;
+  image: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 转义 ILIKE 通配符，与 Prisma `contains` 的转义口径一致（反斜杠为转义符）。
+ *
+ * 不转义的话，搜索「50%」「A_B」会被当成通配符，与分页接口的 Prisma 查询行为不一致。
+ */
+function escapeLikePattern(keyword: string): string {
+  return keyword.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * 预警商品查询：把「stock <= alert_threshold」这类跨字段比较下推到数据库。
+ *
+ * Prisma 无法表达列与列的比较，原来只能把全店在售商品拉回内存再过滤，
+ * SKU 越多浪费越大；这里用 raw SQL 直接过滤，只返回预警行。
+ *
+ * 口径与 inventory.domain 的 resolveInventoryAlertLevel 对齐：
+ * - alertOnly：stock <= alert_threshold（含 stock <= 0 的 danger 行）
+ * - warning：0 < stock <= alert_threshold
+ * danger 档（stock <= 0）Prisma 已能下推，仍走 queryInventoryProducts。
+ */
+export async function queryInventoryAlertProducts(
+  prisma: PrismaService,
+  params: {
+    storeId: number;
+    keyword?: string;
+    category?: string;
+    mode: 'alertOnly' | 'warning';
+  },
+): Promise<InventoryProductRecord[]> {
+  const keyword = params.keyword?.trim();
+  const keywordPattern = keyword ? `%${escapeLikePattern(keyword)}%` : null;
+  // alertOnly 要带上 stock <= 0 的 danger 行；warning 档要求库存尚未耗尽
+  const includeDanger = params.mode === 'alertOnly';
+
+  return prisma.$queryRaw<InventoryAlertProductRow[]>`
+    SELECT
+      id,
+      name,
+      category,
+      code,
+      price,
+      profit,
+      cost_price AS "costPrice",
+      unit,
+      stock,
+      alert_threshold AS "alertThreshold",
+      image,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM products
+    WHERE store_id = ${params.storeId}
+      AND deleted_at IS NULL
+      AND is_active = true
+      AND stock <= alert_threshold
+      AND (${includeDanger}::boolean OR stock > 0)
+      AND (${params.category ?? null}::text IS NULL OR category = ${params.category ?? null})
+      AND (
+        ${keywordPattern}::text IS NULL
+        OR name ILIKE ${keywordPattern} ESCAPE '\'
+        OR code ILIKE ${keywordPattern} ESCAPE '\'
+      )
+  `;
+}
+
+/**
+ * 库存概况统计：一次聚合算完全部指标，返回单行。
+ *
+ * 原实现把全店在售商品的 stock / alertThreshold / costPrice 全部拉回内存再数一遍，
+ * 行传输与序列化随 SKU 数线性增长；这里连预警分级一起在库内算完——
+ * 分级口径与 inventory.domain 的 resolveInventoryAlertLevel 严格一致
+ * （danger: stock <= 0；warning: 0 < stock <= 阈值；其余 normal），
+ * 金额沿用 buildInventoryStats 的整数「分」口径，避免浮点累加误差。
+ */
+export async function queryInventoryStatsAggregate(
   prisma: PrismaService,
   storeId: number,
-): Promise<InventoryStatsRow[]> {
-  return prisma.product.findMany({
-    where: {
-      storeId,
-      deletedAt: null,
-      isActive: true,
-    },
-    select: {
-      stock: true,
-      alertThreshold: true,
-      costPrice: true,
-    },
-  });
+): Promise<InventoryStatsAggregate> {
+  const rows = await prisma.$queryRaw<InventoryStatsAggregateRow[]>`
+    SELECT
+      COUNT(*)::int AS "totalSkuCount",
+      COUNT(*) FILTER (WHERE stock <= 0)::int AS "dangerCount",
+      COUNT(*) FILTER (WHERE stock > 0 AND stock <= alert_threshold)::int AS "warningCount",
+      COUNT(*) FILTER (WHERE stock > alert_threshold)::int AS "normalCount",
+      COALESCE(SUM(stock::bigint * cost_price), 0)::bigint AS "totalStockValueCents"
+    FROM products
+    WHERE store_id = ${storeId}
+      AND deleted_at IS NULL
+      AND is_active = true
+  `;
+
+  const row = rows[0];
+  if (!row) {
+    return {
+      totalSkuCount: 0,
+      dangerCount: 0,
+      warningCount: 0,
+      normalCount: 0,
+      totalStockValueCents: 0,
+    };
+  }
+
+  return {
+    totalSkuCount: Number(row.totalSkuCount),
+    dangerCount: Number(row.dangerCount),
+    warningCount: Number(row.warningCount),
+    normalCount: Number(row.normalCount),
+    totalStockValueCents: Number(row.totalStockValueCents ?? 0),
+  };
 }

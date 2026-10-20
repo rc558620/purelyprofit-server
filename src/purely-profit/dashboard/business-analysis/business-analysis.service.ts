@@ -27,7 +27,10 @@ import {
   buildBusinessAnalysisResponse,
   buildEmptyAnalysisResponse,
 } from './business-analysis.mapper';
-import { fetchBusinessAnalysisMetrics } from './business-analysis.query';
+import {
+  fetchBusinessAnalysisMetrics,
+  fetchBusinessAnalysisRank,
+} from './business-analysis.query';
 import {
   getPreviousRange,
   resolveCurrentRange,
@@ -225,12 +228,12 @@ export class BusinessAnalysisService {
     user: AuthenticatedUser,
     query: GetBusinessAnalysisQueryDto,
   ): Promise<void> {
-    const report = await this.getAnalysis(user, query);
+    const rankProducts = await this.buildRankProducts(user, query);
     safeStreamCsvExport(
       reply,
       'business-analysis.csv',
       ['商品名称', '分类', '利润率(%)', '总利润', '总收入', '销量'],
-      report.rankProducts.map((row) => [
+      rankProducts.map((row) => [
         row.name,
         row.category,
         row.profitRate,
@@ -239,5 +242,76 @@ export class BusinessAnalysisService {
         row.quantity,
       ]),
     );
+  }
+
+  /**
+   * 只算商品利润排行，供 CSV 导出使用。
+   *
+   * 导出只用到 rankProducts，此前复用 getAnalysis 会连带跑完汇总/趋势/品类/成本
+   * 等全部查询；这里只发一条排行查询。导出权限门控保持与 getAnalysisByStoreId
+   * 一致（export 标记必须过套餐导出校验），且同样不命中缓存、导出实时数据。
+   */
+  private async buildRankProducts(
+    user: AuthenticatedUser,
+    query: GetBusinessAnalysisQueryDto,
+  ) {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      query.storeId,
+      'report:view',
+      '无权查看该门店经营分析',
+    );
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
+
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+        callerIsSubAccount,
+      );
+    }
+
+    const rawCurrentRange = resolveCurrentRange(query);
+    const windowClampedCurrentRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        rawCurrentRange,
+        callerIsSubAccount,
+      );
+
+    if (windowClampedCurrentRange.empty) {
+      return [];
+    }
+
+    // 与正式分析路径保持同一窗口口径
+    const effectiveCurrentRange = clampRangeToMaxTrendDays(
+      windowClampedCurrentRange,
+    );
+    const rankSort: BusinessAnalysisRankSort =
+      query.rankSort ?? DEFAULT_BUSINESS_ANALYSIS_RANK_SORT;
+    const rankRows = await fetchBusinessAnalysisRank(
+      this.prisma,
+      storeId,
+      effectiveCurrentRange,
+      rankSort,
+    );
+
+    // 复用正式响应的排行格式化逻辑，保证与页面展示口径完全一致
+    const response = buildBusinessAnalysisResponse({
+      currentRange: effectiveCurrentRange,
+      currentSales: buildSalesAggregation({
+        revenue: 0,
+        profit: 0,
+        orderCount: 0,
+        dailyRows: [],
+        categoryRows: [],
+        rankRows,
+      }),
+      previousSales: createEmptySalesAggregation(),
+      currentCosts: createEmptyCostAggregation(),
+      previousCosts: createEmptyCostAggregation(),
+    });
+
+    return response.rankProducts;
   }
 }

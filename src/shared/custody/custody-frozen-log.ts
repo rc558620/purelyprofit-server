@@ -27,6 +27,11 @@ export interface CustodyFrozenLogParams {
   operatorStaffId: number | null;
   orderNo: string;
   note: string;
+  /**
+   * 已读到的物理库存。冻结校验与台账在同一事务内顺序发生，
+   * 传值即可让台账省掉对同一商品行的一次重读；不传则自行回源。
+   */
+  physicalStock?: number | null;
 }
 
 async function writeFrozenLedgerLog(
@@ -36,12 +41,17 @@ async function writeFrozenLedgerLog(
   delta: number,
 ): Promise<void> {
   // 带门店条件查询：避免跨店商品 ID 撞号时把台账记到别家门店
-  const product = await client.product.findFirst({
-    where: { id: params.productId, storeId: params.storeId, deletedAt: null },
-    select: { stock: true },
-  });
-  if (!product) {
-    return;
+  // 若调用方已在同事务内读过该商品行（冻结校验），直接复用，不再重读
+  let physicalStock = params.physicalStock;
+  if (physicalStock === null || physicalStock === undefined) {
+    const product = await client.product.findFirst({
+      where: { id: params.productId, storeId: params.storeId, deletedAt: null },
+      select: { stock: true },
+    });
+    if (!product) {
+      return;
+    }
+    physicalStock = product.stock;
   }
 
   await client.inventoryAdjustmentLog.create({
@@ -50,8 +60,8 @@ async function writeFrozenLedgerLog(
       productId: params.productId,
       operatorStaffId: params.operatorStaffId,
       productName: params.productName,
-      beforeStock: product.stock - params.beforeRemainingQty,
-      afterStock: product.stock - params.afterRemainingQty,
+      beforeStock: physicalStock - params.beforeRemainingQty,
+      afterStock: physicalStock - params.afterRemainingQty,
       delta,
       adjustType,
       note: params.note,

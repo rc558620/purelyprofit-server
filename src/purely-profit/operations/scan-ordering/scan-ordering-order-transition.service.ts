@@ -15,6 +15,7 @@ import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingSaleOrderBridgeService } from '../../../purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { ScanOrderingOrderStockService } from './scan-ordering-order-stock.service';
 import { ORDER_TRANSITION_SELECT } from './scan-ordering.types';
 import type { TransitionedOrderSnapshot } from './scan-ordering.types';
@@ -52,6 +53,7 @@ export class ScanOrderingOrderTransitionEngineService {
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
     private readonly orderStockService: ScanOrderingOrderStockService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /**
@@ -146,6 +148,10 @@ export class ScanOrderingOrderTransitionEngineService {
           user,
         ),
     });
+    // 上述事务内已由 Bridge 创建销售单（SaleOrder）：写链路因传入 transactionClient
+    // 不会自清缓存；此处是该链路唯一的销售单创建点，不在事务提交后失效的话，
+    // 销售列表/报表要多留一个缓存 TTL 才看得到这笔订单。
+    await this.cacheInvalidatorService.invalidateSalesDerived(storeId);
     this.publishStatusChanged(updatedOrder, pickupVoiceEnabled);
   }
 

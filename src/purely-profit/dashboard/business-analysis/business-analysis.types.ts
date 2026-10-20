@@ -78,6 +78,25 @@ export interface BusinessAnalysisRankRow {
   image: string | null;
 }
 
+/**
+ * 日趋势与品类分布由同一条 GROUPING SETS 查询返回，共用一次表扫描。
+ * 日趋势行：bucketAt 有值、categoryName 为 NULL；品类行反之。
+ */
+export interface BusinessAnalysisSalesGroupedRow {
+  bucketAt: Date | null;
+  categoryName: string | null;
+  revenue: number;
+  profit: number;
+  quantity: number;
+}
+
+/** 成本日趋势与成本构成同样由一条 GROUPING SETS 查询返回 */
+export interface BusinessAnalysisCostGroupedRow {
+  bucketAt: Date | null;
+  category: string | null;
+  amount: number;
+}
+
 export interface BusinessAnalysisCostSummaryRow {
   currentTotalCost: number;
   previousTotalCost: number;

@@ -2,6 +2,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CustodyCodeService } from '../../shared/custody/custody-code.service';
 import { resolveCustodyMemberId } from '../../shared/custody/custody-member.resolver';
 import type { CustodyListParams } from '../../purely-profit/operations/custody/custody.types';
 import {
@@ -26,11 +27,27 @@ import type {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * 会员汇总缓存载荷。
+ *
+ * 汇总会随时间漂移（存单惰性过期 / 进入临期窗口），因此与门店统计一样
+ * 必须记下「口径有效截止时间」，越过即重算。
+ */
+interface ClubSummaryCachePayload {
+  /** 聚合结果 */
+  summary: ClubCustodySummaryDto;
+  /** 口径有效截止时间（ISO 字符串）；null 表示永不漂移 */
+  validUntil: string | null;
+}
+
 @Injectable()
 export class ClubCustodyReadService {
   private readonly logger = new Logger(ClubCustodyReadService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly custodyCodeService: CustodyCodeService,
+  ) {}
 
   /** 会员在当前门店的会员档案 ID（找不到返回 null，对应未登记会员） */
   findMemberId(context: ClubCurrentContext): Promise<number | null> {
@@ -138,59 +155,145 @@ export class ClubCustodyReadService {
       : { status: { notIn: ['draft', 'void'] } };
   }
 
-  /** 会员维度汇总：在存单量 / 已取件数 / 临期单量 */
+  /**
+   * 会员维度汇总：优先读缓存，未命中或口径已失效则聚合后回写。
+   *
+   * 与门店统计同理：汇总会随时间漂移（存单越过到期时间变成已到期、
+   * 或进入临期窗口），缓存因此必须带上「口径有效截止时间」，
+   * 否则会出现「汇显示在存 2 件、我的客存列表此刻只有 1 条」的对不上账。
+   */
   private async getSummary(
     storeId: number,
     memberId: number,
     now: Date,
   ): Promise<ClubCustodySummaryDto> {
+    const cached =
+      await this.custodyCodeService.readMemberSummary<ClubSummaryCachePayload>(
+        storeId,
+        memberId,
+      );
+    if (cached) {
+      const stillValid =
+        cached.validUntil === null || now < new Date(cached.validUntil);
+      if (stillValid) {
+        return cached.summary;
+      }
+    }
+
+    const aggregated = await this.aggregateSummary(storeId, memberId, now);
+    await this.custodyCodeService.writeMemberSummary(storeId, memberId, {
+      summary: aggregated.summary,
+      validUntil:
+        aggregated.validUntil === null
+          ? null
+          : aggregated.validUntil.toISOString(),
+    } satisfies ClubSummaryCachePayload);
+    return aggregated.summary;
+  }
+
+  /** 会员维度汇总聚合：在存单量 / 待确认量 / 临期单量 / 已取件数 */
+  private async aggregateSummary(
+    storeId: number,
+    memberId: number,
+    now: Date,
+  ): Promise<{
+    summary: ClubCustodySummaryDto;
+    validUntil: Date | null;
+  }> {
     const expiringEdge = new Date(
       now.getTime() + CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
     );
-    const [storedCount, pendingCount, expiringCount, pickedAgg] =
-      await Promise.all([
-        this.prisma.custodyOrder.count({
-          where: {
-            storeId,
-            memberId,
-            deletedAt: null,
-            status: 'stored',
-            OR: [{ expireAt: null }, { expireAt: { gt: now } }],
-          },
-        }),
-        // 待确认总数：草稿不进主列表 Tab，徽标必须走独立计数而非预览数组长度
-        this.prisma.custodyOrder.count({
-          where: {
-            storeId,
-            memberId,
-            deletedAt: null,
-            status: 'draft',
-          },
-        }),
-        this.prisma.custodyOrder.count({
-          where: {
-            storeId,
-            memberId,
-            deletedAt: null,
-            status: 'stored',
-            expireAt: { gt: now, lte: expiringEdge },
-          },
-        }),
-        this.prisma.custodyPickup.aggregate({
-          where: {
-            storeId,
-            deletedAt: null,
-            custodyOrder: { memberId, deletedAt: null },
-          },
-          _sum: { qty: true },
-        }),
-      ]);
+    const activeStoredWhere = {
+      storeId,
+      memberId,
+      deletedAt: null,
+      status: 'stored' as const,
+      OR: [{ expireAt: null }, { expireAt: { gt: now } }],
+    };
+    /*
+     * 在存单量与最近的到期临界点同条件，合并成一次 aggregate（count + min），
+     * 少一条几乎一样的 SQL。
+     */
+    const [
+      storedAgg,
+      pendingCount,
+      expiringCount,
+      pickedAgg,
+      nextEnteringWindow,
+    ] = await Promise.all([
+      this.prisma.custodyOrder.aggregate({
+        where: activeStoredWhere,
+        _count: { _all: true },
+        _min: { expireAt: true },
+      }),
+      // 待确认总数：草稿不进主列表 Tab，徽标必须走独立计数而非预览数组长度
+      this.prisma.custodyOrder.count({
+        where: {
+          storeId,
+          memberId,
+          deletedAt: null,
+          status: 'draft',
+        },
+      }),
+      this.prisma.custodyOrder.count({
+        where: {
+          storeId,
+          memberId,
+          deletedAt: null,
+          status: 'stored',
+          expireAt: { gt: now, lte: expiringEdge },
+        },
+      }),
+      this.prisma.custodyPickup.aggregate({
+        where: {
+          storeId,
+          deletedAt: null,
+          custodyOrder: { memberId, deletedAt: null },
+        },
+        _sum: { qty: true },
+      }),
+      // 最近的「进入临期窗口」临界点
+      this.prisma.custodyOrder.findFirst({
+        where: {
+          storeId,
+          memberId,
+          deletedAt: null,
+          status: 'stored',
+          expireAt: { gt: expiringEdge },
+        },
+        orderBy: { expireAt: 'asc' },
+        select: { expireAt: true },
+      }),
+    ]);
+
+    /*
+     * 汇总随时间漂移有两个来源，各自对应一个临界时间点：
+     * 1. 在存单越过 expireAt → 跌出 storedCount；
+     * 2. 存单进入临期窗口（expireAt − 临期阈值）→ expiringCount 加一。
+     * 取两个临界点中最早的那个作为口径有效截止时间；都没有则永不漂移。
+     */
+    const boundaries: number[] = [];
+    const nextExpiring = storedAgg._min.expireAt;
+    if (nextExpiring) {
+      boundaries.push(nextExpiring.getTime());
+    }
+    if (nextEnteringWindow?.expireAt) {
+      boundaries.push(
+        nextEnteringWindow.expireAt.getTime() -
+          CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
+      );
+    }
+    const validUntil =
+      boundaries.length === 0 ? null : new Date(Math.min(...boundaries));
 
     return {
-      storedCount,
-      expiringCount,
-      pendingCount,
-      pickedCount: pickedAgg._sum.qty ?? 0,
+      summary: {
+        storedCount: storedAgg._count._all,
+        expiringCount,
+        pendingCount,
+        pickedCount: pickedAgg._sum.qty ?? 0,
+      },
+      validUntil,
     };
   }
 }

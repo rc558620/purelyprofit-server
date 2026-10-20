@@ -838,4 +838,40 @@ describe('ProductsService', () => {
       }),
     ).rejects.toThrow(new BadRequestException('售价必须大于 0'));
   });
+
+  /*
+   * 规格重建会漂移 specGroup/option 的 ID，create/update 的返回值里带的是落库前的快照，
+   * 必须重查一次才能回给前端正确的 ID。
+   */
+  it('update 在规格发生变更时会重查商品返回最新规格', async () => {
+    const { response } = setupUpdateMocks();
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    syncServiceMock.syncSpecifications.mockResolvedValue(true);
+    mockedFindProductById.mockResolvedValue(
+      createProductRecordFixture({ code: 'SKU-002' }),
+    );
+
+    await expect(service.update(user, 11, { specGroups: [] })).resolves.toEqual(
+      response,
+    );
+
+    // 一次是 update 前置校验，一次是规格变更后的刷新
+    expect(mockedFindProductById).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * 规格未变更时 update 的返回值已按 productSelect 带上规格快照，
+   * 再查一次纯属浪费（还带着三层嵌套 join）。
+   */
+  it('update 在规格未变更时跳过刷新查询', async () => {
+    const { response } = setupUpdateMocks();
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    syncServiceMock.syncSpecifications.mockResolvedValue(false);
+
+    await expect(service.update(user, 11, { specGroups: [] })).resolves.toEqual(
+      response,
+    );
+
+    expect(mockedFindProductById).toHaveBeenCalledTimes(1);
+  });
 });

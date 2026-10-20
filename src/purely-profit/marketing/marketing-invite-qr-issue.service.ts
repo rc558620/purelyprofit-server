@@ -9,9 +9,9 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   assertUsableStoreInviteQrPayload,
-  buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
 } from '../stores/store-invite-code-qr.utils';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { MarketingSharedService } from './marketing-shared.service';
 import type {
   CreateMarketingInviteQrIssueDto,
@@ -25,6 +25,7 @@ export class MarketingInviteQrIssueService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly marketingSharedService: MarketingSharedService,
+    private readonly inviteQrImageService: StoreInviteQrImageService,
   ) {}
 
   /** 创建一张渠道二维码（绑定当前有效邀请码）。 */
@@ -95,7 +96,10 @@ export class MarketingInviteQrIssueService {
       ...(query.status ? { status: query.status } : {}),
     };
 
-    const [records, total] = await this.prisma.$transaction([
+    // 两个查询都是纯读、互不依赖，包进 $transaction 只是白付 BEGIN + COMMIT
+    // 两次往返（隔离性对读操作没有意义）。仓内 sms-broadcast-query.service.ts
+    // 的同类分页也是 Promise.all。
+    const [records, total] = await Promise.all([
       this.prisma.storeInviteQrIssue.findMany({
         where,
         include: { inviteCode: { select: { code: true } } },
@@ -178,6 +182,8 @@ export class MarketingInviteQrIssueService {
       user,
       resolvedStoreId,
       'marketing:manage',
+      // 上面 resolveMembershipManagedStoreId 已对该 storeId 校验过套餐营销能力
+      { skipFeatureCheck: true },
     );
     return resolvedStoreId;
   }
@@ -221,7 +227,7 @@ export class MarketingInviteQrIssueService {
       inviteCode,
       entryUrl: isV1Url ? payload : null,
       qrCodeImageUrl: isV1Url
-        ? await buildStoreInviteQrImageDataUrl(payload)
+        ? await this.inviteQrImageService.toImageDataUrl(payload)
         : null,
     };
   }

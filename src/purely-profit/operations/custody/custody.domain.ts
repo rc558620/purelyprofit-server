@@ -77,6 +77,74 @@ export function resolveCustodyOperatorRoleFromStaff(
   return resolveCustodyOperatorRole(staff.role);
 }
 
+/** 登录态 membership 快照（当前登录主体的角色判定所需的最小字段） */
+export interface CustodyOperatorMembershipSnapshot {
+  /** 当前门店下的员工角色 */
+  role: string | null;
+  /** 关联子账号角色（店长子账号在 staff.role 上可能不是 manager） */
+  subAccountRole?: string | null;
+}
+
+/**
+ * 登录态 membership → 操作员角色：写链路回写响应时免查库。
+ *
+ * 口径与 resolveCustodyOperatorRoleFromStaff 逐条对齐（ownerId 权威判定 →
+ * role → 子账号 → 兜底），只把「读员工行」换成「读登录态」：
+ * 存单经手人就是当前登录者时，两者结果恒等，省掉一次员工表 + 一次门店表查询。
+ *
+ * 仅用于「经手人确为当前登录者」的路径（如发起存入）；
+ * 展示历史经手人的路径仍需按员工档案解析。
+ */
+export function resolveCustodyOperatorRoleFromMembership(
+  membership: CustodyOperatorMembershipSnapshot | null | undefined,
+  loginUserId: number | null,
+  storeOwnerUserId: number | null,
+): CustodyOperatorRole {
+  if (!membership) {
+    return 'staff';
+  }
+  if (loginUserId !== null && loginUserId === storeOwnerUserId) {
+    return 'owner';
+  }
+  if (membership.role === 'owner') {
+    return 'owner';
+  }
+  if (membership.subAccountRole === 'manager') {
+    return 'manager';
+  }
+  return resolveCustodyOperatorRole(membership.role);
+}
+
+/**
+ * 列表筛选组合 → 缓存字段键。
+ *
+ * 列表总条数随筛选组合（状态 Tab / 到期预警 / 关键字）而变，缓存必须按组合分开存；
+ * 但组合是任意字符串，直接当 hash field 会让字段变长且存在转义噪音，
+ * 这里压成短指纹，各组合共用一个键，写操作整键删除即可全量失效。
+ */
+export function buildCustodyFilterKey(params: {
+  status: string;
+  expiring: boolean;
+  keyword: string;
+}): string {
+  const raw = [
+    params.status,
+    params.expiring ? '1' : '0',
+    params.keyword.trim(),
+  ].join('\u0001');
+  return toFilterFingerprint(raw);
+}
+
+/** FNV-1a 32 位指纹（base36）：稳定、短、无依赖，仅用于缓存分字段 */
+function toFilterFingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

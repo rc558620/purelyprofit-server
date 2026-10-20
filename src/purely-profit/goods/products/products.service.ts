@@ -39,6 +39,7 @@ import {
   updateProductRecord,
 } from './products.query';
 import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.service';
+import type { ProductRecord } from './products.types';
 import {
   buildCreateProductData,
   buildUpdateProductData,
@@ -169,14 +170,17 @@ export class ProductsService {
     validateDerivedProfit(profitMoney);
 
     const categoryName = dto.category.trim();
-    const category = await ensureProductCategory(this.prisma, {
-      storeId,
-      categoryName,
-    });
-    const code = await resolveProductCode(this.prisma, {
-      storeId,
-      code: dto.code,
-    });
+    // 分类补全与编号冲突校验查的是两张表，互不依赖，并行后少一次串行往返
+    const [category, code] = await Promise.all([
+      ensureProductCategory(this.prisma, {
+        storeId,
+        categoryName,
+      }),
+      resolveProductCode(this.prisma, {
+        storeId,
+        code: dto.code,
+      }),
+    ]);
 
     const product = await createProductRecord(
       this.prisma,
@@ -190,13 +194,13 @@ export class ProductsService {
     );
 
     if (dto.specGroups !== undefined) {
-      await this.scanOrderingSyncService.syncSpecifications(
-        storeId,
-        product.id,
-        dto.specGroups,
-      );
-      const refreshed = await findProductById(this.prisma, product.id);
-      if (refreshed) return buildProductResponse(refreshed);
+      const specificationsChanged =
+        await this.scanOrderingSyncService.syncSpecifications(
+          storeId,
+          product.id,
+          dto.specGroups,
+        );
+      return this.buildResponseAfterSpecSync(specificationsChanged, product);
     }
 
     return buildProductResponse(product);
@@ -244,23 +248,27 @@ export class ProductsService {
     validateDerivedProfit(nextProfit);
 
     const nextCode = dto.code?.trim();
-    if (nextCode && nextCode !== product.code) {
-      await ensureUniqueProductCode(this.prisma, {
-        storeId: product.storeId,
-        code: nextCode,
-        excludeId: product.id,
-      });
-    }
+    const nextCategory = dto.category?.trim();
+
+    // 编号冲突校验与分类补全查的是两张表，互不依赖，并行后少一次串行往返
+    const [categoryRecord] = await Promise.all([
+      nextCategory
+        ? ensureProductCategory(this.prisma, {
+            storeId: product.storeId,
+            categoryName: nextCategory,
+          })
+        : Promise.resolve(undefined),
+      nextCode && nextCode !== product.code
+        ? ensureUniqueProductCode(this.prisma, {
+            storeId: product.storeId,
+            code: nextCode,
+            excludeId: product.id,
+          })
+        : Promise.resolve(undefined),
+    ]);
+
     // DTO 传了 code 字段时，nextCode 有值则写入（含与当前值相同时，用于清理尾部空格等脏数据）
     const resolvedCode = nextCode || undefined;
-
-    const nextCategory = dto.category?.trim();
-    const categoryRecord = nextCategory
-      ? await ensureProductCategory(this.prisma, {
-          storeId: product.storeId,
-          categoryName: nextCategory,
-        })
-      : undefined;
 
     // 确保 category 与 categoryId 同步：仅当 ensureProductCategory 返回有效分类时才写入
     // 如果 ensureProductCategory 返回 null（理论上对非空字符串不会发生），则跳过分类更新
@@ -280,12 +288,14 @@ export class ProductsService {
       ),
     );
 
+    let specificationsChanged = false;
     if (dto.specGroups !== undefined) {
-      await this.scanOrderingSyncService.syncSpecifications(
-        product.storeId,
-        product.id,
-        dto.specGroups,
-      );
+      specificationsChanged =
+        await this.scanOrderingSyncService.syncSpecifications(
+          product.storeId,
+          product.id,
+          dto.specGroups,
+        );
     }
 
     // 同步商品信息变更到关联的扫码菜单商品
@@ -310,12 +320,23 @@ export class ProductsService {
       },
     );
 
-    if (dto.specGroups !== undefined) {
+    return this.buildResponseAfterSpecSync(specificationsChanged, updated);
+  }
+
+  /**
+   * 规格重建会让 specGroup / option 的 ID 漂移，必须重查一次才能回给前端正确的 ID；
+   * 未变更时落库返回值已按 productSelect 带上规格快照，直接沿用即可，省掉一次带三层嵌套的重查。
+   */
+  private async buildResponseAfterSpecSync(
+    specificationsChanged: boolean,
+    product: ProductRecord,
+  ): Promise<ProductResponseDto> {
+    if (specificationsChanged) {
       const refreshed = await findProductById(this.prisma, product.id);
       if (refreshed) return buildProductResponse(refreshed);
     }
 
-    return buildProductResponse(updated);
+    return buildProductResponse(product);
   }
 
   async remove(user: AuthenticatedUser, productId: number): Promise<void> {

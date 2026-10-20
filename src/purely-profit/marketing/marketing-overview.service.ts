@@ -9,11 +9,11 @@ import {
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
   assertUsableStoreInviteQrPayload,
-  buildStoreInviteQrImageDataUrl,
   buildStoreInviteQrPayload,
   STORE_INVITE_QR_PROTOCOL_LEGACY,
   STORE_INVITE_QR_PROTOCOL_V1,
 } from '../stores/store-invite-code-qr.utils';
+import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { Money } from '../../shared/money.utils';
 import {
   getShanghaiDayStartMs,
@@ -66,6 +66,7 @@ export class MarketingOverviewService {
     private readonly marketingSharedService: MarketingSharedService,
     private readonly memberLevelSettingsService: MarketingMemberLevelSettingsService,
     private readonly configService: ConfigService,
+    private readonly inviteQrImageService: StoreInviteQrImageService,
   ) {}
 
   async getOverview(
@@ -230,7 +231,7 @@ export class MarketingOverviewService {
     const isInviteCodeV1Url =
       inviteCodeQrPayload !== null && inviteCodeQrPayload !== inviteCode;
     const inviteCodeQrCodeImageUrl = inviteCodeQrPayload
-      ? await buildStoreInviteQrImageDataUrl(inviteCodeQrPayload)
+      ? await this.inviteQrImageService.toImageDataUrl(inviteCodeQrPayload)
       : null;
 
     return {
@@ -276,16 +277,21 @@ export class MarketingOverviewService {
    *
    * 不再依赖 marketing_customers.visitCount 物化字段——餐饮扫码点餐路径
    * （club-scan-ordering-checkout）只写消费记录、不更新 visitCount，按旧口径会漏统计。
+   *
+   * 用 COUNT(DISTINCT customer_id) 下推到 DB：原实现 groupBy(by:['customerId'])
+   * 会把门店全部历史消费分组拉回 Node 再取 length（万级顾客即万行传输 + 对象化），
+   * 而这里 DB 只回传单行标量，且可走 (store_id, customer_id, created_at) 索引扫描。
+   * customer_id 非空约束保证与 groupBy 分组数语义完全一致。
    */
   private async countActiveMembersFromConsumptions(
     storeId: number,
   ): Promise<number> {
-    const groups = await this.prisma.marketingConsumption.groupBy({
-      by: ['customerId'],
-      where: { storeId },
-      _count: { _all: true },
-    });
-    return groups.length;
+    const rows = await this.prisma.$queryRaw<{ activeMemberCount: number }[]>`
+      SELECT COUNT(DISTINCT customer_id)::int AS "activeMemberCount"
+      FROM marketing_consumptions
+      WHERE store_id = ${storeId}
+    `;
+    return rows[0]?.activeMemberCount ?? 0;
   }
 
   private async findStoreActiveInviteCode(

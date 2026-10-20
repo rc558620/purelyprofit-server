@@ -1,8 +1,10 @@
 import { createInventoryTransactionMock } from './inventory-stock.spec-helpers';
 import {
   createInventoryAdjustmentLog,
+  createInventoryAdjustmentLogs,
   deleteSaleAdjustmentLogs,
-  findInventoryProductForStore,
+  findInventoryProductsForStore,
+  lockAndFindInventoryProductRow,
   querySaleAdjustmentLogs,
   updateInventoryProductStock,
 } from './inventory-stock.query';
@@ -10,25 +12,25 @@ import {
 describe('inventory-stock.query', () => {
   const createTransaction = createInventoryTransactionMock;
 
-  it('findInventoryProductForStore 会按门店和商品查询库存商品', async () => {
-    const { transaction, productFindFirst } = createTransaction();
-    productFindFirst.mockResolvedValue({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 10,
-    });
+  it('findInventoryProductsForStore 会按门店和商品批量查询库存商品', async () => {
+    const { transaction, productFindMany } = createTransaction();
+    productFindMany.mockResolvedValue([
+      { id: 101, name: '可口可乐 330ml', stock: 10 },
+      { id: 102, name: '雪碧', stock: 5 },
+    ]);
 
     await expect(
-      findInventoryProductForStore(transaction, 18, 101),
-    ).resolves.toEqual({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 10,
-    });
+      findInventoryProductsForStore(transaction, 18, [101, 102, 101]),
+    ).resolves.toEqual([
+      { id: 101, name: '可口可乐 330ml', stock: 10 },
+      { id: 102, name: '雪碧', stock: 5 },
+    ]);
 
-    expect(productFindFirst).toHaveBeenCalledWith({
+    /* 去重后单次 findMany，而非逐条 findFirst */
+    expect(productFindMany).toHaveBeenCalledTimes(1);
+    expect(productFindMany).toHaveBeenCalledWith({
       where: {
-        id: 101,
+        id: { in: [101, 102] },
         storeId: 18,
         deletedAt: null,
       },
@@ -38,6 +40,43 @@ describe('inventory-stock.query', () => {
         stock: true,
       },
     });
+  });
+
+  it('findInventoryProductsForStore 在入参为空时不查询数据库', async () => {
+    const { transaction, productFindMany } = createTransaction();
+
+    await expect(
+      findInventoryProductsForStore(transaction, 18, []),
+    ).resolves.toEqual([]);
+
+    expect(productFindMany).not.toHaveBeenCalled();
+  });
+
+  /** 行锁与读库存合并：一次往返既加锁又拿当前库存 */
+  it('lockAndFindInventoryProductRow 会加锁并返回商品行', async () => {
+    const { transaction, queryRaw } = createTransaction();
+    queryRaw.mockResolvedValue([
+      { id: 101, name: '可口可乐 330ml', stock: 10 },
+    ]);
+
+    await expect(
+      lockAndFindInventoryProductRow(transaction, 18, 101),
+    ).resolves.toEqual({
+      id: 101,
+      name: '可口可乐 330ml',
+      stock: 10,
+    });
+
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('lockAndFindInventoryProductRow 在商品不存在时返回 null', async () => {
+    const { transaction, queryRaw } = createTransaction();
+    queryRaw.mockResolvedValue([]);
+
+    await expect(
+      lockAndFindInventoryProductRow(transaction, 18, 999),
+    ).resolves.toBeNull();
   });
 
   it('updateInventoryProductStock 会更新商品库存', async () => {
@@ -120,6 +159,77 @@ describe('inventory-stock.query', () => {
         createdAt: true,
       },
     });
+  });
+
+  it('createInventoryAdjustmentLogs 会补齐缺失字段后批量写日志', async () => {
+    const { transaction, logCreateMany } = createTransaction();
+
+    await createInventoryAdjustmentLogs(transaction, [
+      {
+        storeId: 18,
+        productId: 101,
+        operatorStaffId: 8,
+        productName: '可口可乐 330ml',
+        beforeStock: 10,
+        afterStock: 6,
+        delta: -4,
+        adjustType: 'sale',
+        note: '销售扣减',
+        saleOrderId: 66,
+      },
+      {
+        storeId: 18,
+        productId: 102,
+        operatorStaffId: 8,
+        productName: '雪碧',
+        beforeStock: 5,
+        afterStock: 8,
+        delta: 3,
+        adjustType: 'restock',
+        purchaseOrderId: 88,
+      },
+    ]);
+
+    /** 一次 createMany 替代逐条 create；缺失字段显式落 null 保证各行结构一致 */
+    expect(logCreateMany).toHaveBeenCalledTimes(1);
+    expect(logCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          storeId: 18,
+          productId: 101,
+          operatorStaffId: 8,
+          productName: '可口可乐 330ml',
+          beforeStock: 10,
+          afterStock: 6,
+          delta: -4,
+          adjustType: 'sale',
+          note: '销售扣减',
+          purchaseOrderId: null,
+          saleOrderId: 66,
+        },
+        {
+          storeId: 18,
+          productId: 102,
+          operatorStaffId: 8,
+          productName: '雪碧',
+          beforeStock: 5,
+          afterStock: 8,
+          delta: 3,
+          adjustType: 'restock',
+          note: null,
+          purchaseOrderId: 88,
+          saleOrderId: null,
+        },
+      ],
+    });
+  });
+
+  it('createInventoryAdjustmentLogs 在无日志时不写库', async () => {
+    const { transaction, logCreateMany } = createTransaction();
+
+    await createInventoryAdjustmentLogs(transaction, []);
+
+    expect(logCreateMany).not.toHaveBeenCalled();
   });
 
   it('querySaleAdjustmentLogs 会按销售单查询扣减日志', async () => {

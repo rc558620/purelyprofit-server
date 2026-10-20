@@ -99,7 +99,9 @@ export function calculateProgressPct(
 ): number {
   const span = new Decimal(nextRequiredConsume).minus(currentRequiredConsume);
   if (span.lte(0)) {
-    return totalConsume >= nextRequiredConsume ? 100 : 0;
+    // 门槛相同的相邻等级（如 regular → 「充值即享」的 gold，两者门槛均为 0）：
+    // 尚未产生任何消费时进度应为 0，否则未充值用户会看到满格进度条。
+    return totalConsume > 0 && totalConsume >= nextRequiredConsume ? 100 : 0;
   }
 
   return Decimal.min(

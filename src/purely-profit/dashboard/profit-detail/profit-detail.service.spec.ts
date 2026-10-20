@@ -689,6 +689,7 @@ describe('ProfitDetailService', () => {
   it('fetchProfitRows 超过单页上限时会翻页取尽，不静默截断', async () => {
     const allRows = [
       {
+        id: 1,
         productId: 1,
         productName: 'A',
         categoryName: 'c',
@@ -699,6 +700,7 @@ describe('ProfitDetailService', () => {
         order: { id: 1, date: new Date(2026, 4, 12, 10), spaceSession: null },
       },
       {
+        id: 2,
         productId: 2,
         productName: 'B',
         categoryName: 'c',
@@ -709,6 +711,7 @@ describe('ProfitDetailService', () => {
         order: { id: 2, date: new Date(2026, 4, 12, 10), spaceSession: null },
       },
       {
+        id: 3,
         productId: 3,
         productName: 'C',
         categoryName: 'c',
@@ -719,11 +722,18 @@ describe('ProfitDetailService', () => {
         order: { id: 3, date: new Date(2026, 4, 12, 10), spaceSession: null },
       },
     ];
+    // 按（日期, id）游标推进，模拟 DB 的 keyset 分页行为：
+    // 无游标（首页）从 id>0 取，带游标时从 id>lastId 续读
     prismaService.saleOrderItem.findMany.mockImplementation(
-      (args: { skip?: number; take?: number }) => {
-        const skip = args?.skip ?? 0;
+      (args: {
+        where?: { OR?: Array<{ id?: { gt?: number } }> };
+        take?: number;
+      }) => {
         const take = args?.take ?? 5000;
-        return Promise.resolve(allRows.slice(skip, skip + take));
+        const cursorId = args?.where?.OR?.[1]?.id?.gt ?? 0;
+        return Promise.resolve(
+          allRows.filter((row) => row.id > cursorId).slice(0, take),
+        );
       },
     );
     prismaService.costRecord.findMany.mockResolvedValue([]);

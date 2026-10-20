@@ -76,6 +76,10 @@ export class CacheInvalidatorService {
     await this.profitReadInvalidator.invalidateSalesReadCaches(storeId);
   }
 
+  async invalidateSpacesReadCaches(storeId: number): Promise<void> {
+    await this.profitReadInvalidator.invalidateSpacesReadCaches(storeId);
+  }
+
   async invalidatePulseDashboardHome(): Promise<void> {
     await this.pulseInvalidator.invalidatePulseDashboardHome();
   }

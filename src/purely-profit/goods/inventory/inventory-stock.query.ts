@@ -35,24 +35,57 @@ export async function resolveFrozenQty(
   return frozenMap.get(productId) ?? 0;
 }
 
-/**
- * 对库存商品行加排他锁，保证「读 stock → 客存冻结校验 → 写库存 → 写流水」全程串行。
- */
-export async function lockInventoryProductRow(
-  transaction: InventoryTransactionClient,
-  productId: number,
-): Promise<void> {
-  await transaction.$queryRaw`SELECT "id" FROM "products" WHERE "id" = ${productId} FOR UPDATE`;
+/** 行锁查询返回的商品行：id/stock 为 int4，与 InventoryMutableProductRecord 同构 */
+interface InventoryLockedProductRow {
+  id: number;
+  name: string;
+  stock: number;
 }
 
-export async function findInventoryProductForStore(
+/**
+ * 对库存商品行加排他锁，并连带读出当前库存（一次往返）。
+ *
+ * 锁必须在读之前拿到，否则读到的仍是未串行化的旧值；原来「先 FOR UPDATE 再 findFirst」
+ * 是两次往返，合并成一条 SQL 后仍是持锁事务内读取，语义完全等价、少一次往返。
+ */
+export async function lockAndFindInventoryProductRow(
   transaction: InventoryTransactionClient,
   storeId: number,
   productId: number,
 ): Promise<InventoryMutableProductRecord | null> {
-  return transaction.product.findFirst({
+  const rows = await transaction.$queryRaw<InventoryLockedProductRow[]>`
+    SELECT "id", "name", "stock"
+    FROM "products"
+    WHERE "id" = ${productId}
+      AND "store_id" = ${storeId}
+      AND "deleted_at" IS NULL
+    FOR UPDATE
+  `;
+
+  return rows[0] ?? null;
+}
+
+/**
+ * 批量读取门店下多个商品行（与单条口径一致：同门店 + 未软删）。
+ *
+ * 销售 / 入库 / 回滚一次会涉及多个商品，逐条查询会让事务内往返次数随商品数线性增长，
+ * 事务持有时间与连接池占用也随之拉长；这里合并为一次 findMany。
+ */
+export async function findInventoryProductsForStore(
+  transaction: InventoryTransactionClient,
+  storeId: number,
+  productIds: readonly number[],
+): Promise<InventoryMutableProductRecord[]> {
+  const uniqueIds = Array.from(new Set(productIds)).filter(
+    (id) => Number.isSafeInteger(id) && id > 0,
+  );
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  return transaction.product.findMany({
     where: {
-      id: productId,
+      id: { in: uniqueIds },
       storeId,
       deletedAt: null,
     },
@@ -62,6 +95,48 @@ export async function findInventoryProductForStore(
       stock: true,
     },
   });
+}
+
+/**
+ * 批量读取多个商品的客存冻结量（薄封装）。
+ *
+ * 与 resolveFrozenQty 同一口径，只是把「每商品一次 groupBy」合并为一次，
+ * 未开启 frozen 的门店聚合结果恒为 0，对既有链路无副作用。
+ */
+export async function resolveFrozenQtyMap(
+  transaction: InventoryTransactionClient,
+  storeId: number,
+  productIds: readonly number[],
+): Promise<Map<number, number>> {
+  return sumCustodyFrozenQty(transaction, storeId, productIds);
+}
+
+/**
+ * 库存写路径的一次性读上下文：本次涉及的商品行 + 各商品的客存冻结量。
+ *
+ * 商品行与冻结量互不依赖，可并行读取；读的次数与商品数无关，
+ * 事务内往返从「每商品 2 次」降为固定 2 次。
+ */
+export interface InventoryWriteContext {
+  products: Map<number, InventoryMutableProductRecord>;
+  frozenQty: Map<number, number>;
+}
+
+export async function loadInventoryWriteContext(
+  transaction: InventoryTransactionClient,
+  storeId: number,
+  productIds: readonly number[],
+): Promise<InventoryWriteContext> {
+  const uniqueIds = Array.from(new Set(productIds));
+  const [products, frozenQty] = await Promise.all([
+    findInventoryProductsForStore(transaction, storeId, uniqueIds),
+    resolveFrozenQtyMap(transaction, storeId, uniqueIds),
+  ]);
+
+  return {
+    products: new Map(products.map((product) => [product.id, product])),
+    frozenQty,
+  };
 }
 
 export async function updateInventoryProductStock(
@@ -109,6 +184,39 @@ export async function createInventoryAdjustmentLog(
       purchaseOrderId: true,
       createdAt: true,
     },
+  });
+}
+
+/**
+ * 批量写入库存调整日志（不返回记录）。
+ *
+ * 补货 / 销售扣减 / 回滚一次会写多条流水，逐条 create 是 N 次往返；这些路径都不消费
+ * 返回值，合并为一次 createMany。需要回传单条流水（盘点调整要返回给前端）的场景仍走
+ * createInventoryAdjustmentLog。
+ */
+export async function createInventoryAdjustmentLogs(
+  transaction: InventoryTransactionClient,
+  data: InventoryAdjustmentLogCreateInput[],
+): Promise<void> {
+  if (data.length === 0) {
+    return;
+  }
+
+  await transaction.inventoryAdjustmentLog.createMany({
+    // createMany 要求各行结构一致，缺失字段显式落 null（与省略时库内默认值一致）
+    data: data.map((input) => ({
+      storeId: input.storeId,
+      productId: input.productId,
+      operatorStaffId: input.operatorStaffId,
+      productName: input.productName,
+      beforeStock: input.beforeStock,
+      afterStock: input.afterStock,
+      delta: input.delta,
+      adjustType: input.adjustType,
+      note: input.note ?? null,
+      purchaseOrderId: input.purchaseOrderId ?? null,
+      saleOrderId: input.saleOrderId ?? null,
+    })),
   });
 }
 

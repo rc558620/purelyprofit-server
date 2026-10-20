@@ -7,6 +7,8 @@ import {
   buildMembersListPattern,
   buildMarketingOverviewCacheKey,
   buildProfitDashboardHomePattern,
+  buildSpacesDashboardPattern,
+  buildSpacesListPattern,
 } from './cache-keys';
 import {
   buildFinanceAccountsPattern,
@@ -49,17 +51,25 @@ describe('cache invalidator registries', () => {
       'invalidateProfitDashboardHome',
       'invalidateProfitDetail',
       'invalidateSalesReadCaches',
+      'invalidateSpacesReadCaches',
     ]);
 
     await registry.invalidateProfitDashboardHome(18);
     await registry.invalidateBusinessAnalysis(18);
     await registry.invalidateMarketingOverview(18);
+    await registry.invalidateSpacesReadCaches(18);
 
     expect(redisService.delByPattern).toHaveBeenCalledWith(
       buildProfitDashboardHomePattern(18),
     );
     expect(redisService.delByPattern).toHaveBeenCalledWith(
       buildBusinessAnalysisPattern(18),
+    );
+    expect(redisService.delByPattern).toHaveBeenCalledWith(
+      buildSpacesDashboardPattern(18),
+    );
+    expect(redisService.delByPattern).toHaveBeenCalledWith(
+      buildSpacesListPattern(18),
     );
     expect(redisService.del).toHaveBeenCalledWith(
       buildMarketingOverviewCacheKey(18),

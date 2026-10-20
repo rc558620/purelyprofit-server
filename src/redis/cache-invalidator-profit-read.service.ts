@@ -35,6 +35,10 @@ export class CacheInvalidatorProfitReadService {
     await this.registry.invalidateSalesReadCaches(storeId);
   }
 
+  async invalidateSpacesReadCaches(storeId: number): Promise<void> {
+    await this.registry.invalidateSpacesReadCaches(storeId);
+  }
+
   async invalidateProfitDetail(storeId: number): Promise<void> {
     await this.registry.invalidateProfitDetail(storeId);
   }

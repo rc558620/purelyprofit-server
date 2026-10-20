@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ClubWechatRefundService } from '../../../purely-club/payments/club-wechat-refund.service';
 import { ScanOrderingRefundTransitionService } from './scan-ordering-refund-transition.service';
@@ -24,6 +25,7 @@ export class ScanOrderingOrderRefundWechatService {
     private readonly wechatRefundService: ClubWechatRefundService,
     private readonly transitionService: ScanOrderingRefundTransitionService,
     private readonly realtimeService: ScanOrderingRefundRealtimeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /** 系统超时微信退款：置退款中 → 建任务 → 调微信 API → 完成闭环。
@@ -66,6 +68,9 @@ export class ScanOrderingOrderRefundWechatService {
         provider,
       }),
     );
+    // 事务内已冲销销售单（SaleOrderRefund），提交后立即失效销售衍生缓存，
+    // 避免商家端在缓存 TTL 内看到未回退的营业额。
+    await this.cacheInvalidatorService.invalidateSalesDerived(input.storeId);
     if (updated) this.realtimeService.publishRefundCompleted(updated);
   }
 
@@ -108,6 +113,8 @@ export class ScanOrderingOrderRefundWechatService {
           provider: { refundNo: input.refundNo, refundId },
         }),
       );
+      // 事务内已冲销销售单（SaleOrderRefund），提交后立即失效销售衍生缓存。
+      await this.cacheInvalidatorService.invalidateSalesDerived(input.storeId);
       if (updated) this.realtimeService.publishRefundCompleted(updated);
     } catch (error: unknown) {
       await this.markRetryFailed(input, error);

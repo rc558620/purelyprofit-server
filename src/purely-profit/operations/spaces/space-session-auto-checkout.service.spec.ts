@@ -326,7 +326,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
   });
 
   it('autoCheckoutAllExpiredSessions 会逐店扫描并累计结果', async () => {
-    prismaService.spaceSession.findMany.mockResolvedValueOnce([
+    // 预扫描拆为两条查询（标量条件 + 续费记录半连接），门店取并集
+    prismaService.spaceSession.findMany.mockResolvedValue([
       { storeId: 18 },
       { storeId: 19 },
     ]);

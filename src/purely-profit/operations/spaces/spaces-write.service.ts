@@ -42,6 +42,7 @@ import {
   buildSpaceQrTokenSecrets,
   type SpaceQrTokenKeyConfig,
 } from '../../../shared/space-qr-token-codec.utils';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 
 @Injectable()
 export class SpacesWriteService {
@@ -53,6 +54,7 @@ export class SpacesWriteService {
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly spacesStatusService: SpacesStatusService,
     private readonly configService: ConfigService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   private readTokenKeyConfig(): SpaceQrTokenKeyConfig {
@@ -156,6 +158,7 @@ export class SpacesWriteService {
     const derivedStatus = await this.spacesStatusService.deriveSpaceStatus(
       created.id,
     );
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(storeId);
     return toSpaceResponse({ ...created, status: derivedStatus });
   }
 
@@ -243,6 +246,9 @@ export class SpacesWriteService {
     const derivedStatus = await this.spacesStatusService.deriveSpaceStatus(
       updated.id,
     );
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      space.storeId,
+    );
     return toSpaceResponse({ ...updated, status: derivedStatus });
   }
 
@@ -307,6 +313,11 @@ export class SpacesWriteService {
         );
       },
       { timeout: TX_TIMEOUT_SHORT },
+    );
+
+    // 删除空间后列表/看板不再展示该空间
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+      space.storeId,
     );
   }
 
