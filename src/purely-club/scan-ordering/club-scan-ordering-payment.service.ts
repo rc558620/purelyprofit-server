@@ -9,7 +9,14 @@ import type {
   ClubPaymentCallbackSettlementParams,
 } from '../payments/club-payments.types';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
-import { Prisma, ScanOrderPaymentAttemptStatus } from '@prisma/client';
+import {
+  Prisma,
+  ScanOrderFulfillmentStatus,
+  ScanOrderPaymentAttemptStatus,
+  ScanOrderPaymentStatus,
+  ScanOrderPickupNumberStatus,
+  ScanOrderStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
@@ -18,16 +25,34 @@ import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.s
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 
-/**
- * 异常支付处理结果。
- *
- * 当已关闭订单收到支付成功回调时，事务正常提交后返回此结果，
- * 外部根据微信回调协议返回成功确认，避免微信持续重试。
- */
-interface AnomalousPaymentResult {
-  anomalous: true;
-  orderId: number;
+/** 支付成功后的订单快照（事务内读取，供事务外发布实时事件使用）。 */
+interface PaidOrderSnapshot {
+  id: number;
+  storeId: number;
+  sessionId: number | null;
+  version: number;
+  status: ScanOrderStatus;
+  paymentStatus: ScanOrderPaymentStatus;
+  fulfillmentStatus: ScanOrderFulfillmentStatus;
+  pickupNumber: number | null;
+  pickupNumberStatus: ScanOrderPickupNumberStatus | null;
+  pickupCalledAt: Date | null;
+  pickupCompletedAt: Date | null;
 }
+
+/**
+ * 支付回调事务的统一产出。
+ *
+ * 订单快照在**事务内**一并读出：事务外再查一次会多付一次完整往返，而微信
+ * 回调有响应超时约束与重试放大效应。异常分支的 orderNo 同理在事务内取出。
+ */
+type PaymentCallbackOutcome =
+  | {
+      kind: 'settled';
+      result: ClubPaymentCallbackResult;
+      order: PaidOrderSnapshot;
+    }
+  | { kind: 'anomalous'; orderId: number; orderNo: string };
 
 @Injectable()
 export class ClubScanOrderingPaymentService {
@@ -58,7 +83,7 @@ export class ClubScanOrderingPaymentService {
     }
     const result = await this.paymentLockService.withOrderLock(
       `scan-order:${attempt.orderId}`,
-      async (): Promise<ClubPaymentCallbackResult | AnomalousPaymentResult> => {
+      async (): Promise<PaymentCallbackOutcome> => {
         return this.prisma.$transaction(async (tx) => {
           const paymentAttempt = await tx.scanOrderPaymentAttempt.findUnique({
             where: { id: attempt.id },
@@ -81,9 +106,13 @@ export class ClubScanOrderingPaymentService {
             order.paymentStatus === 'paid'
           ) {
             return {
-              orderNo: order.orderNo,
-              orderType: 'scan_ordering',
-              status: 'pending_acceptance',
+              kind: 'settled',
+              result: {
+                orderNo: order.orderNo,
+                orderType: 'scan_ordering',
+                status: 'pending_acceptance',
+              },
+              order: await this.readPaidOrderSnapshot(tx, order.id),
             };
           }
           // 订单已关闭（用户取消或支付超时）— 异常支付处理
@@ -100,9 +129,11 @@ export class ClubScanOrderingPaymentService {
             });
             // 事务正常提交后返回异常支付结果
             return {
-              anomalous: true,
+              kind: 'anomalous',
               orderId: order.id,
-            } satisfies AnomalousPaymentResult;
+              // 事务内已持有订单，不必在事务外再查一次取 orderNo
+              orderNo: order.orderNo,
+            };
           }
           if (
             order.status !== 'pending_payment' ||
@@ -182,11 +213,16 @@ export class ClubScanOrderingPaymentService {
               reason: `微信支付成功: ${params.transactionId}`,
             },
           });
-          // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
+          // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单。
+          // 取餐号在 update 之后才由 assignForPaidOrder 写入，所以快照在这里读。
           return {
-            orderNo: order.orderNo,
-            orderType: 'scan_ordering',
-            status: 'pending_acceptance',
+            kind: 'settled',
+            result: {
+              orderNo: order.orderNo,
+              orderType: 'scan_ordering',
+              status: 'pending_acceptance',
+            },
+            order: await this.readPaidOrderSnapshot(tx, order.id),
           };
         });
       },
@@ -194,21 +230,52 @@ export class ClubScanOrderingPaymentService {
 
     // 异常支付：事务已正常提交，退款任务已持久化
     // 按微信回调协议返回成功确认，避免微信持续重试
-    if ('anomalous' in result) {
-      const order = await this.prisma.scanOrders.findUnique({
-        where: { id: result.orderId },
-        select: { orderNo: true },
-      });
+    if (result.kind === 'anomalous') {
       return {
-        orderNo: order?.orderNo ?? '',
+        orderNo: result.orderNo,
         orderType: 'scan_ordering',
         status: 'pending_acceptance',
       };
     }
 
-    // 正常支付成功：推送实时事件
-    const order = await this.prisma.scanOrders.findUnique({
-      where: { id: attempt.orderId },
+    // 正常支付成功：推送实时事件（订单快照已在事务内读出，此处不再回查）
+    const order = result.order;
+    // 积分/消费已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
+    // 否则商家端要等 TTL 才看得到会员数据变化
+    await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+      order.storeId,
+    );
+    this.realtimeService.publishOrderStatusChanged({
+      orderId: order.id,
+      storeId: order.storeId,
+      sessionId: order.sessionId,
+      version: order.version,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      pickupNumber: order.pickupNumber,
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        order.pickupNumber,
+      ),
+      pickupNumberStatus: order.pickupNumberStatus,
+      pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+      pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
+    });
+    return result.result;
+  }
+
+  /**
+   * 在事务内读出发布实时事件所需的订单快照（含分配后的取餐号字段）。
+   *
+   * 必须放在取餐号分配之后：pickupNumber / pickupNumberStatus 由
+   * assignForPaidOrder 写入，读早了拿到的是分配前的值，C 端会显示空取餐号。
+   */
+  private async readPaidOrderSnapshot(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<PaidOrderSnapshot> {
+    const snapshot = await tx.scanOrders.findUnique({
+      where: { id: orderId },
       select: {
         id: true,
         storeId: true,
@@ -218,36 +285,14 @@ export class ClubScanOrderingPaymentService {
         paymentStatus: true,
         fulfillmentStatus: true,
         pickupNumber: true,
-        pickupBusinessDate: true,
         pickupNumberStatus: true,
         pickupCalledAt: true,
         pickupCompletedAt: true,
       },
     });
-    if (order) {
-      // 积分/消费已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
-      // 否则商家端要等 TTL 才看得到会员数据变化
-      await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
-        order.storeId,
-      );
-      this.realtimeService.publishOrderStatusChanged({
-        orderId: order.id,
-        storeId: order.storeId,
-        sessionId: order.sessionId,
-        version: order.version,
-        status: order.status,
-        paymentStatus: order.paymentStatus,
-        fulfillmentStatus: order.fulfillmentStatus,
-        pickupNumber: order.pickupNumber,
-        pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-          order.pickupNumber,
-        ),
-        pickupNumberStatus: order.pickupNumberStatus,
-        pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
-        pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
-      });
-    }
-    return result;
+    // 事务内刚更新过该订单，读不到只可能是数据被并发清理，属异常态
+    if (!snapshot) throw new NotFoundException('扫码点餐订单不存在');
+    return snapshot;
   }
 
   /**

@@ -7,6 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
@@ -300,6 +301,12 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         { provide: ClubScanOrderingOrderHistoryService, useValue: {} },
         { provide: ClubScanOrderingOrderQueryService, useValue: {} },
         { provide: ClubScanOrderingOrderPreviewService, useValue: {} },
+        {
+          provide: ClubScanOrderingMenuQueryService,
+          useValue: {
+            invalidateMenuVersion: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         {
           // 默认与会话同店（storeId 1）：扫桌码进店会把当前门店切到桌台所属门店
           provide: ClubCurrentStoreContextService,

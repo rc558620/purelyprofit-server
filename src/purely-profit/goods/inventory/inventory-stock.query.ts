@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import type {
   InventoryAdjustmentLogCreateInput,
   InventoryAdjustmentRecord,
@@ -148,6 +149,51 @@ export async function updateInventoryProductStock(
     where: { id: productId },
     data: { stock },
   });
+}
+
+/**
+ * 批量原子更新库存：N 个商品的增量更新合并为一条 UPDATE。
+ *
+ * 销售扣减 / 进货入库 / 单据回滚都在事务里逐商品 `UPDATE ... stock = stock + delta`，
+ * 一行商品一次往返——追加点单一次选十几个商品就是十几次往返，而事务持有期间
+ * 还会阻塞同日同店的其他建单（订单号走 pg_advisory_xact_lock）。
+ *
+ * 用 `FROM (VALUES ...)` 一次性更新：每条 delta 仍由数据库侧在行上做加法，
+ * 与逐个 increment 的并发语义完全一致，不会引入 read-modify-write 竞态。
+ *
+ * ⚠️ 这里必须显式写 updated_at，因为绕过了 Prisma 的 @updatedAt（raw SQL 不会自动维护）。
+ * 用 `NOW() AT TIME ZONE 'UTC'` 而非裸 NOW()： updated_at 是无时区的 timestamp，
+ * 裸 NOW() 会按会话时区取值，与 Prisma 写入的 UTC 墙钟不一致（项目 SQL 时区规范 R1）。
+ */
+export async function updateInventoryProductStocks(
+  transaction: InventoryTransactionClient,
+  changes: ReadonlyArray<{ productId: number; delta: number }>,
+): Promise<void> {
+  if (changes.length === 0) {
+    return;
+  }
+
+  // 单条时回退到 Prisma 的 update：没有往返可省，还能保留 @updatedAt 的自动维护
+  if (changes.length === 1) {
+    await updateInventoryProductStock(transaction, changes[0].productId, {
+      increment: changes[0].delta,
+    });
+    return;
+  }
+
+  const valueRows = Prisma.join(
+    changes.map(
+      (change) => Prisma.sql`(${change.productId}::int, ${change.delta}::int)`,
+    ),
+  );
+
+  await transaction.$executeRaw`
+    UPDATE products AS p
+    SET stock = p.stock + v.delta,
+        updated_at = NOW() AT TIME ZONE 'UTC'
+    FROM (VALUES ${valueRows}) AS v(product_id, delta)
+    WHERE p.id = v.product_id
+  `;
 }
 
 export async function createInventoryAdjustmentLog(

@@ -81,6 +81,24 @@ export function isNonQuantitySalesRecordRow(productName: string): boolean {
 }
 
 /**
+ * 是否为「不计入金额聚合」的抵扣行（预付款 / 续费抵扣 / 自助下单抵扣）。
+ *
+ * 与 isNonQuantitySalesRecordRow 的区别：后者还额外包含台位费行。
+ * 台位费只是「不计件数」（按时间计费，不是商品销量），但它是真实营收，
+ * 金额（营业额 / 利润）**必须**计入——否则按时间计费的订单会被整单抹成
+ * ¥0，与统计卡 / 报表 / CSV 导出口径不一致（非餐饮门店台位费订单恒显示 0 利润）。
+ *
+ * 仅抵扣行在金额侧排除：它们代表已在开台/续费/小程序侧收到的钱，
+ * 落到本单只是冲减应收，不是本单新增营业额。
+ */
+export function isAmountDeductionSalesRecordRow(productName: string): boolean {
+  return (
+    isDeductionProductName(productName) ||
+    productName.endsWith(` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`)
+  );
+}
+
+/**
  * 判断商品行是否为抵扣行（预付款/续费抵扣/自助下单抵扣），
  * 非财务模块应排除这些行，只算实际消费。
  * 兼容历史数据中 productName = '预付抵扣' 的旧值。

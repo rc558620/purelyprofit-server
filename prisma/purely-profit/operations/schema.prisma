@@ -207,6 +207,12 @@ model ScanOrders {
   // payment_expires_at），缺索引时为全表扫描。
   @@index([status, paidAt], map: "idx_scan_orders_status_paid_at", where: raw("(deleted_at IS NULL)"))
   @@index([status, acceptedAt], map: "idx_scan_orders_status_accepted_at", where: raw("(deleted_at IS NULL)"))
+  // 看板「今日营业额」（scan-ordering-dashboard.service.ts）按
+  // store_id + paid_at 当日区间 + payment_status IN ('paid','refunding') 聚合。
+  // 现有 (status, paid_at) 前导列是 status、本查询未约束；(store_id, created_at)
+  // 又是 created_at 列——两者都用不上，聚合随 scan_orders 增长退化为 Seq Scan。
+  // 建成 partial 索引后只含已支付行，体积可控。
+  @@index([storeId, paidAt], map: "idx_scan_orders_store_paid_revenue", where: raw("((payment_status = ANY (ARRAY['paid'::\"ScanOrderPaymentStatus\", 'refunding'::\"ScanOrderPaymentStatus\"])) AND (deleted_at IS NULL))"))
   @@map("scan_orders")
 }
 

@@ -137,7 +137,16 @@ export class SpaceSessionOpenService {
     try {
       return await this.openSessionUnderLock(user, space, payload);
     } finally {
-      await this.redisLockService.releaseLock(lock);
+      // 与 settlement.service 口径一致：释放失败只告警，不掩盖业务结果/原始异常
+      try {
+        await this.redisLockService.releaseLock(lock);
+      } catch (error) {
+        this.logger.warn(
+          `releaseLock failed spaceId=${space.id} reason=${
+            error instanceof Error ? error.name : 'UnknownError'
+          }`,
+        );
+      }
     }
   }
 
@@ -369,15 +378,15 @@ export class SpaceSessionOpenService {
       return undefined;
     }
 
-    const servicesMap = await this.commissionCoreService.buildServicesMap(
-      transaction,
-      storeId,
-    );
-    const nameById = await this.commissionCoreService.resolveTechnicianNames(
-      transaction,
-      storeId,
-      inputs.map((input) => input.technicianId),
-    );
+    // 服务字典与技师姓名解析互不依赖，并行执行以缩短事务/分布式锁持有时间
+    const [servicesMap, nameById] = await Promise.all([
+      this.commissionCoreService.buildServicesMap(transaction, storeId),
+      this.commissionCoreService.resolveTechnicianNames(
+        transaction,
+        storeId,
+        inputs.map((input) => input.technicianId),
+      ),
+    ]);
     return this.commissionCoreService.normalizeAssignments(
       servicesMap,
       nameById,

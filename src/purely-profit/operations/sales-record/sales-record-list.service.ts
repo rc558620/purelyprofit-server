@@ -79,6 +79,12 @@ export class SalesRecordListService {
       skip,
       take,
     });
+    // 总条数的过滤条件与分页查询完全一致，且与 orders 无数据依赖，
+    // 一并发出可省掉一次串行往返（大表 COUNT 可达数十毫秒）。
+    const totalPromise = countSaleOrders(this.prisma, {
+      storeId,
+      range: { start: range.start, end: range.end },
+    });
     // 汇总（summary）复用 stats 接口的缓存结果：两者的周期解析、clampHistoryRange
     // 与子账号作用域判定完全同源，可共享同一份缓存。常态命中缓存，
     // 不必每次列表请求都对全店范围重做一遍 items/refunds 聚合。
@@ -99,10 +105,7 @@ export class SalesRecordListService {
       .map((order) => order.id);
     const [total, stats, scanOrderingDetails, spaceSessionSpecs] =
       await Promise.all([
-        countSaleOrders(this.prisma, {
-          storeId,
-          range: { start: range.start, end: range.end },
-        }),
+        totalPromise,
         statsPromise,
         queryScanOrderingDetails(this.prisma, scanOrderIds),
         querySpaceSessionSpecDetails(this.prisma, nonScanSaleOrderIds),

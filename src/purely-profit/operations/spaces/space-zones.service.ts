@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,11 +10,17 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  buildSpaceZonesCacheKey,
+  buildSpaceZonesPattern,
+} from '../../../redis/cache-keys';
+import { RedisService } from '../../../redis/redis.service';
+import {
   CreateSpaceZoneDto,
   ListSpaceZonesQueryDto,
   type SpaceZoneResponseDto,
   UpdateSpaceZoneDto,
 } from './dto/space-zone.dto';
+import { ensurePrimaryAccountOnly } from './spaces.shared';
 
 interface SpaceZoneRecord {
   id: number;
@@ -24,11 +29,21 @@ interface SpaceZoneRecord {
   updatedAt: Date;
 }
 
+/**
+ * 空间区域列表缓存 TTL（秒）。
+ *
+ * 与空间类型同源策略：低频变更的门店运营配置，命中缓存后
+ * GET /space-zones 从「6 次 Redis + 2 次 DB」降为「6 次 Redis + 0 次 DB」。
+ * TTL 只兜底，一致性由写路径主动失效保证。
+ */
+const SPACE_ZONES_CACHE_TTL_SECONDS = 60;
+
 @Injectable()
 export class SpaceZonesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly redisService: RedisService,
   ) {}
 
   async listSpaceZones(
@@ -46,12 +61,38 @@ export class SpaceZonesService {
       return [];
     }
 
+    const cacheKey = buildSpaceZonesCacheKey(storeId);
+    const cached =
+      await this.redisService.getJson<SpaceZoneResponseDto[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const items = await this.prisma.spaceZone.findMany({
       where: { storeId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
-    return items.map((item) => this.toSpaceZoneResponse(item));
+    const response = items.map((item) => this.toSpaceZoneResponse(item));
+
+    // 一致性边界：load 与写回之间若发生写请求（写路径提交后按 key 失效），
+    // 本次 load 读到的旧值仍会被写回并存活一个 TTL，属于有界陈旧。
+    // 空间区域为运营配置、写路径极低频，该窗口可接受。
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      SPACE_ZONES_CACHE_TTL_SECONDS,
+    );
+
+    return response;
+  }
+
+  /**
+   * 失效门店空间区域列表缓存。
+   * 由 create / update / delete 写路径在提交成功后调用。
+   */
+  private async invalidateSpaceZonesCache(storeId: number): Promise<void> {
+    await this.redisService.delByPattern(buildSpaceZonesPattern(storeId));
   }
 
   async createSpaceZone(
@@ -59,7 +100,7 @@ export class SpaceZonesService {
     dto: CreateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
     // 空间区域配置属于门店运营配置，仅允许主账号操作，子账号均被拒绝。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间区域');
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
@@ -94,6 +135,8 @@ export class SpaceZonesService {
       throw err;
     }
 
+    await this.invalidateSpaceZonesCache(storeId);
+
     return this.toSpaceZoneResponse(item);
   }
 
@@ -103,7 +146,7 @@ export class SpaceZonesService {
     dto: UpdateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
     // 空间区域配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceZone）。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间区域');
     const item = await this.prisma.spaceZone.findUnique({
       where: { id: zoneId },
     });
@@ -140,6 +183,8 @@ export class SpaceZonesService {
       data: { name },
     });
 
+    await this.invalidateSpaceZonesCache(item.storeId);
+
     return this.toSpaceZoneResponse(updated);
   }
 
@@ -175,7 +220,7 @@ export class SpaceZonesService {
     zoneId: number,
   ): Promise<void> {
     // 空间区域配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceZone）。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间区域');
     const item = await this.prisma.spaceZone.findUnique({
       where: { id: zoneId },
       select: {
@@ -207,17 +252,8 @@ export class SpaceZonesService {
     await this.prisma.spaceZone.delete({
       where: { id: item.id },
     });
-  }
 
-  /**
-   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
-   * 空间区域配置属于门店运营配置，仅对主账号开放，
-   * 任何子账号身份（收銀员 / 店长 / 财务）均不允许操作，以保持最小权限原则。
-   */
-  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
-    if (user.currentMembership?.subjectType === 'sub_account') {
-      throw new ForbiddenException('子账号不可维护空间区域配置');
-    }
+    await this.invalidateSpaceZonesCache(item.storeId);
   }
 
   toSpaceZoneResponse(item: SpaceZoneRecord): SpaceZoneResponseDto {

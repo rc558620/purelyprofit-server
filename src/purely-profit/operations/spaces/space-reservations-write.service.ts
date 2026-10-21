@@ -6,7 +6,10 @@ import {
 import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_SHORT,
+} from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import {
@@ -82,70 +85,66 @@ export class SpaceReservationsWriteService {
       throw new ConflictException(`与「${conflict.guestName}」的预约时间冲突`);
     }
 
-    const reservation = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
+    const reservation = await this.prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`
         SELECT id
         FROM spaces
         WHERE id = ${space.id}
         FOR UPDATE
       `;
 
-      const latestSpace = await transaction.space.findUnique({
-        where: { id: space.id },
-        select: {
-          id: true,
-          storeId: true,
-          capacity: true,
-        },
-      });
+        const latestSpace = await transaction.space.findUnique({
+          where: { id: space.id },
+          select: {
+            id: true,
+            storeId: true,
+            capacity: true,
+          },
+        });
 
-      if (!latestSpace) {
-        throw new NotFoundException('空间不存在');
-      }
+        if (!latestSpace) {
+          throw new NotFoundException('空间不存在');
+        }
 
-      ensureReservationGuestCount(
-        payload.guestCount,
-        latestSpace.capacity ?? undefined,
-      );
-
-      const latestConflict = await findReservationConflict(
-        transaction,
-        latestSpace.id,
-        payload.reservedAt,
-        payload.reservedEndAt,
-      );
-
-      if (latestConflict) {
-        throw new ConflictException(
-          `与「${latestConflict.guestName}」的预约时间冲突`,
+        ensureReservationGuestCount(
+          payload.guestCount,
+          latestSpace.capacity ?? undefined,
         );
-      }
 
-      const created = await transaction.spaceReservation.create({
-        data: {
-          storeId: latestSpace.storeId,
-          spaceId: latestSpace.id,
-          guestName: payload.guestName,
-          phone: payload.phone,
-          reservedAt: new Date(payload.reservedAt),
-          reservedEndAt: new Date(payload.reservedEndAt),
-          guestCount: payload.guestCount,
-          note: payload.note,
-          status: PrismaSpaceReservationStatus.pending,
-        },
-      });
+        const latestConflict = await findReservationConflict(
+          transaction,
+          latestSpace.id,
+          payload.reservedAt,
+          payload.reservedEndAt,
+        );
 
-      return created;
-    });
+        if (latestConflict) {
+          throw new ConflictException(
+            `与「${latestConflict.guestName}」的预约时间冲突`,
+          );
+        }
 
-    // 首页动态依赖预约数据（预约/包间即将开始）
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
-      reservation.storeId,
+        const created = await transaction.spaceReservation.create({
+          data: {
+            storeId: latestSpace.storeId,
+            spaceId: latestSpace.id,
+            guestName: payload.guestName,
+            phone: payload.phone,
+            reservedAt: new Date(payload.reservedAt),
+            reservedEndAt: new Date(payload.reservedEndAt),
+            guestCount: payload.guestCount,
+            note: payload.note,
+            status: PrismaSpaceReservationStatus.pending,
+          },
+        });
+
+        return created;
+      },
+      { timeout: TX_TIMEOUT_SHORT },
     );
-    // 预约变更影响空间 reserved 运行态与看板/列表
-    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
-      reservation.storeId,
-    );
+
+    await this.invalidateReservationDerivedCaches(reservation.storeId);
 
     return toSpaceReservationResponse(reservation);
   }
@@ -205,89 +204,87 @@ export class SpaceReservationsWriteService {
       throw new ConflictException(`与「${conflict.guestName}」的预约时间冲突`);
     }
 
-    const updated = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
+    const updated = await this.prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`
         SELECT id
         FROM spaces
         WHERE id = ${reservation.spaceId}
         FOR UPDATE
       `;
-      await transaction.$queryRaw`
+        await transaction.$queryRaw`
         SELECT id
         FROM space_reservations
         WHERE id = ${reservation.id}
         FOR UPDATE
       `;
 
-      const latestSpace = await transaction.space.findUnique({
-        where: { id: reservation.spaceId },
-        select: {
-          id: true,
-          capacity: true,
-        },
-      });
-      if (!latestSpace) {
-        throw new NotFoundException('空间不存在');
-      }
+        const latestSpace = await transaction.space.findUnique({
+          where: { id: reservation.spaceId },
+          select: {
+            id: true,
+            capacity: true,
+          },
+        });
+        if (!latestSpace) {
+          throw new NotFoundException('空间不存在');
+        }
 
-      const latestReservation = await transaction.spaceReservation.findUnique({
-        where: { id: reservation.id },
-        select: {
-          id: true,
-          spaceId: true,
-          status: true,
-        },
-      });
-
-      if (!latestReservation) {
-        throw new NotFoundException('预约不存在');
-      }
-      if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
-        throw new ConflictException('当前预约已处理，无法修改');
-      }
-
-      ensureReservationGuestCount(
-        payload.guestCount,
-        latestSpace.capacity ?? undefined,
-      );
-
-      const latestConflict = await findReservationConflict(
-        transaction,
-        latestReservation.spaceId,
-        payload.reservedAt,
-        payload.reservedEndAt,
-        latestReservation.id,
-      );
-
-      if (latestConflict) {
-        throw new ConflictException(
-          `与「${latestConflict.guestName}」的预约时间冲突`,
+        const latestReservation = await transaction.spaceReservation.findUnique(
+          {
+            where: { id: reservation.id },
+            select: {
+              id: true,
+              spaceId: true,
+              status: true,
+            },
+          },
         );
-      }
 
-      const nextReservation = await transaction.spaceReservation.update({
-        where: { id: reservation.id },
-        data: {
-          guestName: payload.guestName,
-          phone: payload.phone,
-          reservedAt: new Date(payload.reservedAt),
-          reservedEndAt: new Date(payload.reservedEndAt),
-          guestCount: payload.guestCount,
-          note: payload.note,
-        },
-      });
+        if (!latestReservation) {
+          throw new NotFoundException('预约不存在');
+        }
+        if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
+          throw new ConflictException('当前预约已处理，无法修改');
+        }
 
-      return nextReservation;
-    });
+        ensureReservationGuestCount(
+          payload.guestCount,
+          latestSpace.capacity ?? undefined,
+        );
 
-    // 首页动态依赖预约数据（预约/包间即将开始）
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
-      reservation.storeId,
+        const latestConflict = await findReservationConflict(
+          transaction,
+          latestReservation.spaceId,
+          payload.reservedAt,
+          payload.reservedEndAt,
+          latestReservation.id,
+        );
+
+        if (latestConflict) {
+          throw new ConflictException(
+            `与「${latestConflict.guestName}」的预约时间冲突`,
+          );
+        }
+
+        const nextReservation = await transaction.spaceReservation.update({
+          where: { id: reservation.id },
+          data: {
+            guestName: payload.guestName,
+            phone: payload.phone,
+            reservedAt: new Date(payload.reservedAt),
+            reservedEndAt: new Date(payload.reservedEndAt),
+            guestCount: payload.guestCount,
+            note: payload.note,
+          },
+        });
+
+        return nextReservation;
+      },
+      { timeout: TX_TIMEOUT_SHORT },
     );
-    // 预约变更影响空间 reserved 运行态与看板/列表
-    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
-      reservation.storeId,
-    );
+
+    await this.invalidateReservationDerivedCaches(reservation.storeId);
 
     return toSpaceReservationResponse(updated);
   }
@@ -321,55 +318,67 @@ export class SpaceReservationsWriteService {
       throw new ConflictException('当前预约已处理，无法取消');
     }
 
-    const updated = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
+    const updated = await this.prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`
         SELECT id
         FROM spaces
         WHERE id = ${reservation.spaceId}
         FOR UPDATE
       `;
-      await transaction.$queryRaw`
+        await transaction.$queryRaw`
         SELECT id
         FROM space_reservations
         WHERE id = ${reservation.id}
         FOR UPDATE
       `;
 
-      const latestReservation = await transaction.spaceReservation.findUnique({
-        where: { id: reservation.id },
-        select: {
-          id: true,
-          spaceId: true,
-          status: true,
-        },
-      });
+        const latestReservation = await transaction.spaceReservation.findUnique(
+          {
+            where: { id: reservation.id },
+            select: {
+              id: true,
+              spaceId: true,
+              status: true,
+            },
+          },
+        );
 
-      if (!latestReservation) {
-        throw new NotFoundException('预约不存在');
-      }
-      if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
-        throw new ConflictException('当前预约已处理，无法取消');
-      }
+        if (!latestReservation) {
+          throw new NotFoundException('预约不存在');
+        }
+        if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
+          throw new ConflictException('当前预约已处理，无法取消');
+        }
 
-      const nextReservation = await transaction.spaceReservation.update({
-        where: { id: reservation.id },
-        data: {
-          status: PrismaSpaceReservationStatus.cancelled,
-        },
-      });
+        const nextReservation = await transaction.spaceReservation.update({
+          where: { id: reservation.id },
+          data: {
+            status: PrismaSpaceReservationStatus.cancelled,
+          },
+        });
 
-      return nextReservation;
-    });
-
-    // 首页动态依赖预约数据（预约/包间即将开始）
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
-      reservation.storeId,
+        return nextReservation;
+      },
+      { timeout: TX_TIMEOUT_SHORT },
     );
-    // 预约取消影响空间 reserved 运行态与看板/列表
-    await this.cacheInvalidatorService.invalidateSpacesReadCaches(
-      reservation.storeId,
-    );
+
+    await this.invalidateReservationDerivedCaches(reservation.storeId);
 
     return toSpaceReservationResponse(updated);
+  }
+
+  /**
+   * 预约变更同时影响「首页动态（预约/包间即将开始）」与「空间看板/列表的 reserved 运行态」。
+   * 两条失效链路互不依赖，并行执行省去一次串行往返（与 marketing-consumption-link
+   * 内部的并行口径保持一致）。
+   */
+  private async invalidateReservationDerivedCaches(
+    storeId: number,
+  ): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
+      this.cacheInvalidatorService.invalidateSpacesReadCaches(storeId),
+    ]);
   }
 }

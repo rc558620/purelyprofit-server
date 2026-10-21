@@ -1,4 +1,3 @@
-import { HandoverStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
@@ -53,9 +52,9 @@ describe('HandoverAdditionalItemsService', () => {
           updatedAt: new Date('2026-06-01T10:02:00.000Z'),
         },
       ]);
-      prismaService.storeHandoverAdditionalValue.findMany.mockResolvedValue([
+      // DISTINCT ON 让 PG 每个附加项只返回最新一行：不再拉全量历史再内存取最新
+      prismaService.$queryRaw.mockResolvedValue([
         { itemId: 101, value: '7' },
-        { itemId: 101, value: '6' },
         { itemId: 102, value: '8' },
       ]);
 
@@ -66,27 +65,12 @@ describe('HandoverAdditionalItemsService', () => {
         expect.objectContaining({ id: 102, name: '钥匙', val: '8' }),
         expect.objectContaining({ id: 103, name: '备用金', val: '' }),
       ]);
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+      const [sqlTemplate] = prismaService.$queryRaw.mock.calls[0];
+      expect(String(sqlTemplate)).toContain('DISTINCT ON');
       expect(
         prismaService.storeHandoverAdditionalValue.findMany,
-      ).toHaveBeenCalledWith({
-        where: {
-          itemId: { in: [101, 102, 103] },
-          item: { storeId: 100 },
-          record: {
-            status: HandoverStatus.completed,
-          },
-        },
-        select: {
-          itemId: true,
-          value: true,
-        },
-        orderBy: [
-          { record: { handoverAt: 'desc' } },
-          { record: { createdAt: 'desc' } },
-          { createdAt: 'desc' },
-          { id: 'desc' },
-        ],
-      });
+      ).not.toHaveBeenCalled();
     });
 
     it('没有附加项时不查询最近值', async () => {
@@ -95,9 +79,7 @@ describe('HandoverAdditionalItemsService', () => {
       const result = await service.listAdditionalItems(ownerUser);
 
       expect(result).toEqual({ items: [] });
-      expect(
-        prismaService.storeHandoverAdditionalValue.findMany,
-      ).not.toHaveBeenCalled();
+      expect(prismaService.$queryRaw).not.toHaveBeenCalled();
     });
   });
 });

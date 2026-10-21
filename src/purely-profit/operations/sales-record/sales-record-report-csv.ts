@@ -2,12 +2,12 @@
 import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiDateTime } from '../../../shared/shanghai-time.utils';
-import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import {
-  isDeductionProductName,
-  toOptionalText,
-  toTimestampMs,
-} from '../../commerce/commerce.utils';
+  safeStreamCsvExport,
+  setCsvDownloadHeaders,
+  toCsvLine,
+} from '../../../shared/stream-export.utils';
+import { toOptionalText, toTimestampMs } from '../../commerce/commerce.utils';
 import {
   buildGrouponLabel,
   resolveGrouponPlatformZh,
@@ -19,9 +19,9 @@ import {
 } from './sales-record-item-aggregation';
 import {
   resolveReportProductName,
+  resolveSalesRecordAmountsFromOrder,
   type SaleOrderWithItems,
 } from './sales-record.domain';
-import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 
 const CSV_FILENAME = '销售记录.csv';
 
@@ -62,24 +62,12 @@ function resolvePaymentLabel(paymentMethod: string): string {
 }
 
 /**
- * 金额聚合口径：商品行 + 抵扣行相互冲减（自助下单商品已在线支付，抵扣行冲减到店应收）。
- * 排除抵扣行后按统一口径准备金额聚合入参。
+ * 金额口径与列表 / 报表完全一致：
+ * 商品行 + 抵扣行相互冲减，台位费计入金额，团购券订单按券面 + 超时 + 点单计收。
+ * 统一走 resolveSalesRecordAmountsFromOrder，避免导出与页面口径漂移。
  */
-function aggregateOrderAmounts(order: SaleOrderWithItems) {
-  const preparedItems = order.items
-    .filter((item) => !isDeductionProductName(item.productName))
-    .map((item) => ({
-      productId: item.productId,
-      productName: item.productName,
-      categoryName: item.categoryName,
-      salePrice: Money.fromDbCents(item.salePrice),
-      profit: Money.fromDbCents(item.profit),
-      quantity: item.quantity,
-      countsTowardTotalQuantity: true,
-      image: undefined as string | undefined,
-    }));
-
-  return SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
+function resolveOrderAmounts(order: SaleOrderWithItems) {
+  return resolveSalesRecordAmountsFromOrder(order);
 }
 
 /**
@@ -90,7 +78,7 @@ export function buildCsvRowFromOrder(
   order: SaleOrderWithItems,
   specsRows?: string[][],
 ): string[] {
-  const amounts = aggregateOrderAmounts(order);
+  const amounts = resolveOrderAmounts(order);
 
   // 商品名称列：自助下单已在线支付的商品由「XX · 自助下单抵扣」抵扣行承载（原商品行排除）；
   // 规格按 **order.items 原始索引**取值（行过滤后再取下标会错位），
@@ -165,31 +153,59 @@ export function resolvePeriodLabel(query: SalesReportQueryDto): string {
   return periodMap[period] ?? period;
 }
 
-function buildSummaryPrefixRows(
-  orders: SaleOrderWithItems[],
-  periodLabel: string,
-): unknown[][] {
-  const exportTime = formatCsvTimestamp(Date.now());
+/** 导出文件头部的统计汇总行所需数据（营业额/利润已跳过退款单）。 */
+export interface SalesReportCsvSummary {
+  totalRevenue: number;
+  totalProfit: number;
+  orderCount: number;
+  avgOrderValue: number;
+}
 
+/** 空汇总：无数据 / 无权限 / 时间窗为空时的兜底。 */
+export const EMPTY_SALES_REPORT_CSV_SUMMARY: SalesReportCsvSummary = {
+  totalRevenue: 0,
+  totalProfit: 0,
+  orderCount: 0,
+  avgOrderValue: 0,
+};
+
+/** 按现有口径从订单列表累加汇总（退款单不计入金额与笔数）。 */
+export function accumulateSalesReportCsvSummary(
+  orders: SaleOrderWithItems[],
+): SalesReportCsvSummary {
   let totalRevenue = 0;
   let totalProfit = 0;
+  let orderCount = 0;
 
   for (const order of orders) {
     if (order.refund) continue;
-    const amounts = aggregateOrderAmounts(order);
+    const amounts = resolveOrderAmounts(order);
     totalRevenue = Money.fromInputYuan(totalRevenue)
       .add(Money.fromInputYuan(amounts.totalRevenue))
       .toOutputYuan();
     totalProfit = Money.fromInputYuan(totalProfit)
       .add(Money.fromInputYuan(amounts.totalProfit))
       .toOutputYuan();
+    orderCount += 1;
   }
 
-  const orderCount = orders.filter((order) => !order.refund).length;
-  const avgOrderValue =
-    orderCount > 0
-      ? Money.fromInputYuan(totalRevenue).divide(orderCount).toOutputYuan()
-      : 0;
+  return {
+    totalRevenue,
+    totalProfit,
+    orderCount,
+    avgOrderValue:
+      orderCount > 0
+        ? Money.fromInputYuan(totalRevenue).divide(orderCount).toOutputYuan()
+        : 0,
+  };
+}
+
+function buildSummaryPrefixRows(
+  summary: SalesReportCsvSummary,
+  periodLabel: string,
+): unknown[][] {
+  const exportTime = formatCsvTimestamp(Date.now());
+  const { totalRevenue, totalProfit, orderCount, avgOrderValue } = summary;
 
   return [
     ['销售记录报表', '', '', `导出时间: ${exportTime}`],
@@ -218,7 +234,7 @@ export function buildSalesReportCsvRows(
   );
 }
 
-/** 流式导出销售记录 CSV：统计汇总前缀 + 订单明细表头 + 明细行。 */
+/** 一次性导出销售记录 CSV（小结果集路径）：统计汇总前缀 + 明细表头 + 明细行。 */
 export function streamSalesReportCsv(
   reply: ServerResponse,
   orders: SaleOrderWithItems[],
@@ -230,6 +246,44 @@ export function streamSalesReportCsv(
     CSV_FILENAME,
     CSV_HEADERS,
     buildSalesReportCsvRows(orders, specsRowsMap),
-    buildSummaryPrefixRows(orders, resolvePeriodLabel(query)),
+    buildSummaryPrefixRows(
+      accumulateSalesReportCsvSummary(orders),
+      resolvePeriodLabel(query),
+    ),
   );
+}
+
+/**
+ * 分批导出第一步：写出响应头、统计汇总前缀与明细表头。
+ *
+ * 与 `streamSalesReportCsv` 分开，是为了让「汇总行在文件头部、金额却要由全部
+ * 订单累加」这一约束下的大导出也能保持 O(批量) 内存：调用方先用游标分批
+ * 扫一遍算出汇总，再回到这里开始写流，然后逐批 `writeSalesReportCsvRows`。
+ */
+export function startSalesReportCsv(
+  reply: ServerResponse,
+  summary: SalesReportCsvSummary,
+  periodLabel: string,
+): void {
+  setCsvDownloadHeaders(reply, CSV_FILENAME);
+  for (const row of buildSummaryPrefixRows(summary, periodLabel)) {
+    reply.write(toCsvLine(row));
+  }
+  reply.write(toCsvLine(CSV_HEADERS));
+}
+
+/**
+ * 分批导出第二步：追加一批明细行。
+ *
+ * ⚠️ 调用方必须在 finally 里 `reply.end()`：从 `startSalesReportCsv` 起
+ * 响应头与汇总行已经写出，后续异常无法再回 JSON，只能关闭连接，
+ * 客户端拿到截断的 CSV（总比挂起的 TCP 连接好）。
+ */
+export function writeSalesReportCsvRows(
+  reply: ServerResponse,
+  rows: string[][],
+): void {
+  for (const row of rows) {
+    reply.write(toCsvLine(row));
+  }
 }

@@ -120,6 +120,67 @@ export const SALE_ORDER_ITEM_SELECT = {
 } satisfies Prisma.SaleOrderItemSelect;
 
 /**
+ * 支付方式汇总（mapPaymentItems / buildSpaceConsumptionPaymentIndex）专用 select。
+ *
+ * ─── 为什么与 SALE_ORDER_ITEM_SELECT 分开 ────────────────────────────
+ * loadPaymentOrderItems 覆盖班次内【全部】订单明细（无 take、无 orderBy），
+ * 行数随班次订单量线性增长；而它的唯一消费方是支付方式金额汇总，
+ * 只需要金额 + 支付方式归属字段。复用全量 select 会为每一行额外拉取：
+ * scanOrder.items.specs、operatorStaff→employeeProfile→subAccounts、
+ * spaceSession.sessionItems / space / openOperatorStaff 等纯展示字段，
+ * 单行 payload 与 join 数量都被放大数倍。
+ *
+ * ─── ⚠️ DO NOT 精简掉这些字段 ────────────────────────────────────────
+ * 支付方式归属不是简单的 order.paymentMethod：空间会话消费行要按
+ * 资金到账顺序（开台预付 → 续费 → 结账补收）冲抵后取覆盖该行的那一笔资金，
+ * 因此 prepaid* 与 sessionRenewRecords 是必需字段（见 BUG-1/5/7 说明）。
+ */
+export const PAYMENT_ORDER_ITEM_SELECT = {
+  id: true,
+  productName: true,
+  salePrice: true,
+  quantity: true,
+  order: {
+    select: {
+      id: true,
+      paymentMethod: true,
+      // 团购券码：结账补收资金走团购券时，券码随该笔资金归属到消费行
+      grouponCode: true,
+      // 仅需判断是否为扫码点餐订单（purelyClub 下单）：非 null 即归入团购桶
+      scanOrder: {
+        select: { id: true },
+      },
+      spaceSession: {
+        select: {
+          prepaidPaymentMethod: true,
+          prepaidCustomerPaymentMethod: true,
+          prepaidGrouponPlatform: true,
+          prepaidGrouponCode: true,
+          // 开台预付款金额（分）：消费行支付方式归属的资金池来源之一
+          prepaidAmount: true,
+          sessionRenewRecords: {
+            select: {
+              paymentMethod: true,
+              amount: true,
+              renewedAt: true,
+              grouponPlatform: true,
+              grouponCode: true,
+            },
+            // 续费按到账顺序（id 升序）返回，保证支付方式归属计算稳定
+            orderBy: { id: 'asc' },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.SaleOrderItemSelect;
+
+/** 支付方式汇总查询返回的行类型（slim select） */
+export type PaymentOrderItemRow = Prisma.SaleOrderItemGetPayload<{
+  select: typeof PAYMENT_ORDER_ITEM_SELECT;
+}>;
+
+/**
  * 已结账空间会话查询字段（客人应付 / 退款展示项的数据源）。
  *
  * ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────

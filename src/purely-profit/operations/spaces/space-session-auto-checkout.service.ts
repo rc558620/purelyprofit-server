@@ -18,6 +18,7 @@ import {
   mapSessionItemRows,
 } from './space-sessions.mapper';
 import {
+  buildSettlementPrepaidMetadata,
   buildSpaceSessionSettlement,
   resolveRenewRecordsGrouponFallback,
 } from './space-session-settlement.shared';
@@ -251,50 +252,13 @@ export class SpaceSessionAutoCheckoutService {
             ...(resolvedSettlementChannel
               ? { settlementChannel: resolvedSettlementChannel }
               : {}),
-            ...((session.prepaidGrouponCode ?? renewGrouponFallback.grouponCode)
-              ? {
-                  grouponCode:
-                    session.prepaidGrouponCode ??
-                    renewGrouponFallback.grouponCode!,
-                }
-              : {}),
-            ...((session.prepaidGrouponPlatform ??
-            renewGrouponFallback.grouponPlatform)
-              ? {
-                  grouponPlatform:
-                    session.prepaidGrouponPlatform ??
-                    renewGrouponFallback.grouponPlatform!,
-                }
-              : {}),
-            ...((session.prepaidVoucherCode ?? renewGrouponFallback.grouponCode)
-              ? {
-                  voucherCode:
-                    session.prepaidVoucherCode ??
-                    renewGrouponFallback.grouponCode!,
-                }
-              : {}),
-            ...((session.prepaidVoucherPlatform ??
-            renewGrouponFallback.grouponPlatform)
-              ? {
-                  voucherPlatform:
-                    session.prepaidVoucherPlatform ??
-                    renewGrouponFallback.grouponPlatform!,
-                }
-              : {}),
-            // BUG-3 fix: 续费回退来源的 voucherFaceAmount 不写入 session.prepaidVoucherFaceAmount，
-            // 防止续费券面污染预付池、保持「两池独立」不变量。
-            ...(session.prepaidVoucherFaceAmount !== null
-              ? {
-                  voucherFaceAmount: Money.fromDbCents(
-                    session.prepaidVoucherFaceAmount,
-                  ).toOutputYuan(),
-                }
-              : renewGrouponFallback.voucherFaceAmount !== undefined
-                ? {
-                    voucherFaceAmount: renewGrouponFallback.voucherFaceAmount,
-                    skipPrepaidVoucherPersistence: true,
-                  }
-                : {}),
+            // BUG-3 fix + BUG-4 fix: 团购元数据回退链（无 checkout payload 层）
+            // = session.prepaid*（开台预付）→ 续费记录。
+            // 三选一规则已收敛到 buildSettlementPrepaidMetadata，与手工结账共用同一实现。
+            ...buildSettlementPrepaidMetadata({
+              session,
+              renewGrouponFallback,
+            }),
           });
           settledCount += 1;
         } catch (error) {
@@ -357,7 +321,16 @@ export class SpaceSessionAutoCheckoutService {
       );
       return 0;
     } finally {
-      await this.redisLockService.releaseLock(lock);
+      // 与 settlement.service 口径一致：释放失败只告警，不掩盖业务结果/原始异常
+      try {
+        await this.redisLockService.releaseLock(lock);
+      } catch (error) {
+        this.logger.warn(
+          `[space-auto-checkout] releaseLock failed storeId=${storeId} reason=${
+            error instanceof Error ? error.name : 'UnknownError'
+          }`,
+        );
+      }
     }
   }
 

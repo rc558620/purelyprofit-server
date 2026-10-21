@@ -1,5 +1,8 @@
 // 销售报表行聚合：按「营业日 + 商品」汇总数量与营业额（排除抵扣行）
-import { isNonQuantitySalesRecordRow } from '../../commerce/commerce.utils';
+import {
+  isNonQuantitySalesRecordRow,
+  TABLE_FEE_NAME_RE,
+} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   formatShanghaiDayLabel,
@@ -13,6 +16,7 @@ import {
 import {
   resolveReportProductName,
   type SaleOrderWithItems,
+  type SalesRecordOrderAmounts,
 } from './sales-record.domain';
 
 export interface SalesReportAggregationRow {
@@ -53,12 +57,48 @@ function getReportRowDayStart(rowId: string): number {
   return Number(rowId.slice(0, separatorIndex));
 }
 
+/**
+ * 团购券订单台位费行的金额折损系数（0 < scale ≤ 1）。
+ *
+ * 券只按它实际抵消的台位费计收（min(台位费, 券程, 券面)），多付的券面留在券余额、
+ * 不计入本单。明细行必须与汇总（resolveSalesRecordAmounts）同口径，否则报表页会
+ * 出现「商品明细营业额合计 > 总营业额」的自相矛盾。
+ */
+function resolveTableFeeRevenueScale(
+  order: SaleOrderWithItems,
+  amounts: SalesRecordOrderAmounts | undefined,
+): number {
+  const breakdown = amounts?.grouponVoucherBreakdown;
+  if (!breakdown) return 1;
+
+  const rawTableFee = listVisibleSaleOrderItems(order).reduce(
+    (sum, { item }) =>
+      TABLE_FEE_NAME_RE.test(item.productName)
+        ? sum.add(Money.fromDbCents(item.salePrice).multiply(item.quantity))
+        : sum,
+    Money.zero(),
+  );
+  if (!rawTableFee.isPositive()) return 1;
+
+  const adjusted = Money.fromInputYuan(breakdown.voucherCoveredRevenue).add(
+    Money.fromInputYuan(breakdown.overtimeRevenue),
+  );
+  return Math.min(1, adjusted.toDbCents() / rawTableFee.toDbCents());
+}
+
 export function aggregateReportRows(
   orders: SaleOrderWithItems[],
+  amountsByOrderId: Map<number, SalesRecordOrderAmounts> = new Map(),
 ): SalesDailyRowDto[] {
   const rows = new Map<string, SalesReportAggregationRow>();
 
   for (const order of orders) {
+    // 已退款订单不计入（与汇总 / CSV 汇总 / 统计卡同口径）
+    if (order.refund) continue;
+    const tableFeeScale = resolveTableFeeRevenueScale(
+      order,
+      amountsByOrderId.get(Number(order.id)),
+    );
     const dayStart = getDayStart(order.date.getTime());
     const dateLabel = formatReportMonthDay(dayStart);
 
@@ -71,9 +111,14 @@ export function aggregateReportRows(
         ? item.productName
         : resolveReportProductName(order, item);
       const rowId = buildReportRowId(dayStart, item, productName);
-      const revenue = Money.fromDbCents(item.salePrice)
-        .multiply(item.quantity)
-        .toOutputYuan();
+      const isTableFeeRow = TABLE_FEE_NAME_RE.test(item.productName);
+      const rawRevenue = Money.fromDbCents(item.salePrice).multiply(
+        item.quantity,
+      );
+      // 团购券订单：台位费行按「券实际抵扣 + 超时」计收，与汇总同口径
+      const revenue = isTableFeeRow
+        ? rawRevenue.multiply(tableFeeScale).toOutputYuan()
+        : rawRevenue.toOutputYuan();
       const existing = rows.get(rowId);
       if (existing) {
         // 抵扣行 / 台位费行不是真实销量，累加数量会虚高

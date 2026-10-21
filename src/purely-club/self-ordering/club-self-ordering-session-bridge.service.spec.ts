@@ -40,6 +40,8 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     inventoryAdjustmentLog: { createMany: jest.fn() },
     // 客存冻结聚合：默认无冻结量，未开启 frozen 的门店行为不变
     custodyOrder: { groupBy: jest.fn().mockResolvedValue([]) },
+    // 批量库存 UPDATE（多个商品合并为一条 SQL）
+    $executeRaw: jest.fn().mockResolvedValue(0),
   };
 
   const items = [
@@ -180,15 +182,18 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
   it('首次录入：按数量扣减商品库存（自助下单也是真实销售）', async () => {
     await append();
 
-    // 可乐 2 件、薯片 1 件
-    expect(tx.product.update).toHaveBeenCalledWith({
-      where: { id: 101 },
-      data: { stock: { increment: -2 } },
-    });
-    expect(tx.product.update).toHaveBeenCalledWith({
-      where: { id: 201 },
-      data: { stock: { increment: -1 } },
-    });
+    /*
+     * 可乐 2 件、薯片 1 件。
+     * 库存扣减已批量化：两个商品合并为一条 UPDATE，delta 由数据库侧在行上做加法，
+     * 与逐个 increment 语义一致（事务内往返从 N 次降为 1 次）。
+     */
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    const batchValues = (
+      (tx.$executeRaw as jest.Mock).mock.calls[0][1] as {
+        values: number[];
+      }
+    ).values;
+    expect(batchValues).toEqual([101, -2, 201, -1]);
     /* 多条流水合并为一次 createMany */
     expect(tx.inventoryAdjustmentLog.createMany).toHaveBeenCalledTimes(1);
     expect(tx.inventoryAdjustmentLog.createMany).toHaveBeenCalledWith({

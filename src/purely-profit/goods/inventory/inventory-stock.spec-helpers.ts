@@ -19,6 +19,8 @@ export function createInventoryTransactionMock(): {
   logDeleteMany: jest.Mock;
   custodyOrderGroupBy: jest.Mock;
   queryRaw: jest.Mock;
+  /** 批量库存 UPDATE（N 个商品合并为一条 SQL） */
+  executeRaw: jest.Mock;
 } {
   const productFindMany = jest.fn().mockResolvedValue([]);
   const productUpdate = jest.fn();
@@ -30,6 +32,8 @@ export function createInventoryTransactionMock(): {
   const custodyOrderGroupBy = jest.fn().mockResolvedValue([]);
   // 行锁 + 读库存合并后的 SELECT ... FOR UPDATE
   const queryRaw = jest.fn().mockResolvedValue([]);
+  // 批量 UPDATE products（返回受影响行数）
+  const executeRaw = jest.fn().mockResolvedValue(0);
 
   return {
     transaction: {
@@ -47,6 +51,7 @@ export function createInventoryTransactionMock(): {
         groupBy: custodyOrderGroupBy,
       },
       $queryRaw: queryRaw,
+      $executeRaw: executeRaw,
     } as unknown as InventoryTransactionClient,
     productFindMany,
     productUpdate,
@@ -56,5 +61,6 @@ export function createInventoryTransactionMock(): {
     logDeleteMany,
     custodyOrderGroupBy,
     queryRaw,
+    executeRaw,
   };
 }

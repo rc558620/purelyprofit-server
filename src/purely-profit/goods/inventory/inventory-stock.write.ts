@@ -26,6 +26,7 @@ import {
   querySaleAdjustmentLogs,
   resolveFrozenQty,
   updateInventoryProductStock,
+  updateInventoryProductStocks,
 } from './inventory-stock.query';
 
 /**
@@ -179,6 +180,7 @@ async function recordInventoryStockChanges(
   );
 
   const logs: InventoryAdjustmentLogCreateInput[] = [];
+  const stockChanges: Array<{ productId: number; delta: number }> = [];
 
   for (const item of mergedItems) {
     const product = context.products.get(item.productId);
@@ -209,14 +211,17 @@ async function recordInventoryStockChanges(
     /*
      * D2 修复：使用原子 increment 替代绝对赋值，
      * sale 扣减时 increment(-quantity)，restock 补货时 increment(+quantity)。
+     * 这里先收集再一次性批量 UPDATE——delta 由数据库侧在行上做加法，
+     * 并发语义与逐个 update 完全一致，但事务内往返从 N 次降为 1 次。
      */
-    const delta = params.adjustType === 'sale' ? -item.quantity : item.quantity;
-    await updateInventoryProductStock(transaction, plan.productId, {
-      increment: delta,
+    stockChanges.push({
+      productId: plan.productId,
+      delta: params.adjustType === 'sale' ? -item.quantity : item.quantity,
     });
     logs.push(plan.log);
   }
 
+  await updateInventoryProductStocks(transaction, stockChanges);
   await createInventoryAdjustmentLogs(transaction, logs);
 }
 
@@ -243,6 +248,12 @@ export async function revertInventorySaleDeduction(
     logs.map((log) => log.productId),
   );
 
+  /*
+   * 与 recordInventoryStockChanges 同理：先收集 delta，再一次性批量 UPDATE，
+   * 避免回滚一张十几行的销售单时在事务里跑十几趟往返。
+   */
+  const revertChanges: Array<{ productId: number; delta: number }> = [];
+
   for (const log of logs) {
     const plan = buildInventoryRevertStockPlan({
       product: context.products.get(log.productId) ?? null,
@@ -254,10 +265,10 @@ export async function revertInventorySaleDeduction(
      * 防止并发回滚时后提交覆盖先提交导致库存数据丢失。
      * 销售 delta 为负（如 -4），increment(-(-4)) = increment(4)，方向正确。
      */
-    await updateInventoryProductStock(transaction, plan.productId, {
-      increment: -log.delta,
-    });
+    revertChanges.push({ productId: plan.productId, delta: -log.delta });
   }
+
+  await updateInventoryProductStocks(transaction, revertChanges);
 }
 
 /**
@@ -288,6 +299,8 @@ export async function revertInventoryPurchaseRestock(
     logs.map((log) => log.productId),
   );
 
+  const purchaseRevertChanges: Array<{ productId: number; delta: number }> = [];
+
   for (const log of logs) {
     const product = context.products.get(log.productId);
     if (!product) continue;
@@ -297,10 +310,10 @@ export async function revertInventoryPurchaseRestock(
     const revertQty = Math.min(Math.max(0, log.delta), availableStock);
     if (revertQty <= 0) continue;
 
-    await updateInventoryProductStock(transaction, product.id, {
-      increment: -revertQty,
-    });
+    purchaseRevertChanges.push({ productId: product.id, delta: -revertQty });
   }
+
+  await updateInventoryProductStocks(transaction, purchaseRevertChanges);
 }
 
 /**
@@ -332,6 +345,7 @@ export async function deductInventoryForSaleBestEffort(
     mergedItems.map((item) => item.productId),
   );
   const logs: InventoryAdjustmentLogCreateInput[] = [];
+  const bestEffortChanges: Array<{ productId: number; delta: number }> = [];
 
   for (const item of mergedItems) {
     const product = context.products.get(item.productId);
@@ -349,9 +363,7 @@ export async function deductInventoryForSaleBestEffort(
     if (deducted <= 0) continue;
 
     const afterStock = product.stock - deducted;
-    await updateInventoryProductStock(transaction, product.id, {
-      increment: -deducted,
-    });
+    bestEffortChanges.push({ productId: product.id, delta: -deducted });
     logs.push({
       storeId,
       productId: product.id,
@@ -368,6 +380,7 @@ export async function deductInventoryForSaleBestEffort(
     });
   }
 
+  await updateInventoryProductStocks(transaction, bestEffortChanges);
   await createInventoryAdjustmentLogs(transaction, logs);
 }
 

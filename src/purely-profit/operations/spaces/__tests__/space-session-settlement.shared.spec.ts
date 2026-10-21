@@ -434,7 +434,9 @@ describe('buildSpaceSessionSettlement — 自助下单抵扣', () => {
     });
     expect(result.selfOrderDeduction).toBe(0);
     expect(
-      result.orderItems.some((item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION'),
+      result.orderItems.some(
+        (item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION',
+      ),
     ).toBe(false);
     // 68 + 30 = 98
     expect(result.totalAmount).toBe(98);

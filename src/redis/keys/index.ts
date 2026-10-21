@@ -36,6 +36,7 @@ export { buildClubInviteCodeMapCacheKey } from './club.cache-keys';
 export {
   buildClubMenuCacheKey,
   buildClubMenuPattern,
+  buildClubMenuVersionCacheKey,
   buildClubMemberSnapshotCacheKey,
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,

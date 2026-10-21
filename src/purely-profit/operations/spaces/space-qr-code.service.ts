@@ -18,9 +18,9 @@ import {
   buildSpaceQrTokenSecrets,
   decryptSpaceQrToken,
   resolveSpaceQrTokenKeys,
-  type SpaceQrTokenKeyConfig,
 } from '../../../shared/space-qr-token-codec.utils';
 import { buildSpaceQrPayload } from '../scan-qr-payload.utils';
+import { readSpaceQrTokenKeyConfig } from './spaces.shared';
 
 export interface SpaceQrCodePreview {
   spaceId: number;
@@ -114,7 +114,10 @@ export class SpaceQrCodeService implements OnModuleInit {
   ): Promise<SpaceQrCodePreview> {
     const space = await this.getAccessibleSpace(user, spaceId);
     const token = randomUUID();
-    const secrets = buildSpaceQrTokenSecrets(token, this.readTokenKeyConfig());
+    const secrets = buildSpaceQrTokenSecrets(
+      token,
+      readSpaceQrTokenKeyConfig(this.configService),
+    );
     await this.prisma.spaceQrCode.upsert({
       where: { spaceId: space.id },
       create: {
@@ -206,7 +209,10 @@ export class SpaceQrCodeService implements OnModuleInit {
         data: {
           spaceId: space.id,
           storeId: space.storeId,
-          ...buildSpaceQrTokenSecrets(token, this.readTokenKeyConfig()),
+          ...buildSpaceQrTokenSecrets(
+            token,
+            readSpaceQrTokenKeyConfig(this.configService),
+          ),
         },
         select: { tokenCiphertext: true },
       });
@@ -242,7 +248,7 @@ export class SpaceQrCodeService implements OnModuleInit {
 
     const token = decryptSpaceQrToken(
       tokenCiphertext,
-      resolveSpaceQrTokenKeys(this.readTokenKeyConfig()),
+      resolveSpaceQrTokenKeys(readSpaceQrTokenKeyConfig(this.configService)),
     );
     if (!token) {
       throw new InternalServerErrorException(
@@ -252,16 +258,6 @@ export class SpaceQrCodeService implements OnModuleInit {
       );
     }
     return token;
-  }
-
-  private readTokenKeyConfig(): SpaceQrTokenKeyConfig {
-    return {
-      current: this.configService.get<string>('space.qrTokenEncryptionKey'),
-      previous: this.configService.get<string>(
-        'space.qrTokenEncryptionKeyPrevious',
-      ),
-      jwtSecret: this.configService.get<string>('jwt.secret'),
-    };
   }
 
   private async getAccessibleSpace(

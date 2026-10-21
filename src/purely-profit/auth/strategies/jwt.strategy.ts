@@ -111,33 +111,33 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    const user = await this.resolveUser(payload.sub);
+    // user / tokenVersion / 会话活性 / 封禁检查四者互不依赖，并行发起：
+    // 串行时鉴权链路要 ~6 次 Redis 往返（membership 查询依赖 user.email，
+    // 只能等本轮结束后再发），远程 Redis 下仅鉴权就占 100ms+。
+    const [user, currentTokenVersion, sessionActive] = await Promise.all([
+      this.resolveUser(payload.sub),
+      this.authSessionService.getTokenVersion(payload.sub),
+      payload.sid
+        ? this.authSessionService.isSessionActive(payload.sub, payload.sid)
+        : Promise.resolve(true),
+      // 封禁检查通过即 resolve；被拒时与其余检查在同一轮 reject
+      this.authBanGuardService.ensureUserNotBanned(payload.sub),
+    ] as const);
 
     if (!user) {
       throw new UnauthorizedException('用户不存在');
     }
 
-    const currentTokenVersion = await this.authSessionService.getTokenVersion(
-      payload.sub,
-    );
     if ((payload.sessionVersion ?? 0) < currentTokenVersion) {
       throw new UnauthorizedException('登录态已失效，请重新登录');
     }
 
     // 检查会话是否仍活跃（已被踢下线的会话拒绝访问）
-    if (payload.sid) {
-      const isSessionActive = await this.authSessionService.isSessionActive(
-        payload.sub,
-        payload.sid,
+    if (!sessionActive) {
+      throw new UnauthorizedException(
+        '您的账号已在其他设备登录，当前会话已失效',
       );
-      if (!isSessionActive) {
-        throw new UnauthorizedException(
-          '您的账号已在其他设备登录，当前会话已失效',
-        );
-      }
     }
-
-    await this.authBanGuardService.ensureUserNotBanned(payload.sub);
 
     const identity = resolveAuthIdentity(
       user.email,

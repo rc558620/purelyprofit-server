@@ -64,12 +64,17 @@ export class SalesRecordWriteService {
       orderDate,
     );
 
-    const preparedItems =
-      await this.salesRecordItemPreparationService.prepareItems(
+    // 商品目录查询与操作员姓名查询互不依赖：并行发出，省掉一次串行 DB 往返。
+    // 用 Promise.all 而非分别 await —— prepareItems 会抛业务异常（下架/库存不足），
+    // 若另一个 Promise 未被 await，其 rejection 会变成 unhandled rejection。
+    const [preparedItems, operatorNameSnapshot] = await Promise.all([
+      this.salesRecordItemPreparationService.prepareItems(
         storeId,
         dto,
         options,
-      );
+      ),
+      this.resolveOperatorNameSnapshot(operatorStaffId),
+    ]);
 
     // 使用统一金额聚合域计算权威金额（确保与 preview 计算一致）
     const amountsSnapshot =
@@ -81,9 +86,6 @@ export class SalesRecordWriteService {
     const totalProfit =
       options.totalProfitOverride ?? amountsSnapshot.totalProfit;
     const totalQuantity = amountsSnapshot.totalQuantity;
-
-    const operatorNameSnapshot =
-      await this.resolveOperatorNameSnapshot(operatorStaffId);
 
     const response = await this.salesRecordCreateFlowService.createRecord({
       storeId,
@@ -104,8 +106,22 @@ export class SalesRecordWriteService {
       await this.downgradeService.incrementManualEntryCount(storeId);
     }
 
+    // 缓存失效只是「让派生缓存尽快过期」，不是建单成功的前提，且成本不低：
+    // invalidateSalesDerived 会并发跑十余个 delByPattern，每个都是一次全库 SCAN。
+    // 同步等待会把这轮 Redis 往返全部压在建单响应延迟上，故移出关键路径。
+    // 一致性：RefreshableCacheService 本身就是「有界陈旧」语义（TTL + refresh-after
+    // 后台刷新），失效晚几百毫秒不会让前端读到错误订单——分页明细不缓存，
+    // 只有 summary 存在极短窗口的滞后。失败仅记日志，下一轮刷新仍会自愈。
     if (!options.transactionClient) {
-      await this.invalidateStoreDerivedCaches(storeId);
+      void this.invalidateStoreDerivedCaches(storeId).catch(
+        (error: unknown) => {
+          this.logger.warn(
+            `建单后派生缓存失效失败 storeId=${storeId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        },
+      );
     }
 
     return response;

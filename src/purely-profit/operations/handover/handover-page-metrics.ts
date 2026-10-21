@@ -25,6 +25,7 @@ import {
   loadSaleStockSnapshotIndex,
 } from './handover-stock-snapshot';
 import {
+  PAYMENT_ORDER_ITEM_SELECT,
   SALE_ORDER_ITEM_SELECT,
   SALE_ORDER_REFUND_SELECT,
   SETTLED_SPACE_SESSION_SELECT,
@@ -32,6 +33,7 @@ import {
   buildNonSpaceSessionOrderWhere,
   buildSaleOrderItemOrderWhere,
   buildSaleOrderWhere,
+  type PaymentOrderItemRow,
   type ShiftRangeLike,
 } from './handover-page-query.builders';
 import { computeRefundAmountFromSessions } from './handover-page-payment';
@@ -127,6 +129,9 @@ export const loadPageMetrics = async (
     saleOrderRefunds,
     pettyCash,
     settledSpaceSessions,
+    // 门店主账号 user.id：原实现在 9 个并行查询之后单独 await，
+    // 白白多一次串行往返；它与其余查询无依赖，并入同一批。
+    storeOwnerUserId,
   ] = await Promise.all([
     loadPaymentOrderItems(prisma, membership.storeId, shiftRange),
     loadRecentOrderItems(prisma, membership.storeId, shiftRange),
@@ -137,6 +142,7 @@ export const loadPageMetrics = async (
     loadSaleOrderRefunds(prisma, membership.storeId, startAt, endAt),
     loadPettyCash(prisma, cashFlowWhere),
     loadSettledSpaceSessions(prisma, membership.storeId, startAt, endAt),
+    loadStoreOwnerUserId(prisma, membership.storeId),
   ]);
 
   // 退款金额：SpaceSession 预付溢出 + 扫码点餐退款明细（SaleOrderRefund）双重累加
@@ -153,12 +159,6 @@ export const loadPageMetrics = async (
       ),
     )
     .toOutputYuan();
-
-  // 门店主账号 user.id：操作员职位判定依据（主账号=紫）
-  const storeOwnerUserId = await loadStoreOwnerUserId(
-    prisma,
-    membership.storeId,
-  );
 
   // 销售时点库存快照：库存列显示该笔销售扣减完成后的库存；
   // 查不到流水的行按「当前库存 + 后续销量」倒推兜底（老订单/被退款流水）
@@ -203,17 +203,22 @@ const loadStoreOwnerUserId = async (
   return store?.ownerId ?? null;
 };
 
+/**
+ * 支付方式汇总数据源：班次内【全部】订单明细（无 take —— 金额汇总不能截断）。
+ * 仅 select 支付口径字段（PAYMENT_ORDER_ITEM_SELECT），避免为每行拉取
+ * 规格快照 / 操作员 / 空间开台人等纯展示字段。
+ */
 const loadPaymentOrderItems = (
   prisma: PrismaService,
   storeId: number,
   shiftRange: ShiftRangeLike,
-): Promise<OrderItemRow[]> =>
+): Promise<PaymentOrderItemRow[]> =>
   prisma.saleOrderItem.findMany({
     where: {
       storeId,
       order: buildSaleOrderItemOrderWhere(storeId, shiftRange),
     },
-    select: SALE_ORDER_ITEM_SELECT,
+    select: PAYMENT_ORDER_ITEM_SELECT,
   });
 
 const loadRecentOrderItems = (

@@ -180,6 +180,22 @@ export class HandoverAdditionalItemsService {
     }));
   }
 
+  /**
+   * 取每个附加项「最近一次已完成交班」的填写值。
+   *
+   * ─── 为什么用 raw SQL（DISTINCT ON）而不走 Prisma findMany ──────────────
+   * Prisma 无法在 findMany 里表达「按关系字段排序 + 每组取第一条」：
+   * 原实现只能把某个附加项的【全部历史 value 行】拉回来，
+   * 按 record.handoverAt 排序后再在内存里取第一条。
+   * 而 orderBy 命中关系字段时，PG 需要先 join 再对全量结果排序，
+   * 门店交班历史越长，这次扫描越贵（老门店可达数千行）。
+   *
+   * DISTINCT ON (item_id) 让 PG 在索引扫描阶段就按 item_id 分组取最新一行，
+   * 返回行数恒等于附加项个数。
+   *
+   * ⚠️ 排序口径必须与原实现完全一致（交班时间 → 交班创建时间 → 值创建时间 → id），
+   * 且不加 NULLS 子句：PG 中 DESC 默认 NULLS FIRST，与 Prisma 默认行为一致。
+   */
   private async findLatestValuesByItemId(
     storeId: number,
     itemIds: number[],
@@ -188,34 +204,24 @@ export class HandoverAdditionalItemsService {
       return new Map<number, string>();
     }
 
-    const rows = await this.prisma.storeHandoverAdditionalValue.findMany({
-      where: {
-        itemId: { in: itemIds },
-        item: { storeId },
-        record: {
-          status: HandoverStatus.completed,
-        },
-      },
-      select: {
-        itemId: true,
-        value: true,
-      },
-      orderBy: [
-        { record: { handoverAt: 'desc' } },
-        { record: { createdAt: 'desc' } },
-        { createdAt: 'desc' },
-        { id: 'desc' },
-      ],
-    });
+    const rows = await this.prisma.$queryRaw<
+      Array<{ itemId: number; value: string }>
+    >`
+      SELECT DISTINCT ON (v.item_id) v.item_id AS "itemId", v.value AS "value"
+      FROM store_handover_additional_values v
+      JOIN store_handover_additional_items i ON i.id = v.item_id
+      JOIN store_handover_records r ON r.id = v.record_id
+      WHERE v.item_id = ANY(${itemIds}::int[])
+        AND i.store_id = ${storeId}
+        AND r.status::text = ${HandoverStatus.completed}::text
+      ORDER BY v.item_id,
+        r.handover_at DESC,
+        r.created_at DESC,
+        v.created_at DESC,
+        v.id DESC
+    `;
 
-    const latestValuesByItemId = new Map<number, string>();
-    for (const row of rows) {
-      if (!latestValuesByItemId.has(row.itemId)) {
-        latestValuesByItemId.set(row.itemId, row.value);
-      }
-    }
-
-    return latestValuesByItemId;
+    return new Map(rows.map((row) => [row.itemId, row.value]));
   }
 
   private async ensureAdditionalItemNameAvailable(

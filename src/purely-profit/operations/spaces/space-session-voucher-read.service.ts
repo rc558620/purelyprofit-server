@@ -42,29 +42,30 @@ export class SpaceSessionVoucherReadService {
       storeId,
     );
 
-    // purelyClub 在途余额：读取该顾客在购买门店的储值余额（无顾客档案时按 0 处理）
-    const balanceFen =
+    // 顾客储值余额与券对应营销产品互不依赖，并行读取省去一次串行往返
+    // - 在途余额：读取该顾客在购买门店的储值余额（无顾客档案时按 0 处理）
+    // - 开台计费预配置：读取券对应营销产品（仅团购券商品提供，供开台快速回填）
+    const [customer, product] = await Promise.all([
       order.customerId !== null
-        ? ((
-            await this.prisma.marketingCustomer.findUnique({
-              where: { id: order.customerId },
-              select: { balance: true },
-            })
-          )?.balance ?? 0)
-        : 0;
+        ? this.prisma.marketingCustomer.findUnique({
+            where: { id: order.customerId },
+            select: { balance: true },
+          })
+        : Promise.resolve(null),
+      this.prisma.marketingProduct.findUnique({
+        where: { id: order.productId },
+        select: {
+          type: true,
+          billingMode: true,
+          hourlyRate: true,
+          countdownMinutes: true,
+          countdownPrice: true,
+          autoCheckout: true,
+        },
+      }),
+    ]);
 
-    // 开台计费预配置：读取券对应营销产品（仅团购券商品提供，供开台快速回填）
-    const product = await this.prisma.marketingProduct.findUnique({
-      where: { id: order.productId },
-      select: {
-        type: true,
-        billingMode: true,
-        hourlyRate: true,
-        countdownMinutes: true,
-        countdownPrice: true,
-        autoCheckout: true,
-      },
-    });
+    const balanceFen = customer?.balance ?? 0;
     const billing =
       product !== null && product.type === 'voucher'
         ? {

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +37,8 @@ const RENEW_LOCK_TTL_SECONDS = 30;
 
 @Injectable()
 export class SpaceSessionRenewService {
+  private readonly logger = new Logger(SpaceSessionRenewService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -261,7 +264,16 @@ export class SpaceSessionRenewService {
         session: toSpaceSessionResponse(result.updated),
       };
     } finally {
-      await this.redisLockService.releaseLock(lock);
+      // 与 settlement.service 口径一致：释放失败只告警，不掩盖业务结果/原始异常
+      try {
+        await this.redisLockService.releaseLock(lock);
+      } catch (error) {
+        this.logger.warn(
+          `releaseLock failed sessionId=${sessionId} reason=${
+            error instanceof Error ? error.name : 'UnknownError'
+          }`,
+        );
+      }
     }
   }
 }

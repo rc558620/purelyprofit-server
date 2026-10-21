@@ -40,6 +40,31 @@ export class SalesRecordResponseDto {
   totalQuantity: number;
 
   @ApiProperty({
+    example: 141.2,
+    description:
+      '顾客实付金额（元）：团购券订单 = 券面金额 + 超时台位费 + 点单；其余订单为结算净值（已退款为 0）',
+  })
+  payableAmount: number;
+
+  @ApiPropertyOptional({
+    type: Array,
+    description:
+      '实付金额的收款/退款事件明细：团购券单 = 券抵台位费 + 超时台位费 + 点单；其余订单 = 开台券 + 续费（按支付方式合并）+ 结账补差 或 退款；Σ收款 − Σ退款 = payableAmount',
+  })
+  paymentEvents?: Array<{
+    kind:
+      | 'open_voucher'
+      | 'renew'
+      | 'checkout_due'
+      | 'checkout_refund'
+      | 'voucher_table_fee';
+    method: string;
+    platform?: string;
+    amount: number;
+    direction: 'in' | 'out';
+  }>;
+
+  @ApiProperty({
     example: 'cash',
     enum: SALES_RECORD_PAYMENT_METHOD_VALUES,
     description: '支付方式；balance 为扫码点餐余额支付',

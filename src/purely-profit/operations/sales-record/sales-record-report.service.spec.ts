@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -15,6 +16,13 @@ describe('SalesRecordReportService', () => {
   const prismaService = {
     saleOrder: {
       findMany: jest.fn(),
+    },
+    // 规格增强数据源：扫码点餐订单 / 空间会话规格行，默认无数据
+    scanOrders: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    spaceSession: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
 
@@ -586,6 +594,119 @@ describe('SalesRecordReportService', () => {
     ).toMatchObject({ quantity: 0, revenue: -24 });
   });
 
+  /**
+   * 团购券 + 已退款订单的落库形态：
+   * - #601 团购券单：台位费 ¥98 毛额、券程（hourlyRate）¥98、券面 ¥35.2
+   *   → 券只抵 ¥35.2，明细行必须与汇总同记 ¥35.2（多付的留在券余额）；
+   * - #602 普通单 ¥10；
+   * - #603 已退款单 ¥50：汇总与明细都不应包含。
+   */
+  const buildGrouponAndRefundedFixtures = () => [
+    {
+      id: 601,
+      date: new Date('2026-05-14T11:00:00.000Z'),
+      scanOrderId: null,
+      customerPaymentMethod: 'groupon_voucher',
+      voucherFaceAmount: new Prisma.Decimal('3520'),
+      refund: null,
+      spaceSession: { hourlyRate: new Prisma.Decimal('9800'), space: null },
+      items: [
+        {
+          id: 6011,
+          productId: null,
+          productName: '台位费 1小时',
+          categoryName: '场地费',
+          salePrice: new Prisma.Decimal('9800'),
+          profit: new Prisma.Decimal('9800'),
+          quantity: 1,
+        },
+      ],
+    },
+    {
+      id: 602,
+      date: new Date('2026-05-14T13:00:00.000Z'),
+      scanOrderId: null,
+      customerPaymentMethod: null,
+      voucherFaceAmount: null,
+      refund: null,
+      spaceSession: null,
+      items: [
+        {
+          id: 6021,
+          productId: 701,
+          productName: '柠檬水',
+          categoryName: '饮品',
+          salePrice: new Prisma.Decimal('1000'),
+          profit: new Prisma.Decimal('600'),
+          quantity: 1,
+        },
+      ],
+    },
+    {
+      id: 603,
+      date: new Date('2026-05-14T14:00:00.000Z'),
+      scanOrderId: null,
+      customerPaymentMethod: null,
+      voucherFaceAmount: null,
+      refund: { refundedAt: new Date('2026-05-14T15:00:00.000Z') },
+      spaceSession: null,
+      items: [
+        {
+          id: 6031,
+          productId: 702,
+          productName: '已退商品',
+          categoryName: '饮品',
+          salePrice: new Prisma.Decimal('5000'),
+          profit: new Prisma.Decimal('3000'),
+          quantity: 1,
+        },
+      ],
+    },
+  ];
+
+  it('团购券订单：明细台位费按券实际抵扣计收，且明细营业额合计 = 汇总营业额', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue(
+      buildGrouponAndRefundedFixtures(),
+    );
+
+    const result = await service.getReport(user, {
+      storeId: 18,
+      period: 'month',
+    });
+
+    // 汇总：券抵 35.2 + 柠檬水 10 = 45.2（已退款单不计入）
+    expect(result.summary.totalRevenue).toBe(45.2);
+    // 明细：台位费行按券实际抵扣记 35.2，而非毛额 98
+    expect(
+      result.dailySales.find((row) => row.productName.includes('台位费')),
+    ).toMatchObject({ quantity: 0, revenue: 35.2 });
+    // 恒等式：明细营业额合计 = 汇总营业额
+    const dailyRevenueSum = result.dailySales.reduce(
+      (sum, row) => sum + row.revenue,
+      0,
+    );
+    expect(Math.round(dailyRevenueSum * 100) / 100).toBe(
+      result.summary.totalRevenue,
+    );
+  });
+
+  it('已退款订单不计入商品明细（与汇总同口径）', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue(
+      buildGrouponAndRefundedFixtures(),
+    );
+
+    const result = await service.getReport(user, {
+      storeId: 18,
+      period: 'month',
+    });
+
+    expect(
+      result.dailySales.find((row) => row.productName === '已退商品'),
+    ).toBeUndefined();
+  });
+
   it('getReport 支持 year 周期并按整年范围查询', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.saleOrder.findMany.mockResolvedValue([]);
@@ -617,5 +738,129 @@ describe('SalesRecordReportService', () => {
         }),
       }),
     );
+  });
+
+  /*
+   * 导出走 keyset 游标分批：先扫一遍算汇总（汇总行在文件头部），再扫一遍边取边写。
+   * 这两条用例锁住「分批不漏单、不重复、金额与一次性导出同源」。
+   */
+
+  /** 导出用的最小订单：金额口径只依赖 items + 券/退款字段 */
+  const buildExportOrder = (
+    id: number,
+    salePrice: string,
+  ): SaleOrderWithItems =>
+    ({
+      id,
+      orderNo: `#20260514-${String(id).padStart(4, '0')}`,
+      paymentMethod: 'cash',
+      customerPaymentMethod: null,
+      grouponPlatform: null,
+      voucherPlatform: null,
+      voucherFaceAmount: null,
+      operatorNameSnapshot: '老板',
+      note: null,
+      date: new Date('2026-05-14T10:00:00.000Z'),
+      refund: null,
+      spaceSession: null,
+      scanOrderId: null,
+      items: [
+        {
+          id,
+          productId: 201,
+          productName: '可口可乐 330ml',
+          categoryName: '饮品',
+          salePrice: new Prisma.Decimal(salePrice),
+          profit: new Prisma.Decimal('250'),
+          quantity: 1,
+        },
+      ],
+    }) as unknown as SaleOrderWithItems;
+
+  const createReplyStub = (): {
+    reply: ServerResponse;
+    written: string[];
+    end: jest.Mock;
+  } => {
+    const written: string[] = [];
+    const end = jest.fn();
+    return {
+      reply: {
+        setHeader: jest.fn(),
+        write: jest.fn((chunk: string) => {
+          written.push(chunk);
+          return true;
+        }),
+        end,
+      } as unknown as ServerResponse,
+      written,
+      end,
+    };
+  };
+
+  it('streamReportCsv 会写出汇总前缀与全部明细行并关闭连接', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      buildExportOrder(11, '650'),
+      buildExportOrder(12, '1300'),
+    ]);
+
+    const { reply, written, end } = createReplyStub();
+
+    await service.streamReportCsv(reply, user, {
+      storeId: 18,
+      period: 'today',
+    });
+
+    const output = written.join('');
+    // 汇总前缀：营业额 6.5 + 13 = 19.5，笔数 2，客单价 9.75
+    expect(output).toContain('【统计汇总】');
+    expect(output).toContain('19.5');
+    expect(output).toContain('#20260514-0011');
+    expect(output).toContain('#20260514-0012');
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('streamReportCsv 取满一批时会按游标续查，不漏单也不重复', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+
+    const TOTAL_ORDERS = 520;
+    /** 按游标模拟 keyset 分页：游标之后还有多少条就返回多少条（最多一批） */
+    prismaService.saleOrder.findMany.mockImplementation(
+      (args: { cursor?: { id: number }; take?: number }) => {
+        const startId = args.cursor?.id ?? 0;
+        const remaining = TOTAL_ORDERS - startId;
+        const size = Math.min(args.take ?? remaining, remaining);
+        return Promise.resolve(
+          Array.from({ length: size }, (_, index) =>
+            buildExportOrder(startId + index + 1, '100'),
+          ),
+        );
+      },
+    );
+
+    const { reply, written, end } = createReplyStub();
+
+    await service.streamReportCsv(reply, user, {
+      storeId: 18,
+      period: 'today',
+    });
+
+    const calls = prismaService.saleOrder.findMany.mock.calls as Array<
+      [{ cursor?: { id: number }; skip?: number; take?: number }]
+    >;
+    // 两趟扫描 × (500 + 20) = 4 次查询
+    expect(calls).toHaveLength(4);
+    // 每趟的第二批都带游标，且 skip: 1 跳过游标自身
+    const cursors = calls.map(([args]) => args.cursor?.id);
+    expect(cursors).toEqual([undefined, 500, undefined, 500]);
+    expect(calls[1][0].skip).toBe(1);
+
+    const output = written.join('');
+    // 首单与末单都在导出里：520 单 × 1 元
+    expect(output).toContain('#20260514-0001');
+    expect(output).toContain(`#20260514-0${TOTAL_ORDERS}`);
+    expect(output).toContain('520');
+    expect(end).toHaveBeenCalledTimes(1);
   });
 });

@@ -214,10 +214,19 @@ export class SalesRecordCreateFlowService {
           },
           spaceSession: {
             select: {
+              hourlyRate: true,
               space: {
                 select: {
                   name: true,
                 },
+              },
+              sessionRenewRecords: {
+                select: {
+                  amount: true,
+                  paymentMethod: true,
+                  voucherFaceAmount: true,
+                },
+                orderBy: [{ id: 'asc' }],
               },
             },
           },

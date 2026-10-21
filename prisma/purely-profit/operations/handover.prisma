@@ -66,6 +66,12 @@ model StoreHandoverRecord {
   toSubAccount             StoreSubAccount?               @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id])
 
   @@index([storeId, status, createdAt])
+  // 班次交班状态判定（isShiftHandedOver / loadHandedOverShiftIds）：
+  // 按 employee_shift_id_snapshot 精确匹配班次，现有索引无一以该列为前导列
+  @@index([storeId, employeeShiftIdSnapshot], map: "idx_store_handover_records_shift_snapshot")
+  // 无 snapshot 的兜底判定 + findShiftInitializedStartAt + 交班确认去重：
+  // 三者都按 store_id + status + handover_at 范围过滤（后者还按 handover_at DESC 取最近一条）
+  @@index([storeId, status, handoverAt(sort: Desc)], map: "idx_store_handover_records_handover_at")
   @@index([fromEmployeeId, createdAt])
   @@index([toEmployeeId, createdAt])
   @@map("store_handover_records")

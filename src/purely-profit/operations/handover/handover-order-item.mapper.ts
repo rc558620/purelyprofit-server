@@ -18,6 +18,7 @@ import {
 } from './handover.constants';
 import type {
   OrderItemRow,
+  PaymentOrderItemSource,
   RefundOrderRow,
   SaleOrderRefundRow,
 } from './handover.types';
@@ -86,7 +87,7 @@ const resolveOrderItemProductName = (item: OrderItemRow): string => {
 };
 
 export const resolveOrderItemPaymentMethod = (
-  item: OrderItemRow,
+  item: PaymentOrderItemSource,
 ): SalesPaymentMethod => {
   const fallbackPaymentMethod = item.order.paymentMethod;
   const spaceSession = item.order.spaceSession;

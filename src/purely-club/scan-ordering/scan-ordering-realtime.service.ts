@@ -178,9 +178,10 @@ export class ScanOrderingRealtimeService
     payload: object,
   ): Promise<void> {
     try {
+      // 高频事件（每单至少一次）：只在 debug 级别输出，避免午高峰刷屏
       if (event === 'order.created') {
         const record = payload as Record<string, unknown>;
-        this.logger.log(
+        this.logger.debug(
           `发布 order.created 至 Redis: storeId=${String(record.storeId)}, orderId=${String(record.orderId)}, pid=${process.pid}`,
         );
       }
@@ -221,7 +222,7 @@ export class ScanOrderingRealtimeService
     const sessionId = this.numberValue(payload.sessionId);
 
     if (event === 'order.created') {
-      this.logger.log(
+      this.logger.debug(
         `分发 order.created: storeId=${String(storeId)}, orderId=${String(orderId)}, namespaceReady=${Boolean(this.namespace)}, pid=${process.pid}`,
       );
     }
@@ -322,7 +323,7 @@ export class ScanOrderingRealtimeService
   ): void {
     const listeners = this.nativeOrderSubscribers.get(orderId);
     const connectionCount = listeners?.size ?? 0;
-    this.logger.log(
+    this.logger.debug(
       `原生订单 WebSocket 推送: orderId=${orderId}, connections=${connectionCount}, pid=${process.pid}`,
     );
     for (const listener of listeners ?? []) {
@@ -336,7 +337,7 @@ export class ScanOrderingRealtimeService
   ): void {
     const listeners = this.nativeVoucherOrderSubscribers.get(orderNo);
     const connectionCount = listeners?.size ?? 0;
-    this.logger.log(
+    this.logger.debug(
       `原生团购券订单 WebSocket 推送: orderNo=${orderNo}, connections=${connectionCount}, pid=${process.pid}`,
     );
     for (const listener of listeners ?? []) {

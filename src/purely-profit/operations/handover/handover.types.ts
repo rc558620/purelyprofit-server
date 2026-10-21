@@ -214,6 +214,46 @@ export type OrderItemRow = {
   };
 };
 
+/**
+ * 支付方式汇总（mapPaymentItems / buildSpaceConsumptionPaymentIndex /
+ * resolveOrderItemPaymentMethod）所需的最小字段集。
+ *
+ * 交班页有两条 SaleOrderItem 查询，结构上都满足本类型，因此支付口径共用一套逻辑：
+ * - loadPaymentOrderItems：班次内全量（无 take），仅用于支付汇总，
+ *   用 PAYMENT_ORDER_ITEM_SELECT（slim，无深层嵌套展示字段）
+ * - loadRecentOrderItems：take 999，用于明细展示 + 库存快照，
+ *   用 SALE_ORDER_ITEM_SELECT（全量字段）
+ *
+ * scanOrder 仅需判断是否为扫码点餐订单（非 null 即归入团购桶），
+ * 两条查询的 select 形状不同，故用 unknown 兼容。
+ */
+export type PaymentOrderItemSource = {
+  id: number;
+  productName: string;
+  salePrice: number;
+  quantity: number;
+  order: {
+    id: number;
+    paymentMethod: SalesPaymentMethod;
+    grouponCode: string | null;
+    scanOrder: unknown;
+    spaceSession: {
+      prepaidPaymentMethod: SalesPaymentMethod | null;
+      prepaidCustomerPaymentMethod: string | null;
+      prepaidGrouponPlatform: string | null;
+      prepaidGrouponCode: string | null;
+      prepaidAmount: number | null;
+      sessionRenewRecords: Array<{
+        paymentMethod: string;
+        amount: number;
+        renewedAt: bigint;
+        grouponPlatform: string | null;
+        grouponCode: string | null;
+      }>;
+    } | null;
+  };
+};
+
 export type RefundOrderRow = {
   id: number;
   date: Date;
@@ -315,7 +355,9 @@ export type ResolvedPageShiftSelection = {
 
 export type HandoverPageMetrics = {
   orderCount: number;
-  paymentOrderItems: OrderItemRow[];
+  /** 班次内全量订单明细（slim select），仅用于支付方式金额汇总 */
+  paymentOrderItems: PaymentOrderItemSource[];
+  /** 班次内最近 999 条订单明细（全量 select），用于明细展示与库存快照 */
   orderItems: OrderItemRow[];
   /** 销售时点库存快照（saleOrderId+productId → afterStock）：库存列展示用 */
   saleStockIndex: SaleStockSnapshotIndex;

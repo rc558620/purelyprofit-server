@@ -18,7 +18,9 @@ export interface SpaceManagementVoiceSettings {
  */
 @Injectable()
 export class SpaceManagementVoiceSettingsService {
-  private readonly logger = new Logger(SpaceManagementVoiceSettingsService.name);
+  private readonly logger = new Logger(
+    SpaceManagementVoiceSettingsService.name,
+  );
 
   constructor(
     private readonly prisma: PrismaService,

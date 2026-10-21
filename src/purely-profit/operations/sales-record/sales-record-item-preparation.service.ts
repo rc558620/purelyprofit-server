@@ -32,7 +32,13 @@ export interface PreparedSalesItem {
   salePrice: Money;
   profit: Money;
   quantity: number;
+  /** 是否计入销售件数（抵扣行与台位费等虚拟行为 false） */
   countsTowardTotalQuantity: boolean;
+  /**
+   * 是否计入营业额 / 利润。与件数是两个独立口径：台位费不计件数但必须计入金额。
+   * 缺省（undefined）回退 countsTowardTotalQuantity，保持既有调用方行为不变。
+   */
+  countsTowardAmounts?: boolean;
   image?: string;
   /**
    * P2b fix: 保留系统级虚拟商品 ID（如 'SYS_RENEW_DEDUCTION'），

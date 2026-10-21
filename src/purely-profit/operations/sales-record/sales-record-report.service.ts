@@ -3,7 +3,7 @@ import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { isNonQuantitySalesRecordRow } from '../../commerce/commerce.utils';
+
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -19,13 +19,22 @@ import {
   buildScanOrderingEnrichment,
   buildSpaceSessionSpecsEnrichment,
 } from './sales-record-enrichment';
-import { listVisibleSaleOrderItems } from './sales-record-item-aggregation';
 import { aggregateReportRows } from './sales-record-report-aggregation';
 import {
+  accumulateSalesReportCsvSummary,
+  buildCsvRowFromOrder,
+  resolvePeriodLabel,
+  startSalesReportCsv,
   streamSalesReportCsv,
+  writeSalesReportCsvRows,
+  type SalesReportCsvSummary,
   type SalesReportSpecsRowsMap,
 } from './sales-record-report-csv';
-import type { SaleOrderWithItems } from './sales-record.domain';
+import {
+  resolveSalesRecordAmountsFromOrder,
+  type SaleOrderWithItems,
+  type SalesRecordOrderAmounts,
+} from './sales-record.domain';
 import {
   querySaleOrders,
   queryScanOrderingDetails,
@@ -38,6 +47,14 @@ import {
 
 const SALES_REPORT_CACHE_TTL_SECONDS = 60;
 const SALES_REPORT_REFRESH_AFTER_MS = 15_000;
+
+/**
+ * CSV 导出的分批大小。
+ *
+ * 导出按 keyset 游标分批取订单，常驻内存只保留这一批，避免大门店「导出全部」
+ * 时把全店历史订单一次性读进堆内存。取 500 是兼顾往返次数与单批内存的经验值。
+ */
+const SALES_REPORT_CSV_BATCH_SIZE = 500;
 
 @Injectable()
 export class SalesRecordReportService {
@@ -117,23 +134,31 @@ export class SalesRecordReportService {
       range: { start: range.start, end: range.end },
     });
 
-    // 从「可见商品行」重新聚合，口径与列表 / CSV 导出完全一致：
-    // 排除预付款/续费抵扣行，自助下单已支付商品只由抵扣行承载一次。
-    const visibleItems = orders.flatMap((order) =>
-      listVisibleSaleOrderItems(order).map(({ item }) => item),
-    );
-    const totalQuantity = visibleItems.reduce(
-      // 抵扣行 / 台位费行不是真实销量，计入会虚高
-      (sum, item) =>
-        sum + (isNonQuantitySalesRecordRow(item.productName) ? 0 : item.quantity),
+    // 订单级金额统一口径（与列表 / CSV 导出完全一致）：
+    // 台位费计入金额、团购券订单按券面 + 超时 + 点单计收。
+    // 已退款订单不计入（与列表卡片 +¥0、CSV 汇总、统计卡同口径）。
+    const amountsByOrderId = new Map<number, SalesRecordOrderAmounts>();
+    for (const order of orders) {
+      if (order.refund) continue;
+      amountsByOrderId.set(
+        Number(order.id),
+        resolveSalesRecordAmountsFromOrder(order),
+      );
+    }
+    const orderAmounts = Array.from(amountsByOrderId.values());
+    const totalQuantity = orderAmounts.reduce(
+      (sum, amounts) => sum + amounts.totalQuantity,
       0,
     );
-    const totalRevenue = Money.sum(
-      visibleItems.map((item) =>
-        Money.fromDbCents(item.salePrice).multiply(item.quantity),
-      ),
-    ).toOutputYuan();
-    const dailySales = aggregateReportRows(orders);
+    const totalRevenue = orderAmounts.reduce(
+      (sum, amounts) =>
+        Money.fromInputYuan(sum)
+          .add(Money.fromInputYuan(amounts.totalRevenue))
+          .toOutputYuan(),
+      0,
+    );
+    // 商品明细沿用同一份订单级金额，保证明细营业额合计 = 汇总营业额
+    const dailySales = aggregateReportRows(orders, amountsByOrderId);
     // orderCount 应为原始订单笔数，而非按 (日期+商品) 聚合后的行数
     const orderCount = orders.length;
 
@@ -191,14 +216,97 @@ export class SalesRecordReportService {
       return;
     }
 
-    const orders = await querySaleOrders(this.prisma, {
-      storeId,
-      range: { start: range.start, end: range.end },
-    });
+    /*
+     * 统计汇总行写在文件头部，金额却要由全部订单累加——因此导出不能简单地
+     * 「边查边写」。这里改成两趟 keyset 分批扫描：
+     *   第一趟：分批取、累加营业额/利润/笔数，算完即弃；
+     *   第二趟：按同样顺序分批取，边取边写响应。
+     * 两趟都走 querySaleOrders + resolveSalesRecordAmountsFromOrder，
+     * 与一次性导出的计算结果同源，导出内容逐字节一致。
+     * 代价是多扫一遍（导出是低频操作），换来 O(批量) 而非 O(全量) 的常驻内存，
+     * 避免大门店「导出全部」打爆堆内存。
+     */
+    const summary = await this.accumulateCsvSummary(storeId, range);
 
-    const specsRowsMap = await this.resolveSpecsRowsMap(orders);
+    const periodLabel = resolvePeriodLabel(query);
+    try {
+      startSalesReportCsv(reply, summary, periodLabel);
 
-    streamSalesReportCsv(reply, orders, query, specsRowsMap);
+      let cursor: { id: number } | undefined;
+      // 批次循环：取满一批就续游标，取不满说明已到末尾
+      for (;;) {
+        const orders = await querySaleOrders(this.prisma, {
+          storeId,
+          range: { start: range.start, end: range.end },
+          cursor,
+          take: SALES_REPORT_CSV_BATCH_SIZE,
+        });
+        if (orders.length === 0) break;
+
+        const specsRowsMap = await this.resolveSpecsRowsMap(orders);
+        writeSalesReportCsvRows(
+          reply,
+          orders.map((order) =>
+            buildCsvRowFromOrder(order, specsRowsMap.get(order.id)),
+          ),
+        );
+
+        if (orders.length < SALES_REPORT_CSV_BATCH_SIZE) break;
+        cursor = { id: orders[orders.length - 1].id };
+      }
+    } finally {
+      // 响应头与汇总行已写出，异常时无法再回 JSON，只能关闭连接
+      reply.end();
+    }
+  }
+
+  /**
+   * 第一趟扫描：用与一次性导出完全相同的口径累加统计汇总。
+   *
+   * 分批取值、算完即弃，常驻内存只保留一批订单。
+   */
+  private async accumulateCsvSummary(
+    storeId: number,
+    range: { start: number; end: number },
+  ): Promise<SalesReportCsvSummary> {
+    let summary = accumulateSalesReportCsvSummary([]);
+    let cursor: { id: number } | undefined;
+
+    for (;;) {
+      const orders = await querySaleOrders(this.prisma, {
+        storeId,
+        range: { start: range.start, end: range.end },
+        cursor,
+        take: SALES_REPORT_CSV_BATCH_SIZE,
+      });
+      if (orders.length === 0) break;
+
+      const batch = accumulateSalesReportCsvSummary(orders);
+      summary = {
+        totalRevenue: Money.fromInputYuan(summary.totalRevenue)
+          .add(Money.fromInputYuan(batch.totalRevenue))
+          .toOutputYuan(),
+        totalProfit: Money.fromInputYuan(summary.totalProfit)
+          .add(Money.fromInputYuan(batch.totalProfit))
+          .toOutputYuan(),
+        orderCount: summary.orderCount + batch.orderCount,
+        avgOrderValue: 0,
+      };
+
+      if (orders.length < SALES_REPORT_CSV_BATCH_SIZE) break;
+      cursor = { id: orders[orders.length - 1].id };
+    }
+
+    // 客单价必须在总额累加完之后再算：分批相除会引入多次取整误差
+    return {
+      ...summary,
+      avgOrderValue:
+        summary.orderCount > 0
+          ? Money.fromInputYuan(summary.totalRevenue)
+              .divide(summary.orderCount)
+              .toOutputYuan()
+          : 0,
+    };
   }
 
   /**

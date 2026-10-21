@@ -76,6 +76,10 @@ export {
   buildSpacesDashboardPattern,
   buildSpacesListCacheKey,
   buildSpacesListPattern,
+  buildSpaceTypesCacheKey,
+  buildSpaceTypesPattern,
+  buildSpaceZonesCacheKey,
+  buildSpaceZonesPattern,
 } from './keys/spaces.cache-keys';
 
 export {
@@ -148,6 +152,7 @@ export {
 export {
   buildClubMenuCacheKey,
   buildClubMenuPattern,
+  buildClubMenuVersionCacheKey,
   buildClubMemberSnapshotCacheKey,
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,

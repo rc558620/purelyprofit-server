@@ -157,6 +157,10 @@ model SpaceSession {
   store                        Store                     @relation(fields: [storeId], references: [id])
 
   @@index([spaceId, status, startTime])
+  /// 「每空间取最近一条已结账会话」专用：现有 [spaceId, status, startTime] 覆盖不了
+  /// endTime 排序，[storeId, status, endTime] 以 storeId 前导、空间维度查询用不上。
+  /// 详见迁移 20261021100000_add_space_session_space_endtime_idx。
+  @@index([spaceId, status, endTime(sort: Desc)])
   @@index([storeId, status, startTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, status, endTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, guestPhone])

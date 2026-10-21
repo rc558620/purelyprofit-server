@@ -5,6 +5,8 @@ import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverService } from './handover.service';
 import { SpaceSessionAutoCheckoutService } from '../spaces/space-session-auto-checkout.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { RedisService } from '../../../redis/redis.service';
 import { aNonNegativeNumber } from '../../../spec-matchers';
 import {
   createManagerUser,
@@ -46,6 +48,21 @@ describe('HandoverService', () => {
     autoCheckoutExpiredCountdownSessions: jest.fn(),
   };
 
+  // 默认透传：直接执行 loadValue，等价于「缓存未命中」
+  const refreshableCacheService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: {
+        cacheKey: string;
+        taskKey: string;
+        loadValue: () => Promise<unknown>;
+      }) => options.loadValue(),
+    ),
+  };
+
+  const redisService = {
+    delByPattern: jest.fn().mockResolvedValue(0),
+  };
+
   const ownerUser = createOwnerUser();
   const subAccountUser = createSubAccountUser();
   const managerUser = createManagerUser();
@@ -80,6 +97,11 @@ describe('HandoverService', () => {
           provide: SpaceSessionAutoCheckoutService,
           useValue: spaceSessionAutoCheckoutService,
         },
+        {
+          provide: RefreshableCacheService,
+          useValue: refreshableCacheService,
+        },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -125,6 +147,107 @@ describe('HandoverService', () => {
       expect(handoverPageService.getHandoverPage).toHaveBeenCalledWith(
         subAccountUser,
         query,
+      );
+    });
+
+    it('读接口不等待自动结账完成（后台触发，不占用请求耗时）', async () => {
+      handoverPageService.getHandoverPage.mockResolvedValue({});
+      // 模拟慢自动结账：同步 await 会让读接口一起被拖住
+      let releaseAutoCheckout: () => void = () => undefined;
+      spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions.mockImplementation(
+        () =>
+          new Promise<number>((resolve) => {
+            releaseAutoCheckout = () => resolve(0);
+          }),
+      );
+
+      await expect(
+        service.getHandoverPage(subAccountUser, {}),
+      ).resolves.toEqual({});
+      expect(
+        spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions,
+      ).toHaveBeenCalledTimes(1);
+
+      releaseAutoCheckout();
+    });
+
+    it('自动结账失败不影响读接口返回', async () => {
+      handoverPageService.getHandoverPage.mockResolvedValue({});
+      spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      await expect(
+        service.getHandoverPage(subAccountUser, {}),
+      ).resolves.toEqual({});
+    });
+
+    it('交班页命中缓存时不再重算整页', async () => {
+      const cached = { canOperate: false } as never;
+      refreshableCacheService.getOrLoadRefreshableJson.mockResolvedValueOnce(
+        cached,
+      );
+
+      const result = await service.getHandoverPage(subAccountUser, {});
+
+      expect(result).toBe(cached);
+      expect(handoverPageService.getHandoverPage).not.toHaveBeenCalled();
+    });
+
+    it('缓存 key 按门店+用户+班次维度隔离', async () => {
+      handoverPageService.getHandoverPage.mockResolvedValue({});
+
+      await service.getHandoverPage(subAccountUser, {});
+      await service.getHandoverPage(ownerUser, { shiftType: 'late' });
+
+      const keys =
+        refreshableCacheService.getOrLoadRefreshableJson.mock.calls.map(
+          (call) => call[0].cacheKey,
+        );
+      expect(new Set(keys).size).toBe(2);
+      expect(keys[0]).toContain('store:100');
+      expect(keys[0]).toContain(`user:${subAccountUser.id}`);
+      expect(keys[1]).toContain(`user:${ownerUser.id}`);
+      expect(keys[1]).toContain('shift:late');
+    });
+
+    it('交班确认成功后按门店失效交班页缓存', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        confirmedAt: Date.now(),
+        additionalItems: [],
+      };
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
+        canOperate: true,
+        blockedReason: null,
+        selectedShiftType: 'morning',
+      });
+      handoverConfirmService.confirmHandover.mockResolvedValue({ id: 7 });
+
+      await service.confirmHandover(subAccountUser, dto);
+
+      expect(redisService.delByPattern).toHaveBeenCalledWith(
+        'profit:handover:page:store:100:*',
+      );
+    });
+
+    it('缓存失效失败不影响交班结果', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        confirmedAt: Date.now(),
+        additionalItems: [],
+      };
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
+        canOperate: true,
+        blockedReason: null,
+        selectedShiftType: 'morning',
+      });
+      const mockResult = { id: 8 };
+      handoverConfirmService.confirmHandover.mockResolvedValue(mockResult);
+      redisService.delByPattern.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(service.confirmHandover(subAccountUser, dto)).resolves.toBe(
+        mockResult,
       );
     });
 

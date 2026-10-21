@@ -18,6 +18,7 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import type {
   CreateClubScanOrderDto,
   ListClubScanOrdersQueryDto,
@@ -53,6 +54,7 @@ export class ClubScanOrderingOrderService {
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
+    private readonly menuQueryService: ClubScanOrderingMenuQueryService,
   ) {}
 
   preview(
@@ -255,6 +257,10 @@ export class ClubScanOrderingOrderService {
       this.logger.log(
         `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
       );
+      // 下单已预留库存并 bump 商品 version → menuVersion 变化。版本有短 TTL 缓存，
+      // 不主动失效会让同桌/同店其他顾客最长延后一个 TTL 才看到可用库存下降。
+      // 非关键路径：fire-and-forget，失败只等 TTL 兜底。
+      void this.invalidateMenuVersionQuietly(session.storeId);
       // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置已由 requireSession
       // 一并查出，桌台缺失时静默降级（仅展示商品摘要与金额）
       const table = session.table;
@@ -430,6 +436,17 @@ export class ClubScanOrderingOrderService {
     if (!session?.tableId)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
     return session;
+  }
+
+  /** 失效菜单版本缓存（fire-and-forget，失败仅记录日志）。 */
+  private async invalidateMenuVersionQuietly(storeId: number): Promise<void> {
+    try {
+      await this.menuQueryService.invalidateMenuVersion(storeId);
+    } catch (error) {
+      this.logger.warn(
+        `失效菜单版本缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private resolveExistingIdempotency(record: {

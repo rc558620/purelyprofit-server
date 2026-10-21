@@ -39,3 +39,26 @@ export function buildSpacesListCacheKey(
 export function buildSpacesListPattern(storeId: number): string {
   return `profit:spaces:list:store:${storeId}:*`;
 }
+
+/**
+ * 空间类型列表：单门店一份，与查询参数无关（列表仅按 storeId 过滤）。
+ *
+ * 空间类型是低频变更的门店运营配置（仅主账号可增改删），
+ * 采用短 TTL + 写路径主动失效，与看板同策略。
+ */
+export function buildSpaceTypesCacheKey(storeId: number): string {
+  return `profit:space-types:store:${storeId}`;
+}
+
+export function buildSpaceTypesPattern(storeId: number): string {
+  return `profit:space-types:store:${storeId}`;
+}
+
+/** 空间区域列表：与空间类型同源同策略（门店级低频运营配置）。 */
+export function buildSpaceZonesCacheKey(storeId: number): string {
+  return `profit:space-zones:store:${storeId}`;
+}
+
+export function buildSpaceZonesPattern(storeId: number): string {
+  return `profit:space-zones:store:${storeId}`;
+}

@@ -3,6 +3,11 @@ import { SpaceReservationStatus, SpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildSpacesListCacheKey,
+} from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import type { ListSpacesQueryDto, SpaceResponseDto } from './dto/space.dto';
 import { toSpaceResponse } from './spaces.mapper';
 import {
@@ -14,6 +19,15 @@ import {
   getReservationStatusRange,
 } from './space-reservations.shared';
 
+/**
+ * 列表缓存策略（与看板同模式）：
+ * 空间列表含运行态推导（占用/预约/脏房），TTL 只兜底，一致性由写路径
+ * invalidateSpacesReadCaches（开台/结账/续费/换房/加单/标记可用/预约变更/
+ * 空间增删改）主动失效保证，属「有界陈旧」缓存。
+ */
+const SPACES_LIST_CACHE_TTL_SECONDS = 15;
+const SPACES_LIST_CACHE_REFRESH_AFTER_MS = 5_000;
+
 @Injectable()
 export class SpacesReadService {
   private readonly logger = new Logger(SpacesReadService.name);
@@ -21,6 +35,7 @@ export class SpacesReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async listSpaces(
@@ -45,6 +60,21 @@ export class SpacesReadService {
       return [];
     }
 
+    // 列表按 storeId + status/type/zone 分键，命中即跳过 3~6 条关系查询 SQL
+    const cacheKey = buildSpacesListCacheKey(storeId, query);
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACES_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACES_LIST_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.loadSpacesList(storeId, query),
+    });
+  }
+
+  private async loadSpacesList(
+    storeId: number,
+    query: ListSpacesQueryDto,
+  ): Promise<SpaceResponseDto[]> {
     const statusRange = getReservationStatusRange();
 
     const spaces = await this.prisma.space.findMany({

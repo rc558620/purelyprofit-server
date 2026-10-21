@@ -1,11 +1,23 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { buildClubMenuCacheKey } from '../../redis/keys/club-cache-keys';
+import {
+  buildClubMenuCacheKey,
+  buildClubMenuVersionCacheKey,
+} from '../../redis/keys/club-cache-keys';
 import { createHash } from 'node:crypto';
 
 const CLUB_MENU_CACHE_TTL_SECONDS = 30;
+/**
+ * 菜单版本自身缓存时长（秒）。
+ *
+ * 菜单缓存 key 由 menuVersion 组成，所以每次菜单请求都要先算出版本；但版本
+ * 只在菜单结构/库存预留变化时改变，没必要每个请求都重算一次四层 JOIN。
+ * TTL 取很短的值：版本缓存只会让「菜单变更被发现」最多延后本时长，且写路径
+ * （商家改菜单、C 端下单预留库存）会主动删除，实际命中即失效。
+ */
+const CLUB_MENU_VERSION_CACHE_TTL_SECONDS = 10;
 
 /**
  * 菜单版本扁平行。
@@ -32,10 +44,24 @@ type MenuVersionCategory = [number, number, MenuVersionProduct[]];
 
 @Injectable()
 export class ClubScanOrderingMenuQueryService {
+  private readonly logger = new Logger(ClubScanOrderingMenuQueryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
   ) {}
+
+  /** 失效门店菜单版本缓存：菜单写路径（改价/上下架/库存预留）调用。 */
+  async invalidateMenuVersion(storeId: number): Promise<void> {
+    try {
+      await this.redisService.del(buildClubMenuVersionCacheKey(storeId));
+    } catch (error) {
+      // 缓存失效失败不影响主流程：版本缓存有短 TTL 兜底
+      this.logger.warn(
+        `失效菜单版本缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   async getMenu(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
     const session = await this.prisma.scanOrderingSession.findFirst({
@@ -50,8 +76,9 @@ export class ClubScanOrderingMenuQueryService {
     if (!session)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
 
-    // 缓存 key 依赖 menuVersion，必须每次算（口径见 computeMenuVersion）
-    const menuVersion = await this.computeMenuVersion(session.storeId);
+    // 缓存 key 依赖 menuVersion；版本本身有短 TTL 缓存，这里不一定真的查库
+    // （口径见 resolveMenuVersion / computeMenuVersion）
+    const menuVersion = await this.resolveMenuVersion(session.storeId);
 
     // 缓存命中检查：menuVersion 不变即命中
     const cacheKey = buildClubMenuCacheKey(session.storeId, menuVersion);
@@ -141,6 +168,51 @@ export class ClubScanOrderingMenuQueryService {
     );
 
     return result;
+  }
+
+  /**
+   * 取门店菜单版本：命中短 TTL 缓存时直接返回，未命中才执行四层 JOIN。
+   *
+   * 菜单是 C 端最高频读，而版本计算是其中唯一无法被菜单缓存覆盖的一步
+   * （要先有版本才能拼出缓存 key）。缓存后常态下整条菜单请求不再查库。
+   * Redis 不可用（读失败/写失败）时静默降级为每次重算，行为与改造前一致。
+   */
+  private async resolveMenuVersion(storeId: number): Promise<string> {
+    const versionKey = buildClubMenuVersionCacheKey(storeId);
+    try {
+      const cached = await this.redisService.get(versionKey);
+      if (cached) return cached;
+    } catch (error) {
+      this.logger.warn(
+        `读取菜单版本缓存失败 storeId=${storeId}，回退实时计算: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const menuVersion = await this.computeMenuVersion(storeId);
+
+    // 非关键路径：回填失败只影响下次是否命中，不改变本次结果
+    void this.backfillMenuVersionCache(storeId, versionKey, menuVersion);
+
+    return menuVersion;
+  }
+
+  /** fire-and-forget 回填菜单版本缓存，失败仅记录日志。 */
+  private async backfillMenuVersionCache(
+    storeId: number,
+    versionKey: string,
+    menuVersion: string,
+  ): Promise<void> {
+    try {
+      await this.redisService.set(
+        versionKey,
+        menuVersion,
+        CLUB_MENU_VERSION_CACHE_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `回填菜单版本缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

@@ -1,9 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import type { SpacePrintChannel } from '../space-print-settings.service';
 
 /** 空间小票打印通道可选值：浏览器系统打印 / 飞鹅云打印 / 服务器本地 USB 打印 / 关闭。 */
-const SPACE_PRINT_CHANNELS: SpacePrintChannel[] = ['browser', 'cloud', 'usb', 'off'];
+const SPACE_PRINT_CHANNELS: SpacePrintChannel[] = [
+  'browser',
+  'cloud',
+  'usb',
+  'off',
+];
 
 /** 更新空间消费小票打印配置（支持部分更新：只更新传入的字段）。 */
 export class UpdateSpacePrintSettingsDto {
@@ -18,7 +30,8 @@ export class UpdateSpacePrintSettingsDto {
   spacePrintChannel?: SpacePrintChannel;
 
   @ApiPropertyOptional({
-    description: '空间消费小票飞鹅云打印机 SN（spacePrintChannel=cloud 时必填）',
+    description:
+      '空间消费小票飞鹅云打印机 SN（spacePrintChannel=cloud 时必填）',
     example: '9123456789',
   })
   @IsOptional()
@@ -27,7 +40,8 @@ export class UpdateSpacePrintSettingsDto {
   spaceCloudPrinterSn?: string | null;
 
   @ApiPropertyOptional({
-    description: '空间消费小票 USB 打印机标识（spacePrintChannel=usb 时使用，留空自动探测）',
+    description:
+      '空间消费小票 USB 打印机标识（spacePrintChannel=usb 时使用，留空自动探测）',
     example: '/dev/usb/lp0',
   })
   @IsOptional()

@@ -7,7 +7,7 @@ import {
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   isPrepaidDeductionItem,
   isSessionStartItem,
-  type OrderItemRow,
+  type PaymentOrderItemSource,
   resolveOrderItemPaymentMethod,
   dbCentsToOutputYuan,
   GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
@@ -18,7 +18,7 @@ import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 type PaymentBucketKey = SalesPaymentMethod | 'groupon_voucher';
 
 export const mapPaymentItems = (
-  items: OrderItemRow[],
+  items: readonly PaymentOrderItemSource[],
 ): HandoverPaymentItemDto[] => {
   const paymentAmountMap = new Map<PaymentBucketKey, number>();
   // 空间会话消费行（台位费 / 追加点单）按实际付款来源分桶，

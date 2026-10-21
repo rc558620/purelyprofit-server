@@ -32,7 +32,7 @@ export interface StoreBusinessCapability {
  *
  * 职责：
  * 1. 根据当前认证用户解析所属门店
- * 2. 从数据库读取门店 businessMode
+ * 2. 解析门店 businessMode（优先登录态 membership 快照，缺失回源数据库）
  * 3. 合并业态、角色、权限，统一计算功能能力
  * 4. 提供统一断言方法，避免业务模块重复判断
  *
@@ -60,7 +60,15 @@ export class StoreBusinessCapabilityService {
       return this.buildSafeDefault();
     }
 
-    const businessMode = await this.resolveStoreBusinessMode(storeId);
+    // 优先复用登录态 membership 携带的门店业态：membership 行解析时已 JOIN
+    // stores.business_mode（30s 缓存 + 权限/门店变更主动失效），子账号权限集
+    // 本身就按它裁决，与权限解析同源同失效策略。
+    // BusinessModeGuard 在每个 @RequireBusinessMode 请求上都会执行一次，
+    // 全部回源数据库等于每次请求多付一次 DB 往返。
+    // 仅当 membership 未携带业态（异常路径）时才回源，数据库仍是最终事实源。
+    const businessMode =
+      user.currentMembership?.businessMode ??
+      (await this.resolveStoreBusinessMode(storeId));
 
     return this.buildCapabilities(businessMode);
   }
@@ -128,8 +136,9 @@ export class StoreBusinessCapabilityService {
   }
 
   /**
-   * 从数据库读取门店 businessMode。
-   * 数据库是唯一事实源，不依赖 Redis 缓存。
+   * 从数据库读取门店 businessMode（回源路径）。
+   * getCapabilities 优先使用登录态 membership 携带的业态，仅缺失时走这里，
+   * 数据库仍是最终事实源。
    */
   private async resolveStoreBusinessMode(
     storeId: number,

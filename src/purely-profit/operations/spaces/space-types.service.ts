@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,11 +11,17 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  buildSpaceTypesCacheKey,
+  buildSpaceTypesPattern,
+} from '../../../redis/cache-keys';
+import { RedisService } from '../../../redis/redis.service';
+import {
   CreateSpaceTypeDto,
   ListSpaceTypesQueryDto,
   type SpaceTypeResponseDto,
   UpdateSpaceTypeDto,
 } from './dto/space-type.dto';
+import { ensurePrimaryAccountOnly } from './spaces.shared';
 
 interface SpaceTypeRecord {
   id: number;
@@ -25,6 +30,15 @@ interface SpaceTypeRecord {
   updatedAt: Date;
 }
 
+/**
+ * 空间类型列表缓存 TTL（秒）。
+ *
+ * 空间类型是低频变更的门店运营配置（仅主账号可增改删），命中缓存后
+ * GET /space-types 从「6 次 Redis + 2 次 DB」降为「6 次 Redis + 0 次 DB」。
+ * TTL 只兜底，一致性由写路径主动失效保证（与空间看板同策略）。
+ */
+const SPACE_TYPES_CACHE_TTL_SECONDS = 60;
+
 @Injectable()
 export class SpaceTypesService {
   private readonly logger = new Logger(SpaceTypesService.name);
@@ -32,6 +46,7 @@ export class SpaceTypesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly redisService: RedisService,
   ) {}
 
   async listSpaceTypes(
@@ -49,12 +64,30 @@ export class SpaceTypesService {
       return [];
     }
 
+    const cacheKey = buildSpaceTypesCacheKey(storeId);
+    const cached =
+      await this.redisService.getJson<SpaceTypeResponseDto[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const items = await this.prisma.spaceType.findMany({
       where: { storeId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
-    return items.map((item) => this.toSpaceTypeResponse(item));
+    const response = items.map((item) => this.toSpaceTypeResponse(item));
+
+    // 一致性边界：load 与写回之间若发生写请求（写路径提交后按 key 失效），
+    // 本次 load 读到的旧值仍会被写回并存活一个 TTL，属于有界陈旧。
+    // 空间类型为运营配置、写路径极低频，该窗口可接受。
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      SPACE_TYPES_CACHE_TTL_SECONDS,
+    );
+
+    return response;
   }
 
   async createSpaceType(
@@ -62,7 +95,7 @@ export class SpaceTypesService {
     dto: CreateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
     // 空间类型配置属于门店运营配置，仅允许主账号操作，子账号均被拒绝。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间类型');
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
@@ -97,7 +130,17 @@ export class SpaceTypesService {
       throw err;
     }
 
+    await this.invalidateSpaceTypesCache(storeId);
+
     return this.toSpaceTypeResponse(item);
+  }
+
+  /**
+   * 失效门店空间类型列表缓存。
+   * 由 create / update / delete 写路径在提交成功后调用，保证列表读旧值不跨写。
+   */
+  private async invalidateSpaceTypesCache(storeId: number): Promise<void> {
+    await this.redisService.delByPattern(buildSpaceTypesPattern(storeId));
   }
 
   async updateSpaceType(
@@ -106,7 +149,7 @@ export class SpaceTypesService {
     dto: UpdateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
     // 空间类型配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceType）。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间类型');
     const item = await this.prisma.spaceType.findUnique({
       where: { id: typeId },
     });
@@ -143,6 +186,8 @@ export class SpaceTypesService {
       data: { name },
     });
 
+    await this.invalidateSpaceTypesCache(item.storeId);
+
     return this.toSpaceTypeResponse(updated);
   }
 
@@ -174,7 +219,7 @@ export class SpaceTypesService {
     typeId: number,
   ): Promise<void> {
     // 空间类型配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceType）。
-    this.ensurePrimaryAccountOnly(user);
+    ensurePrimaryAccountOnly(user, '空间类型');
     const item = await this.prisma.spaceType.findUnique({
       where: { id: typeId },
       select: {
@@ -220,17 +265,8 @@ export class SpaceTypesService {
       }
       throw err;
     }
-  }
 
-  /**
-   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
-   * 空间类型配置属于门店运营配置，仅对主账号开放，
-   * 任何子账号身份（收銀员 / 店长 / 财务）均不允许操作，以保持最小权限原则。
-   */
-  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
-    if (user.currentMembership?.subjectType === 'sub_account') {
-      throw new ForbiddenException('子账号不可维护空间类型配置');
-    }
+    await this.invalidateSpaceTypesCache(item.storeId);
   }
 
   toSpaceTypeResponse(item: SpaceTypeRecord): SpaceTypeResponseDto {

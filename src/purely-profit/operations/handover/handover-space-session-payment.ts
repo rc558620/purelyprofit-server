@@ -12,7 +12,12 @@ import {
   buildGrouponLabel,
   isPrepaidDeductionItem,
 } from './handover.constants';
-import type { OrderItemRow } from './handover.types';
+import type { PaymentOrderItemSource } from './handover.types';
+
+/** 支付方式汇总视角下的空间会话（最小字段集） */
+type PaymentSpaceSession = NonNullable<
+  PaymentOrderItemSource['order']['spaceSession']
+>;
 
 /**
  * 空间会话消费行（台位费 / 追加点单）的「实际付款来源」解析。
@@ -79,7 +84,7 @@ const toPaymentMethod = (
   raw && raw in PAYMENT_METHOD_CONFIG ? (raw as SalesPaymentMethod) : fallback;
 
 /** 逐行金额（分）：salePrice（分）× quantity */
-const lineAmountCents = (item: OrderItemRow): number =>
+const lineAmountCents = (item: PaymentOrderItemSource): number =>
   Money.fromDbCents(item.salePrice).multiply(item.quantity).toDbCents();
 
 const toPaymentSource = (fund: FundingEntry): SpaceConsumptionPaymentSource => {
@@ -99,9 +104,7 @@ const toPaymentSource = (fund: FundingEntry): SpaceConsumptionPaymentSource => {
 
 /** 续费记录按续费时间升序（先到账先冲抵） */
 const sortRenewRecords = (
-  records: NonNullable<
-    OrderItemRow['order']['spaceSession']
-  >['sessionRenewRecords'],
+  records: PaymentSpaceSession['sessionRenewRecords'],
 ): typeof records =>
   [...records].sort((left, right) => {
     const leftAt = Number(left.renewedAt ?? 0);
@@ -114,8 +117,8 @@ const sortRenewRecords = (
  * checkoutFundCents 为结账时补收的金额（消费 − 已付，可能为 0）。
  */
 const buildFundingEntries = (
-  session: NonNullable<OrderItemRow['order']['spaceSession']>,
-  order: OrderItemRow['order'],
+  session: PaymentSpaceSession,
+  order: PaymentOrderItemSource['order'],
   checkoutFundCents: number,
 ): FundingEntry[] => {
   const entries: FundingEntry[] = [];
@@ -168,7 +171,7 @@ const buildFundingEntries = (
 
 /** 单个空间会话订单内的消费行按支付方式归属 */
 const assignOrderGroup = (
-  group: OrderItemRow[],
+  group: PaymentOrderItemSource[],
   index: Map<number, SpaceConsumptionPaymentSource>,
 ): void => {
   const items = [...group].sort((left, right) => left.id - right.id);
@@ -252,9 +255,9 @@ const assignOrderGroup = (
  * 保证两处口径完全一致。
  */
 export const buildSpaceConsumptionPaymentIndex = (
-  items: readonly OrderItemRow[],
+  items: readonly PaymentOrderItemSource[],
 ): SpaceConsumptionPaymentIndex => {
-  const groups = new Map<number, OrderItemRow[]>();
+  const groups = new Map<number, PaymentOrderItemSource[]>();
   for (const item of items) {
     if (!item.order.spaceSession) continue;
     const group = groups.get(item.order.id) ?? [];

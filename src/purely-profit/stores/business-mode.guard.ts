@@ -19,7 +19,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
  * - `@RequireBusinessMode('general')` → 仅非餐饮门店可访问
  * - `@RequireBusinessMode('catering')` → 仅餐饮门店可访问
  *
- * 守卫从数据库读取门店 businessMode，不依赖 Redis 缓存。
+ * 守卫解析门店 businessMode（优先登录态 membership 快照，缺失回源数据库）。
  * 判断依据是门店注册业态，不是当前账号类型。
  */
 @Injectable()

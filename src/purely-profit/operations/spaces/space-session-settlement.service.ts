@@ -340,19 +340,21 @@ export class SpaceSessionSettlementService {
         { timeout: TX_TIMEOUT_LONG },
       );
 
-      await this.cacheInvalidatorService.invalidateSalesDerived(
-        params.session.storeId,
-      );
-
-      // 空间看板/列表缓存失效：结账会同时改变空间运行态与今日营业额
-      await this.cacheInvalidatorService.invalidateSpacesReadCaches(
-        params.session.storeId,
-      );
-
-      // F9: 空间结算可能新增/更新了营销会员，失效营销中心衍生缓存
-      await this.marketingConsumptionLinkService.invalidateMarketingDerived(
-        params.session.storeId,
-      );
+      // 三条失效链路互不依赖，并行执行省去两次串行往返
+      // （与 marketing-consumption-link 内部的并行口径保持一致）
+      await Promise.all([
+        this.cacheInvalidatorService.invalidateSalesDerived(
+          params.session.storeId,
+        ),
+        // 空间看板/列表缓存失效：结账会同时改变空间运行态与今日营业额
+        this.cacheInvalidatorService.invalidateSpacesReadCaches(
+          params.session.storeId,
+        ),
+        // F9: 空间结算可能新增/更新了营销会员，失效营销中心衍生缓存
+        this.marketingConsumptionLinkService.invalidateMarketingDerived(
+          params.session.storeId,
+        ),
+      ]);
 
       return updated;
     } finally {

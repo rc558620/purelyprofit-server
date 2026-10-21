@@ -5,6 +5,7 @@ import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.s
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
@@ -62,6 +63,12 @@ describe('ClubScanOrderingOrderService', () => {
                 : n < 1000
                   ? String(n).padStart(3, '0')
                   : String(n),
+          },
+        },
+        {
+          provide: ClubScanOrderingMenuQueryService,
+          useValue: {
+            invalidateMenuVersion: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

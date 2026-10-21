@@ -82,6 +82,9 @@ export class ClubScanOrderingOrderQueryService {
     const activeRoundWindowMs = 4 * 60 * 60 * 1000;
 
     const take = (query.limit ?? 20) + 1;
+    // 轮次 ID 单独先取：它依赖「当前有效 active 会话」，是本次请求的第 1 次往返。
+    // 显式提出来而不是写在 where 字面量里，避免把一次 IO 藏在条件构造中。
+    const activeDiningRoundIds = await this.activeDiningRoundIds(user.id);
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
@@ -96,9 +99,7 @@ export class ClubScanOrderingOrderQueryService {
             lastActiveAt: {
               gte: new Date(now.getTime() - activeRoundWindowMs),
             },
-            diningRoundId: {
-              in: await this.activeDiningRoundIds(user.id),
-            },
+            diningRoundId: { in: activeDiningRoundIds },
           },
           // 跨轮次但仍有未闭环订单的 left 会话：顾客重新扫码时，若旧会话 lastActiveAt
           // 超出 upsertSession 的轮次复用窗口，会开出新 diningRoundId（新轮次），

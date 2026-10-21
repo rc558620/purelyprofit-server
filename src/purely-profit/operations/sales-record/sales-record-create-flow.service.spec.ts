@@ -163,6 +163,11 @@ describe('SalesRecordCreateFlowService', () => {
         },
       ],
       totalRevenue: 49,
+      // 实付金额：结算净值；收款事件 = 结账（现金）49
+      payableAmount: 49,
+      paymentEvents: [
+        { kind: 'checkout_due', method: 'cash', amount: 49, direction: 'in' },
+      ],
       totalProfit: 13,
       totalQuantity: 3,
       paymentMethod: 'cash',

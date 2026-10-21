@@ -7,7 +7,6 @@ import {
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { Money } from '../../../shared/money.utils';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutLockPayload } from './space-sessions.types';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -24,6 +23,7 @@ import {
 } from './space-sessions.mapper';
 import {
   buildSpaceSessionSettlement,
+  buildSettlementPrepaidMetadata,
   resolveCheckoutPreviewFeeMode,
   resolveRenewRecordsGrouponFallback,
 } from './space-session-settlement.shared';
@@ -163,27 +163,20 @@ export class SpaceSessionCheckoutService {
       note: payload.note,
       settlement,
       renewRecords,
-      // BUG-4 fix: 团购元数据回退链 = checkout payload → session.prepaid*（开台预付）→ 续费记录
-      ...((payload.grouponCode ??
-      session.prepaidGrouponCode ??
-      renewGrouponFallback.grouponCode)
-        ? {
-            grouponCode:
-              payload.grouponCode ??
-              session.prepaidGrouponCode ??
-              renewGrouponFallback.grouponCode!,
-          }
-        : {}),
-      ...((payload.grouponPlatform ??
-      session.prepaidGrouponPlatform ??
-      renewGrouponFallback.grouponPlatform)
-        ? {
-            grouponPlatform:
-              payload.grouponPlatform ??
-              session.prepaidGrouponPlatform ??
-              renewGrouponFallback.grouponPlatform!,
-          }
-        : {}),
+      // BUG-4 fix: 团购元数据回退链 = checkout payload → session.prepaid*（开台预付）→ 续费记录。
+      // 三选一规则已收敛到 buildSettlementPrepaidMetadata（内含 voucherFaceAmount 的
+      // skipPrepaidVoucherPersistence 不变量），与自动结账共用同一实现。
+      ...buildSettlementPrepaidMetadata({
+        checkoutPayload: {
+          grouponCode: payload.grouponCode,
+          grouponPlatform: payload.grouponPlatform,
+          voucherCode: payload.voucherCode,
+          voucherPlatform: payload.voucherPlatform,
+          voucherFaceAmount: payload.voucherFaceAmount,
+        },
+        session,
+        renewGrouponFallback,
+      }),
       // B4 fix: customerPaymentMethod 仅来自 checkout payload，
       // 不再从续费记录回退，避免混合支付场景下篡改真实尾款支付方式
       ...(payload.customerPaymentMethod
@@ -192,44 +185,6 @@ export class SpaceSessionCheckoutService {
       ...(payload.settlementChannel
         ? { settlementChannel: payload.settlementChannel }
         : {}),
-      ...((payload.voucherCode ??
-      session.prepaidVoucherCode ??
-      renewGrouponFallback.grouponCode)
-        ? {
-            voucherCode:
-              payload.voucherCode ??
-              session.prepaidVoucherCode ??
-              renewGrouponFallback.grouponCode!,
-          }
-        : {}),
-      ...((payload.voucherPlatform ??
-      session.prepaidVoucherPlatform ??
-      renewGrouponFallback.grouponPlatform)
-        ? {
-            voucherPlatform:
-              payload.voucherPlatform ??
-              session.prepaidVoucherPlatform ??
-              renewGrouponFallback.grouponPlatform!,
-          }
-        : {}),
-      // BUG-3 fix: voucherFaceAmount 回退链——
-      // checkout payload 或 session.prepaid* 来源正常写入 prepaid 池；
-      // 仅从续费记录回退时跳过写入 session.prepaidVoucherFaceAmount，
-      // 防止续费券面污染预付池、破坏「两池独立」不变量。
-      ...(payload.voucherFaceAmount !== undefined
-        ? { voucherFaceAmount: payload.voucherFaceAmount }
-        : session.prepaidVoucherFaceAmount !== null
-          ? {
-              voucherFaceAmount: Money.fromDbCents(
-                session.prepaidVoucherFaceAmount,
-              ).toOutputYuan(),
-            }
-          : renewGrouponFallback.voucherFaceAmount !== undefined
-            ? {
-                voucherFaceAmount: renewGrouponFallback.voucherFaceAmount,
-                skipPrepaidVoucherPersistence: true,
-              }
-            : {}),
       ...(payload.settlementStatus !== undefined
         ? { settlementStatus: payload.settlementStatus }
         : {}),

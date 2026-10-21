@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -25,6 +25,8 @@ import {
  */
 @Injectable()
 export class ScanOrderingOrderService {
+  private readonly logger = new Logger(ScanOrderingOrderService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -301,7 +303,10 @@ export class ScanOrderingOrderService {
         userMap.set(user.id, user.name || '顾客');
       });
     } catch (error) {
-      console.error('Failed to fetch user nicknames:', error);
+      // 昵称不影响订单展示：失败时统一回退「顾客」，不打断列表接口
+      this.logger.error(
+        `批量查询顾客昵称失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     return userMap;
   }

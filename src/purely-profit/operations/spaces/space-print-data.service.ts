@@ -186,7 +186,9 @@ export class SpacePrintDataService {
           const specNames = parseSpecNames(item.specNames);
           return {
             // 规格另起一行展示（对齐餐饮扫码点餐小票口径），故从商品名剥离后缀避免重复
-            name: specNames ? stripSpecSuffix(item.productName) : item.productName,
+            name: specNames
+              ? stripSpecSuffix(item.productName)
+              : item.productName,
             quantity: item.quantity,
             unitPrice: toYuan(item.salePrice),
             subtotal: toYuan(item.salePrice * item.quantity),

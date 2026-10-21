@@ -201,5 +201,92 @@ describe('SalesRecordAmountsDomain', () => {
       expect(snapshot.totalProfit).toBe(10.4);
       expect(snapshot.totalQuantity).toBe(2);
     });
+
+    it('countsTowardAmounts 独立于件数：不计件数但计入金额（台位费口径）', () => {
+      const items: PreparedSalesItem[] = [
+        {
+          productId: null,
+          productName: '台位费 1分钟',
+          categoryName: '场地费',
+          salePrice: Money.fromInputYuan(1.64),
+          profit: Money.fromInputYuan(1.64),
+          quantity: 1,
+          // 台位费按时间计费，不是商品销量
+          countsTowardTotalQuantity: false,
+          // 但它是真实营收，必须计入营业额 / 利润
+          countsTowardAmounts: true,
+        },
+      ];
+
+      const snapshot =
+        SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
+
+      expect(snapshot.totalRevenue).toBe(1.64);
+      expect(snapshot.totalProfit).toBe(1.64);
+      expect(snapshot.totalQuantity).toBe(0);
+    });
+
+    it('countsTowardAmounts=false 的抵扣行不计入金额（自助下单抵扣口径）', () => {
+      const items: PreparedSalesItem[] = [
+        {
+          productId: 1,
+          productName: '橙汁',
+          categoryName: '饮品',
+          salePrice: Money.fromInputYuan(10),
+          profit: Money.fromInputYuan(4),
+          quantity: 1,
+          countsTowardTotalQuantity: true,
+          countsTowardAmounts: true,
+        },
+        {
+          productId: null,
+          productName: '橙汁 · 自助下单抵扣',
+          categoryName: '自助下单',
+          salePrice: Money.fromInputYuan(10),
+          profit: Money.fromInputYuan(4),
+          quantity: 1,
+          countsTowardTotalQuantity: false,
+          countsTowardAmounts: false,
+        },
+      ];
+
+      const snapshot =
+        SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
+
+      expect(snapshot.totalRevenue).toBe(10);
+      expect(snapshot.totalProfit).toBe(4);
+      expect(snapshot.totalQuantity).toBe(1);
+    });
+
+    it('countsTowardAmounts 缺省时回退 countsTowardTotalQuantity（兼容既有调用方）', () => {
+      const items: PreparedSalesItem[] = [
+        {
+          productId: 1,
+          productName: '香烟',
+          categoryName: '百货',
+          salePrice: Money.fromInputYuan(20),
+          profit: Money.fromInputYuan(5),
+          quantity: 2,
+          countsTowardTotalQuantity: true,
+        },
+        {
+          productId: null,
+          productName: '预付款',
+          categoryName: '抵扣',
+          salePrice: Money.fromInputYuan(30),
+          profit: Money.fromInputYuan(12),
+          quantity: 1,
+          countsTowardTotalQuantity: false,
+        },
+      ];
+
+      const snapshot =
+        SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
+
+      // 未声明 countsTowardAmounts 时行为与改动前一致：预付款被排除
+      expect(snapshot.totalRevenue).toBe(40);
+      expect(snapshot.totalProfit).toBe(10);
+      expect(snapshot.totalQuantity).toBe(2);
+    });
   });
 });

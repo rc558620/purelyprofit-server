@@ -16,13 +16,7 @@ export async function acquireSettlementLock(
   const lockKey = `space:settlement:session:${sessionId}`;
   const result = await redisService
     .getClient()
-    .set(
-      lockKey,
-      token,
-      'EX',
-      SPACE_SESSION_SETTLEMENT_LOCK_TTL_SECONDS,
-      'NX',
-    );
+    .set(lockKey, token, 'EX', SPACE_SESSION_SETTLEMENT_LOCK_TTL_SECONDS, 'NX');
 
   return result === 'OK'
     ? {

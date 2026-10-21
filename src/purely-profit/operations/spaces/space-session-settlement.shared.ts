@@ -27,6 +27,7 @@ import type {
   SpaceSessionSettlement,
   SpaceSessionSettlementRecord,
 } from './space-sessions.types';
+import type { SettleSpaceSessionParams } from './space-session-settlement.types';
 
 export const buildSpaceSessionSettlement = (params: {
   session: SpaceSessionSettlementRecord;
@@ -239,4 +240,101 @@ export const resolveRenewRecordsGrouponFallback = (
     }
   }
   return {};
+};
+
+/** 结算入参中的团购/券元数据片段（供 settleSession 展开） */
+export type SettlementPrepaidMetadata = Pick<
+  SettleSpaceSessionParams,
+  | 'grouponCode'
+  | 'grouponPlatform'
+  | 'voucherCode'
+  | 'voucherPlatform'
+  | 'voucherFaceAmount'
+  | 'skipPrepaidVoucherPersistence'
+>;
+
+/**
+ * 构建结算所需的团购/券元数据——两条结账路径（手工结账 / 自动结账）的唯一权威实现。
+ *
+ * 历史上 `space-session-checkout.service` 与 `space-session-auto-checkout.service`
+ * 各写了一份几乎逐行相同的回退链，改一处容易漏另一处，这里是收敛后的版本。
+ *
+ * 团购码/券码回退链（三级，由高到低）：
+ *   1. checkoutPayload —— 手工结账请求的显式入参（自动结账场景无此层）
+ *   2. session.prepaid* —— 开台预付快照
+ *   3. renewGrouponFallback —— 续费记录中提取的最新团购信息
+ *
+ * voucherFaceAmount 回退链在此基础上多一条不变量（BUG-3 fix）：
+ * 只有从「续费记录回退」时才带 `skipPrepaidVoucherPersistence: true`，
+ * 防止续费券面金额被写回 session.prepaidVoucherFaceAmount 污染预付池，
+ * 保持「预付池 / 续费池」两池独立。
+ */
+export const buildSettlementPrepaidMetadata = (params: {
+  /** 手工结账的显式入参；自动结账传 undefined 即退化为两级回退 */
+  checkoutPayload?: {
+    grouponCode?: string;
+    grouponPlatform?: string;
+    voucherCode?: string;
+    voucherPlatform?: string;
+    voucherFaceAmount?: number;
+  };
+  /** 开台预付快照（分） */
+  session: {
+    prepaidGrouponCode: string | null;
+    prepaidGrouponPlatform: string | null;
+    prepaidVoucherCode: string | null;
+    prepaidVoucherPlatform: string | null;
+    prepaidVoucherFaceAmount: number | null;
+  };
+  /** 由 resolveRenewRecordsGrouponFallback 解析出的续费回退值（元） */
+  renewGrouponFallback: ReturnType<typeof resolveRenewRecordsGrouponFallback>;
+}): SettlementPrepaidMetadata => {
+  const { checkoutPayload, session, renewGrouponFallback } = params;
+
+  const grouponCode =
+    checkoutPayload?.grouponCode ??
+    session.prepaidGrouponCode ??
+    renewGrouponFallback.grouponCode;
+  const grouponPlatform =
+    checkoutPayload?.grouponPlatform ??
+    session.prepaidGrouponPlatform ??
+    renewGrouponFallback.grouponPlatform;
+  const voucherCode =
+    checkoutPayload?.voucherCode ??
+    session.prepaidVoucherCode ??
+    renewGrouponFallback.grouponCode;
+  const voucherPlatform =
+    checkoutPayload?.voucherPlatform ??
+    session.prepaidVoucherPlatform ??
+    renewGrouponFallback.grouponPlatform;
+
+  // 券面金额三选一：payload > 开台预付快照（分 → 元）> 续费回退（标记跳过持久化）
+  let voucherFaceAmountTier: Pick<
+    SettlementPrepaidMetadata,
+    'voucherFaceAmount' | 'skipPrepaidVoucherPersistence'
+  > = {};
+  if (checkoutPayload?.voucherFaceAmount !== undefined) {
+    voucherFaceAmountTier = {
+      voucherFaceAmount: checkoutPayload.voucherFaceAmount,
+    };
+  } else if (session.prepaidVoucherFaceAmount !== null) {
+    voucherFaceAmountTier = {
+      voucherFaceAmount: Money.fromDbCents(
+        session.prepaidVoucherFaceAmount,
+      ).toOutputYuan(),
+    };
+  } else if (renewGrouponFallback.voucherFaceAmount !== undefined) {
+    voucherFaceAmountTier = {
+      voucherFaceAmount: renewGrouponFallback.voucherFaceAmount,
+      skipPrepaidVoucherPersistence: true,
+    };
+  }
+
+  return {
+    ...(grouponCode ? { grouponCode } : {}),
+    ...(grouponPlatform ? { grouponPlatform } : {}),
+    ...(voucherCode ? { voucherCode } : {}),
+    ...(voucherPlatform ? { voucherPlatform } : {}),
+    ...voucherFaceAmountTier,
+  };
 };

@@ -36,6 +36,8 @@ describe('InventoryService', () => {
     },
     // 盘点行锁 SELECT ... FOR UPDATE
     $queryRaw: jest.fn().mockResolvedValue([]),
+    // 批量库存 UPDATE（多个商品合并为一条 SQL）
+    $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
   };
 

@@ -408,11 +408,27 @@ describe('ClubScanOrderingPaymentService', () => {
       await new Promise((resolve) => setImmediate(resolve));
       expect(realtimeService.publishOrderStatusChanged).not.toHaveBeenCalled();
 
-      // 事务提交完成
+      // 事务提交完成（订单快照已在事务内读出，事务外不再回查）
       resolveTx({
-        orderNo: 'SO20260723120000ABCD',
-        orderType: 'scan_ordering',
-        status: 'pending_acceptance',
+        kind: 'settled',
+        result: {
+          orderNo: 'SO20260723120000ABCD',
+          orderType: 'scan_ordering',
+          status: 'pending_acceptance',
+        },
+        order: {
+          id: 1001,
+          storeId: 11,
+          sessionId: 55,
+          version: 2,
+          status: 'pending_acceptance',
+          paymentStatus: 'paid',
+          fulfillmentStatus: 'preparing',
+          pickupNumber: null,
+          pickupNumberStatus: null,
+          pickupCalledAt: null,
+          pickupCompletedAt: null,
+        },
       });
       await confirmPromise;
 

@@ -42,27 +42,30 @@ export class HandoverPageShiftService {
       });
     const shiftType =
       shiftRecord?.shiftType ?? query.shiftType ?? EmployeeShiftType.morning;
-    const ownedShiftCompleted =
-      await this.handoverShiftHandoverStatusService.isShiftHandedOver(
-        membership.storeId,
-        operationShiftRecord,
-      );
+    // isShiftHandedOver / resolveDisplayOperatorInfo / findReceiverCandidate
+    // 三者都只依赖 resolveShiftSelection 的结果，彼此无数据依赖，
+    // 原先串行 await 会多付 2 次 DB 往返（交班页总计 55 次往返，每一轮串行都要计入 P95）。
+    const [ownedShiftCompleted, displayOperatorInfo, receiverCandidate] =
+      await Promise.all([
+        this.handoverShiftHandoverStatusService.isShiftHandedOver(
+          membership.storeId,
+          operationShiftRecord,
+        ),
+        this.handoverPageShiftViewService.resolveDisplayOperatorInfo(
+          membership,
+          shiftRecord?.employeeId ?? displayTargetEmployeeId ?? null,
+        ),
+        this.handoverPageShiftViewService.findReceiverCandidate(
+          membership.storeId,
+          shiftRecord,
+        ),
+      ]);
     const operationAccess = resolveHandoverOperationAccess({
       membership,
       ownedShiftRecord: operationShiftRecord,
       ownedShiftCompleted,
       requestedShiftType: query.shiftType,
     });
-    const displayOperatorInfo =
-      await this.handoverPageShiftViewService.resolveDisplayOperatorInfo(
-        membership,
-        shiftRecord?.employeeId ?? displayTargetEmployeeId ?? null,
-      );
-    const receiverCandidate =
-      await this.handoverPageShiftViewService.findReceiverCandidate(
-        membership.storeId,
-        shiftRecord,
-      );
     const handoverCompletedAndNoUpcomingShift =
       await this.resolveHandoverCompletedAndNoUpcomingShift({
         membership,

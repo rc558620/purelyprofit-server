@@ -10,6 +10,38 @@ import {
 describe('inventory-stock.write', () => {
   const createTransaction = createInventoryTransactionMock;
 
+  /**
+   * 从批量 UPDATE 的 Prisma.Sql 里取出 (productId, delta) 对。
+   *
+   * 批量更新走 `$executeRaw`，参数是 [id, delta, id, delta, ...] 的展平序列，
+   * 需要还原成对才能在断言里表达「哪个商品加了多少」。
+   */
+  const readBatchStockChanges = (
+    executeRaw: jest.Mock,
+  ): Array<[number, number]> => {
+    // $executeRaw 以标签模板调用时，mock 收到 (strings, ...values)；
+    // 嵌套的 Prisma.Sql（Prisma.join 产物）整体作为一个参数传入，值在其 .values 上。
+    const args: unknown[] = executeRaw.mock.calls[0] ?? [];
+    const numbers: number[] = [];
+
+    for (const arg of args) {
+      if (typeof arg === 'number') {
+        numbers.push(arg);
+        continue;
+      }
+      const nested = (arg as { values?: readonly unknown[] } | null)?.values;
+      if (Array.isArray(nested)) {
+        numbers.push(...nested.map(Number));
+      }
+    }
+
+    const pairs: Array<[number, number]> = [];
+    for (let index = 0; index + 1 < numbers.length; index += 2) {
+      pairs.push([numbers[index], numbers[index + 1]]);
+    }
+    return pairs;
+  };
+
   it('executeInventoryManualAdjustment 会查询商品后更新库存并写日志', async () => {
     const { transaction, queryRaw, productUpdate, logCreate } =
       createTransaction();
@@ -215,7 +247,7 @@ describe('inventory-stock.write', () => {
    * 并把多条流水合并为一次 createMany。
    */
   it('recordInventoryRestock 会批量补货并一次性写入补货日志', async () => {
-    const { transaction, productFindMany, productUpdate, logCreateMany } =
+    const { transaction, productFindMany, executeRaw, logCreateMany } =
       createTransaction();
     productFindMany.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
@@ -235,15 +267,12 @@ describe('inventory-stock.write', () => {
     /* 无论商品几条，商品行与冻结量各只查一次 */
     expect(productFindMany).toHaveBeenCalledTimes(1);
 
-    /* D2 修复：restock 使用原子 increment 而非绝对赋值 */
-    expect(productUpdate).toHaveBeenNthCalledWith(1, {
-      where: { id: 101 },
-      data: { stock: { increment: 5 } },
-    });
-    expect(productUpdate).toHaveBeenNthCalledWith(2, {
-      where: { id: 102 },
-      data: { stock: { increment: 3 } },
-    });
+    /* D2 修复：restock 使用原子 increment 而非绝对赋值；多个商品合并为一条批量 UPDATE */
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(readBatchStockChanges(executeRaw)).toEqual([
+      [101, 5],
+      [102, 3],
+    ]);
     expect(logCreateMany).toHaveBeenCalledTimes(1);
     expect(logCreateMany).toHaveBeenCalledWith({
       data: [
@@ -343,7 +372,7 @@ describe('inventory-stock.write', () => {
     const {
       transaction,
       productFindMany,
-      productUpdate,
+      executeRaw,
       logFindMany,
       logDeleteMany,
     } = createTransaction();
@@ -364,15 +393,12 @@ describe('inventory-stock.write', () => {
     /* 回滚同样只做一次批量读 */
     expect(productFindMany).toHaveBeenCalledTimes(1);
 
-    /* D2 修复：revert 使用原子 increment(-delta) 而非读后写绝对值 */
-    expect(productUpdate).toHaveBeenNthCalledWith(1, {
-      where: { id: 101 },
-      data: { stock: { increment: 4 } },
-    });
-    expect(productUpdate).toHaveBeenNthCalledWith(2, {
-      where: { id: 102 },
-      data: { stock: { increment: 2 } },
-    });
+    /* D2 修复：revert 使用原子 increment(-delta) 而非读后写绝对值；多条合并为一次批量 UPDATE */
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(readBatchStockChanges(executeRaw)).toEqual([
+      [101, 4],
+      [102, 2],
+    ]);
     expect(logDeleteMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
@@ -386,7 +412,7 @@ describe('inventory-stock.write', () => {
     const {
       transaction,
       productFindMany,
-      productUpdate,
+      executeRaw,
       logFindMany,
       logDeleteMany,
     } = createTransaction();
@@ -404,14 +430,11 @@ describe('inventory-stock.write', () => {
       purchaseOrderId: 77,
     });
 
-    expect(productUpdate).toHaveBeenNthCalledWith(1, {
-      where: { id: 101 },
-      data: { stock: { increment: -6 } },
-    });
-    expect(productUpdate).toHaveBeenNthCalledWith(2, {
-      where: { id: 102 },
-      data: { stock: { increment: -3 } },
-    });
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(readBatchStockChanges(executeRaw)).toEqual([
+      [101, -6],
+      [102, -3],
+    ]);
     // 先删日志再回滚，保证重复调用幂等
     expect(logDeleteMany).toHaveBeenCalledWith({
       where: {
@@ -421,7 +444,7 @@ describe('inventory-stock.write', () => {
       },
     });
     expect(logDeleteMany.mock.invocationCallOrder[0]).toBeLessThan(
-      productUpdate.mock.invocationCallOrder[0],
+      executeRaw.mock.invocationCallOrder[0],
     );
   });
 

@@ -104,7 +104,7 @@ export class ScanOrderingGateway
       // Namespace 没有 adapter()，不能改为 this.server.adapter(...).
       this.server.server.adapter(createAdapter(publisher, subscriber));
       this.realtimeService.markSocketIoAdapterReady();
-      this.logger.log(
+      this.logger.debug(
         `Socket.IO Redis adapter initialized on namespace=${SCAN_ORDERING_NAMESPACE}`,
       );
     } catch (error) {
@@ -130,6 +130,7 @@ export class ScanOrderingGateway
     });
   }
 
+  // 关闭是一次性事件，保留 log 便于运维确认下线过程
   async onApplicationShutdown(_signal?: string): Promise<void> {
     this.logger.log(
       `Shutting down Socket.IO Redis adapter for namespace=${SCAN_ORDERING_NAMESPACE}`,
@@ -166,7 +167,7 @@ export class ScanOrderingGateway
       const identity = storedIdentity ?? (await this.authenticate(client));
       client.data.identity = identity;
       const transport = client.conn?.transport.name ?? 'unknown';
-      this.logger.log(
+      this.logger.debug(
         `socket connected: id=${client.id}, userId=${identity.userId}, transport=${transport}`,
       );
     } catch (error) {
@@ -199,7 +200,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinOrderPayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.order requested: socketId=${client.id}, userId=${identity.userId}, orderId=${payload.orderId}`,
     );
     const order = await this.prisma.scanOrders.findFirst({
@@ -213,7 +214,7 @@ export class ScanOrderingGateway
     if (!order) throw new UnauthorizedException('无权订阅该订单');
     const room = this.realtimeService.orderRoom(order.id);
     await client.join(room);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.order joined: socketId=${client.id}, room=${room}`,
     );
     return { room };
@@ -225,7 +226,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinSessionPayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.session requested: socketId=${client.id}, userId=${identity.userId}, sessionId=${payload.sessionId}`,
     );
     const session = await this.prisma.scanOrderingSession.findFirst({
@@ -239,7 +240,7 @@ export class ScanOrderingGateway
     if (!session) throw new UnauthorizedException('无权订阅该点餐会话');
     const room = this.realtimeService.sessionRoom(session.id);
     await client.join(room);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.session joined: socketId=${client.id}, room=${room}`,
     );
     return { room };
@@ -251,7 +252,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinVoucherOrderPayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.voucher-order requested: socketId=${client.id}, userId=${identity.userId}, orderNo=${payload.orderNo}`,
     );
     const order = await this.prisma.clubVoucherOrder.findFirst({
@@ -263,7 +264,7 @@ export class ScanOrderingGateway
     if (!order) throw new UnauthorizedException('该团购券订单不存在');
     const room = this.realtimeService.voucherOrderRoom(payload.orderNo);
     await client.join(room);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.voucher-order joined: socketId=${client.id}, room=${room}`,
     );
     return { room };
@@ -275,7 +276,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinStorePayload,
   ): Promise<{ room: string; storeId: number }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.voucher-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
     );
     try {
@@ -289,7 +290,7 @@ export class ScanOrderingGateway
       );
       const room = this.realtimeService.voucherOrderStoreRoom(payload.storeId);
       await client.join(room);
-      this.logger.log(
+      this.logger.debug(
         `subscribe.voucher-store joined: socketId=${client.id}, room=${room}`,
       );
       return { room, storeId: payload.storeId };
@@ -308,7 +309,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinStorePayload,
   ): Promise<{ room: string; storeId: number }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
     );
     try {
@@ -320,7 +321,7 @@ export class ScanOrderingGateway
       );
       const room = this.realtimeService.storeRoom(payload.storeId);
       await client.join(room);
-      this.logger.log(
+      this.logger.debug(
         `subscribe.store joined: socketId=${client.id}, room=${room}`,
       );
       return { room, storeId: payload.storeId };
@@ -340,7 +341,7 @@ export class ScanOrderingGateway
     @MessageBody() payload: JoinStorePayload,
   ): Promise<{ room: string; storeId: number }> {
     const identity = this.identityOf(client);
-    this.logger.log(
+    this.logger.debug(
       `subscribe.self-ordering-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
     );
     try {
@@ -352,7 +353,7 @@ export class ScanOrderingGateway
       );
       const room = this.realtimeService.selfOrderingStoreRoom(payload.storeId);
       await client.join(room);
-      this.logger.log(
+      this.logger.debug(
         `subscribe.self-ordering-store joined: socketId=${client.id}, room=${room}`,
       );
       return { room, storeId: payload.storeId };

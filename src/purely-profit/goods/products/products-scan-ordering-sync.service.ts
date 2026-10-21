@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
-import { buildClubMenuPattern } from '../../../redis/keys/club-cache-keys';
+import {
+  buildClubMenuPattern,
+  buildClubMenuVersionCacheKey,
+} from '../../../redis/keys/club-cache-keys';
 import { Money } from '../../../shared/money.utils';
 import type { ProductSpecGroupDto } from './dto/product.dto';
 import type { ProductRecord } from './products.types';
@@ -389,11 +392,14 @@ export class ProductsScanOrderingSyncService {
    * - 商家端 `scanordering:menu:{storeId}`（固定 key，300s）
    * - 顾客端 `club:menu:store:{storeId}:v:{menuVersion}`（30s）——key 带内容哈希，
    *   写侧拿不到当前 hash，只能按 pattern 删，否则改价/改库存后 C 端菜单要等 TTL 才更新。
+   * - 顾客端菜单版本缓存 `club:menu-version:store:{storeId}`（10s）——版本被缓存后，
+   *   不主动删除会导致改价/改库存最长延后一个版本 TTL 才被 C 端发现。
    */
   async invalidateCache(storeId: number): Promise<void> {
     try {
       await this.redisService.del(`scanordering:menu:${storeId}`);
       await this.redisService.delByPattern(buildClubMenuPattern(storeId));
+      await this.redisService.del(buildClubMenuVersionCacheKey(storeId));
     } catch {
       return;
     }
