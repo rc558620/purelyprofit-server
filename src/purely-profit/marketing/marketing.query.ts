@@ -187,6 +187,7 @@ export async function queryCustomerRecentConsumptions(
     SELECT ${CONSUMPTION_COLUMNS}
     ${CONSUMPTION_FROM}
     WHERE co.customer_id = ${customerId}
+      AND co.amount > 0
     ORDER BY co.created_at DESC
     LIMIT ${limit}
   `;
@@ -345,6 +346,7 @@ export async function queryCustomerConsumptionPage(
     SELECT ${CONSUMPTION_COLUMNS}, COUNT(*) OVER()::int AS _total
     ${CONSUMPTION_FROM}
     WHERE co.customer_id = ${customerId}
+      AND co.amount > 0
     ORDER BY co.created_at DESC, co.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;

@@ -158,12 +158,13 @@ describe('SpaceSessionsService', () => {
       salesOrder: { id: '2' },
     });
 
-    await service.checkoutSpaceSession(user, 9, dto);
+    await service.checkoutSpaceSession(user, 9, dto, 'req-1');
 
     expect(checkoutService.checkoutSpaceSession).toHaveBeenCalledWith(
       user,
       9,
       dto,
+      'req-1',
     );
   });
 });

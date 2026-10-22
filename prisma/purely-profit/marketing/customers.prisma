@@ -34,6 +34,8 @@ model MarketingCustomer {
   createdAt          DateTime                @default(now()) @map("created_at")
   updatedAt          DateTime                @updatedAt @map("updated_at")
   consumptions       MarketingConsumption[]
+  /// 会员护理档案（美容院业态，由空间场次结账自动生成）
+  careRecords        CareRecord[]             @relation("CustomerCareRecords")
   store              Store                   @relation(fields: [storeId], references: [id])
   pointsRecords      MarketingPointsRecord[]
   recharges          MarketingRecharge[]

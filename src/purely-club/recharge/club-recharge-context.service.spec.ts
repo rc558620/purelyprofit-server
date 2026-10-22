@@ -24,7 +24,9 @@ describe('ClubRechargeContextService', () => {
       ],
     }).compile();
 
-    service = module.get<ClubRechargeContextService>(ClubRechargeContextService);
+    service = module.get<ClubRechargeContextService>(
+      ClubRechargeContextService,
+    );
   });
 
   it('已绑定档案时直接复用，不再查孤儿', async () => {

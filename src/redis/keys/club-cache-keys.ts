@@ -66,3 +66,14 @@ export function buildClubPromotionsCacheKey(storeId: number): string {
 export function buildClubPromotionsPattern(storeId: number): string {
   return `club:promotions:store:${storeId}`;
 }
+
+/**
+ * C 端活动列表缓存 key（门店粒度）。
+ *
+ * 与 buildClubPromotionsCacheKey 区分：后者只缓存定价所需的 4 类折扣活动
+ * （见 ClubPromotionRepository），这里缓存 C 端首页/活动页展示用的全量字段，
+ * 两者形状不同不能共键。失效同样挂在活动写路径上。
+ */
+export function buildClubPromotionListCacheKey(storeId: number): string {
+  return `club:promotions:store:${storeId}:list`;
+}

@@ -157,4 +157,5 @@ export {
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,
   buildClubPromotionsPattern,
+  buildClubPromotionListCacheKey,
 } from './keys/club-cache-keys';

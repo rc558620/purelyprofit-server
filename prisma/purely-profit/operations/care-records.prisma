@@ -1,0 +1,54 @@
+/// 会员护理记录（美容院业态）：空间场次结账成功后，按场次 guestPhone 匹配
+/// MarketingCustomer 自动生成一条。
+///
+/// 生命周期约束（与空间结账强绑定，建模时必须保留）：
+/// - 只能由结账链路写入；接口层不提供新增、不提供删除；
+/// - 接口层只允许补录 `content` / `photos`，其余字段均为结账时刻的快照，只读；
+/// - `sessionId` 既是幂等键（同一场次只生成一条）也是溯源键。
+///
+/// 快照字段说明见 §冗余控制：`serviceName` / `amountCents` / `technicianName`
+/// 只在结账写入时固化一次，后续源数据变更**不回溯**刷新。
+model CareRecord {
+  id             Int      @id @default(autoincrement())
+  storeId        Int      @map("store_id")
+  customerId     Int      @map("customer_id")
+  /// 第几次护理：同一顾客内从 1 自增；1 即「基线」（第一次护理的最初状态）。
+  /// 注意：前端效果对比的「左侧默认值」不是 seq=1，而是**最早一条已补录照片**
+  /// 的记录（seq=1 那条若没补照片就会被跳过）——见 compareRange 的查询条件。
+  seq            Int
+  /// 护理发生时间（取结账时间）
+  visitAt        DateTime @map("visit_at")
+  /// 护理项目名快照（结账消费项目名以「、」连接，已剔除系统抵扣项）
+  serviceName    String   @default("") @map("service_name")
+  /// 本次消费金额快照（分，DB 口径；对外统一输出元）
+  amountCents    Int      @default(0) @map("amount_cents")
+  /// 商家补录的护理说明
+  content        String   @default("") @db.VarChar(500)
+  /// 现场照片 URL 列表（来自 POST /upload/image 的 url，保序）
+  photos         String[] @default([])
+  /// 护理师姓名快照（取自结账重算后的技师提成分配），只读；无技师时为 null
+  technicianName String?  @map("technician_name")
+  /// 来源空间场次：幂等键 + 溯源。
+  /// 刻意设为必填——PG 唯一索引不去重 NULL，可空会让「同场次只建一条」的
+  /// 数据库兜底失效；且本表只有结账一个写入方，不存在无场次的记录。
+  sessionId        Int      @unique(map: "uq_care_records_session") @map("session_id")
+  /// 建档操作人：倒计时自动结账（系统用户）时为 null
+  createdByStaffId Int?    @map("created_by_staff_id")
+  /// 最近一次补录（content / photos）的操作人
+  updatedByStaffId Int?    @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  customer MarketingCustomer @relation("CustomerCareRecords", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // seq 唯一性由数据库兜底：行锁之外的最后一道防线，防并发抢号产生重复 seq
+  @@unique([customerId, seq], map: "uq_care_records_customer_seq")
+  // 顾客时间线主索引（B 端详情 / C 端列表）：前导 customer_id，
+  // 索引序即 ORDER BY visit_at ASC, id ASC，免排序。
+  // 真实库实证：前导 store_id 的版本竞争不过 uq_care_records_customer_seq
+  // （同前导 customer_id），PG 会退化成 Incremental Sort，故 20261022120000 重建。
+  @@index([customerId, visitAt, id], map: "idx_care_records_customer_visit")
+  // 门店维度列表 / 报表 / 导出：visit_at DESC + id DESC 保证复合排序稳定
+  @@index([storeId, visitAt(sort: Desc), id(sort: Desc)], map: "idx_care_records_store_visit")
+  @@map("care_records")
+}

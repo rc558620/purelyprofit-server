@@ -103,6 +103,8 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       settlementContext.customer.id,
       settlementContext.customer.totalSpent,
       balancePaidFen,
+      // 累计消费口径与消费流水 amount 一致（含积分抵扣部分）
+      balancePaidFen + pointsDeductFen,
     );
     // 若使用了积分抵扣，结算时从账户中扣除
     if (draft.metadata.pointsUsed > 0) {
@@ -215,8 +217,10 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     currentTotalSpent: number,
     // 实际余额扣减金额
     balancePaidFen: number,
+    // 计入累计消费的金额（含积分抵扣部分，与消费流水同口径）
+    settlementAmountFen: number = balancePaidFen,
   ): Promise<void> {
-    const newTotalSpent = currentTotalSpent + balancePaidFen;
+    const newTotalSpent = currentTotalSpent + settlementAmountFen;
     // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
     const thresholds = await queryCustomerTierThresholds(tx, storeId);
     this.logger.log(
@@ -231,7 +235,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       },
       data: {
         balance: { decrement: balancePaidFen },
-        totalSpent: { increment: balancePaidFen },
+        totalSpent: { increment: settlementAmountFen },
         visitCount: { increment: 1 },
         lastVisitAt: new Date(),
         tier: calcCustomerTier(newTotalSpent, thresholds) as never,

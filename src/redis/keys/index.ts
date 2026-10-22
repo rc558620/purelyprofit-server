@@ -41,6 +41,7 @@ export {
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,
   buildClubPromotionsPattern,
+  buildClubPromotionListCacheKey,
 } from './club-cache-keys';
 
 // Redis 域级键 — Marketing

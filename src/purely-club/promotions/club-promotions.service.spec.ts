@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import {
   MARKETING_PROMOTION_TYPE_VALUES,
   type MarketingPromotionTypeValue,
@@ -15,6 +16,11 @@ describe('ClubPromotionsService', () => {
     marketingPromotion: {
       findMany: jest.fn(),
     },
+  };
+
+  const redisService = {
+    getJson: jest.fn(),
+    setJson: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -44,11 +50,14 @@ describe('ClubPromotionsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-06-12T12:00:00.000Z'));
+    redisService.getJson.mockResolvedValue(null);
+    redisService.setJson.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubPromotionsService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -230,6 +239,50 @@ describe('ClubPromotionsService', () => {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 20,
     });
+  });
+
+  it('命中缓存时不再回源，且缓存里的日期字符串被还原为 Date', async () => {
+    redisService.getJson.mockResolvedValue([
+      {
+        id: 9,
+        name: '缓存活动',
+        type: 'discount',
+        description: '全场 8 折',
+        params: { discountRate: 80 },
+        startAt: '2026-06-01T00:00:00.000Z',
+        endAt: '2026-06-30T23:59:59.000Z',
+        createdAt: '2026-05-20T00:00:00.000Z',
+      },
+    ]);
+
+    const result = await service.list(currentContext);
+
+    expect(prismaService.marketingPromotion.findMany).not.toHaveBeenCalled();
+    expect(redisService.setJson).not.toHaveBeenCalled();
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: '9',
+        name: '缓存活动',
+        startAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
+        endAt: new Date('2026-06-30T23:59:59.000Z').getTime(),
+      }),
+    ]);
+  });
+
+  it('无活动时缓存空数组，后续请求命中缓存不再回源', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+
+    await expect(service.list(currentContext)).resolves.toEqual({ items: [] });
+    expect(redisService.setJson).toHaveBeenCalledWith(
+      expect.stringContaining('club:promotions:store:11'),
+      [],
+      60,
+    );
+
+    // 模拟缓存已写入：后续请求直接命中空数组
+    redisService.getJson.mockResolvedValue([]);
+    await service.list(currentContext);
+    expect(prismaService.marketingPromotion.findMany).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -47,7 +47,8 @@ export class MarketingInviteQrIssueController {
   @ApiOkResponse({ type: MarketingInviteQrIssueDto, isArray: true })
   listIssues(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('storeId', new ParseIntPipe({ optional: true })) storeId: number | undefined,
+    @Query('storeId', new ParseIntPipe({ optional: true }))
+    storeId: number | undefined,
     @Query() query: ListMarketingInviteQrIssuesQueryDto,
   ): Promise<{ items: MarketingInviteQrIssueDto[]; total: number }> {
     return this.inviteQrIssueService.listIssues(user, storeId, query);
@@ -59,7 +60,8 @@ export class MarketingInviteQrIssueController {
   @ApiCreatedResponse({ type: MarketingInviteQrIssueDto })
   createIssue(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('storeId', new ParseIntPipe({ optional: true })) storeId: number | undefined,
+    @Query('storeId', new ParseIntPipe({ optional: true }))
+    storeId: number | undefined,
     @Body() dto: CreateMarketingInviteQrIssueDto,
   ): Promise<MarketingInviteQrIssueDto> {
     return this.inviteQrIssueService.createIssue(user, storeId, dto);
@@ -67,11 +69,14 @@ export class MarketingInviteQrIssueController {
 
   @Post('invite-code/issues/:id/revoke')
   @RequirePermissions('marketing:manage')
-  @ApiOperation({ summary: '撤销单张渠道二维码（不影响其他渠道二维码与通用二维码）' })
+  @ApiOperation({
+    summary: '撤销单张渠道二维码（不影响其他渠道二维码与通用二维码）',
+  })
   @ApiOkResponse({ description: '撤销成功' })
   revokeIssue(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('storeId', new ParseIntPipe({ optional: true })) storeId: number | undefined,
+    @Query('storeId', new ParseIntPipe({ optional: true }))
+    storeId: number | undefined,
     @Param('id', new ParseIntPipe()) issueId: number,
   ): Promise<void> {
     return this.inviteQrIssueService.revokeIssue(user, storeId, issueId);
@@ -83,7 +88,8 @@ export class MarketingInviteQrIssueController {
   @ApiOkResponse({ description: '删除成功' })
   deleteIssue(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('storeId', new ParseIntPipe({ optional: true })) storeId: number | undefined,
+    @Query('storeId', new ParseIntPipe({ optional: true }))
+    storeId: number | undefined,
     @Param('id', new ParseIntPipe()) issueId: number,
   ): Promise<void> {
     return this.inviteQrIssueService.deleteIssue(user, storeId, issueId);

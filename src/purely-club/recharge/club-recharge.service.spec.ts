@@ -579,7 +579,9 @@ describe('ClubRechargeService', () => {
       customerId: 66,
     };
     clubOrderDraftsService.createDraft.mockResolvedValue(baseDraft);
-    clubOrderDraftsService.updateDraftPaymentParams.mockResolvedValue(baseDraft);
+    clubOrderDraftsService.updateDraftPaymentParams.mockResolvedValue(
+      baseDraft,
+    );
 
     await expect(
       service.createOrder(wechatCurrentContext, {

@@ -18,6 +18,7 @@ import { SpaceSessionSettlementService } from './space-session-settlement.servic
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { SpaceCareRecordWriterService } from './space-care-record-writer.service';
 
 describe('SpaceSessionSettlementService', () => {
   let service: SpaceSessionSettlementService;
@@ -25,6 +26,8 @@ describe('SpaceSessionSettlementService', () => {
   const transactionClient = createSpaceTransactionClient();
   const prismaService = {
     $transaction: jest.fn(),
+    // 纯利宝团购券反查（护理档案展示名）：默认无券不触发
+    clubVoucherOrder: { findFirst: jest.fn() },
   };
   const salesRecordService = {
     create: jest.fn(),
@@ -62,6 +65,13 @@ describe('SpaceSessionSettlementService', () => {
     createSettledRecords: jest.fn().mockResolvedValue(undefined),
     markSettledRecordsIncluded: jest.fn(),
     listConfigRecords: jest.fn(),
+  };
+  // 护理档案建档：本文件只断言「结账后是否以正确入参触发建档」，
+  // 建档内部的 seq 自增 / 手机号三态 / 幂等由 space-care-record-writer.service.spec 覆盖。
+  const careRecordWriterService = {
+    writeAfterSettlement: jest
+      .fn()
+      .mockResolvedValue({ status: 'created', customerId: 55, seq: 1 }),
   };
 
   beforeEach(async () => {
@@ -108,6 +118,10 @@ describe('SpaceSessionSettlementService', () => {
         {
           provide: CommissionCoreService,
           useValue: commissionCoreService,
+        },
+        {
+          provide: SpaceCareRecordWriterService,
+          useValue: careRecordWriterService,
         },
       ],
     }).compile();
@@ -384,5 +398,137 @@ describe('SpaceSessionSettlementService', () => {
       }),
     );
     expect(result.cancelledReservationId).toBe(32);
+  });
+
+  describe('结账后置：会员护理档案建档', () => {
+    /** 结账销售单（含 totalRevenue，护理档案的金额快照取自此字段） */
+    const salesOrder = { ...createSalesOrderResponse(), totalRevenue: 20 };
+
+    const arrangeSuccessfulSettlement = (
+      params: ReturnType<typeof createSettleSpaceSessionParams>,
+    ): void => {
+      salesRecordService.create.mockResolvedValue(salesOrder);
+      transactionClient.$queryRaw.mockResolvedValue(undefined);
+      transactionClient.spaceSession.findUnique.mockResolvedValue({
+        status: 'active',
+        updatedAt: params.session.updatedAt,
+        reservationId: params.session.reservationId,
+        guestName: params.session.guestName,
+        guestPhone: params.session.guestPhone,
+        startTime: params.session.startTime,
+        spaceId: params.session.spaceId,
+      });
+      transactionClient.space.findUnique.mockResolvedValue({
+        id: 7,
+        enableDirtyRoom: true,
+      });
+      transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+        params.session.sessionItems,
+      );
+      transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
+      transactionClient.spaceSession.update.mockResolvedValue(
+        createUpdatedSpaceSession(),
+      );
+      transactionClient.spaceReservation.findMany.mockResolvedValue([]);
+      transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+    };
+
+    it('结账成功后以场次手机号与结账快照触发建档（主链路）', async () => {
+      const user = createSpaceTestUser();
+      const params = createSettleSpaceSessionParams();
+      params.requestId = 'req-settle-1';
+      arrangeSuccessfulSettlement(params);
+
+      await service.settleSession(user, params);
+
+      expect(careRecordWriterService.writeAfterSettlement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storeId: 18,
+          sessionId: 9,
+          guestPhone: '13800138000',
+          visitAt: params.checkoutAt,
+          serviceName: '可乐',
+          amountYuan: 20,
+          technicianName: null,
+          staffId: 8,
+          requestId: 'req-settle-1',
+        }),
+      );
+    });
+
+    it('purelyClub 团购券开台：券商品名作为护理项目名，台位费行不出现在展示名里', async () => {
+      const user = createSpaceTestUser();
+      const params = createSettleSpaceSessionParams();
+      // 团购券会话：会话行只落「台位费」计费行，券商品名来自 club_voucher_orders
+      params.session.prepaidVoucherCode = 'VC202601';
+      arrangeSuccessfulSettlement(params);
+      transactionClient.spaceSession.update.mockResolvedValue({
+        ...createUpdatedSpaceSession(),
+        prepaidVoucherCode: 'VC202601',
+        sessionItems: [
+          {
+            id: 1,
+            sessionId: 9,
+            productId: 'SYS_TIME_BILLING',
+            productName: '台位费 1分钟',
+            categoryName: '场地费',
+            salePrice: 129,
+            profit: 129,
+            quantity: 1,
+            sortOrder: 0,
+            createdAt: new Date(2026, 5, 4, 9, 0, 0),
+          },
+        ],
+      });
+      prismaService.clubVoucherOrder.findFirst.mockResolvedValue({
+        productName: '泡沐浴盐护理',
+      });
+
+      await service.settleSession(user, params);
+
+      expect(prismaService.clubVoucherOrder.findFirst).toHaveBeenCalledWith({
+        where: { storeId: 18, voucherCode: 'VC202601' },
+        select: { productName: true },
+      });
+      expect(careRecordWriterService.writeAfterSettlement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storeId: 18,
+          sessionId: 9,
+          serviceName: '泡沐浴盐护理',
+          amountYuan: 20,
+        }),
+      );
+    });
+
+    it('匹配不到会员（建档跳过）时结账结果不受影响', async () => {
+      const user = createSpaceTestUser();
+      const params = createSettleSpaceSessionParams();
+      arrangeSuccessfulSettlement(params);
+      careRecordWriterService.writeAfterSettlement.mockResolvedValueOnce({
+        status: 'skipped',
+        reason: 'customer-not-found',
+      });
+
+      const result = await service.settleSession(user, params);
+
+      expect(careRecordWriterService.writeAfterSettlement).toHaveBeenCalled();
+      expect(result.salesOrder).toEqual(salesOrder);
+      expect(result.session.status).toBe('settled');
+    });
+
+    it('建档失败（系统异常）不回滚已提交的结账', async () => {
+      const user = createSpaceTestUser();
+      const params = createSettleSpaceSessionParams();
+      arrangeSuccessfulSettlement(params);
+      careRecordWriterService.writeAfterSettlement.mockResolvedValueOnce({
+        status: 'failed',
+        reason: 'P2002',
+      });
+
+      const result = await service.settleSession(user, params);
+
+      expect(result.salesOrder).toEqual(salesOrder);
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -43,7 +43,7 @@ export class ClubPromotionRepository {
     }
 
     const now = new Date();
-    const records = await this.prisma.marketingPromotion.findMany({
+    const records = (await this.prisma.marketingPromotion.findMany({
       where: {
         storeId,
         enabled: true,
@@ -60,7 +60,7 @@ export class ClubPromotionRepository {
         type: true,
         params: true,
       },
-    }) as ClubActivePromotionRecord[];
+    })) as ClubActivePromotionRecord[];
 
     // 写缓存：空数组同样缓存 60s（无活动门店的空结果本身有效）
     await this.redisService.setJson(

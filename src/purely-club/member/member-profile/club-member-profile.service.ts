@@ -31,6 +31,16 @@ interface ClubMarketingCustomerRecord {
 }
 
 export interface ClubMemberSnapshot {
+  /**
+   * 关联 MarketingCustomer.id（顾客档案 ID）。
+   *
+   * 顾客本人链路（护理档案等挂 customerId 的业务）必须以此为唯一入口：
+   * 由本服务的两层锚定推导出来，禁止调用方自行按手机号再查一次——
+   * 那会绕过「无主档案」限定，拿到同号他人的档案。
+   * 无顾客档案（有 Member 无 MarketingCustomer）时为 null；
+   * Redis 里可能残留本次发布前的旧快照，该字段为 undefined，按 null 处理。
+   */
+  customerId: number | null;
   memberId: number;
   storeId: number;
   balance: number;
@@ -176,6 +186,7 @@ export class ClubMemberProfileService {
     );
 
     return {
+      customerId: marketingCustomer?.id ?? null,
       memberId: member.id,
       storeId,
       // 余额：来自 MarketingCustomer.balance（事实源）
@@ -202,10 +213,7 @@ export class ClubMemberProfileService {
         storeId,
         status: { not: MemberStatus.banned },
         deletedAt: null,
-        OR: [
-          { clubUserId },
-          { phone, clubUserId: null },
-        ],
+        OR: [{ clubUserId }, { phone, clubUserId: null }],
       },
       select: {
         id: true,
@@ -223,10 +231,7 @@ export class ClubMemberProfileService {
       where: {
         storeId,
         deletedAt: null,
-        OR: [
-          { clubUserId },
-          { phone, clubUserId: null },
-        ],
+        OR: [{ clubUserId }, { phone, clubUserId: null }],
       },
       select: {
         id: true,

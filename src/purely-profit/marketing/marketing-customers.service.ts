@@ -37,6 +37,7 @@ import {
 import { MarketingCustomerListService } from './marketing-customer-list.service';
 import { MarketingCustomerPointsService } from './marketing-customer-points.service';
 import { computeCustomerFinance } from './marketing-customer-finance.utils';
+import { computeCustomerConsumptionStats } from './marketing-customer-consumption-stats.util';
 
 // F8: 顾客详情缓存 TTL（15 秒，短于列表 60s，避免过度延迟）
 const MARKETING_CUSTOMER_DETAIL_CACHE_TTL_SECONDS = 15;
@@ -109,31 +110,26 @@ export class MarketingCustomersService {
       return cached;
     }
 
-    const [finance, clubLevel, aggregated] = await Promise.all([
+    const [finance, clubLevel, consumptionStats] = await Promise.all([
       computeCustomerFinance(this.prisma, customerId, customer.balance),
       this.marketingSharedService.resolveClubLevel(
         customer.storeId,
         customer.phone,
         customer.clubUserId,
       ),
-      // F9: 详情页同样以 marketing_consumptions 实时聚合为准，覆盖物化字段
-      this.prisma.marketingConsumption.aggregate({
-        where: { customerId },
-        _sum: { amount: true },
-        _count: { _all: true },
-        _max: { createdAt: true },
-      }),
+      // F9: 详情页以 marketing_consumptions 实时聚合为准，覆盖物化字段
+      computeCustomerConsumptionStats(this.prisma, customerId),
     ]);
 
     // 仅在消费表存在记录时才覆盖，避免孤儿 customer 被强制归零
-    const liveTotalSpent = aggregated._sum.amount ?? 0;
-    const liveVisitCount = aggregated._count._all;
-    const liveLastVisitAt = aggregated._max.createdAt ?? null;
-    if (liveTotalSpent > 0 || liveVisitCount > 0) {
-      customer.totalSpent = liveTotalSpent;
-      customer.visitCount = liveVisitCount;
-      if (liveLastVisitAt) {
-        customer.lastVisitAt = liveLastVisitAt;
+    if (
+      consumptionStats.visitCount > 0 ||
+      consumptionStats.totalSpentCents !== 0
+    ) {
+      customer.totalSpent = consumptionStats.totalSpentCents;
+      customer.visitCount = consumptionStats.visitCount;
+      if (consumptionStats.lastVisitAt) {
+        customer.lastVisitAt = consumptionStats.lastVisitAt;
       }
     }
 

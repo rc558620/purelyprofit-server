@@ -32,6 +32,11 @@ export interface SettleSpaceSessionParams {
   // ⑤ 修复：台位费口径审计字段
   timeFeeMode?: SpaceTimeFeeModeValue;
   /**
+   * 请求追踪 ID：透传给结账后置动作（如护理档案建档）的失败日志，
+   * 便于把「建档失败」与一次具体结账请求关联起来。自动结账链路无 HTTP 请求，可缺省。
+   */
+  requestId?: string;
+  /**
    * BUG-3 fix: 跳过将 voucherFaceAmount 写入 session.prepaidVoucherFaceAmount。
    * 当 voucherFaceAmount 来自续费团购回退（renewGrouponFallback）时设为 true，
    * 防止续费券面金额污染预付池字段，保持「两池独立」不变量。

@@ -51,7 +51,11 @@ describe('ClubScanOrderingOrderQueryService', () => {
           orders: expect.objectContaining({
             some: expect.objectContaining({
               status: expect.objectContaining({
-                in: expect.arrayContaining(['pending_acceptance', 'preparing', 'served']),
+                in: expect.arrayContaining([
+                  'pending_acceptance',
+                  'preparing',
+                  'served',
+                ]),
               }),
             }),
           }),

@@ -46,6 +46,8 @@ type RefundRestoreOrder = {
   quantity: number;
   /** 实付金额（分）；余额支付退款时原路退回该金额 */
   paidAmountFen: number;
+  /** 结算时积分抵扣的金额（分）——消费流水 amount 含该部分，冲减时必须同口径 */
+  pointsDeductFen: number;
   /** 结算时赠送的积分个数快照（退款时按此回收） */
   pointsAwarded: number;
 };
@@ -360,13 +362,16 @@ export class ClubVoucherOrderRefundService {
       }
     }
 
+    // 累计消费的回滚金额必须与消费流水 amount 同口径（含积分抵扣部分）。
+    // 流水本身不冲减：marketing_consumptions 有 amount >= 0 的库级约束，
+    // 且它是消费发生时的审计事实；展示侧的退款冲减由退款单据承担
+    // （见 computeCustomerConsumptionStats）。
+    const refundAmountFen = order.paidAmountFen + order.pointsDeductFen;
+
     // totalSpent / visitCount 用绝对赋值避免历史数据异常导致负数；
     // visitCount 与结算时 increment: 1 对称回退——本笔消费既已取消，累计次数必须回滚，
     // 否则会与已回退的 totalSpent 形成账实偏差（次数虚高、等级门槛失真）。
-    const newTotalSpent = Math.max(
-      customer.totalSpent - order.paidAmountFen,
-      0,
-    );
+    const newTotalSpent = Math.max(customer.totalSpent - refundAmountFen, 0);
     const newVisitCount = Math.max(customer.visitCount - 1, 0);
     // 与消费落账同源：读门店会员等级设置的可配置阈值
     const thresholds = await queryCustomerTierThresholds(tx, order.storeId);

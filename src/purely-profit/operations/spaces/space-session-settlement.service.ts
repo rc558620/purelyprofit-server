@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
 import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
@@ -26,17 +25,20 @@ import {
 } from './space-sessions.mapper';
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
+import { SpaceCareRecordWriterService } from './space-care-record-writer.service';
+import {
+  buildCareRecordSnapshot,
+  resolveVoucherProductName,
+} from './space-care-record-snapshot.shared';
+import { recomputeAndSettleCommissions } from './space-session-settlement-commission.shared';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
-import { parseAssignmentsJson } from '../commission/commission.utils';
-import { formatShanghaiYearMonth } from '../../../shared/shanghai-time.utils';
 import type {
   SettleSpaceSessionParams,
   SettleSpaceSessionResult,
 } from './space-session-settlement.types';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
-import type { CommissionAssignmentRecord } from '../commission/commission.types';
 
 @Injectable()
 export class SpaceSessionSettlementService {
@@ -50,6 +52,7 @@ export class SpaceSessionSettlementService {
     private readonly reservationsStateService: SpaceReservationsStateService,
     private readonly marketingConsumptionLinkService: MarketingConsumptionLinkService,
     private readonly commissionCoreService: CommissionCoreService,
+    private readonly careRecordWriterService: SpaceCareRecordWriterService,
   ) {}
 
   async settleSession(
@@ -264,8 +267,11 @@ export class SpaceSessionSettlementService {
 
           // ①②④ 修复：结账侧团购/券/平台字段落库
           // 技师提成：结账时按配置重算每行金额（后端权威），生成提成记录并回写会话最终快照
-          const commissionAssignments =
-            await this.recomputeAndSettleCommissions(transaction, params);
+          const commissionAssignments = await recomputeAndSettleCommissions(
+            this.commissionCoreService,
+            transaction,
+            params,
+          );
           const checkoutSettlementData = buildCheckoutSettlementData({
             checkoutAt: params.checkoutAt,
             freshSettlement,
@@ -356,6 +362,29 @@ export class SpaceSessionSettlementService {
         ),
       ]);
 
+      // 会员护理档案建档：刻意放在结账主事务**提交之后**、独立短事务内。
+      // PostgreSQL 中事务内任一语句失败会中止整个事务，此后 catch 也救不回来
+      // （后续语句与 COMMIT 必然失败）——「事务内 try/catch 保证建档失败不
+      // 回滚结账」在 PG 上做不到。独立事务 + sessionId 幂等 + 失败 error 日志
+      // 告警，是同时满足可观测与结账不被拖垮的唯一可行结构；
+      // 代价是存在「结账成功但建档失败」的窗口，需按 sessionId 幂等重放补偿。
+      // purelyClub 团购券开台的会话：反查券对应商品名作为护理项目展示名，
+      // 避免「台位费 X分钟」计费行污染护理档案。
+      const voucherProductName = await resolveVoucherProductName(
+        this.prisma,
+        params.session.storeId,
+        updated.session.prepaidVoucherCode,
+      );
+      await this.careRecordWriterService.writeAfterSettlement({
+        storeId: params.session.storeId,
+        sessionId: params.session.id,
+        guestPhone: params.session.guestPhone,
+        visitAt: params.checkoutAt,
+        requestId: params.requestId,
+        staffId: user.currentMembership?.staffId ?? null,
+        ...buildCareRecordSnapshot(updated, voucherProductName),
+      });
+
       return updated;
     } finally {
       try {
@@ -366,42 +395,5 @@ export class SpaceSessionSettlementService {
         );
       }
     }
-  }
-
-  /**
-   * 结账时按配置重算会话提成分配（金额为分），生成 settled 提成记录，
-   * 返回最终分配快照用于回写会话；无提成分配时返回 undefined。
-   */
-  private async recomputeAndSettleCommissions(
-    transaction: Prisma.TransactionClient,
-    params: SettleSpaceSessionParams,
-  ): Promise<CommissionAssignmentRecord[] | undefined> {
-    const rawAssignments = parseAssignmentsJson(
-      params.session.commissionAssignments,
-    );
-    if (rawAssignments.length === 0) {
-      return undefined;
-    }
-
-    const servicesMap = await this.commissionCoreService.buildServicesMap(
-      transaction,
-      params.session.storeId,
-    );
-    const finalAssignments = this.commissionCoreService.recomputeAssignments(
-      servicesMap,
-      rawAssignments,
-    );
-
-    const settledAt = new Date(params.checkoutAt);
-    await this.commissionCoreService.createSettledRecords(transaction, {
-      storeId: params.session.storeId,
-      sessionId: params.session.id,
-      spaceName: params.session.space.name,
-      assignments: finalAssignments,
-      settledAt,
-      month: formatShanghaiYearMonth(settledAt.getTime()),
-    });
-
-    return finalAssignments;
   }
 }

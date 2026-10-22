@@ -114,10 +114,7 @@ describe('ClubInviteScanResolveService', () => {
       expect(prismaService.member.findFirst).toHaveBeenCalledWith({
         where: {
           storeId: 18,
-          OR: [
-            { clubUserId: 201 },
-            { phone: '13800138000', clubUserId: null },
-          ],
+          OR: [{ clubUserId: 201 }, { phone: '13800138000', clubUserId: null }],
           deletedAt: null,
         },
         select: { id: true },

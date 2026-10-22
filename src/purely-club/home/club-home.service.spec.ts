@@ -18,6 +18,7 @@ describe('ClubHomeService', () => {
   };
   const clubMemberService = {
     getAccount: jest.fn(),
+    getLevels: jest.fn(),
   };
   const clubPromotionsService = {
     list: jest.fn(),
@@ -68,6 +69,20 @@ describe('ClubHomeService', () => {
     heldLevelVisible: true,
   };
 
+  const mockLevelConfigs = [
+    {
+      level: 'gold' as const,
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.9,
+      discountText: '9折',
+      upgradeHintText: '充值即享',
+      benefits: ['9 折会员专属价'],
+    },
+  ];
+
   const mockPromotions = {
     items: [
       {
@@ -109,6 +124,7 @@ describe('ClubHomeService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    clubMemberService.getLevels.mockResolvedValue(mockLevelConfigs);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -128,6 +144,7 @@ describe('ClubHomeService', () => {
   it('getHome 聚合首页需要的门店、会员、活动和精选商品数据', async () => {
     clubStoresService.getCurrent.mockResolvedValue(mockStore);
     clubMemberService.getAccount.mockResolvedValue(mockAccount);
+    clubMemberService.getLevels.mockResolvedValue(mockLevelConfigs);
     clubPromotionsService.list.mockResolvedValue(mockPromotions);
     clubProductsService.list.mockResolvedValue(mockProducts);
 
@@ -137,17 +154,35 @@ describe('ClubHomeService', () => {
       currentStore: mockStore,
       account: mockAccount,
       accountStatus: 'active',
+      levelConfigs: mockLevelConfigs,
       promotions: mockPromotions.items,
       featuredProducts: mockProducts.items,
     });
 
     expect(clubStoresService.getCurrent).toHaveBeenCalledWith(currentContext);
     expect(clubMemberService.getAccount).toHaveBeenCalledWith(currentContext);
+    expect(clubMemberService.getLevels).toHaveBeenCalledWith(currentContext);
     expect(clubPromotionsService.list).toHaveBeenCalledWith(currentContext);
     expect(clubProductsService.list).toHaveBeenCalledWith(currentContext, {
       featured: false,
-      limit: 50, // CLUB_PRODUCT_DEFAULT_LIST_LIMIT
+      limit: 6, // CLUB_FEATURED_PRODUCT_LIMIT
     });
+  });
+
+  it('getHome 在餐饮门店下跳过商品查询', async () => {
+    const cateringContext: ClubCurrentContext = {
+      ...currentContext,
+      store: { ...currentContext.store, businessMode: 'catering' as const },
+    };
+    clubStoresService.getCurrent.mockResolvedValue(mockStore);
+    clubMemberService.getAccount.mockResolvedValue(mockAccount);
+    clubMemberService.getLevels.mockResolvedValue(mockLevelConfigs);
+    clubPromotionsService.list.mockResolvedValue(mockPromotions);
+
+    const result = await service.getHome(cateringContext);
+
+    expect(result.featuredProducts).toEqual([]);
+    expect(clubProductsService.list).not.toHaveBeenCalled();
   });
 
   // ─── 防御性校验 ──────────────────────────────────────────────────────────
@@ -204,6 +239,22 @@ describe('ClubHomeService', () => {
 
     expect(result.promotions).toEqual([]);
     expect(result.accountStatus).toBe('active');
+  });
+
+  it('getHome 等级配置获取失败时降级返回空列表', async () => {
+    clubStoresService.getCurrent.mockResolvedValue(mockStore);
+    clubMemberService.getAccount.mockResolvedValue(mockAccount);
+    clubMemberService.getLevels.mockRejectedValue(
+      new Error('等级配置服务异常'),
+    );
+    clubPromotionsService.list.mockResolvedValue(mockPromotions);
+    clubProductsService.list.mockResolvedValue(mockProducts);
+
+    const result = await service.getHome(currentContext);
+
+    expect(result.levelConfigs).toEqual([]);
+    expect(result.accountStatus).toBe('active');
+    expect(result.featuredProducts).toEqual(mockProducts.items);
   });
 
   it('getHome 推荐商品获取失败时降级返回空列表', async () => {

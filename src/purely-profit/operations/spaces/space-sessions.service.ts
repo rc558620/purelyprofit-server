@@ -175,7 +175,13 @@ export class SpaceSessionsService {
     user: AuthenticatedUser,
     sessionId: number,
     dto: CheckoutSpaceSessionDto,
+    requestId?: string,
   ): Promise<CheckoutSpaceSessionResponseDto> {
-    return this.checkoutService.checkoutSpaceSession(user, sessionId, dto);
+    return this.checkoutService.checkoutSpaceSession(
+      user,
+      sessionId,
+      dto,
+      requestId,
+    );
   }
 }

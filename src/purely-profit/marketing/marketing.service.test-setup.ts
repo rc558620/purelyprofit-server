@@ -60,6 +60,10 @@ export interface MarketingPrismaServiceMock {
     create: jest.Mock;
     groupBy: jest.Mock;
   };
+  clubVoucherOrder: {
+    aggregate: jest.Mock;
+    groupBy: jest.Mock;
+  };
   marketingPromotion: {
     count: jest.Mock;
     updateMany: jest.Mock;
@@ -154,8 +158,13 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     },
     marketingConsumption: {
       aggregate: jest.fn(),
-      count: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
       create: jest.fn(),
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
+    // 已退款团购券：默认无退款，展示口径直接取流水聚合
+    clubVoucherOrder: {
+      aggregate: jest.fn().mockResolvedValue({ _sum: {}, _count: { _all: 0 } }),
       groupBy: jest.fn().mockResolvedValue([]),
     },
     marketingPromotion: {
@@ -249,6 +258,7 @@ function createRedisServiceMock() {
     ),
     writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
     delByPattern: jest.fn().mockResolvedValue(undefined),
+    del: jest.fn().mockResolvedValue(undefined),
     setIfAbsent: jest.fn().mockResolvedValue(true),
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),

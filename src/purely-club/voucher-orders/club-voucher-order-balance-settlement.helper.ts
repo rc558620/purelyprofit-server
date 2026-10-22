@@ -49,15 +49,18 @@ export async function settleVoucherBalancePayment(
     },
   });
 
+  // 累计消费口径必须与消费流水 amount 一致（含积分抵扣部分），
+  // 否则物化字段会永远比「流水实时聚合」少掉积分抵扣金额
+  const settlementAmountFen = balancePaidFen + order.pointsDeductFen;
   // updateMany + where 条件保证余额不会被并发扣减为负数
-  const newTotalSpent = customer.totalSpent + balancePaidFen;
+  const newTotalSpent = customer.totalSpent + settlementAmountFen;
   // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
   const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
   const updated = await tx.marketingCustomer.updateMany({
     where: { id: customerId, balance: { gte: balancePaidFen } },
     data: {
       balance: { decrement: balancePaidFen },
-      totalSpent: { increment: balancePaidFen },
+      totalSpent: { increment: settlementAmountFen },
       visitCount: { increment: 1 },
       lastVisitAt: new Date(),
       tier: calcCustomerTier(newTotalSpent, thresholds) as never,

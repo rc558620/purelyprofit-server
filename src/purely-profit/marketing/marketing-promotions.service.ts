@@ -11,6 +11,8 @@ import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
+  buildClubPromotionListCacheKey,
+  buildClubPromotionsCacheKey,
   buildMarketingPromotionsListCacheKey,
   buildMarketingPromotionsListPattern,
 } from '../../redis/cache-keys';
@@ -365,6 +367,10 @@ export class MarketingPromotionsService {
       this.redisService.delByPattern(
         buildMarketingPromotionsListPattern(storeId),
       ),
+      // C 端活动缓存：上架/编辑/启停后首页与商品定价必须立即看到新活动，
+      // 否则只能等 60s TTL 自然过期（ClubPromotionRepository 与首页活动列表共用）。
+      this.redisService.del(buildClubPromotionsCacheKey(storeId)),
+      this.redisService.del(buildClubPromotionListCacheKey(storeId)),
     ]);
   }
 

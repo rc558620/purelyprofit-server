@@ -9,6 +9,7 @@ import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.s
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
+import { SpaceCareRecordWriterService } from './space-care-record-writer.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
@@ -125,6 +126,14 @@ describe('SpaceSessionCheckoutService', () => {
         {
           provide: MarketingConsumptionLinkService,
           useValue: marketingConsumptionLinkService,
+        },
+        {
+          provide: SpaceCareRecordWriterService,
+          useValue: {
+            writeAfterSettlement: jest
+              .fn()
+              .mockResolvedValue({ status: 'skipped', reason: 'no-phone' }),
+          },
         },
       ],
     }).compile();

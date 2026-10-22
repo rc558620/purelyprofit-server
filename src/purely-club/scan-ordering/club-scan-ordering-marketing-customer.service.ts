@@ -1,6 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
+import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import {
   awardPointsForSettlement,
   deductPointsForSettlement,
@@ -74,6 +76,31 @@ export class ClubScanOrderingMarketingCustomerService {
         itemsSummary: context.description,
       },
     });
+
+    // 物化指标必须与流水同口径更新：此前只写流水不更新 marketing_customers，
+    // 导致读物化字段的页面（护理档案等）少算这次消费。
+    const consumptionAmountFen = input.paidAmountFen + input.pointsDeductAmount;
+    if (consumptionAmountFen > 0) {
+      const customer = await tx.marketingCustomer.findFirst({
+        where: { id: input.customerId, deletedAt: null },
+        select: { id: true, totalSpent: true },
+      });
+      if (customer) {
+        const thresholds = await queryCustomerTierThresholds(tx, input.storeId);
+        await tx.marketingCustomer.update({
+          where: { id: customer.id },
+          data: {
+            totalSpent: { increment: consumptionAmountFen },
+            visitCount: { increment: 1 },
+            lastVisitAt: new Date(),
+            tier: calcCustomerTier(
+              customer.totalSpent + consumptionAmountFen,
+              thresholds,
+            ) as never,
+          },
+        });
+      }
+    }
 
     return { earnedPoints };
   }

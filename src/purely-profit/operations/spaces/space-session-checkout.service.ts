@@ -114,6 +114,7 @@ export class SpaceSessionCheckoutService {
     user: AuthenticatedUser,
     sessionId: number,
     dto: CheckoutSpaceSessionDto,
+    requestId?: string,
   ): Promise<CheckoutSpaceSessionResponseDto> {
     const session = await this.findSettlementSessionById(sessionId);
 
@@ -201,6 +202,8 @@ export class SpaceSessionCheckoutService {
       ...(payload.timeFeeMode !== undefined
         ? { timeFeeMode: payload.timeFeeMode }
         : {}),
+      // 透传请求 ID，供结账后置动作（护理档案建档）的失败日志关联
+      ...(requestId ? { requestId } : {}),
     });
 
     if (payload.lockId) {

@@ -27,6 +27,9 @@ import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceSessionVoucherReadService } from './space-session-voucher-read.service';
 import { SpaceDashboardSummaryService } from './space-dashboard-summary.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceCareRecordWriterService } from './space-care-record-writer.service';
+import { SpaceCareRecordsController } from './space-care-records.controller';
+import { SpaceCareRecordsService } from './space-care-records.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
@@ -75,6 +78,9 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceQrPosterController,
     SpacesController,
     SpaceReservationsController,
+    // 会员护理档案的静态路由（/space-care-records/customers）必须早于
+    // SpaceSessionsController 注册，避免被 :id 形态的路由抢先匹配。
+    SpaceCareRecordsController,
     SpaceSessionsController,
     SpacePrintController,
   ],
@@ -102,6 +108,8 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceDashboardSummaryService,
     SpaceSessionSaleOrderService,
     SpaceSessionSettlementService,
+    SpaceCareRecordWriterService,
+    SpaceCareRecordsService,
     SpaceSessionTransferService,
     SpaceSessionWriteService,
     SpaceSessionsService,

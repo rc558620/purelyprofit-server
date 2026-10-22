@@ -35,7 +35,9 @@ describe('ScanOrderingRealtimeService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     redisService.publish.mockResolvedValue(1);
-    redisService.subscribe.mockImplementation(async () => async () => undefined);
+    redisService.subscribe.mockImplementation(
+      async () => async () => undefined,
+    );
     redisService.checkReadiness.mockResolvedValue(undefined);
     (namespace.to as jest.Mock).mockReturnValue({ local: { emit } });
 
@@ -122,7 +124,9 @@ describe('ScanOrderingRealtimeService', () => {
       .spyOn(service['logger'], 'error')
       .mockImplementation(() => undefined);
 
-    expect(() => service.publishOrderCreated(orderCreatedPayload)).not.toThrow();
+    expect(() =>
+      service.publishOrderCreated(orderCreatedPayload),
+    ).not.toThrow();
     await flush();
 
     expect(errorSpy).toHaveBeenCalled();

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { parseDiscountRate } from '../club-discount.utils';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
+import type { ClubMemberSnapshot } from '../member/member-profile/club-member-profile.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
@@ -34,26 +35,28 @@ export class ClubProductPromotionService {
     clubUserId: number,
     phone: string,
   ): Promise<ClubProductPricingContext> {
-    const customer = await this.prisma.marketingCustomer.findFirst({
-      where: {
+    // 会员快照（15s 缓存）自带 customerId，优先复用：首页一次加载里
+    // 账户接口已解析过快照，这里再查一次顾客档案是纯重复的库查询。
+    // 快照为 null（本店无会员记录）时才回退查询，保持原有首单判定语义。
+    const snapshot =
+      await this.clubMemberProfileService.getSnapshotByStoreIdentity(
         storeId,
-        deletedAt: null,
-        OR: [{ clubUserId }, { phone, clubUserId: null }],
-      },
-      select: {
-        id: true,
-      },
-    });
+        clubUserId,
+        phone,
+      );
+    const customerId =
+      snapshot?.customerId ??
+      (await this.findCustomerId(storeId, clubUserId, phone));
 
     const [memberDiscountRate, promotions, consumptionCount] =
       await Promise.all([
-        this.resolveMemberDiscountRate(storeId, clubUserId, phone),
+        this.resolveMemberDiscountRate(snapshot),
         this.clubPromotionRepository.loadActivePromotions(storeId),
-        customer
+        customerId !== null
           ? this.prisma.marketingConsumption.count({
               where: {
                 storeId,
-                customerId: customer.id,
+                customerId,
               },
             })
           : Promise.resolve(0),
@@ -139,17 +142,34 @@ export class ClubProductPromotionService {
     };
   }
 
-  private async resolveMemberDiscountRate(
+  /**
+   * 快照缺失（本店无会员记录）时回退查顾客档案。
+   *
+   * 与快照内的定位条件一致（clubUserId 优先，其次认领无主档案），
+   * 保证没有 Member 但有顾客的存量数据仍能得到正确的首单判定。
+   */
+  private async findCustomerId(
     storeId: number,
     clubUserId: number,
     phone: string,
   ): Promise<number | null> {
-    const snapshot =
-      await this.clubMemberProfileService.getSnapshotByStoreIdentity(
+    const customer = await this.prisma.marketingCustomer.findFirst({
+      where: {
         storeId,
-        clubUserId,
-        phone,
-      );
+        deletedAt: null,
+        OR: [{ clubUserId }, { phone, clubUserId: null }],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return customer?.id ?? null;
+  }
+
+  private async resolveMemberDiscountRate(
+    snapshot: ClubMemberSnapshot | null,
+  ): Promise<number | null> {
     if (!snapshot) {
       return null;
     }

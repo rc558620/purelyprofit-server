@@ -4,9 +4,10 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import type { ClubMemberLevelConfigDto } from '../member/dto/club-member-account.dto';
 import { ClubMemberService } from '../member/club-member.service';
 import { ClubProductsService } from '../products/club-products.service';
-import { CLUB_PRODUCT_DEFAULT_LIST_LIMIT } from '../products/club-products.types';
+import { CLUB_FEATURED_PRODUCT_LIMIT } from '../products/club-products.types';
 import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubStoresService } from '../stores/club-stores.service';
@@ -34,10 +35,11 @@ export class ClubHomeService {
     }
 
     // 并行请求所有首页数据，对非关键数据做降级处理
-    const [currentStore, account, promotions, featuredProducts] =
+    const [currentStore, account, levelConfigs, promotions, featuredProducts] =
       await Promise.all([
         this.fetchCurrentStore(currentContext),
         this.fetchAccount(currentContext),
+        this.fetchLevelConfigs(currentContext),
         this.fetchPromotions(currentContext),
         this.fetchFeaturedProducts(currentContext),
       ]);
@@ -56,6 +58,7 @@ export class ClubHomeService {
       currentStore,
       account,
       accountStatus,
+      levelConfigs,
       promotions: promotions.items,
       featuredProducts: featuredProducts.items,
     };
@@ -83,6 +86,17 @@ export class ClubHomeService {
     }
   }
 
+  private async fetchLevelConfigs(
+    currentContext: ClubCurrentContext,
+  ): Promise<ClubMemberLevelConfigDto[]> {
+    try {
+      return await this.clubMemberService.getLevels(currentContext);
+    } catch (error) {
+      this.logger.warn('首页会员等级配置获取失败，降级返回空列表', error);
+      return [];
+    }
+  }
+
   private async fetchPromotions(
     currentContext: ClubCurrentContext,
   ): Promise<Awaited<ReturnType<ClubPromotionsService['list']>>> {
@@ -97,14 +111,21 @@ export class ClubHomeService {
   private async fetchFeaturedProducts(
     currentContext: ClubCurrentContext,
   ): Promise<Awaited<ReturnType<ClubProductsService['list']>>> {
+    // 餐饮门店首页没有服务商品入口：扫码点餐菜单由 scan-ordering/menu 独立提供，
+    // 这里查商品（含定价上下文）是纯粹的浪费，直接跳过。
+    if (currentContext.store.businessMode !== 'general') {
+      return { items: [], nextCursor: null };
+    }
+
     try {
       // F9 修复：C 端首页展示当前门店所有可购商品（不再 featured 过滤）。
       // 原因：club-products.service.ts 的 resolveHotProductIds 临时占位仅取最新 3 个，
       // B 端上架的商品只要不在这 3 个之内就会被全部隐藏——这导致营销商品上架后不可见。
       // MarketingProduct 表也没有 isHot/isFeatured 字段，hot 概念无法落地。
+      // 首页只展示前 N 个卡片，不需要把默认上限（50）全部查出来。
       return await this.clubProductsService.list(currentContext, {
         featured: false,
-        limit: CLUB_PRODUCT_DEFAULT_LIST_LIMIT,
+        limit: CLUB_FEATURED_PRODUCT_LIMIT,
       });
     } catch (error) {
       this.logger.warn('首页推荐商品获取失败，降级返回空列表', error);

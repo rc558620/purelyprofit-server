@@ -152,11 +152,7 @@ export class ClubResolveScanCodeResponseDto {
     enum: ['active', 'inactive', 'not_found', 'unsupported_version'],
     description: '二维码解析与邀请码状态',
   })
-  status:
-    | 'active'
-    | 'inactive'
-    | 'not_found'
-    | 'unsupported_version';
+  status: 'active' | 'inactive' | 'not_found' | 'unsupported_version';
 
   @ApiProperty({
     enum: ['join_store', 'already_bound', 'none'],
@@ -164,7 +160,10 @@ export class ClubResolveScanCodeResponseDto {
   })
   nextAction: 'join_store' | 'already_bound' | 'none';
 
-  @ApiProperty({ example: '扫码成功，可加入该门店', description: '给前端展示的业务提示' })
+  @ApiProperty({
+    example: '扫码成功，可加入该门店',
+    description: '给前端展示的业务提示',
+  })
   message: string;
 }
 
@@ -190,7 +189,10 @@ export class ClubPublicInviteEntryResponseDto {
   })
   status: 'active' | 'inactive' | 'not_found';
 
-  @ApiProperty({ example: '邀请二维码有效', description: '给前端展示的业务提示' })
+  @ApiProperty({
+    example: '邀请二维码有效',
+    description: '给前端展示的业务提示',
+  })
   message: string;
 }
 

@@ -60,7 +60,9 @@ export class ClubScanOrderingSessionService {
    * 未配置或配置非法时回落到默认 4 小时，行为与改造前完全一致。
    */
   private get sessionTtlMs(): number {
-    const configured = this.configService.get<number>('scanOrdering.sessionTtlMs');
+    const configured = this.configService.get<number>(
+      'scanOrdering.sessionTtlMs',
+    );
     return configured && Number.isFinite(configured) && configured > 0
       ? configured
       : DEFAULT_SESSION_TTL_MS;

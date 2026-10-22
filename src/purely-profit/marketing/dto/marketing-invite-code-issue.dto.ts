@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 /** 渠道二维码渠道类型白名单。 */
 export const MARKETING_INVITE_QR_CHANNELS = [
@@ -9,14 +15,16 @@ export const MARKETING_INVITE_QR_CHANNELS = [
   'other',
 ] as const;
 
-export type MarketingInviteQrChannel = (typeof MARKETING_INVITE_QR_CHANNELS)[number];
+export type MarketingInviteQrChannel =
+  (typeof MARKETING_INVITE_QR_CHANNELS)[number];
 
 /** 创建渠道二维码请求 DTO。 */
 export class CreateMarketingInviteQrIssueDto {
   @ApiProperty({
     enum: MARKETING_INVITE_QR_CHANNELS,
     example: 'poster',
-    description: '渠道类型：poster=海报 / tablecard=桌牌 / staff=员工 / other=其他',
+    description:
+      '渠道类型：poster=海报 / tablecard=桌牌 / staff=员工 / other=其他',
   })
   @IsIn(MARKETING_INVITE_QR_CHANNELS, {
     message: '渠道类型不合法，仅支持海报/桌牌/员工/其他',
@@ -43,10 +51,18 @@ export class MarketingInviteQrIssueDto {
   @ApiProperty({ example: 'poster', description: '渠道类型' })
   channel: string;
 
-  @ApiProperty({ example: '开业海报 A 版', nullable: true, description: '用途备注' })
+  @ApiProperty({
+    example: '开业海报 A 版',
+    nullable: true,
+    description: '用途备注',
+  })
   name: string | null;
 
-  @ApiProperty({ example: 'active', enum: ['active', 'revoked'], description: '状态' })
+  @ApiProperty({
+    example: 'active',
+    enum: ['active', 'revoked'],
+    description: '状态',
+  })
   status: 'active' | 'revoked';
 
   @ApiProperty({ example: 12, description: '累计扫码解析次数' })
@@ -95,7 +111,11 @@ export class ListMarketingInviteQrIssuesQueryDto {
   @IsIn(['active', 'revoked'], { message: '状态不合法' })
   status?: 'active' | 'revoked';
 
-  @ApiProperty({ example: 1, required: false, description: '页码（从 1 开始）' })
+  @ApiProperty({
+    example: 1,
+    required: false,
+    description: '页码（从 1 开始）',
+  })
   @IsOptional()
   page?: number;
 

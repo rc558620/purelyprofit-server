@@ -122,10 +122,7 @@ export class ClubInviteScanResolveService {
     const existingMember = await this.prisma.member.findFirst({
       where: {
         storeId: store.id,
-        OR: [
-          { clubUserId: user.id },
-          { phone: user.phone, clubUserId: null },
-        ],
+        OR: [{ clubUserId: user.id }, { phone: user.phone, clubUserId: null }],
         deletedAt: null,
       },
       select: { id: true },

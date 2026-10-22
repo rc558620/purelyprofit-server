@@ -12,7 +12,13 @@ import { ClubMemberProfileService } from './member-profile/club-member-profile.s
 import { ClubMemberTransactionsService } from './member-transactions/club-member-transactions.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule, RedisModule, ClubStoresModule, ClubRecordsModule],
+  imports: [
+    AuthModule,
+    PrismaModule,
+    RedisModule,
+    ClubStoresModule,
+    ClubRecordsModule,
+  ],
   controllers: [ClubMemberController],
   providers: [
     ClubMemberProfileService,

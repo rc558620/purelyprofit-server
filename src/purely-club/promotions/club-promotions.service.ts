@@ -10,6 +10,8 @@ import {
   type MarketingPromotionTypeValue,
 } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import { buildClubPromotionListCacheKey } from '../../redis/keys/club-cache-keys';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
   ClubPromotionActionTypeValue,
@@ -23,6 +25,22 @@ import {
 
 /** 首页活动列表最大返回条数 */
 const CLUB_HOME_PROMOTION_LIMIT = 20;
+/** 活动列表缓存 TTL（秒），活动写路径会主动失效（见 marketing-promotions.service） */
+const CLUB_PROMOTION_LIST_CACHE_TTL_SECONDS = 60;
+
+/**
+ * 缓存中的活动记录形状：Date 字段经 JSON 序列化后是 ISO 字符串，
+ * 读取时必须还原成 Date——直接 cast 回 ClubPromotionRecord 会让
+ * startAt.getTime() 之类的调用在运行时崩掉。
+ */
+type CachedClubPromotionRecord = Omit<
+  ClubPromotionRecord,
+  'startAt' | 'endAt' | 'createdAt'
+> & {
+  startAt: string;
+  endAt: string;
+  createdAt: string;
+};
 
 interface ClubPromotionPresentation {
   priority: number;
@@ -34,25 +52,19 @@ interface ClubPromotionPresentation {
 
 @Injectable()
 export class ClubPromotionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async list(
     currentContext: ClubCurrentContext,
   ): Promise<ClubPromotionsResponseDto> {
     const now = new Date();
-    const promotions = await this.prisma.marketingPromotion.findMany({
-      where: {
-        storeId: currentContext.store.id,
-        enabled: true,
-        type: { in: [...MARKETING_PROMOTION_TYPE_VALUES] },
-        startAt: { lte: now },
-        endAt: { gte: now },
-      },
-      select: clubPromotionSelect,
-      // 数据库按创建时间倒序取候选集，内存中再按 sort/priority/startAt 精排
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: CLUB_HOME_PROMOTION_LIMIT,
-    });
+    const promotions = await this.loadActivePromotions(
+      currentContext.store.id,
+      now,
+    );
 
     return {
       items: promotions
@@ -66,6 +78,60 @@ export class ClubPromotionsService {
             right.priority - left.priority ||
             right.startAt - left.startAt,
         ),
+    };
+  }
+
+  /**
+   * 读取当前门店生效活动，优先走门店级缓存。
+   *
+   * 首页与活动页每次进入都会调 list，而活动只在后台改配置时变化，
+   * 未缓存时每个 C 端页面进入都要跑一次 marketingPromotion 查询。
+   * TTL 60s 与 ClubPromotionRepository 对齐，活动写路径会主动失效。
+   */
+  private async loadActivePromotions(
+    storeId: number,
+    now: Date,
+  ): Promise<ClubPromotionRecord[]> {
+    const cacheKey = buildClubPromotionListCacheKey(storeId);
+    const cached =
+      await this.redisService.getJson<CachedClubPromotionRecord[]>(cacheKey);
+    if (cached) {
+      return cached.map((record) => this.revivePromotionRecord(record));
+    }
+
+    const promotions = await this.prisma.marketingPromotion.findMany({
+      where: {
+        storeId,
+        enabled: true,
+        type: { in: [...MARKETING_PROMOTION_TYPE_VALUES] },
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: clubPromotionSelect,
+      // 数据库按创建时间倒序取候选集，内存中再按 sort/priority/startAt 精排
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: CLUB_HOME_PROMOTION_LIMIT,
+    });
+
+    // 空数组同样缓存：无活动门店的空结果本身有效，避免每次都回源
+    await this.redisService.setJson(
+      cacheKey,
+      promotions,
+      CLUB_PROMOTION_LIST_CACHE_TTL_SECONDS,
+    );
+
+    return promotions;
+  }
+
+  /** 把缓存里被 JSON 序列化成 ISO 字符串的日期字段还原为 Date */
+  private revivePromotionRecord(
+    record: CachedClubPromotionRecord,
+  ): ClubPromotionRecord {
+    return {
+      ...record,
+      startAt: new Date(record.startAt),
+      endAt: new Date(record.endAt),
+      createdAt: new Date(record.createdAt),
     };
   }
 

@@ -435,7 +435,9 @@ describe('ClubAuthService 新用户额度', () => {
       }),
     );
     // 会话可用时不该再读「当前选中门店」
-    expect(clubCurrentStoreContextService.getCurrentStore).not.toHaveBeenCalled();
+    expect(
+      clubCurrentStoreContextService.getCurrentStore,
+    ).not.toHaveBeenCalled();
   });
 
   it('传 sessionId：微信链路同样按会话所属门店判定', async () => {

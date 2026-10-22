@@ -1,5 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ClubMemberAccountDto } from '../../member/dto/club-member-account.dto';
+import {
+  ClubMemberAccountDto,
+  ClubMemberLevelConfigDto,
+} from '../../member/dto/club-member-account.dto';
 import { ClubProductDto } from '../../products/dto/club-product.dto';
 import { ClubPromotionDto } from '../../promotions/dto/club-promotion.dto';
 import { ClubStoreSummaryDto } from '../../stores/dto/club-store.dto';
@@ -30,6 +33,13 @@ export class ClubHomeResponseDto {
       '会员账户状态：active 表示正常返回，unavailable 表示获取失败或无会员记录',
   })
   accountStatus: ClubAccountStatusValue;
+
+  @ApiProperty({
+    type: [ClubMemberLevelConfigDto],
+    description:
+      '会员等级配置列表；首页据此展示当前等级权益，获取失败时为空数组',
+  })
+  levelConfigs: ClubMemberLevelConfigDto[];
 
   @ApiProperty({
     type: [ClubPromotionDto],

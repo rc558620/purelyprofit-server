@@ -1247,7 +1247,11 @@ describe('ClubAuthService', () => {
     });
 
     it('无 clubUserId 的无主会员档案按「门店 + 旧号」兜底更新', async () => {
-      prepareHappyPath([37], {}, { unboundMembers: [{ id: 501, storeId: 37 }] });
+      prepareHappyPath(
+        [37],
+        {},
+        { unboundMembers: [{ id: 501, storeId: 37 }] },
+      );
 
       await service.rebindPhone(42, dto);
 

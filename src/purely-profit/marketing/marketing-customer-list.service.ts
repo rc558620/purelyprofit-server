@@ -154,24 +154,66 @@ export class MarketingCustomerListService {
 
     const customerIds = rows.map((r) => r.id);
 
-    // groupBy 一次拿到每人的 SUM(amount)、COUNT(*) 与 MAX(createdAt)
-    const aggregates = await this.prisma.marketingConsumption.groupBy({
-      by: ['customerId'],
-      where: { customerId: { in: customerIds } },
-      _sum: { amount: true },
-      _count: { _all: true },
-      _max: { createdAt: true },
-    });
+    // 累计消费取全部流水净额（退款冲减记录为负数）；
+    // 次数与最后消费时间只统计正向流水，退款不会虚增次数
+    const [totals, positiveCounts, refunds] = await Promise.all([
+      this.prisma.marketingConsumption.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingConsumption.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, amount: { gt: 0 } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      // 已退款团购券：流水保持消费事实，退款金额与笔数单独冲减
+      this.prisma.clubVoucherOrder.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: customerIds },
+          status: 'refunded',
+          paymentChannel: 'balance',
+          refundAmountFen: { not: null },
+        },
+        _sum: { refundAmountFen: true, pointsDeductFen: true },
+        _count: { _all: true },
+      }),
+    ]);
 
     const aggregateMap = new Map<
       number,
       { totalSpent: number; visitCount: number; lastVisitAt: Date | null }
     >();
-    for (const a of aggregates) {
+    const positiveMap = new Map(
+      positiveCounts.map((a) => [
+        a.customerId,
+        { visitCount: a._count._all, lastVisitAt: a._max.createdAt ?? null },
+      ]),
+    );
+    const refundMap = new Map(
+      refunds
+        .filter((a) => a.customerId !== null)
+        .map((a) => [
+          a.customerId as number,
+          {
+            cents:
+              (a._sum.refundAmountFen ?? 0) + (a._sum.pointsDeductFen ?? 0),
+            count: a._count._all,
+          },
+        ]),
+    );
+    for (const a of totals) {
+      const positive = positiveMap.get(a.customerId);
+      const refund = refundMap.get(a.customerId);
       aggregateMap.set(a.customerId, {
-        totalSpent: a._sum.amount ?? 0,
-        visitCount: a._count._all,
-        lastVisitAt: a._max.createdAt ?? null,
+        totalSpent: Math.max((a._sum.amount ?? 0) - (refund?.cents ?? 0), 0),
+        visitCount: Math.max(
+          (positive?.visitCount ?? 0) - (refund?.count ?? 0),
+          0,
+        ),
+        lastVisitAt: positive?.lastVisitAt ?? null,
       });
     }
 

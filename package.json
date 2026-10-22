@@ -46,7 +46,8 @@
     "store-business-mode:backfill": "node scripts/backfill-store-business-mode.mjs",
     "sub-account:revoke-orphaned": "node scripts/revoke-orphaned-sub-account-credentials.mjs",
     "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs",
-  "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs"
+  "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs",
+    "marketing:backfill-consumption-refunds": "node scripts/backfill-marketing-consumption-refunds.mjs"
   },
   "dependencies": {
     "@fastify/compress": "^9.0.0",

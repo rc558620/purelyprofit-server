@@ -72,17 +72,20 @@ describe('MarketingService customers', () => {
       },
     ]);
     context.prismaService.marketingCustomer.count.mockResolvedValue(1);
-    // 真实消费表里有 128 笔消费，总额与最近消费时间
-    context.prismaService.marketingConsumption.groupBy.mockResolvedValueOnce([
-      {
-        customerId: 9,
-        _sum: { amount: 2219080 }, // ¥22,190.80（与截图一致）
-        _count: { _all: 128 },
-        _max: {
-          createdAt: new Date('2026-05-15T11:30:00.000Z'), // 最近一次消费
+    // 真实消费表里有 128 笔消费：净额（累计消费）+ 正向笔数与最近消费时间
+    context.prismaService.marketingConsumption.groupBy
+      .mockResolvedValueOnce([
+        { customerId: 9, _sum: { amount: 2219080 } }, // ¥22,190.80（与截图一致）
+      ])
+      .mockResolvedValueOnce([
+        {
+          customerId: 9,
+          _count: { _all: 128 },
+          _max: {
+            createdAt: new Date('2026-05-15T11:30:00.000Z'), // 最近一次消费
+          },
         },
-      },
-    ]);
+      ]);
 
     const result = await context.service.listCustomers(context.user, {
       page: 1,
@@ -204,9 +207,10 @@ describe('MarketingService customers', () => {
     context.prismaService.marketingConsumption.aggregate
       // 1. computeCustomerFinance: totalPointsDeducted
       .mockResolvedValueOnce({ _sum: { pointsDeducted: 0 } })
-      // 2. F9: 实时聚合 totalSpent / visitCount / lastVisitAt（与物化字段一致）
+      // 2. F9: 流水净额（累计消费）
+      .mockResolvedValueOnce({ _sum: { amount: 52000 } })
+      // 3. F9: 正向流水笔数 + 最后消费时间（与物化字段一致）
       .mockResolvedValueOnce({
-        _sum: { amount: 52000 },
         _count: { _all: 6 },
         _max: { createdAt: new Date('2026-05-14T10:00:00.000Z') },
       });
@@ -325,9 +329,10 @@ describe('MarketingService customers', () => {
     context.prismaService.marketingConsumption.aggregate
       // 1. computeCustomerFinance: totalPointsDeducted
       .mockResolvedValueOnce({ _sum: { pointsDeducted: 0 } })
-      // 2. F9: 实时聚合（消费表里有 128 笔 ¥22,190.80 总额，最近消费时间更新）
+      // 2. F9: 流水净额（消费表里有 ¥22,190.80 总额）
+      .mockResolvedValueOnce({ _sum: { amount: 2219080 } })
+      // 3. F9: 正向流水 128 笔 + 最近消费时间
       .mockResolvedValueOnce({
-        _sum: { amount: 2219080 },
         _count: { _all: 128 },
         _max: { createdAt: new Date('2026-05-15T11:30:00.000Z') },
       });

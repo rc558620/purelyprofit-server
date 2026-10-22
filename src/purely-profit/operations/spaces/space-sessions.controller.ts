@@ -310,6 +310,7 @@ export class SpaceSessionsController {
       ctx.user,
       sessionId,
       dto,
+      ctx.requestId,
     );
   }
 }
