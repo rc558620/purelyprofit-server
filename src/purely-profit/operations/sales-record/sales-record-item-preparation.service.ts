@@ -7,10 +7,36 @@ import type {
   CreateSalesRecordDto,
   SalesRecordItemInputDto,
 } from './dto/sales-record.dto';
+import { isAmountDeductionSalesRecordRow } from '../../commerce/commerce.utils';
 import {
   normalizeSignedMoney,
   parseNumericProductId,
 } from './sales-record.utils';
+
+/**
+ * 手动项（非目录商品）的「件数 / 金额」双口径标记。
+ *
+ * 件数与金额必须分开判定，二者并不总是相等：
+ * - 抵扣行（预付款 / 续费抵扣 / 自助下单抵扣）：件数与金额都不计；
+ * - 台位费行、券面消费行「XX（团购券）」：**件数照计、金额计入**。
+ *
+ * ⚠️ 件数口径刻意不按 isNonQuantitySalesRecordRow 排除虚拟行：
+ * sale_orders.total_quantity 上有 DB 约束 chk_sale_orders_total_quantity_gt_0，
+ * 排除后台位费-only / 纯消费券-only 的会话会让 total_quantity = 0 而直接 500。
+ * 销量统计的正确口径在**读取侧**（resolveSalesRecordAmounts →
+ * buildAmountsPreparedItems，按商品名排除虚拟行），写侧只需满足约束。
+ */
+function resolvePreparedItemCountFlags(
+  salePrice: Money,
+  productName: string,
+): { countsTowardTotalQuantity: boolean; countsTowardAmounts?: boolean } {
+  const countsTowardTotalQuantity = !salePrice.isNegative();
+  const countsTowardAmounts =
+    !salePrice.isNegative() && !isAmountDeductionSalesRecordRow(productName);
+  return countsTowardAmounts === countsTowardTotalQuantity
+    ? { countsTowardTotalQuantity }
+    : { countsTowardTotalQuantity, countsTowardAmounts };
+}
 
 export interface CatalogProductRecord {
   id: number;
@@ -266,7 +292,11 @@ export class SalesRecordItemPreparationService {
         salePrice,
         profit,
         quantity,
-        countsTowardTotalQuantity: !salePrice.isNegative(),
+        // 系统虚拟行（券面消费行「XX（团购券）」/ 台位费行 / 抵扣行）不是真实
+        // 商品销量，件数一律不计，否则销量统计会被虚拟行虚高。
+        // ⚠️ 抵扣行在空间结账里以**正数**存储，仅凭金额正负无法区分，
+        // 必须按商品名判定。
+        ...resolvePreparedItemCountFlags(salePrice, productName),
         ...(systemProductId ? { systemProductId } : {}),
       };
     });

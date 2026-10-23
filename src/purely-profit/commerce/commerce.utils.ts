@@ -54,6 +54,39 @@ export const SELF_ORDER_DEDUCTION_PRODUCT_ID = 'SYS_SELF_ORDER_DEDUCTION';
 export const SELF_ORDER_DEDUCTION_PRODUCT_NAME = '自助下单抵扣';
 
 /**
+ * 纯消费模式开台团购券的「券面消费行」后缀（如「分手大师（团购券）」）。
+ *
+ * 该行是券面金额的记账载体：金额必须计入营业额（券面 = 顾客买券实付 = 门店
+ * 结算收入），但不是真实商品 —— 不计入销售件数、不进商品排行榜 / 品类分布。
+ * 与之配对的负向「预付款」抵扣行照旧按抵扣行排除，两行在金额上不会重复计。
+ */
+export const GROUPON_VOUCHER_ITEM_SUFFIX = '（团购券）';
+
+/**
+ * 券面消费行的展示分类。落库后系统行 product_id 一律为 null，
+ * 只能靠「后缀 + 分类」双条件反向识别，避免误伤同名真实商品。
+ */
+export const GROUPON_VOUCHER_CATEGORY_NAME = '团购券';
+
+/**
+ * 是否为券面消费行。
+ *
+ * 传入 categoryName 时走「后缀 + 系统分类」双条件：商家自建商品若恰好以
+ * 「（团购券）」结尾，不会被误判成系统行（否则销量与商品排行榜会漏统计）。
+ * 不传（历史调用点）时退化为按后缀判定，保持兼容且不改变既有行为。
+ */
+export function isGrouponVoucherItemName(
+  productName: string,
+  categoryName?: string,
+): boolean {
+  if (!productName.endsWith(GROUPON_VOUCHER_ITEM_SUFFIX)) return false;
+  return (
+    categoryName === undefined ||
+    categoryName === GROUPON_VOUCHER_CATEGORY_NAME
+  );
+}
+
+/**
  * 台位费展示名正则：兼容「台位费（固定）/ 台位费（按单价）」
  * 与「台位费 2小时30分钟」（计时模式已去掉括号）两种形式。
  * 列表 / 报表 / CSV / 件数统计共用，避免各处复制正则导致判定漂移。
@@ -72,10 +105,15 @@ export const TABLE_FEE_NAME_RE = /^台位费(（|\s|$)/;
  * ⚠️ 金额（营业额/利润）不在此排除——抵扣行必须与它对应的商品行配对后才能
  * 互相冲抵。单独剔除任一侧都会导致金额重复计算（详见 listVisibleSaleOrderItems）。
  */
-export function isNonQuantitySalesRecordRow(productName: string): boolean {
+export function isNonQuantitySalesRecordRow(
+  productName: string,
+  categoryName?: string,
+): boolean {
   return (
     isDeductionProductName(productName) ||
     productName.endsWith(` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`) ||
+    // 券面消费行是券面金额的记账载体，不是真实商品销量
+    isGrouponVoucherItemName(productName, categoryName) ||
     TABLE_FEE_NAME_RE.test(productName)
   );
 }
@@ -96,6 +134,43 @@ export function isAmountDeductionSalesRecordRow(productName: string): boolean {
     isDeductionProductName(productName) ||
     productName.endsWith(` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`)
   );
+}
+
+/**
+ * 从明细行还原「客人实收净额」（分）：Σ非抵扣行 − Σ|抵扣行|。
+ *
+ * 为什么不能直接用 sale_orders.total_revenue：该列是**营业额**口径
+ * （纯消费券单已把券面计入，见 SpaceSessionSettlement.grossRevenue），
+ * 而小票「合计」与整单退款要的是「客人本次实际掏的钱 / 门店该退的钱」，
+ * 两者不是一回事。抵扣行在库里可能以正数（空间结账，代表已收到的钱）
+ * 或负数（手工录单）存储，故统一按绝对值扣减，保证两种存储都成立。
+ *
+ * 无抵扣行的普通订单（扫码点餐 / 手工录单）→ 结果与 total_revenue 相同，
+ * 因此该口径对历史数据与现有调用方均等价于原行为。
+ */
+export function sumNetPayableCents(
+  items: Array<{ productName: string; salePrice: number; quantity: number }>,
+): number {
+  return sumNetBy(items, (item) => item.salePrice);
+}
+
+/** 同上，还原「净利」口径（用于整单退款的利润冲销）。 */
+export function sumNetProfitCents(
+  items: Array<{ productName: string; profit: number; quantity: number }>,
+): number {
+  return sumNetBy(items, (item) => item.profit);
+}
+
+function sumNetBy<T extends { productName: string; quantity: number }>(
+  items: T[],
+  pick: (item: T) => number,
+): number {
+  return items.reduce((sum, item) => {
+    const quantity = Number.isFinite(item.quantity) ? item.quantity : 1;
+    return isAmountDeductionSalesRecordRow(item.productName)
+      ? sum - Math.abs(pick(item)) * quantity
+      : sum + pick(item) * quantity;
+  }, 0);
 }
 
 /**

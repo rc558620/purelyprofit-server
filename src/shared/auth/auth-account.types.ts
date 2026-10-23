@@ -57,4 +57,6 @@ export interface AuthMembershipContextRow {
   subAccountCanUseHandover: boolean | null;
   /** 门店业态（catering/general），用于子账号角色按业态解析权限集 */
   businessMode?: import('@prisma/client').StoreBusinessMode | null;
+  /** 会员护理档案档位（注册时由 storeType 派生），用于能力快照免回源解析 */
+  memberCareEnabled?: boolean | null;
 }

@@ -46,12 +46,14 @@ export class AuthMembershipResolverService {
         | 'businessMode'
         | 'storeCreatedAt'
         | 'storeUpdatedAt'
+        | 'memberCareEnabled'
       >[]
     >`
       SELECT
         s.name AS "storeName",
         s.address,
         s.business_mode AS "businessMode",
+        s.member_care_enabled AS "memberCareEnabled",
         s.created_at AS "storeCreatedAt",
         s.updated_at AS "storeUpdatedAt"
       FROM staffs st
@@ -211,6 +213,9 @@ export class AuthMembershipResolverService {
         : null,
       // 传递门店业态，子账号角色（如店长）按业态解析对应权限集
       membershipRow.businessMode ?? undefined,
+      // 传递会员护理档案档位：与业态同为注册时确定的门店档位，
+      // 随 membership 一起进入登录态快照，能力解析无需额外回源数据库
+      membershipRow.memberCareEnabled ?? undefined,
     );
   }
 }

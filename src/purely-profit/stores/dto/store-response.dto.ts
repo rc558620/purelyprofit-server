@@ -3,6 +3,7 @@ import type { TransformFnParams } from 'class-transformer';
 import { Transform } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDate,
   IsInt,
   IsNumber,
@@ -30,6 +31,8 @@ export interface StoreRecordSnapshot {
   address: string | null;
   /// 门店业态：catering=餐饮，general=非餐饮
   businessMode: 'catering' | 'general';
+  /// 是否启用会员护理档案：注册时由 storeType 派生（仅 SPA/养生/美容 模式），注册后不可变更
+  memberCareEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -177,6 +180,8 @@ export function buildStoreResponseDto(
     storeName: store.name,
     storeType: metadata.storeType,
     businessMode: store.businessMode,
+    // 护理档案档位：前端据此决定是否显示「会员护理档案」入口
+    memberCareEnabled: store.memberCareEnabled,
     region: metadata.region,
     address: store.address ?? '',
     ...(metadata.storeLogo ? { storeLogo: metadata.storeLogo } : {}),
@@ -246,6 +251,14 @@ export class StoreResponseDto {
   })
   @IsString({ message: '门店业态必须是字符串' })
   businessMode: 'catering' | 'general';
+
+  @ApiProperty({
+    example: false,
+    description:
+      '是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容/」模式），注册后不可变更',
+  })
+  @IsBoolean({ message: '会员护理档案开关必须是布尔值' })
+  memberCareEnabled: boolean;
 
   @ApiProperty({
     example: ['北京市', '北京市', '朝阳区'],

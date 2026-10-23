@@ -143,6 +143,7 @@ export class SpaceSessionSettlementService {
             },
             items: mapSessionItemRows(txSessionItems),
             renewRecords: mapRenewRecordRows(txRenewRecords),
+            voucherProductName: params.voucherProductName,
           });
 
           // BUG-fix: autoCheckout 会话统一使用系统用户创建销售单，
@@ -161,8 +162,9 @@ export class SpaceSessionSettlementService {
               paymentMethod: params.paymentMethod,
               note: params.note,
               items: freshSettlement.orderItems,
-              totalRevenue: freshSettlement.totalRevenue,
-              totalProfit: freshSettlement.totalProfit,
+              // 营业额 / 利润按列表口径（消费毛额）落库：券面不能被抵扣行抹掉
+              totalRevenue: freshSettlement.grossRevenue,
+              totalProfit: freshSettlement.grossProfit,
               totalQuantity: freshSettlement.totalQuantity,
               ...(params.customerPaymentMethod !== undefined
                 ? { customerPaymentMethod: params.customerPaymentMethod }

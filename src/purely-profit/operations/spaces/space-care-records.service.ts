@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { StoreBusinessCapabilityService } from '../../stores/store-business-capability.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { buildCustomerWhere } from '../../marketing/marketing.domain';
 import { mapCustomerRow } from '../../marketing/marketing.mapper';
@@ -63,13 +64,28 @@ export class SpaceCareRecordsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly storeBusinessCapabilityService: StoreBusinessCapabilityService,
   ) {}
+
+  /**
+   * 会员护理档案档位断言（service 层兜底）。
+   *
+   * Controller 已挂 `MemberCareGuard`，这里再断言一次是防止未来新增入口
+   * 漏挂装饰器导致功能对未开通门店静默开放。
+   */
+  private async ensureMemberCareEnabled(
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.storeBusinessCapabilityService.ensureMemberCareAccess(user);
+  }
 
   /** 有护理档案的会员列表（查询条件与营销域顾客列表同源） */
   async listCustomers(
     user: AuthenticatedUser,
     query: ListSpaceCareCustomersQueryDto,
   ): Promise<SpaceCareCustomerListResponseDto> {
+    await this.ensureMemberCareEnabled(user);
+
     const { page, skip, take } = resolveMarketingPagination(
       query.page,
       query.pageSize,
@@ -122,6 +138,8 @@ export class SpaceCareRecordsService {
     customerId: number,
     query: ListSpaceCareRecordsQueryDto = {},
   ): Promise<SpaceCareRecordDetailResponseDto> {
+    await this.ensureMemberCareEnabled(user);
+
     const { page, skip, take } = resolveMarketingPagination(
       query.page,
       query.pageSize,
@@ -194,6 +212,8 @@ export class SpaceCareRecordsService {
     customerId: number,
     query: ListSpaceCareRecordsQueryDto = {},
   ): Promise<SpaceCareRecordListResponseDto> {
+    await this.ensureMemberCareEnabled(user);
+
     const { page, skip, take } = resolveMarketingPagination(
       query.page,
       query.pageSize,
@@ -253,6 +273,8 @@ export class SpaceCareRecordsService {
     recordId: number,
     dto: UpdateSpaceCareRecordDto,
   ): Promise<SpaceCareRecordDto> {
+    await this.ensureMemberCareEnabled(user);
+
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,

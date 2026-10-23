@@ -255,9 +255,12 @@ export class ScanOrderingGateway
     this.logger.debug(
       `subscribe.voucher-order requested: socketId=${client.id}, userId=${identity.userId}, orderNo=${payload.orderNo}`,
     );
+    // 与 subscribe.order 对齐：强制归属校验，
+    // 否则任何登录用户凭 orderNo 即可订阅他人团购券订单的核销/退款实时状态。
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: {
         orderNo: payload.orderNo,
+        userId: identity.userId,
       },
       select: { orderNo: true },
     });

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { StoreBusinessCapabilityService } from './store-business-capability.service';
 import { BusinessModeGuard } from './business-mode.guard';
+import { MemberCareGuard } from './member-care.guard';
 
 /**
  * 门店业态能力模块。
@@ -9,7 +10,11 @@ import { BusinessModeGuard } from './business-mode.guard';
  * 作为门店业态能力的唯一事实来源，供 AuthModule 和其他模块注入。
  */
 @Module({
-  providers: [StoreBusinessCapabilityService, BusinessModeGuard],
-  exports: [StoreBusinessCapabilityService, BusinessModeGuard],
+  providers: [
+    StoreBusinessCapabilityService,
+    BusinessModeGuard,
+    MemberCareGuard,
+  ],
+  exports: [StoreBusinessCapabilityService, BusinessModeGuard, MemberCareGuard],
 })
 export class StoreBusinessCapabilityModule {}

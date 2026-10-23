@@ -6,6 +6,7 @@ export const clubAccessibleStoreSelect = {
   name: true,
   address: true,
   businessMode: true,
+  memberCareEnabled: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.StoreSelect;

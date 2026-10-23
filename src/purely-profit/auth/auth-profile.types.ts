@@ -26,6 +26,8 @@ export interface ProfileMembershipRecord {
   address: string | null;
   /// 门店业态：catering=餐饮，general=非餐饮
   businessMode: 'catering' | 'general';
+  /// 会员护理档案档位：仅「SPA/养生/美容/」模式门店为 true，注册时确定
+  memberCareEnabled: boolean;
   storeCreatedAt: Date;
   storeUpdatedAt: Date;
 }

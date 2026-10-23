@@ -101,7 +101,9 @@ export const queryCareRecordCompareRange = async <TDto>(
   const voucherNames = await resolveVoucherNames(db, storeId, presentRows);
 
   return {
-    earliest: earliest ? toDto(earliest, voucherNames.get(earliest.sessionId)) : null,
+    earliest: earliest
+      ? toDto(earliest, voucherNames.get(earliest.sessionId))
+      : null,
     latest: latest ? toDto(latest, voucherNames.get(latest.sessionId)) : null,
   };
 };

@@ -6,6 +6,7 @@ import {
 } from './space-session-items.shared';
 import {
   buildSelfOrderDeductionOrderItems,
+  resolveGrouponVoucherConsumptionItem,
   resolvePrepaidDeductionOrderItem,
   resolveRenewDeductionOrderItem,
   resolveSpaceTimeBillingOrderItem,
@@ -35,6 +36,8 @@ export const buildSpaceSessionSettlement = (params: {
   payload: CheckoutPreviewFeeMode;
   items: SpaceSessionItemRecord[];
   renewRecords: SpaceSessionRenewRecord[];
+  /** 开台团购券对应商品名（纯消费模式正向券面行的展示名来源） */
+  voucherProductName?: string | null;
 }): SpaceSessionSettlement => {
   const core = buildSpaceSessionSettlementCore(params);
   const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
@@ -56,10 +59,19 @@ export const buildSpaceSessionSettlement = (params: {
     renewDeduction: core.renewDeductionMoney.toOutputYuan(),
     prepaidDeduction: core.prepaidDeductionMoney.toOutputYuan(),
     selfOrderDeduction: core.selfOrderDeductionMoney.toOutputYuan(),
+    voucherConsumption: core.voucherConsumptionMoney.toOutputYuan(),
     totalAmount: totalRevenueMoney.toOutputYuan(),
     orderItems: core.orderItems,
     totalRevenue: totalRevenueMoney.toOutputYuan(),
     totalProfit: totalProfitMoney.toOutputYuan(),
+    // 营业额 / 利润口径（= 列表口径）：券面是门店真实营收，不能被抵扣行抹掉。
+    // 非券单 voucherConsumption = 0，两值与 totalRevenue / totalProfit 完全相同。
+    grossRevenue: totalRevenueMoney
+      .add(core.voucherConsumptionMoney)
+      .toOutputYuan(),
+    grossProfit: totalProfitMoney
+      .add(core.voucherConsumptionMoney)
+      .toOutputYuan(),
     totalQuantity,
   };
 };
@@ -74,6 +86,8 @@ export const buildSpaceSessionSettlementMoney = (params: {
   payload: CheckoutPreviewFeeMode;
   items: SpaceSessionItemRecord[];
   renewRecords: SpaceSessionRenewRecord[];
+  /** 开台团购券对应商品名（纯消费模式正向券面行的展示名来源） */
+  voucherProductName?: string | null;
 }) => {
   const core = buildSpaceSessionSettlementCore(params);
   const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
@@ -88,6 +102,7 @@ export const buildSpaceSessionSettlementMoney = (params: {
     renewDeductionMoney: core.renewDeductionMoney,
     prepaidDeductionMoney: core.prepaidDeductionMoney,
     selfOrderDeductionMoney: core.selfOrderDeductionMoney,
+    voucherConsumptionMoney: core.voucherConsumptionMoney,
     totalAmountMoney: totalRevenueMoney,
     totalRevenueMoney,
     totalProfitMoney,
@@ -105,6 +120,7 @@ const buildSpaceSessionSettlementCore = (params: {
   payload: CheckoutPreviewFeeMode;
   items: SpaceSessionItemRecord[];
   renewRecords: SpaceSessionRenewRecord[];
+  voucherProductName?: string | null;
 }) => {
   const { session, checkoutAt, payload, items, renewRecords } = params;
   // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
@@ -137,6 +153,17 @@ const buildSpaceSessionSettlementCore = (params: {
     orderItems.push(renewDeductionItem);
   }
 
+  // 纯消费模式 + 开台团购券：券面金额的正向消费行（计入营业额/护理档案）。
+  // 必须排在负向预付抵扣行之前：账单按行顺序展示「消费 → 已付冲抵」。
+  const { voucherConsumptionMoney, orderItem: voucherConsumptionItem } =
+    resolveGrouponVoucherConsumptionItem({
+      session,
+      voucherProductName: params.voucherProductName,
+    });
+  if (voucherConsumptionItem) {
+    orderItems.push(voucherConsumptionItem);
+  }
+
   const { prepaidDeductionMoney, orderItem: prepaidDeductionItem } =
     resolvePrepaidDeductionOrderItem(session);
   if (prepaidDeductionItem) {
@@ -161,6 +188,7 @@ const buildSpaceSessionSettlementCore = (params: {
     renewDeductionMoney,
     prepaidDeductionMoney,
     selfOrderDeductionMoney,
+    voucherConsumptionMoney,
   };
 };
 

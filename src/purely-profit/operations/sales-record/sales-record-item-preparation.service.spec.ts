@@ -151,6 +151,56 @@ describe('SalesRecordItemPreparationService', () => {
     ]);
   });
 
+  it('prepareItems 券面行 / 台位费行仍计入件数（DB 约束 total_quantity > 0），金额照计', async () => {
+    prismaService.product.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.prepareItems(18, {
+        items: [
+          {
+            productId: 'SYS_GROUPON_VOUCHER',
+            productName: '分手大师（团购券）',
+            categoryName: '团购券',
+            salePrice: 188.7,
+            profit: 188.7,
+            quantity: 1,
+          },
+          {
+            productId: 'SYS_TIME_BILLING',
+            productName: '台位费 1分钟',
+            categoryName: '场地费',
+            salePrice: 88,
+            profit: 88,
+            quantity: 1,
+          },
+        ],
+        paymentMethod: 'groupon_voucher',
+        calcMode: 'business',
+      }),
+    ).resolves.toEqual([
+      {
+        productId: null,
+        productName: '分手大师（团购券）',
+        categoryName: '团购券',
+        salePrice: Money.fromInputYuan(188.7),
+        profit: Money.fromInputYuan(188.7),
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+        systemProductId: 'SYS_GROUPON_VOUCHER',
+      },
+      {
+        productId: null,
+        productName: '台位费 1分钟',
+        categoryName: '场地费',
+        salePrice: Money.fromInputYuan(88),
+        profit: Money.fromInputYuan(88),
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+        systemProductId: 'SYS_TIME_BILLING',
+      },
+    ]);
+  });
+
   it('prepareItems 抵扣项利润由后端从售价推导（忽略前端传入值）', async () => {
     prismaService.product.findMany.mockResolvedValue([]);
 

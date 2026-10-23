@@ -122,6 +122,19 @@ function buildQueryRange(
 }
 
 /**
+ * 商品排行 / 品类分布需额外剔除的「券面消费行」条件。
+ *
+ * 纯消费模式开台团购券会落一条「XX（团购券）」正向行：它是券面金额的记账载体，
+ * 不是真实商品，进商品利润排行 / 品类分布会凭空多出一个「商品」。
+ * ⚠️ 营业额汇总（sales-record.query / 统计卡 / 报表）**不**排除该行——
+ * 券面是门店真实营收，排除会让营业额漏掉这笔收入。
+ */
+// 双条件（后缀 + 系统分类）排除券面行：商家自建商品若恰好以「（团购券）」结尾
+// 仍能正常进入排行榜，只有系统写入的券面行（分类固定为「团购券」）被排除。
+const EXCLUDE_VOUCHER_ITEM_SQL = Prisma.sql`
+        AND NOT (soi.product_name LIKE '%（团购券）' AND soi.category_name = '团购券')`;
+
+/**
  * 排行排序子句：由前端透传的排序维度决定，服务端排序后再截断，
  * 避免「按利润截断后前端再按收入/销量排序」导致的排名错误。
  * 末级统一用商品名兜底，保证同值行的顺序稳定。
@@ -169,6 +182,7 @@ async function executeRankQuery(
       AND so.date >= ${new Date(currentRange.start)}
       AND so.date <= ${new Date(currentRange.end)}
       AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+      ${EXCLUDE_VOUCHER_ITEM_SQL}
     GROUP BY soi.product_id, soi.product_name, soi.category_name
     ORDER BY ${rankOrderSql}
     LIMIT ${BUSINESS_ANALYSIS_RANK_LIMIT}
@@ -278,6 +292,7 @@ export async function fetchBusinessAnalysisMetrics(
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
         AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+        ${EXCLUDE_VOUCHER_ITEM_SQL}
       GROUP BY GROUPING SETS (
         (date_trunc('day', so.date + interval '8 hours') - interval '8 hours'),
         (soi.category_name)

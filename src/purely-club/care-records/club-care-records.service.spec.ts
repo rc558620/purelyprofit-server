@@ -28,10 +28,11 @@ const EARLIEST_PHOTO_ROW = {
   photos: ['https://cdn.example.com/earliest.jpg'],
 };
 
-const buildContext = (): ClubCurrentContext =>
+/** 默认按「SPA/养生/美容/」模式门店（已开通护理档案）构造上下文 */
+const buildContext = (memberCareEnabled = true): ClubCurrentContext =>
   ({
     user: { id: 201, phone: '13800138000' },
-    store: { id: 11 },
+    store: { id: 11, memberCareEnabled },
   }) as unknown as ClubCurrentContext;
 
 describe('ClubCareRecordsService', () => {
@@ -288,5 +289,28 @@ describe('ClubCareRecordsService', () => {
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
     });
     expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  describe('会员护理档案档位门禁', () => {
+    it('未开通门店直接 403，且不查护理记录', async () => {
+      await expect(service.list(buildContext(false))).rejects.toThrow(
+        '当前门店未开通护理档案',
+      );
+      expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
+      expect(
+        clubMemberProfileService.getSnapshotByStoreIdentity,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('档位缺失（旧缓存未带字段）按未开通处理', async () => {
+      const legacyContext = {
+        user: { id: 201, phone: '13800138000' },
+        store: { id: 11 },
+      } as unknown as ClubCurrentContext;
+
+      await expect(service.list(legacyContext)).rejects.toThrow(
+        '当前门店未开通护理档案',
+      );
+    });
   });
 });

@@ -38,6 +38,7 @@ describe('SpaceCareRecordWriterService', () => {
 
   const prismaService = {
     $transaction: jest.fn(),
+    store: { findUnique: jest.fn() },
   };
 
   beforeEach(async () => {
@@ -46,6 +47,10 @@ describe('SpaceCareRecordWriterService', () => {
     prismaService.$transaction.mockImplementation(
       (fn: (client: typeof tx) => unknown) => fn(tx),
     );
+    // 默认按「已开通会员护理档案」的门店建档
+    prismaService.store.findUnique.mockResolvedValue({
+      memberCareEnabled: true,
+    });
     tx.marketingCustomer.findFirst.mockResolvedValue({ id: 55 });
     tx.careRecord.findUnique.mockResolvedValue(null);
     tx.careRecord.create.mockResolvedValue({ id: 1 });
@@ -93,6 +98,61 @@ describe('SpaceCareRecordWriterService', () => {
         ),
       ).resolves.toEqual({ status: 'skipped', reason: 'placeholder-phone' });
       expect(tx.careRecord.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('门店档位门禁（未开通会员护理档案的门店不建档）', () => {
+    it('member_care_enabled = false 时跳过建档，不写库', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        memberCareEnabled: false,
+      });
+
+      await expect(service.writeAfterSettlement(buildInput())).resolves.toEqual(
+        {
+          status: 'skipped',
+          reason: 'module-disabled',
+        },
+      );
+      expect(tx.careRecord.create).not.toHaveBeenCalled();
+      expect(prismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('门店不存在时按未开通处理，不建档', async () => {
+      prismaService.store.findUnique.mockResolvedValue(null);
+
+      await expect(service.writeAfterSettlement(buildInput())).resolves.toEqual(
+        {
+          status: 'skipped',
+          reason: 'module-disabled',
+        },
+      );
+      expect(tx.careRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('档位读取异常时按未开通处理（最小权限，宁可漏建）', async () => {
+      prismaService.store.findUnique.mockRejectedValue(new Error('DB down'));
+
+      await expect(service.writeAfterSettlement(buildInput())).resolves.toEqual(
+        {
+          status: 'skipped',
+          reason: 'module-disabled',
+        },
+      );
+      expect(tx.careRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('已开通门店正常建档', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        memberCareEnabled: true,
+      });
+
+      await expect(service.writeAfterSettlement(buildInput())).resolves.toEqual(
+        {
+          status: 'created',
+          customerId: 55,
+          seq: 1,
+        },
+      );
     });
   });
 

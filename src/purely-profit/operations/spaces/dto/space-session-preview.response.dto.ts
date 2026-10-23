@@ -31,6 +31,14 @@ export class LivePreviewResponseDto {
   })
   selfOrderDeduction: number;
 
+  @ApiProperty({
+    example: 188.7,
+    description:
+      '开台团购券券面金额（元）：仅纯消费模式且开台用券时 > 0。' +
+      '券面同时记一条等额负向已付行，两行相消后合计恒等于本次现场消费金额',
+  })
+  voucherConsumption: number;
+
   @ApiProperty({ example: 84, description: '待付总金额（元）' })
   totalAmount: number;
 

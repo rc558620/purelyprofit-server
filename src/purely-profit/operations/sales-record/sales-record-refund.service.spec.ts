@@ -34,13 +34,19 @@ describe('SalesRecordRefundService', () => {
     service = module.get<SalesRecordRefundService>(SalesRecordRefundService);
   });
 
+  /**
+   * 部分字段的销售单替身：退款金额由明细行推导，故这里必须给出 items。
+   * 默认两行普通商品：营业额 2250 分、利润 800 分（与既有断言一致）。
+   */
   const buildSaleOrder = (
     overrides: Record<string, unknown> = {},
   ): Record<string, unknown> => ({
     id: 500,
     storeId: 11,
-    totalRevenue: 2250,
-    totalProfit: 800,
+    items: [
+      { productName: '橙汁', salePrice: 1500, profit: 600, quantity: 1 },
+      { productName: '薯条', salePrice: 750, profit: 200, quantity: 1 },
+    ],
     paymentMethod: 'wechat',
     refund: null,
     ...overrides,
@@ -128,6 +134,48 @@ describe('SalesRecordRefundService', () => {
           note: '标准销售退款冲销',
           date: refundedAt,
         },
+      });
+    });
+
+    it('含抵扣行时按净额退款，不把抵扣（券面）金额退给客人', async () => {
+      const refundedAt = new Date('2026-08-03T11:00:00.000Z');
+      // 纯消费模式开台团购券：券面既计入消费也等额冲抵，
+      // 客人现场只付了点单的 88 元，退款必须退 88 而不是营业额 276.70。
+      transactionClient.saleOrder.findUniqueOrThrow.mockResolvedValue(
+        buildSaleOrder({
+          items: [
+            {
+              productName: '分手大师（团购券）',
+              salePrice: 18870,
+              profit: 18870,
+              quantity: 1,
+            },
+            { productName: '橙汁', salePrice: 8800, profit: 4000, quantity: 1 },
+            {
+              productName: '预付款',
+              salePrice: 18870,
+              profit: 18870,
+              quantity: 1,
+            },
+          ],
+        }),
+      );
+
+      await service.refundInTransaction(
+        asTransactionClient(transactionClient),
+        { saleOrderId: 500, refundedAt },
+      );
+
+      expect(transactionClient.saleOrderRefund.create).toHaveBeenCalledWith({
+        data: {
+          saleOrderId: 500,
+          storeId: 11,
+          amount: 8800,
+          profit: 4000,
+          paymentMethod: 'wechat',
+          refundedAt,
+        },
+        select: { id: true },
       });
     });
 

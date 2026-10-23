@@ -21,6 +21,8 @@ import {
 } from '@nestjs/swagger';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { BusinessModeGuard } from '../../stores/business-mode.guard';
+import { RequireBusinessMode } from '../../stores/business-mode.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -32,7 +34,10 @@ import {
 
 @ApiTags('CommissionServices')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 技师提成属非餐饮能力：提成配置仅在空间会话结账时消费，餐饮门店建出的配置永不生效。
+// 与权限集注释「非餐饮门店店长专用」对齐，避免产生孤儿配置。
+@UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
+@RequireBusinessMode('general')
 @Controller('commission-services')
 export class CommissionServicesController {
   constructor(

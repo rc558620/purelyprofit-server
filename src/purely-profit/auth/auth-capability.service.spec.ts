@@ -58,6 +58,7 @@ describe('AuthCapabilityService', () => {
     canUseSpaceManagement: true,
     canUseMarketingProductListing: true,
     canUseSelfOrdering: true,
+    canUseMemberCare: false,
   };
 
   const cateringStoreCapabilities: StoreBusinessCapability = {
@@ -69,6 +70,7 @@ describe('AuthCapabilityService', () => {
     canUseSpaceManagement: false,
     canUseMarketingProductListing: false,
     canUseSelfOrdering: false,
+    canUseMemberCare: false,
   };
 
   const safeDefaultCapabilities: StoreBusinessCapability = {
@@ -80,6 +82,7 @@ describe('AuthCapabilityService', () => {
     canUseSpaceManagement: false,
     canUseMarketingProductListing: false,
     canUseSelfOrdering: false,
+    canUseMemberCare: false,
   };
 
   beforeEach(async () => {

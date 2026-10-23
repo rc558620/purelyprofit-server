@@ -16,6 +16,12 @@ export interface SettleSpaceSessionParams {
   note?: string;
   settlement: SpaceSessionSettlement;
   renewRecords: SpaceSessionRenewRecord[];
+  /**
+   * 开台团购券对应商品名（purelyClub 团购商品名，如「分手大师」）。
+   * 事务内重建 settlement 时需要它来还原正向券面行的展示名，
+   * 保证与结账预览展示/落库的销售单明细完全一致。
+   */
+  voucherProductName?: string | null;
   // ①②④ 修复：结账侧团购/券/平台结算字段，传入后更新 prepaid* 列
   grouponCode?: string;
   grouponPlatform?: string;

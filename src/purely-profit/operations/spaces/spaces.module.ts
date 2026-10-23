@@ -53,6 +53,7 @@ import { SpacesReadService } from './spaces-read.service';
 import { SpacesService } from './spaces.service';
 import { SpacesStatusService } from './spaces-status.service';
 import { SpacesWriteService } from './spaces-write.service';
+import { StoreBusinessCapabilityModule } from '../../stores/store-business-capability.module';
 
 @Module({
   imports: [
@@ -70,6 +71,8 @@ import { SpacesWriteService } from './spaces-write.service';
     CommissionModule,
     // 追加点单的规格校验与权威定价
     ProductsModule,
+    // 会员护理档案档位判定（BusinessModeGuard / MemberCareGuard 与能力服务）
+    StoreBusinessCapabilityModule,
   ],
   controllers: [
     SpaceTypesController,

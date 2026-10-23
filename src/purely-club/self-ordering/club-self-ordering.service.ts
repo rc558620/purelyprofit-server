@@ -25,6 +25,8 @@ export interface ResolvedSpace {
   storeId: number;
   /** 门店业态：恒为 general（餐饮门店已在上游被业态门禁拒绝），供前端同步 TabBar */
   businessMode: 'catering' | 'general';
+  /** 会员护理档案档位：供前端扫码进店后同步本地档位 */
+  memberCareEnabled: boolean;
 }
 
 @Injectable()
@@ -92,6 +94,8 @@ export class ClubSelfOrderingService {
         : qrCode.space.name,
       storeId: currentContext.store.id,
       businessMode: currentContext.store.businessMode,
+      // 护理档案档位：扫码进空间后本地 store 据此同步档位，避免沿用上一家门店
+      memberCareEnabled: currentContext.store.memberCareEnabled,
     };
   }
 

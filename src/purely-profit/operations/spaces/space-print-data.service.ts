@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { sumNetPayableCents } from '../../commerce/commerce.utils';
 
 /** 空间小票系统商品 ID（与前端 spaceManagement 常量对齐）。 */
 const SYS_RENEW_DEDUCTION_ID = 'SYS_RENEW_DEDUCTION';
@@ -7,6 +8,12 @@ const SYS_PREPAID_DEDUCTION_ID = 'SYS_PREPAID_DEDUCTION';
 const SYS_SELF_ORDER_DEDUCTION_ID = 'SYS_SELF_ORDER_DEDUCTION';
 /** 台位费行：不占商品明细，改由「商品合计」下方单列汇总行呈现。 */
 const SYS_TIME_BILLING_ID = 'SYS_TIME_BILLING';
+/**
+ * 纯消费模式开台团购券的券面消费行：券面已在 purelyClub 支付完成，
+ * 小票商品明细区不展示（itemsCost 只统计本次点单，若展示会导致
+ * 明细小计与「商品合计」对不上），券面与已付金额在汇总区单列。
+ */
+const SYS_GROUPON_VOUCHER_ID = 'SYS_GROUPON_VOUCHER';
 
 /**
  * 抵扣类系统行：结账时以正数落库到会话明细表，
@@ -16,6 +23,13 @@ const DEDUCTION_PRODUCT_IDS = new Set<string>([
   SYS_RENEW_DEDUCTION_ID,
   SYS_PREPAID_DEDUCTION_ID,
   SYS_SELF_ORDER_DEDUCTION_ID,
+]);
+
+/** 小票商品明细区需剔除的系统行（抵扣行 + 台位费行 + 券面消费行）。 */
+const NON_PRINTABLE_PRODUCT_IDS = new Set<string>([
+  ...DEDUCTION_PRODUCT_IDS,
+  SYS_TIME_BILLING_ID,
+  SYS_GROUPON_VOUCHER_ID,
 ]);
 
 /** 计费模式中文标签（与前端 BILLING_MODE_CONFIG 对齐）。 */
@@ -86,6 +100,11 @@ export interface SpacePrintOrder {
   prepaidDeduction: number;
   /** 自助下单已支付商品抵扣合计（元）。 */
   selfOrderDeduction: number;
+  /**
+   * 开台团购券券面金额（元）：纯消费模式下券面记为本次消费（计入营业额），
+   * 同时等额冲抵应付，故不进商品明细区，只在汇总区单列。非券单为 0。
+   */
+  voucherConsumption: number;
   /** 应付总额（元，消费 - 抵扣，可能为负数表示应退）。 */
   totalAmount: number;
   /** 支付方式中文标签。 */
@@ -177,11 +196,7 @@ export class SpacePrintDataService {
       timeCost: toYuan(session.timeCost ?? 0),
       timeFeeLabel,
       items: session.sessionItems
-        .filter(
-          (item) =>
-            !DEDUCTION_PRODUCT_IDS.has(item.productId) &&
-            item.productId !== SYS_TIME_BILLING_ID,
-        )
+        .filter((item) => !NON_PRINTABLE_PRODUCT_IDS.has(item.productId))
         .map((item) => {
           const specNames = parseSpecNames(item.specNames);
           return {
@@ -201,7 +216,16 @@ export class SpacePrintDataService {
       renewDeduction: toYuan(deductionOf(SYS_RENEW_DEDUCTION_ID)),
       prepaidDeduction: toYuan(deductionOf(SYS_PREPAID_DEDUCTION_ID)),
       selfOrderDeduction: toYuan(deductionOf(SYS_SELF_ORDER_DEDUCTION_ID)),
-      totalAmount: toYuan(saleOrder.totalRevenue),
+      voucherConsumption: toYuan(
+        session.sessionItems
+          .filter((item) => item.productId === SYS_GROUPON_VOUCHER_ID)
+          .reduce((sum, item) => sum + item.salePrice * item.quantity, 0),
+      ),
+      // 客人本次实付 = 消费 − 已付抵扣（净额）。
+      // ⚠️ 不能直接用 saleOrder.totalRevenue：该列是营业额口径，纯消费券单已
+      // 把券面计入（券面是门店营收但客人已在 purelyClub 付过），用它当合计会让
+      // 小票明细加总（88）与合计（276.70）对不上。
+      totalAmount: toYuan(sumNetPayableCents(session.sessionItems)),
       paymentMethodLabel:
         PAYMENT_METHOD_LABEL[saleOrder.paymentMethod] ??
         saleOrder.paymentMethod,

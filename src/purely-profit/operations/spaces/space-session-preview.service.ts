@@ -11,6 +11,7 @@ import {
   mapSessionItemRows,
 } from './space-sessions.mapper';
 import { buildSpaceSessionSettlementMoney } from './space-session-settlement.shared';
+import { resolveVoucherProductName } from './space-care-record-snapshot.shared';
 import { MONEY_PRECISION_PATTERN } from './space-session-checkout-payload.shared';
 import { Money } from '../../../shared/money.utils';
 
@@ -41,6 +42,8 @@ export interface LivePreviewResult {
   prepaidDeduction: number;
   /** 自助下单已在线支付商品的抵扣合计（元），从待付总额中冲减 */
   selfOrderDeduction: number;
+  /** 开台团购券券面金额（元），仅纯消费模式且开台用券时 > 0 */
+  voucherConsumption: number;
   totalAmount: number;
   timeFeeMode?: string;
   countdownFeeMode?: string;
@@ -79,6 +82,12 @@ export class SpaceSessionPreviewService {
     const asOf = Date.now();
     const items = mapSessionItemRows(session.sessionItems);
     const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
+    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，展示名取团购商品名
+    const voucherProductName = await resolveVoucherProductName(
+      this.prisma,
+      session.storeId,
+      session.prepaidVoucherCode,
+    );
 
     const settlement = buildSpaceSessionSettlementMoney({
       session,
@@ -86,6 +95,7 @@ export class SpaceSessionPreviewService {
       payload: {},
       items,
       renewRecords,
+      voucherProductName,
     });
 
     return {
@@ -97,6 +107,7 @@ export class SpaceSessionPreviewService {
       renewDeduction: settlement.renewDeductionMoney.toOutputYuan(),
       prepaidDeduction: settlement.prepaidDeductionMoney.toOutputYuan(),
       selfOrderDeduction: settlement.selfOrderDeductionMoney.toOutputYuan(),
+      voucherConsumption: settlement.voucherConsumptionMoney.toOutputYuan(),
       totalAmount: settlement.totalAmountMoney.toOutputYuan(),
       ...(settlement.timeFeeMode
         ? { timeFeeMode: settlement.timeFeeMode }

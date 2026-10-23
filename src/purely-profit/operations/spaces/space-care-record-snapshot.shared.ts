@@ -1,7 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import { parseAssignmentsJson } from '../commission/commission.utils';
 import {
+  GROUPON_VOUCHER_ITEM_SUFFIX,
   isSpaceSessionDeductionProductId,
+  SYS_GROUPON_VOUCHER_PRODUCT_ID,
   SYS_TIME_BILLING_PRODUCT_ID,
 } from './space-session-settlement-system-item.shared';
 
@@ -50,7 +52,21 @@ function buildServiceName(
   sessionItems: CareRecordSnapshotSource['session']['sessionItems'],
   voucherProductName?: string | null,
 ): string {
-  const voucherName = voucherProductName?.trim();
+  // 券面消费行（如「分手大师（团购券）」）不能与 voucherProductName 重复计入，
+  // 否则服务名会变成「分手大师、分手大师（团购券）」。
+  // 但券商品名查不到时（第三方手工券），券面行的兜底名是唯一可用的展示名，
+  // 此时去掉「（团购券）」后缀后仍作为服务名。
+  const voucherItem = sessionItems.find(
+    (item) => item.productId === SYS_GROUPON_VOUCHER_PRODUCT_ID,
+  );
+  const voucherName =
+    voucherProductName?.trim() ||
+    (voucherItem
+      ? voucherItem.productName
+          .replace(new RegExp(`${GROUPON_VOUCHER_ITEM_SUFFIX}$`), '')
+          .trim()
+      : '');
+
   const names = [
     ...(voucherName ? [voucherName] : []),
     ...sessionItems
@@ -58,7 +74,9 @@ function buildServiceName(
         (item) =>
           !isSpaceSessionDeductionProductId(item.productId) &&
           // 台位费是计费系统行，不是护理项目：护理档案不向会员展示「台位费 X分钟」
-          item.productId !== SYS_TIME_BILLING_PRODUCT_ID,
+          item.productId !== SYS_TIME_BILLING_PRODUCT_ID &&
+          // 券面消费行同上，其展示名已由 voucherName 承载
+          item.productId !== SYS_GROUPON_VOUCHER_PRODUCT_ID,
       )
       .map((item) => item.productName.trim()),
   ].filter(Boolean);

@@ -101,6 +101,119 @@ describe('StoreBusinessCapabilityService', () => {
     });
   });
 
+  describe('getCapabilities - 会员护理档案档位（canUseMemberCare）', () => {
+    it('非餐饮门店 + 已开通档位 → 可用', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'general',
+        memberCareEnabled: true,
+      });
+
+      const result = await service.getCapabilities(buildUser());
+
+      expect(result.isGeneralStore).toBe(true);
+      expect(result.canUseSpaceManagement).toBe(true);
+      expect(result.canUseMemberCare).toBe(true);
+    });
+
+    it('非餐饮门店 + 未开通档位 → 不可用（零售/服务/便利店/其他）', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'general',
+        memberCareEnabled: false,
+      });
+
+      const result = await service.getCapabilities(buildUser());
+
+      expect(result.isGeneralStore).toBe(true);
+      expect(result.canUseSpaceManagement).toBe(true);
+      expect(result.canUseMemberCare).toBe(false);
+    });
+
+    it('餐饮门店即使档位为 true 也不可用（护理档案面向非餐饮场景）', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'catering',
+        memberCareEnabled: true,
+      });
+
+      const result = await service.getCapabilities(buildUser());
+
+      expect(result.canUseMemberCare).toBe(false);
+    });
+
+    it('登录态 membership 已携带档位时不回源数据库', async () => {
+      const result = await service.getCapabilities(
+        buildUser({
+          currentMembership: {
+            staffId: 1,
+            storeId: 100,
+            role: 'staff',
+            permissions: ['*'],
+            isActive: true,
+            subjectType: 'owner',
+            linkedEmployeeId: null,
+            subAccountId: null,
+            subAccountRole: null,
+            subAccountStatus: null,
+            subAccountAssigned: false,
+            canAccessHome: true,
+            canUseHandover: false,
+            businessMode: 'general',
+            memberCareEnabled: true,
+          },
+        }),
+      );
+
+      expect(result.canUseMemberCare).toBe(true);
+      expect(prismaService.store.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('门店不存在 / 查询失败时档位不可用（最小权限）', async () => {
+      prismaService.store.findUnique.mockResolvedValue(null);
+      await expect(service.getCapabilities(buildUser())).resolves.toMatchObject(
+        { canUseMemberCare: false },
+      );
+
+      prismaService.store.findUnique.mockRejectedValue(new Error('DB down'));
+      await expect(service.getCapabilities(buildUser())).resolves.toMatchObject(
+        { canUseMemberCare: false },
+      );
+    });
+  });
+
+  describe('ensureMemberCareAccess', () => {
+    it('已开通门店不抛异常', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'general',
+        memberCareEnabled: true,
+      });
+
+      await expect(
+        service.ensureMemberCareAccess(buildUser()),
+      ).resolves.not.toThrow();
+    });
+
+    it('未开通门店抛 ForbiddenException', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'general',
+        memberCareEnabled: false,
+      });
+
+      await expect(service.ensureMemberCareAccess(buildUser())).rejects.toThrow(
+        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+      );
+    });
+
+    it('餐饮门店抛 ForbiddenException', async () => {
+      prismaService.store.findUnique.mockResolvedValue({
+        businessMode: 'catering',
+        memberCareEnabled: true,
+      });
+
+      await expect(service.ensureMemberCareAccess(buildUser())).rejects.toThrow(
+        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+      );
+    });
+  });
+
   describe('getCapabilities - 安全默认值', () => {
     it('门店不存在时所有受限能力均为 false', async () => {
       prismaService.store.findUnique.mockResolvedValue(null);

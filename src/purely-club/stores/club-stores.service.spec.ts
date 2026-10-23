@@ -94,6 +94,7 @@ describe('ClubStoresService', () => {
   const expectedStoreSummary = {
     address: '北京市朝阳区望京 SOHO T3 B1',
     businessMode: 'general',
+    memberCareEnabled: false,
     isOpen: true,
     coverImage: 'https://cdn.example.com/store-cover.png',
     latitude: 39.984104,
@@ -238,6 +239,7 @@ describe('ClubStoresService', () => {
         name: true,
         address: true,
         businessMode: true,
+        memberCareEnabled: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -442,6 +444,7 @@ const baseStore = {
   name: '门店',
   address: '北京市朝阳区望京 SOHO T3 B1',
   businessMode: 'general' as const,
+  memberCareEnabled: false,
   createdAt: new Date('2026-05-12T00:00:00.000Z'),
   updatedAt: new Date('2026-05-13T00:00:00.000Z'),
 };

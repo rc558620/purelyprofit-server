@@ -36,6 +36,15 @@ export class ClubStoreSummaryDto {
   @IsString({ message: '门店业态必须是字符串' })
   businessMode: 'catering' | 'general';
 
+  @ApiProperty({
+    example: false,
+    description:
+      '是否开通会员护理档案：仅注册时选择「SPA/养生/美容/」模式的门店为 true；' +
+      'C 端据此决定是否展示「护理档案」入口',
+  })
+  @IsBoolean({ message: '会员护理档案开关必须是布尔值' })
+  memberCareEnabled: boolean;
+
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/stores/store-cover.png',
     description: '门店封面图',

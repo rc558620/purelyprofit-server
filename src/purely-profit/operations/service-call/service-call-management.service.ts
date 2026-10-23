@@ -14,7 +14,14 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 
 // 临时联调：处理中超时设为 15 分钟，待响应超时设为 5 分钟，验证完成后恢复原值。
 const PROCESSING_SERVICE_CALL_TTL_MS = 900_000;
-const EXPIRY_CHECK_INTERVAL_MS = 1_000;
+/**
+ * 超时扫描间隔。
+ *
+ * 到期扫描是一次跨门店的写扫描（updateManyAndReturn），原值 1s 属于联调期遗留：
+ * 最短 TTL 为 5 分钟，1s 精度对业务毫无意义，却每秒打一次库。
+ * 取 30s：最坏延迟 30s（占最短 TTL 的 10%），与扫描成本取得平衡。
+ */
+const EXPIRY_CHECK_INTERVAL_MS = 30_000;
 
 @Injectable()
 export class ServiceCallManagementService
@@ -33,6 +40,8 @@ export class ServiceCallManagementService
     this.expiryTimer = setInterval(() => {
       void this.expireOverdueCalls();
     }, EXPIRY_CHECK_INTERVAL_MS);
+    // 与扫码点餐超时扫描保持一致：不因该定时器阻止进程退出
+    this.expiryTimer.unref();
     void this.expireOverdueCalls();
   }
 

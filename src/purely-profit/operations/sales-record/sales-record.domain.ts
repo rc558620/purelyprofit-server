@@ -249,7 +249,10 @@ function buildAmountsPreparedItems(
     quantity: item.quantity,
     // 抵扣行与台位费行不计入销售件数，否则会把金额冲减行 / 计时行
     // 当成一件商品，导致销量统计虚高（与空间结账 totalQuantity 同口径）
-    countsTowardTotalQuantity: !isNonQuantitySalesRecordRow(item.productName),
+    countsTowardTotalQuantity: !isNonQuantitySalesRecordRow(
+      item.productName,
+      item.categoryName,
+    ),
     // 金额口径独立判定：
     // - 台位费（计时/一口价）必须计入——它是真实营收，若沿用件数口径，
     //   纯台位费订单的营业额 / 利润会被算成 0；

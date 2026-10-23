@@ -7,7 +7,11 @@ import {
 import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import { calcTimeCostMoney } from './space-session-settlement-time.shared';
 import {
+  GROUPON_VOUCHER_CATEGORY_NAME,
+  GROUPON_VOUCHER_FALLBACK_PRODUCT_NAME,
+  GROUPON_VOUCHER_ITEM_SUFFIX,
   SELF_ORDER_ITEM_SOURCE_TYPE,
+  SYS_GROUPON_VOUCHER_PRODUCT_ID,
   SYS_PREPAID_DEDUCTION_PRODUCT_ID,
   SYS_RENEW_DEDUCTION_PRODUCT_ID,
   SYS_TIME_BILLING_PRODUCT_ID,
@@ -107,7 +111,93 @@ export const resolveRenewDeductionOrderItem = (
  * 与续费链路 renewDeduction 的 max(amount, voucherFaceAmount) 口径一致。
  * 场景：开台预付团购"花 80 享 100"→ 按 100 元抵扣；
  *       结账时团购券面金额同样纳入抵扣，避免"已计费但无人支付"的缺口。
+ *
+ * 该口径同时供「正向券面消费行」复用：两条行必须取**完全相同**的金额，
+ * 正负相消后合计才恒等于本次现场消费金额（不会出现"应退金额"）。
  */
+const resolvePrepaidEffectiveMoney = (
+  session: Pick<
+    SpaceSessionRecord,
+    'prepaidAmount' | 'prepaidVoucherFaceAmount'
+  >,
+): Money => {
+  const prepaidMoney =
+    session.prepaidAmount !== null
+      ? Money.fromDbCents(session.prepaidAmount)
+      : Money.zero();
+  const voucherMoney =
+    session.prepaidVoucherFaceAmount !== null
+      ? Money.fromDbCents(session.prepaidVoucherFaceAmount)
+      : Money.zero();
+  return Money.max(prepaidMoney, voucherMoney);
+};
+
+/**
+ * 纯消费（items）模式 + 开台团购券：券面金额的**正向消费行**。
+ *
+ * 为什么只在 items 模式生成：
+ *  timed / mixed / countdown 模式有台位费行，券面已通过券程口径
+ *  （min(台位费, 券程, 券面)）计入营业额，再补一条正向行会重复计收入；
+ *  纯消费模式没有台位费行，券面此前**完全不进账**（营业额/护理档案均为 0），
+ *  必须补这条正向行，券面才是门店真实营收（券面 = 顾客买券实付 = 门店结算收入）。
+ *
+ * 与负向「预付款」抵扣行成对出现、金额相等符号相反：
+ *   消费合计（营业额/护理档案）= 点单 + 券面
+ *   客人现场应付            = 点单（券已在线支付，不重复收、券余额不退）
+ *
+ * 非 items 模式 / 无券码 / 券面为 0 → 返回 null，行为与改动前完全一致。
+ */
+export const resolveGrouponVoucherConsumptionItem = (params: {
+  session: Pick<
+    SpaceSessionRecord,
+    | 'billingMode'
+    | 'prepaidVoucherCode'
+    | 'prepaidGrouponCode'
+    | 'prepaidAmount'
+    | 'prepaidVoucherFaceAmount'
+  >;
+  /** 券对应商品名（purelyClub 团购商品，如「分手大师」）；查不到时按兜底名展示 */
+  voucherProductName?: string | null;
+}): {
+  voucherConsumptionMoney: Money;
+  orderItem: SpaceSessionItemRecord | null;
+} => {
+  const { session, voucherProductName } = params;
+  if (session.billingMode !== PrismaSpaceBillingMode.items) {
+    return { voucherConsumptionMoney: Money.zero(), orderItem: null };
+  }
+
+  const voucherCode =
+    session.prepaidVoucherCode?.trim() || session.prepaidGrouponCode?.trim();
+  if (!voucherCode) {
+    return { voucherConsumptionMoney: Money.zero(), orderItem: null };
+  }
+
+  const voucherConsumptionMoney = resolvePrepaidEffectiveMoney(session);
+  if (!voucherConsumptionMoney.isPositive()) {
+    return { voucherConsumptionMoney: Money.zero(), orderItem: null };
+  }
+
+  const consumptionYuan = voucherConsumptionMoney.toOutputYuan();
+  const trimmedProductName = voucherProductName?.trim();
+
+  return {
+    voucherConsumptionMoney,
+    orderItem: {
+      productId: SYS_GROUPON_VOUCHER_PRODUCT_ID,
+      productName: trimmedProductName
+        ? `${trimmedProductName}${GROUPON_VOUCHER_ITEM_SUFFIX}`
+        : GROUPON_VOUCHER_FALLBACK_PRODUCT_NAME,
+      categoryName: GROUPON_VOUCHER_CATEGORY_NAME,
+      salePrice: consumptionYuan,
+      // 券面即门店券结算收入，无商品成本，与台位费行同口径（利润 = 金额）
+      profit: consumptionYuan,
+      quantity: 1,
+      lineTotal: consumptionYuan,
+    },
+  };
+};
+
 export const resolvePrepaidDeductionOrderItem = (
   session: Pick<
     SpaceSessionRecord,
@@ -117,15 +207,7 @@ export const resolvePrepaidDeductionOrderItem = (
   prepaidDeductionMoney: Money;
   orderItem: SpaceSessionItemRecord | null;
 } => {
-  const prepaidMoney =
-    session.prepaidAmount !== null
-      ? Money.fromDbCents(session.prepaidAmount)
-      : Money.zero();
-  const voucherMoney =
-    session.prepaidVoucherFaceAmount !== null
-      ? Money.fromDbCents(session.prepaidVoucherFaceAmount)
-      : Money.zero();
-  const effective = Money.max(prepaidMoney, voucherMoney);
+  const effective = resolvePrepaidEffectiveMoney(session);
   const prepaidDeductionMoney = effective.isPositive()
     ? effective
     : Money.zero();

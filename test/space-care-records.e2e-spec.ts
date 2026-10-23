@@ -1,4 +1,8 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  ForbiddenException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -8,6 +12,7 @@ import {
 } from '../src/purely-profit/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../src/purely-profit/access-control/guards/permissions.guard';
 import { BusinessModeGuard } from '../src/purely-profit/stores/business-mode.guard';
+import { MemberCareGuard } from '../src/purely-profit/stores/member-care.guard';
 import { CommerceAccessService } from '../src/purely-profit/commerce/commerce-access.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ClubCareRecordsController } from '../src/purely-club/care-records/club-care-records.controller';
@@ -16,6 +21,7 @@ import { ClubMemberProfileService } from '../src/purely-club/member/member-profi
 import { ClubCurrentStoreContextService } from '../src/purely-club/stores/club-current-store-context.service';
 import { SpaceCareRecordsController } from '../src/purely-profit/operations/spaces/space-care-records.controller';
 import { SpaceCareRecordsService } from '../src/purely-profit/operations/spaces/space-care-records.service';
+import { StoreBusinessCapabilityService } from '../src/purely-profit/stores/store-business-capability.service';
 
 const CUSTOMER_ROW = {
   id: 55,
@@ -79,6 +85,10 @@ describe('Space care records routes (e2e)', () => {
   const clubCurrentStoreContextService = {
     resolveCurrentContext: jest.fn(),
   };
+  /** 门店能力服务：默认按「SPA/养生/美容/」模式（已开通护理档案）放行 */
+  const storeBusinessCapabilityService = {
+    ensureMemberCareAccess: jest.fn(),
+  };
 
   const allowGuard = { canActivate: () => true };
 
@@ -90,6 +100,10 @@ describe('Space care records routes (e2e)', () => {
         ClubCareRecordsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: StoreBusinessCapabilityService,
+          useValue: storeBusinessCapabilityService,
+        },
         {
           provide: ClubMemberProfileService,
           useValue: clubMemberProfileService,
@@ -105,6 +119,8 @@ describe('Space care records routes (e2e)', () => {
       .overrideGuard(PermissionsGuard)
       .useValue(allowGuard)
       .overrideGuard(BusinessModeGuard)
+      .useValue(allowGuard)
+      .overrideGuard(MemberCareGuard)
       .useValue(allowGuard)
       .overrideGuard(ClubJwtAuthGuard)
       .useValue(allowGuard)
@@ -148,9 +164,14 @@ describe('Space care records routes (e2e)', () => {
     jest.clearAllMocks();
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    // 默认门店档位：已开通会员护理档案
+    storeBusinessCapabilityService.ensureMemberCareAccess.mockResolvedValue(
+      undefined,
+    );
     clubCurrentStoreContextService.resolveCurrentContext.mockResolvedValue({
       user: { id: 201, phone: '13800138000' },
-      store: { id: 11 },
+      // 「SPA/养生/美容/」模式门店
+      store: { id: 11, memberCareEnabled: true },
     });
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
       customerId: 55,
@@ -395,5 +416,35 @@ describe('Space care records routes (e2e)', () => {
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
     });
     expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  describe('未开通会员护理档案的门店（非 SPA/养生/美容 模式）', () => {
+    it('GET /api/club/care-records 返回 403（后端不运行该功能）', async () => {
+      clubCurrentStoreContextService.resolveCurrentContext.mockResolvedValue({
+        user: { id: 201, phone: '13800138000' },
+        store: { id: 11, memberCareEnabled: false },
+      });
+
+      await request(app.getHttpServer())
+        .get('/api/club/care-records')
+        .expect(403);
+
+      expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
+    });
+
+    it('GET /api/space-care-records/customers 返回 403（档位断言在取数之前）', async () => {
+      storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
+        new ForbiddenException(
+          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        ),
+      );
+
+      await request(app.getHttpServer())
+        .get('/api/space-care-records/customers')
+        .expect(403);
+
+      expect(commerceAccessService.resolveViewStoreId).not.toHaveBeenCalled();
+      expect(prismaService.marketingCustomer.findMany).not.toHaveBeenCalled();
+    });
   });
 });

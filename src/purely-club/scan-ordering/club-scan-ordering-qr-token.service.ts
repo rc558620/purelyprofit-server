@@ -68,7 +68,7 @@ export class ClubScanOrderingQrTokenService {
     // C 端扫码必须校验门店为餐饮业态，防止非餐饮门店通过历史脏数据或旧二维码被访问
     const store = await this.prisma.store.findUnique({
       where: { id: qrCode.storeId },
-      select: { businessMode: true },
+      select: { businessMode: true, memberCareEnabled: true },
     });
     if (!store || store.businessMode !== 'catering') {
       throw new NotFoundException('桌码无效或门店不支持扫码点餐，请重新扫码');
@@ -85,7 +85,13 @@ export class ClubScanOrderingQrTokenService {
       tableId: qrCode.tableId,
     });
     return {
-      store: { id: qrCode.storeId, businessMode: store.businessMode },
+      store: {
+        id: qrCode.storeId,
+        businessMode: store.businessMode,
+        // 护理档案档位随门店一起下发：扫码进店后本地 store 要同步该档位，
+        // 否则「我的」页会沿用上一家门店的档位错误显示入口
+        memberCareEnabled: store.memberCareEnabled,
+      },
       table: {
         id: qrCode.tableId,
         tableCode: qrCode.table.tableCode,

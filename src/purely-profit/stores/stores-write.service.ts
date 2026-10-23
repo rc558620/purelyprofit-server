@@ -8,7 +8,10 @@ import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStoreDto } from './dto/create-store.dto';
-import { deriveBusinessModeFromStoreType } from './store-business-mode';
+import {
+  deriveBusinessModeFromStoreType,
+  isMemberCareStoreType,
+} from './store-business-mode';
 import type { StoreResponseDto } from './dto/store-response.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoresProfileService } from './stores-profile.service';
@@ -45,12 +48,14 @@ export class StoresWriteService {
             address: payload.address,
             ownerId: user.id,
             businessMode: payload.businessMode,
+            memberCareEnabled: payload.memberCareEnabled,
           },
           select: {
             id: true,
             name: true,
             address: true,
             businessMode: true,
+            memberCareEnabled: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -121,6 +126,20 @@ export class StoresWriteService {
       }
     }
 
+    // 项目规则：会员护理档案档位同样在注册时确定，注册后不可切换。
+    // 档位是功能可用性的硬前提（B/C 端入口与接口都按它放行），允许同业态内改写
+    // 门店类型会造成「开关开着但门店已不是 SPA/养生/美容 模式」的越权态。
+    if (updatePayload.storeType !== undefined) {
+      const nextMemberCareEnabled = isMemberCareStoreType(
+        updatePayload.storeType,
+      );
+      if (nextMemberCareEnabled !== existingStore.memberCareEnabled) {
+        throw new BadRequestException(
+          '门店类型注册后不可更改，如需变更请联系客服',
+        );
+      }
+    }
+
     // 仅更新 DTO 中实际传入的数据库字段
     const storeUpdateData: Record<string, unknown> = {};
     if (updatePayload.storeName !== undefined) {
@@ -140,6 +159,7 @@ export class StoresWriteService {
               name: true,
               address: true,
               businessMode: true,
+              memberCareEnabled: true,
               createdAt: true,
               updatedAt: true,
             },

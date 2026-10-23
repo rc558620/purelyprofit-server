@@ -341,6 +341,7 @@ export class AuthProfileService {
       | 'businessMode'
       | 'storeCreatedAt'
       | 'storeUpdatedAt'
+      | 'memberCareEnabled'
     >,
   ): Promise<StoreResponseDto> {
     return buildStoreResponseDto(
@@ -349,6 +350,7 @@ export class AuthProfileService {
         name: currentMembership.storeName,
         address: currentMembership.address,
         businessMode: currentMembership.businessMode,
+        memberCareEnabled: currentMembership.memberCareEnabled,
         createdAt: currentMembership.storeCreatedAt,
         updatedAt: currentMembership.storeUpdatedAt,
       },

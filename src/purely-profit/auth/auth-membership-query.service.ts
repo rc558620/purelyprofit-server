@@ -89,7 +89,8 @@ export class AuthMembershipQueryService {
           sa.is_assigned AS "subAccountAssigned",
           sa.can_access_home AS "subAccountCanAccessHome",
           sa.can_use_handover AS "subAccountCanUseHandover",
-          s.business_mode AS "businessMode"
+          s.business_mode AS "businessMode",
+          s.member_care_enabled AS "memberCareEnabled"
         FROM staffs st
         INNER JOIN stores s ON s.id = st.store_id
         LEFT JOIN employees emp ON emp.linked_staff_id = st.id

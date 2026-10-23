@@ -1,8 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { StoreBusinessCapabilityService } from '../../stores/store-business-capability.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { UpdateSpaceCareRecordDto } from './dto/space-care-record.dto';
@@ -81,10 +82,18 @@ describe('SpaceCareRecordsService', () => {
     resolveSingleStoreId: jest.fn(),
   };
 
+  /** 门店能力服务：默认按「SPA/养生/美容/」模式（已开通护理档案）放行 */
+  const storeBusinessCapabilityService = {
+    ensureMemberCareAccess: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    storeBusinessCapabilityService.ensureMemberCareAccess.mockResolvedValue(
+      undefined,
+    );
     // 默认没有任何带照片的记录：效果对比首尾为 null
     prismaService.careRecord.findFirst.mockResolvedValue(null);
     // 默认顾客摘要查不到（跨店 / 已删除），详情仍可正常返回
@@ -95,6 +104,10 @@ describe('SpaceCareRecordsService', () => {
         SpaceCareRecordsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: StoreBusinessCapabilityService,
+          useValue: storeBusinessCapabilityService,
+        },
       ],
     }).compile();
 
@@ -370,6 +383,46 @@ describe('SpaceCareRecordsService', () => {
           photos: [],
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('会员护理档案档位门禁', () => {
+    it('未开通门店调用 listCustomers 直接被拒（service 层兜底）', async () => {
+      storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
+        new ForbiddenException(
+          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        ),
+      );
+
+      await expect(
+        service.listCustomers(buildUser(), { status: 'all' }),
+      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容/」模式的门店');
+      expect(commerceAccessService.resolveViewStoreId).not.toHaveBeenCalled();
+    });
+
+    it('未开通门店调用补录直接被拒', async () => {
+      storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
+        new ForbiddenException(
+          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        ),
+      );
+
+      await expect(
+        service.updateRecord(buildUser(), 35, { content: 'x', photos: [] }),
+      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容/」模式的门店');
+      expect(commerceAccessService.resolveSingleStoreId).not.toHaveBeenCalled();
+    });
+
+    it('已开通门店取数前先过档位断言', async () => {
+      storeBusinessCapabilityService.ensureMemberCareAccess.mockResolvedValue(
+        undefined,
+      );
+
+      await service.listCustomers(buildUser(), { status: 'all' });
+
+      expect(
+        storeBusinessCapabilityService.ensureMemberCareAccess,
+      ).toHaveBeenCalledTimes(1);
     });
   });
 });

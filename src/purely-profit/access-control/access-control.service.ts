@@ -29,6 +29,8 @@ export interface AuthenticatedMembership {
   canAccessHome: boolean;
   canUseHandover: boolean;
   businessMode?: 'catering' | 'general';
+  /** 会员护理档案档位（注册时确定）；undefined 表示未解析，能力层回源数据库 */
+  memberCareEnabled?: boolean;
 }
 
 type MembershipStaffContext = Pick<
@@ -293,6 +295,7 @@ export class AccessControlService {
     staff: MembershipStaffContext,
     subAccount: MembershipSubAccountContext = null,
     businessMode?: 'catering' | 'general',
+    memberCareEnabled?: boolean,
   ): AuthenticatedMembership {
     // 主账号（owner 员工行）优先：若店主本人也建有员工档案并绑定了子账号席位，
     // membership 行会 JOIN 出 sa.*，但身份必须保持 owner，
@@ -326,6 +329,7 @@ export class AccessControlService {
           : true,
       canUseHandover: subAccount?.canUseHandover ?? false,
       businessMode,
+      memberCareEnabled,
     };
 
     return {

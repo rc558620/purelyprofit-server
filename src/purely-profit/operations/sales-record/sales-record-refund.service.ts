@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { FinanceCashFlowPayment, Prisma } from '@prisma/client';
+import {
+  sumNetPayableCents,
+  sumNetProfitCents,
+} from '../../commerce/commerce.utils';
 
 export interface RefundSalesRecordInput {
   saleOrderId: number;
@@ -17,20 +21,33 @@ export class SalesRecordRefundService {
       select: {
         id: true,
         storeId: true,
-        totalRevenue: true,
-        totalProfit: true,
         paymentMethod: true,
         refund: { select: { id: true } },
+        items: {
+          select: {
+            productName: true,
+            salePrice: true,
+            profit: true,
+            quantity: true,
+          },
+        },
       },
     });
     if (saleOrder.refund) return;
+
+    // 退款金额必须是「客人实付净额」而不是营业额：
+    // sale_orders.total_revenue 是营业额口径（纯消费券单已把券面计入），
+    // 直接拿它退款会把 purelyClub 已付的券款从门店现金里退出去（多退一笔）。
+    // 无抵扣行的订单（扫码点餐 / 手工录单）净额与营业额同值，行为不变。
+    const refundAmount = sumNetPayableCents(saleOrder.items);
+    const refundProfit = sumNetProfitCents(saleOrder.items);
 
     const refund = await transaction.saleOrderRefund.create({
       data: {
         saleOrderId: saleOrder.id,
         storeId: saleOrder.storeId,
-        amount: saleOrder.totalRevenue,
-        profit: saleOrder.totalProfit,
+        amount: refundAmount,
+        profit: refundProfit,
         paymentMethod: saleOrder.paymentMethod,
         refundedAt: input.refundedAt,
       },
@@ -43,7 +60,7 @@ export class SalesRecordRefundService {
         direction: 'expense',
         category: 'refund',
         title: `销售单 ${saleOrder.id} 退款`,
-        amount: saleOrder.totalRevenue,
+        amount: refundAmount,
         payment: this.toCashFlowPayment(saleOrder.paymentMethod),
         note: '标准销售退款冲销',
         date: input.refundedAt,

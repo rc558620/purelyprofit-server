@@ -108,8 +108,10 @@ export class SpaceSessionSaleOrderService {
       preserveCallerPrices: true,
       transactionClient: params.transaction,
       // 抵扣项在 items 中以正数存储（代表已收到的预付款/续费），
-      // 但 SaleOrder.totalRevenue 必须反映实际结算金额（消费 - 抵扣，可能为负数），
-      // 因此使用结算层计算的权威值覆盖聚合结果。
+      // 直接聚合会把抵扣金额当成收入重复计入，因此必须用结算层的权威值覆盖。
+      // 结算层传入的是「营业额口径（消费毛额）」：普通会话 = 消费 - 抵扣；
+      // 纯消费模式开台团购券时 = 消费 - 抵扣 + 券面（券面是门店真实营收，
+      // 不能被负向抵扣行抹掉，否则营业额 / 看板 / 护理档案会显示为 0）。
       totalRevenueOverride: params.totalRevenue,
       totalProfitOverride: params.totalProfit,
     });

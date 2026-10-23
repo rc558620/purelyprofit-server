@@ -28,9 +28,42 @@ export const GENERAL_STORE_TYPES: readonly string[] = [
   '零售',
   '服务',
   '便利店',
-  '养生',
+  'SPA/养生/美容/',
   '其他',
 ];
+
+/**
+ * 启用「会员护理档案」的门店类型白名单。
+ *
+ * 「SPA/养生/美容/」是**一种**门店模式（不是三种），注册时选定后注册后不可变更。
+ * 与前端 `STORE_TYPE_OPTIONS` 的 `MEMBER_CARE_STORE_TYPE` 必须保持一致。
+ */
+export const MEMBER_CARE_STORE_TYPES: readonly string[] = ['SPA/养生/美容/'];
+
+/** 归一化门店类型：去首尾空白 + 去结尾斜杠，避免文案微调导致功能开关静默失效。 */
+const normalizeStoreTypeKey = (value: string): string =>
+  value.trim().replace(/\/+$/, '');
+
+/**
+ * 判断门店类型是否为「SPA/养生/美容/」：会员护理档案的启用条件。
+ *
+ * 与 businessMode 无关——该模式属于非餐饮业态下的细分类型，
+ * 因此不能用 `isGeneralStore` 代替本判断。
+ */
+export function isMemberCareStoreType(storeType: unknown): boolean {
+  if (typeof storeType !== 'string') {
+    return false;
+  }
+
+  const normalizedStoreType = normalizeStoreTypeKey(storeType);
+  if (normalizedStoreType === '') {
+    return false;
+  }
+
+  return MEMBER_CARE_STORE_TYPES.some(
+    (candidate) => normalizeStoreTypeKey(candidate) === normalizedStoreType,
+  );
+}
 
 /** 无法判定业态时的兜底值（最小权限原则：非餐饮不开放扫码点餐等餐饮专属能力）。 */
 const FALLBACK_BUSINESS_MODE: StoreBusinessModeValue = 'general';

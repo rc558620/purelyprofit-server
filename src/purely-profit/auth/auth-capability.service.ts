@@ -128,6 +128,9 @@ export class AuthCapabilityService {
       canUseMarketingProductListing:
         snapshot.canViewMarketing &&
         businessCapabilities.canUseMarketingProductListing,
+      // 会员护理档案：门店档位（注册时选定）独力决定，不与账号权限叠加——
+      // 能进入空间管理的账号即可使用，未开通门店一律 false
+      canUseMemberCare: businessCapabilities.canUseMemberCare,
     };
   }
 }

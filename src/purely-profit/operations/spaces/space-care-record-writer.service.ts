@@ -15,7 +15,9 @@ export type CareRecordSkipReason =
   | 'no-phone'
   | 'placeholder-phone'
   | 'customer-not-found'
-  | 'already-exists';
+  | 'already-exists'
+  /** 门店未开通：注册时未选择「SPA/养生/美容/」模式，本功能整体不运行 */
+  | 'module-disabled';
 
 /**
  * 建档结果。
@@ -81,6 +83,12 @@ export class SpaceCareRecordWriterService {
       return { status: 'failed', reason: 'invalid-session-id' };
     }
 
+    // 功能档位门禁：仅注册时选择「SPA/养生/美容/」模式的门店建档。
+    // 其余门店后端整体不运行会员护理档案——不写库、不产生任何档案记录。
+    if (!(await this.isMemberCareEnabled(input.storeId))) {
+      return { status: 'skipped', reason: 'module-disabled' };
+    }
+
     const phone = resolveCustomerPhone(input.guestPhone);
     if (!phone) {
       const reason: CareRecordSkipReason = input.guestPhone?.trim()
@@ -98,6 +106,26 @@ export class SpaceCareRecordWriterService {
     } catch (error) {
       this.logWriteFailure(input, phone, error);
       return { status: 'failed', reason: describeWriteError(error) };
+    }
+  }
+
+  /**
+   * 读取门店会员护理档案档位。
+   * 查询失败按「未开通」处理（最小权限原则）：宁可漏建一条档案，
+   * 也不能给未开通门店凭空生成护理记录。
+   */
+  private async isMemberCareEnabled(storeId: number): Promise<boolean> {
+    try {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { memberCareEnabled: true },
+      });
+      return store?.memberCareEnabled === true;
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[CARE_RECORD_STORE_FLAG_FALLBACK] storeId=${storeId} 读取会员护理档案档位失败，按未开通处理: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
     }
   }
 

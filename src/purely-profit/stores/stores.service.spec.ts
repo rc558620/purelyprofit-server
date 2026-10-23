@@ -119,6 +119,7 @@ describe('StoresService', () => {
         name: true,
         address: true,
         businessMode: true,
+        memberCareEnabled: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -259,6 +260,8 @@ describe('StoresService', () => {
         name: '纯利优选示范店',
         address: '北京市朝阳区望京街道 1 号',
         businessMode: 'general',
+        // 门店类型为「零售」，非「SPA/养生/美容/」模式 → 不开通会员护理档案
+        memberCareEnabled: false,
         ownerId: user.id,
       },
       select: {
@@ -266,6 +269,7 @@ describe('StoresService', () => {
         name: true,
         address: true,
         businessMode: true,
+        memberCareEnabled: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -342,6 +346,7 @@ describe('StoresService', () => {
       name: '纯利优选示范店',
       address: '北京市朝阳区望京街道 1 号',
       businessMode: 'general',
+      memberCareEnabled: false,
       createdAt,
       updatedAt,
     });
@@ -350,6 +355,7 @@ describe('StoresService', () => {
       name: '纯利优选示范店',
       address: '北京市朝阳区望京街道 1 号',
       businessMode: 'general',
+      memberCareEnabled: false,
       createdAt,
       updatedAt,
     });
@@ -359,6 +365,82 @@ describe('StoresService', () => {
 
     expect(prismaService.store.update).toHaveBeenCalled();
     expect(result.storeType).toBe('服务');
+    expect(result.memberCareEnabled).toBe(false);
+  });
+
+  it('注册后不可切换护理档案档位：零售门店改为「SPA/养生/美容/」时拒绝', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      memberCareEnabled: false,
+      createdAt,
+      updatedAt,
+    });
+
+    await expect(
+      service.updateCurrent(user, { storeType: 'SPA/养生/美容/' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaService.store.update).not.toHaveBeenCalled();
+  });
+
+  it('注册后不可切换护理档案档位：SPA 门店改为其它非餐饮类型时同样拒绝', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 10,
+      name: 'SPA 会所',
+      address: '北京市朝阳区望京街道 2 号',
+      businessMode: 'general',
+      memberCareEnabled: true,
+      createdAt,
+      updatedAt,
+    });
+
+    await expect(
+      service.updateCurrent(user, { storeType: '服务' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prismaService.store.update).not.toHaveBeenCalled();
+  });
+
+  it('护理档案档位内改写同值门店类型不受影响（如写法差异）', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 10,
+      name: 'SPA 会所',
+      address: '北京市朝阳区望京街道 2 号',
+      businessMode: 'general',
+      memberCareEnabled: true,
+      createdAt,
+      updatedAt,
+    });
+    prismaService.store.update.mockResolvedValue({
+      id: 10,
+      name: 'SPA 会所',
+      address: '北京市朝阳区望京街道 2 号',
+      businessMode: 'general',
+      memberCareEnabled: true,
+      createdAt,
+      updatedAt,
+    });
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.updateCurrent(user, {
+      storeType: 'SPA/养生/美容',
+    });
+
+    expect(prismaService.store.update).toHaveBeenCalled();
+    expect(result.storeType).toBe('SPA/养生/美容');
+    expect(result.memberCareEnabled).toBe(true);
   });
 
   it('读取历史门店扩展字段时会清洗 blob 临时 Logo', async () => {

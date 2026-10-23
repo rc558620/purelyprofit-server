@@ -122,7 +122,10 @@ export function aggregateReportRows(
       const existing = rows.get(rowId);
       if (existing) {
         // 抵扣行 / 台位费行不是真实销量，累加数量会虚高
-        existing.quantity += isNonQuantitySalesRecordRow(item.productName)
+        existing.quantity += isNonQuantitySalesRecordRow(
+          item.productName,
+          item.categoryName,
+        )
           ? 0
           : item.quantity;
         existing.revenue = Money.fromInputYuan(existing.revenue)
@@ -135,7 +138,10 @@ export function aggregateReportRows(
         dateLabel,
         productName,
         // 抵扣行 / 台位费行不是真实销量，需要展示但件数计 0
-        quantity: isNonQuantitySalesRecordRow(item.productName)
+        quantity: isNonQuantitySalesRecordRow(
+          item.productName,
+          item.categoryName,
+        )
           ? 0
           : item.quantity,
         revenue,

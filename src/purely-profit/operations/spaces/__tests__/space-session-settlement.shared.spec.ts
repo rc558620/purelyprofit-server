@@ -260,6 +260,117 @@ describe('buildSpaceSessionSettlement — 预付款', () => {
   });
 });
 
+// ---------- 纯消费 + 开台团购券（券面双行） ----------
+
+describe('buildSpaceSessionSettlement — 纯消费模式开台团购券', () => {
+  const GROUPON_ITEMS: SpaceSessionItemRecord[] = [
+    {
+      productId: 'P1',
+      productName: '橙汁',
+      categoryName: '饮品',
+      salePrice: 88,
+      profit: 40,
+      quantity: 1,
+      lineTotal: 88,
+    },
+  ];
+
+  const buildItemsSession = (
+    overrides: Partial<SpaceSessionSettlementRecord> = {},
+  ) =>
+    makeSession({
+      billingMode: 'items' as const,
+      hourlyRate: null,
+      prepaidVoucherCode: 'VC001',
+      prepaidVoucherFaceAmount: 18870, // 188.70 元 → DB 存 18870 分
+      ...overrides,
+    });
+
+  it('券面生成正向消费行，与负向已付行等额相消 → 合计等于本次点单金额', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession(),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+      voucherProductName: '分手大师',
+    });
+
+    expect(result.voucherConsumption).toBe(188.7);
+    expect(result.prepaidDeduction).toBe(188.7);
+    // 88（点单）+ 188.7（券面消费）- 188.7（券已付）= 88，不再出现「应退金额」
+    expect(result.totalAmount).toBe(88);
+    expect(result.itemsCost).toBe(88);
+
+    const voucherRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+    );
+    expect(voucherRow).toBeDefined();
+    expect(voucherRow?.productName).toBe('分手大师（团购券）');
+    expect(voucherRow?.salePrice).toBe(188.7);
+    expect(voucherRow?.lineTotal).toBe(188.7);
+    // 券面行不是真实商品销量
+    expect(result.totalQuantity).toBe(1);
+    // 营业额口径（列表口径）= 净额 + 券面：券面不能被负向抵扣行抹掉，
+    // 否则看板 / 统计卡 / 护理档案会显示为 0
+    expect(result.totalRevenue).toBe(88);
+    expect(result.grossRevenue).toBeCloseTo(276.7, 2);
+    expect(result.grossProfit).toBeCloseTo(40 + 188.7, 2);
+  });
+
+  it('券面大于本次消费：客人现场付 0，不退钱也不重复收', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession({ prepaidVoucherFaceAmount: 18870 }),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: NO_ITEMS,
+      renewRecords: NO_RENEW,
+    });
+
+    expect(result.voucherConsumption).toBe(188.7);
+    expect(result.totalAmount).toBe(0);
+  });
+
+  it('无券码时不生成券面消费行（行为与改动前一致）', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession({ prepaidVoucherCode: null }),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+    });
+
+    expect(result.voucherConsumption).toBe(0);
+    expect(
+      result.orderItems.some(
+        (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+      ),
+    ).toBe(false);
+  });
+
+  it('非纯消费模式不生成券面消费行（台位费已按券程口径计入，避免重复计收入）', () => {
+    const result = buildSpaceSessionSettlement({
+      session: makeSession({
+        billingMode: 'timed' as const,
+        prepaidVoucherCode: 'VC001',
+        prepaidVoucherFaceAmount: 18870,
+      }),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: NO_ITEMS,
+      renewRecords: NO_RENEW,
+    });
+
+    expect(result.voucherConsumption).toBe(0);
+    expect(
+      result.orderItems.some(
+        (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+      ),
+    ).toBe(false);
+    expect(result.totalAmount).toBeCloseTo(68 - 188.7, 2);
+  });
+});
+
 // ---------- 混合消费 ----------
 
 describe('buildSpaceSessionSettlement — 混合消费', () => {

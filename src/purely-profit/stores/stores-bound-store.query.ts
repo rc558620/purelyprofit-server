@@ -9,6 +9,8 @@ const BOUND_STORE_SELECT = {
   name: true,
   address: true,
   businessMode: true,
+  // 会员护理档案档位：门店更新时据此拒绝跨档位修改门店类型
+  memberCareEnabled: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -43,7 +45,11 @@ export async function findBoundStoreRecord(
             some: {
               isActive: true,
               status: StaffStatus.active,
-              OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
+              OR: [
+                { userId: user.id },
+                { email: user.email },
+                { phone: user.phone },
+              ],
             },
           },
         },

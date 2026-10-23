@@ -258,10 +258,30 @@ export interface SpaceSessionSettlement {
   prepaidDeduction: number;
   /** 自助下单已在线支付商品的抵扣合计（元）；结算时从应付中冲减 */
   selfOrderDeduction: number;
+  /**
+   * 开台团购券的券面金额（元），仅纯消费（items）模式且开台用了券时 > 0。
+   *
+   * 券面既记一条正向消费行（计入营业额/护理档案），也记一条等额负向已付行
+   * （冲抵应付），两者相消 → totalAmount 恒等于本次现场消费金额。
+   * 本字段供账单展示「券面消费」行与护理档案核对使用，非 items 模式恒为 0。
+   */
+  voucherConsumption: number;
   totalAmount: number;
   orderItems: SpaceSessionItemRecord[];
+  /** 结算净额（元）：消费 - 抵扣，即客人本次现场应付，可能为负 */
   totalRevenue: number;
+  /** 结算净利（元） */
   totalProfit: number;
+  /**
+   * 营业额口径（元）= 列表口径 = totalRevenue + voucherConsumption。
+   *
+   * 券面是门店真实营收（券面 = 顾客买券实付 = 门店券结算收入），若按净额落库，
+   * 券面会被负向抵扣行抹掉 → 看板 / 统计卡 / 护理档案显示为 0。
+   * 非券单与 totalRevenue 同值。
+   */
+  grossRevenue: number;
+  /** 利润口径（元）= totalProfit + voucherConsumption，同上 */
+  grossProfit: number;
   totalQuantity: number;
 }
 

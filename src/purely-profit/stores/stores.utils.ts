@@ -4,7 +4,10 @@ import {
   type StoreRegionValue,
 } from './dto/store-response.dto';
 import type { UpdateStoreDto } from './dto/update-store.dto';
-import { resolveBusinessMode } from './store-business-mode';
+import {
+  isMemberCareStoreType,
+  resolveBusinessMode,
+} from './store-business-mode';
 import type { RawCreateStorePayload, StoreCreatePayload } from './stores.types';
 
 function normalizeStoreLogo(value: unknown): string | undefined {
@@ -55,6 +58,7 @@ export function extractStoreCreatePayload(value: unknown): StoreCreatePayload {
       candidate.storeType,
       candidate.businessMode,
     ),
+    memberCareEnabled: isMemberCareStoreType(candidate.storeType),
     region: Array.isArray(candidate.region)
       ? candidate.region.filter(
           (item): item is StoreRegionValue =>

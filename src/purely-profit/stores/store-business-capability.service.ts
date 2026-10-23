@@ -25,6 +25,13 @@ export interface StoreBusinessCapability {
   canUseMarketingProductListing: boolean;
   /** 是否可使用自助下单（仅非餐饮） */
   canUseSelfOrdering: boolean;
+  /**
+   * 是否可使用会员护理档案。
+   *
+   * 与业态无关的另一档位：仅注册时选择「SPA/养生/美容/」模式的门店为 true。
+   * 该模式属于非餐饮业态下的细分类型，因此 `canUseSpaceManagement` 为真不代表本项为真。
+   */
+  canUseMemberCare: boolean;
 }
 
 /**
@@ -66,11 +73,27 @@ export class StoreBusinessCapabilityService {
     // BusinessModeGuard 在每个 @RequireBusinessMode 请求上都会执行一次，
     // 全部回源数据库等于每次请求多付一次 DB 往返。
     // 仅当 membership 未携带业态（异常路径）时才回源，数据库仍是最终事实源。
-    const businessMode =
-      user.currentMembership?.businessMode ??
-      (await this.resolveStoreBusinessMode(storeId));
+    // 会员护理档案档位同理：注册时确定、注册后不可切换，故可与业态一起走快照。
+    const snapshotBusinessMode = user.currentMembership?.businessMode ?? null;
+    const snapshotMemberCareEnabled =
+      user.currentMembership?.memberCareEnabled ?? null;
 
-    return this.buildCapabilities(businessMode);
+    // 两个档位都命中快照时零查询（常态路径）。
+    if (snapshotBusinessMode !== null && snapshotMemberCareEnabled !== null) {
+      return this.buildCapabilities(
+        snapshotBusinessMode,
+        snapshotMemberCareEnabled,
+      );
+    }
+
+    // 至少一个档位缺失：业态与护理档案档位来自同一行、同一条查询，
+    // 必须合并取回——分字段各自回源会跑两次完全相同的 SQL。
+    const flags = await this.resolveStoreBusinessFlags(storeId);
+
+    return this.buildCapabilities(
+      snapshotBusinessMode ?? flags.businessMode,
+      snapshotMemberCareEnabled ?? flags.memberCareEnabled,
+    );
   }
 
   /**
@@ -79,8 +102,8 @@ export class StoreBusinessCapabilityService {
   async getCapabilitiesByStoreId(
     storeId: number,
   ): Promise<StoreBusinessCapability> {
-    const businessMode = await this.resolveStoreBusinessMode(storeId);
-    return this.buildCapabilities(businessMode);
+    const flags = await this.resolveStoreBusinessFlags(storeId);
+    return this.buildCapabilities(flags.businessMode, flags.memberCareEnabled);
   }
 
   /**
@@ -124,6 +147,21 @@ export class StoreBusinessCapabilityService {
   }
 
   /**
+   * 断言当前门店可使用会员护理档案，否则抛出 403。
+   *
+   * 会员护理档案仅对注册时选择「SPA/养生/美容/」模式的门店开放；
+   * 其余门店后端整体不运行该功能（入口隐藏 + 接口拒绝 + 结账不建档）。
+   */
+  async ensureMemberCareAccess(user: AuthenticatedUser): Promise<void> {
+    const capabilities = await this.getCapabilities(user);
+    if (!capabilities.canUseMemberCare) {
+      throw new ForbiddenException(
+        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+      );
+    }
+  }
+
+  /**
    * 断言当前门店可使用营销商品上架，否则抛出 403。
    */
   async ensureMarketingProductListingAccess(
@@ -136,39 +174,43 @@ export class StoreBusinessCapabilityService {
   }
 
   /**
-   * 从数据库读取门店 businessMode（回源路径）。
-   * getCapabilities 优先使用登录态 membership 携带的业态，仅缺失时走这里，
-   * 数据库仍是最终事实源。
+   * 从数据库读取门店业态 + 会员护理档案档位（回源路径，一次查询取全）。
+   * 数据库是最终事实源；查询失败或门店不存在时返回 null 走安全默认值。
    */
-  private async resolveStoreBusinessMode(
-    storeId: number,
-  ): Promise<StoreBusinessMode | null> {
+  private async resolveStoreBusinessFlags(storeId: number): Promise<{
+    businessMode: StoreBusinessMode | null;
+    memberCareEnabled: boolean | null;
+  }> {
     try {
       const store = await this.prisma.store.findUnique({
         where: { id: storeId },
-        select: { businessMode: true },
+        select: { businessMode: true, memberCareEnabled: true },
       });
 
       if (!store) {
         this.logger.warn(`门店 ${storeId} 不存在，业态能力回退到安全默认值`);
-        return null;
+        return { businessMode: null, memberCareEnabled: null };
       }
 
-      return store.businessMode;
+      return {
+        businessMode: store.businessMode,
+        memberCareEnabled: store.memberCareEnabled,
+      };
     } catch (error: unknown) {
       this.logger.error(
         `读取门店 ${storeId} 业态失败，回退到安全默认值: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return null;
+      return { businessMode: null, memberCareEnabled: null };
     }
   }
 
   /**
-   * 根据业态构建能力快照。
+   * 根据业态与门店档位构建能力快照。
    * 未知状态（null）时所有受限制功能全部为 false（最小权限原则）。
    */
   private buildCapabilities(
     businessMode: StoreBusinessMode | null,
+    memberCareEnabled: boolean | null,
   ): StoreBusinessCapability {
     // 数据库查询失败或门店不存在时，所有受业态限制的能力全部返回 false
     const isBusinessModeKnown = businessMode !== null;
@@ -185,6 +227,8 @@ export class StoreBusinessCapabilityService {
       canUseMarketingProductListing: isGeneral,
       // 自助下单面向非餐饮业态（空间场景）
       canUseSelfOrdering: isGeneral,
+      // 会员护理档案：仅注册时选择「SPA/养生/美容/」模式的门店可用
+      canUseMemberCare: isGeneral && memberCareEnabled === true,
     };
   }
 
@@ -201,6 +245,7 @@ export class StoreBusinessCapabilityService {
       canUseSpaceManagement: false,
       canUseMarketingProductListing: false,
       canUseSelfOrdering: false,
+      canUseMemberCare: false,
     };
   }
 }
