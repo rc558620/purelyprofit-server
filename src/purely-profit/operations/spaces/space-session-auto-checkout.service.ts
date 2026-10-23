@@ -24,7 +24,7 @@ import {
 } from './space-session-settlement.shared';
 import { resolveSettlementChannelFromPlatformForRenew } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
-import { resolveVoucherProductName } from './space-care-record-snapshot.shared';
+import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
 import {
   buildAutoCheckoutLogContext,
   createAutoCheckoutSystemUser,
@@ -205,12 +205,14 @@ export class SpaceSessionAutoCheckoutService {
           continue;
         }
 
-        // 纯消费模式开台用券时，券面会额外生成一条正向消费行，展示名取团购商品名
-        const voucherProductName = await resolveVoucherProductName(
+        // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
+        // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
+        const voucherFacts = await resolveGrouponVoucherFacts(
           this.prisma,
           session.storeId,
           session.prepaidVoucherCode,
         );
+        const voucherProductName = voucherFacts?.productName ?? null;
         const settlement = buildSpaceSessionSettlement({
           session,
           checkoutAt,
@@ -218,6 +220,7 @@ export class SpaceSessionAutoCheckoutService {
           items: mapSessionItemRows(session.sessionItems),
           renewRecords,
           voucherProductName,
+          voucherCost: voucherFacts ?? undefined,
         });
 
         // BUG-4 fix（规则7）：无预付会话不再被永久跳过，到达自动结账时间后必须能结账。
@@ -255,6 +258,7 @@ export class SpaceSessionAutoCheckoutService {
             settlement,
             renewRecords,
             voucherProductName,
+            voucherCost: voucherFacts ?? undefined,
             ...(resolvedCustomerPaymentMethod
               ? { customerPaymentMethod: resolvedCustomerPaymentMethod }
               : {}),

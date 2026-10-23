@@ -114,6 +114,19 @@ export interface SpaceSessionRenewRecord {
   renewedAt: number;
 }
 
+/**
+ * 团购券商品成本快照（下单时固化到 club_voucher_orders，单位：分）。
+ *
+ * 结账预览、结算与券面行利润口径共用：有快照时券面行利润 = 券面 - 成本；
+ * 无快照（历史券单）保持「利润 = 券面」原口径，避免历史报表回溯跳动。
+ */
+export interface GrouponVoucherCostSnapshot {
+  /** 券商品单价（分）；空 = 历史数据，按 1 件计 */
+  unitPriceFen: number | null;
+  /** 券商品单件成本价（分）；空 = 未设置成本价 */
+  unitCostFen: number | null;
+}
+
 export interface SpaceSessionRecord {
   id: number;
   storeId: number;

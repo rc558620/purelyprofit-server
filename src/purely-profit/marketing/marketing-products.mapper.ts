@@ -43,6 +43,7 @@ export function toProductRow(
     name: row.name,
     price: row.price,
     originalPrice: row.originalPrice,
+    costPrice: row.costPrice,
     image: row.image,
     descriptionTitle: row.descriptionTitle,
     description: row.description,
@@ -80,6 +81,10 @@ export function buildProductCreateData(input: {
       dto.originalPrice != null
         ? Money.fromInputYuan(dto.originalPrice).toDbCents()
         : null,
+    costPrice:
+      dto.costPrice != null
+        ? Money.fromInputYuan(dto.costPrice).toDbCents()
+        : null,
     image: toNullableMediaText(dto.image) ?? null,
     descriptionTitle: toNullableText(dto.descriptionTitle) ?? null,
     description: toNullableText(dto.description) ?? null,
@@ -113,6 +118,11 @@ export function buildProductUpdateData(input: {
     data.originalPrice =
       dto.originalPrice != null
         ? Money.fromInputYuan(dto.originalPrice).toDbCents()
+        : null;
+  if (dto.costPrice !== undefined)
+    data.costPrice =
+      dto.costPrice != null
+        ? Money.fromInputYuan(dto.costPrice).toDbCents()
         : null;
   if (dto.image !== undefined) data.image = toNullableMediaText(dto.image);
   if (dto.descriptionTitle !== undefined)

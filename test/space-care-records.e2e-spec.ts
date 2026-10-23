@@ -85,7 +85,7 @@ describe('Space care records routes (e2e)', () => {
   const clubCurrentStoreContextService = {
     resolveCurrentContext: jest.fn(),
   };
-  /** 门店能力服务：默认按「SPA/养生/美容/」模式（已开通护理档案）放行 */
+  /** 门店能力服务：默认按「SPA/养生/美容」模式（已开通护理档案）放行 */
   const storeBusinessCapabilityService = {
     ensureMemberCareAccess: jest.fn(),
   };
@@ -170,7 +170,7 @@ describe('Space care records routes (e2e)', () => {
     );
     clubCurrentStoreContextService.resolveCurrentContext.mockResolvedValue({
       user: { id: 201, phone: '13800138000' },
-      // 「SPA/养生/美容/」模式门店
+      // 「SPA/养生/美容」模式门店
       store: { id: 11, memberCareEnabled: true },
     });
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
@@ -435,7 +435,7 @@ describe('Space care records routes (e2e)', () => {
     it('GET /api/space-care-records/customers 返回 403（档位断言在取数之前）', async () => {
       storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
         new ForbiddenException(
-          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+          '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
         ),
       );
 

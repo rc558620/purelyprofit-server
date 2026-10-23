@@ -16,7 +16,7 @@
     "prisma:migrate:status": "prisma migrate status",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:baseline:local": "node -e \"const fs=require('fs');const path=require('path');const{spawnSync}=require('child_process');const bin=process.platform==='win32'?'pnpm.cmd':'pnpm';const dirs=fs.readdirSync('prisma/migrations').filter(name=>fs.statSync(path.join('prisma/migrations',name)).isDirectory()).sort();for(const name of dirs){const result=spawnSync(bin,['prisma','migrate','resolve','--applied',name],{encoding:'utf8'});const output=(result.stdout||'')+(result.stderr||'');if(result.status===0||output.includes('P3008')){console.log(name);continue;}process.stderr.write(output);process.exit(result.status??1);}\"",
-    "prisma:shadow:reset": "SHADOW_DB=$(node --env-file=.env -e \"const raw=process.env.SHADOW_DATABASE_URL||process.env.DATABASE_URL; if(!raw){throw new Error('Missing SHADOW_DATABASE_URL or DATABASE_URL');} const url=new URL(raw); const dbName=decodeURIComponent((url.pathname||'').replace(/^\\//,'')); if(!dbName){throw new Error('Missing shadow database name');} console.log(dbName);\") && psql postgres -v ON_ERROR_STOP=1 -c \"DROP DATABASE IF EXISTS \\\"$SHADOW_DB\\\" WITH (FORCE)\" -c \"CREATE DATABASE \\\"$SHADOW_DB\\\"\" && echo \"$SHADOW_DB\"",
+    "prisma:shadow:reset": ". ./scripts/pg-env.sh && SHADOW_DB=$(node --env-file=.env -e \"const raw=process.env.SHADOW_DATABASE_URL||process.env.DATABASE_URL; if(!raw){throw new Error('Missing SHADOW_DATABASE_URL or DATABASE_URL');} const url=new URL(raw); const dbName=decodeURIComponent((url.pathname||'').replace(/^\\//,'')); if(!dbName){throw new Error('Missing shadow database name');} console.log(dbName);\") && psql postgres -v ON_ERROR_STOP=1 -c \"DROP DATABASE IF EXISTS \\\"$SHADOW_DB\\\" WITH (FORCE)\" -c \"CREATE DATABASE \\\"$SHADOW_DB\\\"\" && echo \"$SHADOW_DB\"",
     "prisma:migrate:diff": "pnpm run prisma:shadow:reset && prisma migrate diff --from-config-datasource --to-migrations prisma/migrations",
     "prisma:migrate:diff:sql": "pnpm run prisma:shadow:reset && prisma migrate diff --from-config-datasource --to-migrations prisma/migrations --script",
     "prisma:migrate:drift": "pnpm run prisma:shadow:reset && prisma migrate diff --from-config-datasource --to-migrations prisma/migrations --exit-code",
@@ -47,7 +47,9 @@
     "sub-account:revoke-orphaned": "node scripts/revoke-orphaned-sub-account-credentials.mjs",
     "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs",
   "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs",
-    "marketing:backfill-consumption-refunds": "node scripts/backfill-marketing-consumption-refunds.mjs"
+    "marketing:backfill-consumption-refunds": "node scripts/backfill-marketing-consumption-refunds.mjs",
+    "db:verify-chain": "bash ./scripts/verify-fresh-migration-chain.sh",
+    "db:verify-chain:baseline": "bash ./scripts/verify-fresh-migration-chain.sh --update-baseline"
   },
   "dependencies": {
     "@fastify/compress": "^9.0.0",

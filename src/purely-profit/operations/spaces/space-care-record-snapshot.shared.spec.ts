@@ -99,7 +99,12 @@ describe('resolveVoucherProductName', () => {
     );
     expect(db.clubVoucherOrder.findFirst).toHaveBeenCalledWith({
       where: { storeId: 18, voucherCode: 'VC202601' },
-      select: { productName: true },
+      // 商品名与成本快照同次查询（成本用于券面行利润口径）
+      select: {
+        productName: true,
+        productPrice: true,
+        productCostPrice: true,
+      },
     });
   });
 

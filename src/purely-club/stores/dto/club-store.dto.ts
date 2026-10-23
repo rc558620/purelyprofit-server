@@ -39,7 +39,7 @@ export class ClubStoreSummaryDto {
   @ApiProperty({
     example: false,
     description:
-      '是否开通会员护理档案：仅注册时选择「SPA/养生/美容/」模式的门店为 true；' +
+      '是否开通会员护理档案：仅注册时选择「SPA/养生/美容」模式的门店为 true；' +
       'C 端据此决定是否展示「护理档案」入口',
   })
   @IsBoolean({ message: '会员护理档案开关必须是布尔值' })

@@ -16,7 +16,7 @@ export type CareRecordSkipReason =
   | 'placeholder-phone'
   | 'customer-not-found'
   | 'already-exists'
-  /** 门店未开通：注册时未选择「SPA/养生/美容/」模式，本功能整体不运行 */
+  /** 门店未开通：注册时未选择「SPA/养生/美容」模式，本功能整体不运行 */
   | 'module-disabled';
 
 /**
@@ -83,7 +83,7 @@ export class SpaceCareRecordWriterService {
       return { status: 'failed', reason: 'invalid-session-id' };
     }
 
-    // 功能档位门禁：仅注册时选择「SPA/养生/美容/」模式的门店建档。
+    // 功能档位门禁：仅注册时选择「SPA/养生/美容」模式的门店建档。
     // 其余门店后端整体不运行会员护理档案——不写库、不产生任何档案记录。
     if (!(await this.isMemberCareEnabled(input.storeId))) {
       return { status: 'skipped', reason: 'module-disabled' };

@@ -108,6 +108,8 @@ export interface MarketingProductRow {
   name: string;
   price: number;
   originalPrice: number | null;
+  /** 成本价（分），空则视为无成本 */
+  costPrice: number | null;
   image: string | null;
   descriptionTitle: string | null;
   description: string | null;

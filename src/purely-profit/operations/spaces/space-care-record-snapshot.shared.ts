@@ -110,6 +110,54 @@ export function isTableFeeOnlyServiceName(serviceName: string): boolean {
   return stripTableFeeSegments(serviceName) === '';
 }
 
+/** 团购券商品的成本快照（下单时固化，单位：分） */
+export interface GrouponVoucherCostFacts {
+  /** 券商品单价（分，用于把券面金额折算成核销件数） */
+  unitPriceFen: number | null;
+  /** 券商品单件成本价（分）；null = 下单时商品未设成本价 */
+  unitCostFen: number | null;
+}
+
+/** 团购券商品名 + 成本快照 */
+export interface GrouponVoucherFacts extends GrouponVoucherCostFacts {
+  productName: string | null;
+}
+
+/**
+ * 依开台绑定的纯利宝券码反查团购商品名与成本快照。
+ *
+ * 成本用于结账时把「券面消费行」的利润从「利润 = 券面」修正为「券面 - 成本」：
+ * 无券码（普通开台）/ 查不到（手工第三方券）/ 券单无成本快照（历史数据）
+ * → null，调用方保持原口径不变，避免历史结账单利润回溯跳动。
+ */
+export async function resolveGrouponVoucherFacts(
+  db: Pick<CareRecordVoucherNameStore, 'clubVoucherOrder'>,
+  storeId: number,
+  voucherCode: string | null | undefined,
+): Promise<GrouponVoucherFacts | null> {
+  const trimmed = voucherCode?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const order = await db.clubVoucherOrder.findFirst({
+    where: { storeId, voucherCode: trimmed },
+    select: {
+      productName: true,
+      productPrice: true,
+      productCostPrice: true,
+    },
+  });
+  if (!order) {
+    return null;
+  }
+
+  return {
+    productName: order.productName ?? null,
+    unitPriceFen: order.productPrice ?? null,
+    unitCostFen: order.productCostPrice ?? null,
+  };
+}
+
 /**
  * 依开台绑定的纯利宝券码反查团购商品名（护理档案展示名来源）。
  * 无券码（普通开台）/ 查不到（手工第三方券）→ null，调用方按无券处理。
@@ -119,15 +167,8 @@ export async function resolveVoucherProductName(
   storeId: number,
   voucherCode: string | null | undefined,
 ): Promise<string | null> {
-  const trimmed = voucherCode?.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const order = await db.clubVoucherOrder.findFirst({
-    where: { storeId, voucherCode: trimmed },
-    select: { productName: true },
-  });
-  return order?.productName ?? null;
+  const facts = await resolveGrouponVoucherFacts(db, storeId, voucherCode);
+  return facts?.productName ?? null;
 }
 
 /**
@@ -195,7 +236,11 @@ interface CareRecordVoucherNameStore {
     findFirst(
       args: Prisma.ClubVoucherOrderFindFirstArgs,
     ): Promise<Prisma.ClubVoucherOrderGetPayload<{
-      select: { productName: true };
+      select: {
+        productName: true;
+        productPrice: true;
+        productCostPrice: true;
+      };
     }> | null>;
     findMany(
       args: Prisma.ClubVoucherOrderFindManyArgs,

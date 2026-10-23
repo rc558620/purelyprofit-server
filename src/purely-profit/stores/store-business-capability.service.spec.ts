@@ -198,7 +198,7 @@ describe('StoreBusinessCapabilityService', () => {
       });
 
       await expect(service.ensureMemberCareAccess(buildUser())).rejects.toThrow(
-        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
       );
     });
 
@@ -209,7 +209,7 @@ describe('StoreBusinessCapabilityService', () => {
       });
 
       await expect(service.ensureMemberCareAccess(buildUser())).rejects.toThrow(
-        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
       );
     });
   });

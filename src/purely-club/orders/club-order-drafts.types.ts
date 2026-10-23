@@ -19,6 +19,8 @@ export interface ClubServiceOrderMetadata {
   productId: number;
   productName: string;
   originalAmountFen: number;
+  /** 商品成本价快照（分，下单时固化；空表示商品未设置成本价） */
+  costPriceFen: number | null;
   coverImage: string | null;
   /** 会员基准价（原价 × 等级折扣率，单位：分） */
   memberBaselineFen: number;

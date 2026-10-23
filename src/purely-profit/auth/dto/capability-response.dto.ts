@@ -176,7 +176,7 @@ export class AuthCapabilityResponseDto {
   @ApiProperty({
     example: false,
     description:
-      '是否可使用会员护理档案：仅注册时选择「SPA/养生/美容/」模式的门店为 true。' +
+      '是否可使用会员护理档案：仅注册时选择「SPA/养生/美容」模式的门店为 true。' +
       '与业态无关的另一档位，非餐饮门店也可能为 false。',
   })
   @IsBoolean()

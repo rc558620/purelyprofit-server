@@ -500,6 +500,51 @@ describe('profit-detail.utils', () => {
     ]);
   });
 
+  it('券面消费行计入金额汇总，但不进商品排行（对齐经营分析 EXCLUDE_VOUCHER_ITEM_SQL）', () => {
+    const day = new Date(2026, 4, 12, 10, 0, 0, 0);
+    const buildRow = (
+      id: number,
+      orderId: number,
+      productName: string,
+      categoryName: string,
+      salePrice: number,
+      profit: number,
+    ): SaleOrderItemRow => ({
+      id,
+      productId: null,
+      productName,
+      categoryName,
+      salePrice,
+      profit,
+      quantity: 1,
+      image: null,
+      order: { id: orderId, date: day, spaceSession: null },
+    });
+
+    const result = aggregateSales(
+      [
+        buildRow(1, 1, '橙汁', '饮品', 8800, 4000),
+        // 系统券面行：券面 188.70，扣掉成本 80 后利润 108.70
+        buildRow(2, 1, '分手大师（团购券）', '团购券', 18870, 10870),
+        // 商家自建商品恰好以「（团购券）」结尾：分类不是系统「团购券」→ 属真商品，正常进榜
+        buildRow(3, 2, '张三招牌（团购券）', '招牌套餐', 18870, 10000),
+      ],
+      new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+    );
+
+    // 金额汇总仍含券面（门店真实营收一分不少）：88 + 188.7 + 188.7
+    expect(result.revenue.toOutputYuan()).toBe(465.4);
+    expect(result.totalProfit.toOutputYuan()).toBe(248.7);
+    expect(result.orderCount).toBe(2);
+
+    // 商品排行只留真商品：系统券面行被剔除，同名不同分类的自建商品保留
+    expect(Array.from(result.rankMap.keys())).toEqual([
+      'snapshot:橙汁',
+      'snapshot:张三招牌（团购券）',
+    ]);
+  });
+
   it('aggregateCosts 会过滤区间外数据并累计天维度与分类维度成本', () => {
     const rows: CostRecordRow[] = [
       {

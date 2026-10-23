@@ -44,7 +44,7 @@ import { SpaceCareRecordsService } from './space-care-records.service';
  * 静态路径 `/space-care-records/customers` 必须早于 `SpaceSessionsController`
  * 注册（见 spaces.module.ts 的 controllers 顺序注释）。
  *
- * 功能门槛：仅注册时选择「SPA/养生/美容/」模式的门店可用。
+ * 功能门槛：仅注册时选择「SPA/养生/美容」模式的门店可用。
  * 非该模式的门店后端整体不运行本功能——入口隐藏、接口 403、结账不建档。
  * 业态门禁（非餐饮）与档位门禁（SPA/养生/美容）是叠加关系，两者都要过。
  */

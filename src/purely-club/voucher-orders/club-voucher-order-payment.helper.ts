@@ -104,6 +104,7 @@ export function buildVoucherOrderCreateInput(
     categoryName: params.product.categoryName,
     productPrice: params.product.price,
     productOriginalPrice: params.product.originalPrice,
+    productCostPrice: params.product.costPrice,
     quantity: params.quantity,
     personCount: params.personCount,
     guestName: params.guestName?.trim() || null,

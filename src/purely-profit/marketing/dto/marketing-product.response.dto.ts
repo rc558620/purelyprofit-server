@@ -102,6 +102,12 @@ export class MarketingProductDto {
   originalPrice?: number;
 
   @ApiPropertyOptional({
+    example: 15000,
+    description: '成本价，单位：分（用于商品利润统计）',
+  })
+  costPrice?: number;
+
+  @ApiPropertyOptional({
     example: 'https://cdn.example.com/products/product.jpg',
   })
   image?: string;

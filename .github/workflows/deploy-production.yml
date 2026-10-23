@@ -28,6 +28,11 @@ on:
         required: true
         default: false
         type: boolean
+      skip_db_chain_verify:
+        description: Skip fresh-database migration chain verification
+        required: true
+        default: false
+        type: boolean
       skip_build:
         description: Skip build inside release script
         required: true
@@ -210,6 +215,14 @@ jobs:
             exit 1
           fi
 
+      - name: Verify migration chain from scratch
+        shell: bash
+        if: ${{ !inputs.skip_db_chain_verify }}
+        env:
+          # 用生产数据库实例上的临时库做验证，因此需要 CREATE DATABASE 权限
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm run db:verify-chain
+
       - name: Execute production release
         shell: bash
         env:
@@ -233,6 +246,7 @@ jobs:
             echo "- Dry run: ${{ inputs.dry_run }}"
             echo "- Skip smoke: ${{ inputs.skip_smoke }}"
             echo "- Skip DB precheck: ${{ inputs.skip_db_precheck }}"
+            echo "- Skip DB chain verify: ${{ inputs.skip_db_chain_verify }}"
             echo "- Skip build: ${{ inputs.skip_build }}"
             echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy }}"
             echo "- Smoke base URL: ${SMOKE_BASE_URL}"

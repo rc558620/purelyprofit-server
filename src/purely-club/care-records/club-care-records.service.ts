@@ -47,7 +47,7 @@ export class ClubCareRecordsService {
     currentContext: ClubCurrentContext,
     query: ListClubCareRecordsQueryDto = {},
   ): Promise<ClubCareRecordsResponseDto> {
-    // 功能档位门禁：仅注册时选择「SPA/养生/美容/」模式的门店运行本功能。
+    // 功能档位门禁：仅注册时选择「SPA/养生/美容」模式的门店运行本功能。
     // 其余门店后端一律拒绝，前端亦不展示入口（入口隐藏 + 接口拒绝双保险）。
     if (currentContext.store.memberCareEnabled !== true) {
       throw new ForbiddenException('当前门店未开通护理档案');

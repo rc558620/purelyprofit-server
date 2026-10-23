@@ -2,11 +2,11 @@
  * 会员护理档案档位回填脚本
  *
  * 用途：
- *   1. 把「养生」门店的 storeType 改写为新值「SPA/养生/美容/」
- *   2. 按 storeType 派生 member_care_enabled（仅「SPA/养生/美容/」为 true）
+ *   1. 把「养生」门店的 storeType 改写为新值「SPA/养生/美容」
+ *   2. 按 storeType 派生 member_care_enabled（仅「SPA/养生/美容」为 true）
  *
  * 背景：
- *   「养生」这一门店类型被单一模式「SPA/养生/美容/」取代。历史门店的
+ *   「养生」这一门店类型被单一模式「SPA/养生/美容」取代。历史门店的
  *   storeType 存在 stores.profile_metadata JSON 里，迁移 SQL 无法直接改写，
  *   因此需要本脚本完成数据迁移，否则老门店会被判为「未开通」而丢失功能。
  *
@@ -27,7 +27,7 @@ import pg from 'pg';
 import { isMemberCareStoreType } from '../../src/purely-profit/stores/store-business-mode';
 
 /** 新模式下唯一启用护理档案的门店类型（单一模式，不是三种） */
-const MEMBER_CARE_STORE_TYPE = 'SPA/养生/美容/';
+const MEMBER_CARE_STORE_TYPE = 'SPA/养生/美容';
 /** 被取代的旧门店类型：同样视为已开通护理档案 */
 const LEGACY_STORE_TYPES = ['养生'] as const;
 
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
 
   for (const store of stores) {
     const currentStoreType = readStoreType(store.profileMetadata);
-    // 旧值「养生」视为新模式的等价写法，一并改写为「SPA/养生/美容/」
+    // 旧值「养生」视为新模式的等价写法，一并改写为「SPA/养生/美容」
     const nextStoreType = LEGACY_STORE_TYPES.includes(
       currentStoreType as (typeof LEGACY_STORE_TYPES)[number],
     )

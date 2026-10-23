@@ -11,7 +11,7 @@ import {
   mapSessionItemRows,
 } from './space-sessions.mapper';
 import { buildSpaceSessionSettlementMoney } from './space-session-settlement.shared';
-import { resolveVoucherProductName } from './space-care-record-snapshot.shared';
+import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
 import { MONEY_PRECISION_PATTERN } from './space-session-checkout-payload.shared';
 import { Money } from '../../../shared/money.utils';
 
@@ -82,8 +82,9 @@ export class SpaceSessionPreviewService {
     const asOf = Date.now();
     const items = mapSessionItemRows(session.sessionItems);
     const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
-    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，展示名取团购商品名
-    const voucherProductName = await resolveVoucherProductName(
+    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
+    // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
+    const voucherFacts = await resolveGrouponVoucherFacts(
       this.prisma,
       session.storeId,
       session.prepaidVoucherCode,
@@ -95,7 +96,8 @@ export class SpaceSessionPreviewService {
       payload: {},
       items,
       renewRecords,
-      voucherProductName,
+      voucherProductName: voucherFacts?.productName ?? null,
+      voucherCost: voucherFacts ?? undefined,
     });
 
     return {

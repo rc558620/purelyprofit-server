@@ -82,7 +82,7 @@ describe('SpaceCareRecordsService', () => {
     resolveSingleStoreId: jest.fn(),
   };
 
-  /** 门店能力服务：默认按「SPA/养生/美容/」模式（已开通护理档案）放行 */
+  /** 门店能力服务：默认按「SPA/养生/美容」模式（已开通护理档案）放行 */
   const storeBusinessCapabilityService = {
     ensureMemberCareAccess: jest.fn(),
   };
@@ -390,26 +390,26 @@ describe('SpaceCareRecordsService', () => {
     it('未开通门店调用 listCustomers 直接被拒（service 层兜底）', async () => {
       storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
         new ForbiddenException(
-          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+          '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
         ),
       );
 
       await expect(
         service.listCustomers(buildUser(), { status: 'all' }),
-      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容/」模式的门店');
+      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容」模式的门店');
       expect(commerceAccessService.resolveViewStoreId).not.toHaveBeenCalled();
     });
 
     it('未开通门店调用补录直接被拒', async () => {
       storeBusinessCapabilityService.ensureMemberCareAccess.mockRejectedValue(
         new ForbiddenException(
-          '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+          '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
         ),
       );
 
       await expect(
         service.updateRecord(buildUser(), 35, { content: 'x', photos: [] }),
-      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容/」模式的门店');
+      ).rejects.toThrow('会员护理档案仅适用于「SPA/养生/美容」模式的门店');
       expect(commerceAccessService.resolveSingleStoreId).not.toHaveBeenCalled();
     });
 

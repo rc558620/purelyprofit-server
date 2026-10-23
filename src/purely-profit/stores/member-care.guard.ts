@@ -12,7 +12,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 /**
  * 会员护理档案档位守卫。
  *
- * 配合 `@RequireMemberCare()` 装饰器使用：仅注册时选择「SPA/养生/美容/」
+ * 配合 `@RequireMemberCare()` 装饰器使用：仅注册时选择「SPA/养生/美容」
  * 模式的门店可访问，其余门店一律 403。
  *
  * 与 `BusinessModeGuard` 是**叠加**关系（最终可访问 = 业态允许 && 档位允许

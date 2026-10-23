@@ -98,6 +98,8 @@ model MarketingConsumption {
   payType              MarketingPayType    @default(cash) @map("pay_type")
   /// 商品简述（如「拿铁 × 2」）
   itemsSummary         String?             @map("items_summary")
+  /// 成本合计快照（分，营销商品下单时按 costPrice × 数量固化；空表示无成本信息）
+  costAmount           Int?                @map("cost_amount")
   /// 关联活动 ID
   promotionId          Int?                @map("promotion_id")
   createdAt            DateTime            @default(now()) @map("created_at")

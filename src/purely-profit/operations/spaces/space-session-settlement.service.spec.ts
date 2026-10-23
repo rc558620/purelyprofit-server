@@ -488,7 +488,12 @@ describe('SpaceSessionSettlementService', () => {
 
       expect(prismaService.clubVoucherOrder.findFirst).toHaveBeenCalledWith({
         where: { storeId: 18, voucherCode: 'VC202601' },
-        select: { productName: true },
+        // 券单商品名与成本快照同次查询（成本用于券面行利润口径）
+        select: {
+          productName: true,
+          productPrice: true,
+          productCostPrice: true,
+        },
       });
       expect(careRecordWriterService.writeAfterSettlement).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -31,6 +31,8 @@ export interface ClubVoucherOrderContext {
     categoryName: string | null;
     price: number;
     originalPrice: number | null;
+    /** 成本价（分，下单时快照用于利润统计） */
+    costPrice: number | null;
     image: string | null;
     stock: number;
     personCount: number | null;
@@ -155,6 +157,7 @@ export class ClubVoucherOrderContextService {
           name: true,
           price: true,
           originalPrice: true,
+          costPrice: true,
           image: true,
           stock: true,
           personCount: true,
@@ -190,6 +193,7 @@ export class ClubVoucherOrderContextService {
         categoryName: product.category?.name ?? null,
         price: product.price,
         originalPrice: product.originalPrice,
+        costPrice: product.costPrice,
         image: product.image,
         stock: product.stock,
         personCount: product.personCount,

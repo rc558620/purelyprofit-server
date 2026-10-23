@@ -308,6 +308,10 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
       row.originalPrice !== null && row.originalPrice !== undefined
         ? Money.fromDbCents(row.originalPrice).toOutputYuan()
         : undefined,
+    costPrice:
+      row.costPrice !== null && row.costPrice !== undefined
+        ? Money.fromDbCents(row.costPrice).toOutputYuan()
+        : undefined,
     image: toOptionalMediaText(row.image) ?? undefined,
     descriptionTitle: toOptionalText(row.descriptionTitle) ?? undefined,
     description: toOptionalText(row.description) ?? undefined,

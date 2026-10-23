@@ -16,7 +16,7 @@ describe('store-business-mode（业态推导单一事实源）', () => {
 
     it('白名单外的类型推导为 general', () => {
       expect(deriveBusinessModeFromStoreType('零售')).toBe('general');
-      expect(deriveBusinessModeFromStoreType('SPA/养生/美容/')).toBe('general');
+      expect(deriveBusinessModeFromStoreType('SPA/养生/美容')).toBe('general');
       expect(deriveBusinessModeFromStoreType('未知业态')).toBe('general');
     });
 
@@ -51,7 +51,7 @@ describe('store-business-mode（业态推导单一事实源）', () => {
   });
 
   describe('isMemberCareStoreType（会员护理档案档位）', () => {
-    it('「SPA/养生/美容/」模式启用会员护理档案', () => {
+    it('「SPA/养生/美容」模式启用会员护理档案', () => {
       MEMBER_CARE_STORE_TYPES.forEach((storeType) => {
         expect(isMemberCareStoreType(storeType)).toBe(true);
       });
@@ -63,11 +63,11 @@ describe('store-business-mode（业态推导单一事实源）', () => {
       expect(isMemberCareStoreType('便利店')).toBe(false);
       expect(isMemberCareStoreType('餐饮')).toBe(false);
       expect(isMemberCareStoreType('其他')).toBe(false);
-      // 旧的单一「养生」文案已更名为「SPA/养生/美容/」，不再单独启用
+      // 旧的单一「养生」文案已更名为「SPA/养生/美容」，不再单独启用
       expect(isMemberCareStoreType('养生')).toBe(false);
     });
 
-    it('容忍首尾空白与结尾斜杠差异', () => {
+    it('容忍首尾空白与结尾斜杠差异（兼容历史数据旧文案）', () => {
       expect(isMemberCareStoreType(' SPA/养生/美容/ ')).toBe(true);
       expect(isMemberCareStoreType('SPA/养生/美容')).toBe(true);
     });

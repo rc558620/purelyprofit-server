@@ -1,8 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-PROJECT_ROOT="/Users/f0rest/Documents/project/react/purelyprofit-server"
+# 项目根目录按脚本自身位置推导，避免不同机器/不同 clone 路径下写死失效
+# （历史上这里写死过 /Users/f0rest/Documents/project/react/purelyprofit-server，
+#   换目录或 CI runner 上都会 cd 失败）。
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+# psql / pg_dump 等 PostgreSQL 客户端的 PATH 兜底（详见 scripts/pg-env.sh）
+# shellcheck source=./pg-env.sh
+source "$PROJECT_ROOT/scripts/pg-env.sh"
 
 RELEASE_LOAD_ENV_FILE="${RELEASE_LOAD_ENV_FILE:-true}"
 RELEASE_DRY_RUN="${RELEASE_DRY_RUN:-false}"
@@ -134,10 +141,18 @@ load_env_file_if_present() {
     return 0
   fi
 
+  # .env 里可能存在 Redis 点号键（redis.connectTimeoutMs）这类非 shell 合法变量：
+  # 直接 source 会让 bash 报 "command not found"，在 set -e 下直接中断发布流程，
+  # 而且出错行之后的所有变量（支付/密钥等）全部读不到。这里先剔除点号键再加载。
+  local env_tmp
+  env_tmp="$(mktemp -t pp-release-env)"
+  grep -vE '^[[:space:]]*[^#=]*\.[^=]*=' "$PROJECT_ROOT/.env" >"$env_tmp" || true
+
   set -a
-  # shellcheck disable=SC1091
-  . "$PROJECT_ROOT/.env"
+  # shellcheck disable=SC1090
+  . "$env_tmp"
   set +a
+  rm -f "$env_tmp"
   LOADED_ENV_FILE="true"
 }
 
@@ -259,6 +274,24 @@ resolve_default_backup_mode() {
   fi
 }
 
+# pg_dump 不接受 Prisma 专有的 ?schema= 查询参数（会报 invalid URI query parameter: schema），
+# 单独准备一份净化后的连接串；DATABASE_URL 本身保持原样，供 prisma CLI 使用。
+resolve_pg_dump_database_url() {
+  PG_DUMP_DATABASE_URL="${DATABASE_URL:-}"
+
+  if [ -n "$PG_DUMP_DATABASE_URL" ]; then
+    PG_DUMP_DATABASE_URL="$(
+      node -e '
+        const url = new URL(process.argv[1]);
+        url.search = "";
+        console.log(url.toString());
+      ' "$PG_DUMP_DATABASE_URL"
+    )"
+  fi
+
+  export PG_DUMP_DATABASE_URL
+}
+
 build_pg_dump_command() {
   local backup_dir_quoted
   local backup_file_quoted
@@ -268,7 +301,7 @@ build_pg_dump_command() {
 
   backup_dir_quoted="$(quote_shell_arg "$RELEASE_BACKUP_DIR")"
   backup_file_quoted="$(quote_shell_arg "$BACKUP_FILE_PATH")"
-  database_url_quoted="$(quote_shell_arg "${DATABASE_URL:-}")"
+  database_url_quoted="$(quote_shell_arg "${PG_DUMP_DATABASE_URL:-${DATABASE_URL:-}}")"
   find_pattern_quoted="$(quote_shell_arg "${RELEASE_BACKUP_FILE_PREFIX}-*.dump")"
 
   command="mkdir -p ${backup_dir_quoted} && pg_dump --format=custom --no-owner --no-privileges --file=${backup_file_quoted} ${database_url_quoted}"
@@ -429,6 +462,7 @@ validate_release_inputs() {
 
 set_stage "加载环境变量"
 load_env_file_if_present
+resolve_pg_dump_database_url
 mark_stage_complete "$CURRENT_STAGE"
 
 if ! is_true "$RELEASE_DRY_RUN" && ! is_true "$RELEASE_FORCE"; then

@@ -286,6 +286,82 @@ describe('buildSpaceSessionSettlement — 纯消费模式开台团购券', () =>
       ...overrides,
     });
 
+  it('券单无成本快照（历史数据）→ 券面行利润保持「利润 = 券面」原口径', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession(),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+      voucherProductName: '分手大师',
+      voucherCost: { unitPriceFen: 18870, unitCostFen: null },
+    });
+
+    const voucherRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+    );
+    expect(voucherRow?.profit).toBe(188.7);
+  });
+
+  it('券面行利润 = 券面 - 商品成本（188.70 - 80 = 108.70）', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession(),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+      voucherProductName: '分手大师',
+      voucherCost: { unitPriceFen: 18870, unitCostFen: 8000 },
+    });
+
+    const voucherRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+    );
+    // 营收不受影响，只修正利润口径
+    expect(voucherRow?.salePrice).toBe(188.7);
+    expect(voucherRow?.lineTotal).toBe(188.7);
+    expect(voucherRow?.profit).toBe(108.7);
+    // 合计/营业额口径保持不变
+    expect(result.totalAmount).toBe(88);
+    expect(result.voucherConsumption).toBe(188.7);
+  });
+
+  it('一次核销 2 张券 → 成本按件数翻倍（188.70 - 80×2 = 28.70）', () => {
+    const result = buildSpaceSessionSettlement({
+      // 券面 188.70 = 2 张单价 94.35 的券
+      session: buildItemsSession({ prepaidVoucherFaceAmount: 18870 }),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+      voucherProductName: '分手大师',
+      voucherCost: { unitPriceFen: 9435, unitCostFen: 8000 },
+    });
+
+    const voucherRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+    );
+    expect(voucherRow?.profit).toBe(28.7);
+  });
+
+  it('券面低于成本 → 利润如实为负（亏损核销）', () => {
+    const result = buildSpaceSessionSettlement({
+      session: buildItemsSession(),
+      checkoutAt: BASE_TIME.getTime() + 60 * 60 * 1000,
+      payload: {},
+      items: GROUPON_ITEMS,
+      renewRecords: NO_RENEW,
+      voucherProductName: '分手大师',
+      voucherCost: { unitPriceFen: 18870, unitCostFen: 20000 },
+    });
+
+    const voucherRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_GROUPON_VOUCHER',
+    );
+    expect(voucherRow?.salePrice).toBe(188.7);
+    expect(voucherRow?.profit).toBe(-11.3);
+  });
+
   it('券面生成正向消费行，与负向已付行等额相消 → 合计等于本次点单金额', () => {
     const result = buildSpaceSessionSettlement({
       session: buildItemsSession(),

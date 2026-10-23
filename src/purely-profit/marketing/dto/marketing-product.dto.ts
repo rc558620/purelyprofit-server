@@ -69,6 +69,18 @@ export class CreateMarketingProductDto {
   originalPrice?: number;
 
   @ApiPropertyOptional({
+    example: 150,
+    description: '成本价，单位：元（后端自动转为分存储，用于商品利润统计）',
+  })
+  @IsOptional()
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '成本价必须是数字' },
+  )
+  @IsPositive({ message: '成本价必须大于 0' })
+  costPrice?: number;
+
+  @ApiPropertyOptional({
     example: 'https://cdn.example.com/products/product.jpg',
     description: '产品封面图（URL 或 base64 DataURL）',
   })
@@ -251,6 +263,20 @@ export class UpdateMarketingProductDto {
   @Transform(transformNullableYuan)
   @IsPositive({ message: '划线价必须大于 0' })
   originalPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: 150,
+    description:
+      '成本价，单位：元；用于商品利润统计（售价-成本价），空字符串或 null 表示清空',
+  })
+  @IsOptional()
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '成本价必须是数字' },
+  )
+  @Transform(transformNullableYuan)
+  @IsPositive({ message: '成本价必须大于 0' })
+  costPrice?: number | null;
 
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/products/product.jpg',

@@ -3,6 +3,7 @@ import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types
 import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import type { SpaceStatusValue } from './spaces.constants';
 import type {
+  GrouponVoucherCostSnapshot,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
   SpaceSessionSettlement,
@@ -22,6 +23,12 @@ export interface SettleSpaceSessionParams {
    * 保证与结账预览展示/落库的销售单明细完全一致。
    */
   voucherProductName?: string | null;
+  /**
+   * 开台团购券商品的成本快照（下单时固化）。
+   * 事务内重建 settlement 时需要它来还原正向券面行的利润（券面 - 成本），
+   * 保证与结账预览落库的销售单明细完全一致。
+   */
+  voucherCost?: GrouponVoucherCostSnapshot;
   // ①②④ 修复：结账侧团购/券/平台结算字段，传入后更新 prepaid* 列
   grouponCode?: string;
   grouponPlatform?: string;

@@ -20,6 +20,8 @@ model MarketingProduct {
   name             String
   price            Int
   originalPrice    Int?                     @map("original_price")
+  /// 成本价（分，用于商品利润统计 = 售价 - 成本价；空则利润按售价计）
+  costPrice        Int?                     @map("cost_price")
   image            String?
   descriptionTitle String?                  @map("description_title")
   description      String?

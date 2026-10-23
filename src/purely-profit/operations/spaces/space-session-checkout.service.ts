@@ -32,7 +32,7 @@ import {
   normalizeCheckoutPreviewPayload,
 } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
-import { resolveVoucherProductName } from './space-care-record-snapshot.shared';
+import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
 
@@ -68,8 +68,9 @@ export class SpaceSessionCheckoutService {
     const lockedAt = Date.now();
     const payload = normalizeCheckoutPreviewPayload(dto);
     const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
-    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，展示名取团购商品名
-    const voucherProductName = await resolveVoucherProductName(
+    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
+    // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
+    const voucherFacts = await resolveGrouponVoucherFacts(
       this.prisma,
       session.storeId,
       session.prepaidVoucherCode,
@@ -80,7 +81,8 @@ export class SpaceSessionCheckoutService {
       payload,
       items: mapSessionItemRows(session.sessionItems),
       renewRecords,
-      voucherProductName,
+      voucherProductName: voucherFacts?.productName ?? null,
+      voucherCost: voucherFacts ?? undefined,
     });
 
     const { lockId, expiresAt } = await this.checkoutLockService.createLock({
@@ -158,12 +160,14 @@ export class SpaceSessionCheckoutService {
     // checkout payload 优先，续费记录回退
     const renewGrouponFallback =
       resolveRenewRecordsGrouponFallback(renewRecords);
-    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，展示名取团购商品名
-    const voucherProductName = await resolveVoucherProductName(
+    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
+    // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
+    const voucherFacts = await resolveGrouponVoucherFacts(
       this.prisma,
       session.storeId,
       session.prepaidVoucherCode,
     );
+    const voucherProductName = voucherFacts?.productName ?? null;
     const settlement = buildSpaceSessionSettlement({
       session,
       checkoutAt,
@@ -171,6 +175,7 @@ export class SpaceSessionCheckoutService {
       items,
       renewRecords,
       voucherProductName,
+      voucherCost: voucherFacts ?? undefined,
     });
 
     const updated = await this.settlementService.settleSession(user, {
@@ -181,6 +186,7 @@ export class SpaceSessionCheckoutService {
       settlement,
       renewRecords,
       voucherProductName,
+      voucherCost: voucherFacts ?? undefined,
       // BUG-4 fix: 团购元数据回退链 = checkout payload → session.prepaid*（开台预付）→ 续费记录。
       // 三选一规则已收敛到 buildSettlementPrepaidMetadata（内含 voucherFaceAmount 的
       // skipPrepaidVoucherPersistence 不变量），与自动结账共用同一实现。

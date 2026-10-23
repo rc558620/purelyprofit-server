@@ -28,7 +28,7 @@ const EARLIEST_PHOTO_ROW = {
   photos: ['https://cdn.example.com/earliest.jpg'],
 };
 
-/** 默认按「SPA/养生/美容/」模式门店（已开通护理档案）构造上下文 */
+/** 默认按「SPA/养生/美容」模式门店（已开通护理档案）构造上下文 */
 const buildContext = (memberCareEnabled = true): ClubCurrentContext =>
   ({
     user: { id: 201, phone: '13800138000' },

@@ -987,6 +987,8 @@ describe('ClubOrdersService', () => {
         actualPointsDeducted: 0,
         payType: 'balance',
         itemsSummary: '黄金焕肤疗程',
+        // 下单时未快照商品成本价（metadata.costPriceFen 为空）
+        costAmount: null,
         promotionId: null,
       },
     });

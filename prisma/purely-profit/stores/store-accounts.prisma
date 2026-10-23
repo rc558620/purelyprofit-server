@@ -47,7 +47,7 @@ model Store {
   deletedAt                   DateTime?                     @map("deleted_at")
   /// 门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制。
   businessMode                StoreBusinessMode             @default(general) @map("business_mode")
-  /// 是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容/」模式为 true），
+  /// 是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容」模式为 true），
   /// 与业态一样属于注册时确定、注册后不可切换的门店档位。
   memberCareEnabled           Boolean                       @default(false) @map("member_care_enabled")
   /// 门店扩展字段 JSON（storeType/region/storeLogo/经纬度/regionLabels），持久化事实源

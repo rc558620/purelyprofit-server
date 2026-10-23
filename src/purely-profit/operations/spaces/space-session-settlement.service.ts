@@ -144,6 +144,7 @@ export class SpaceSessionSettlementService {
             items: mapSessionItemRows(txSessionItems),
             renewRecords: mapRenewRecordRows(txRenewRecords),
             voucherProductName: params.voucherProductName,
+            voucherCost: params.voucherCost,
           });
 
           // BUG-fix: autoCheckout 会话统一使用系统用户创建销售单，

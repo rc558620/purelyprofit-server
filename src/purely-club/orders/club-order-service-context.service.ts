@@ -27,6 +27,8 @@ interface ClubOrderProductSummary {
   name: string;
   price: number;
   originalPrice: number | null;
+  /** 成本价（分，下单时快照用于利润统计） */
+  costPrice: number | null;
   image: string | null;
   stock: number;
 }
@@ -85,6 +87,7 @@ export class ClubOrderServiceContextService {
       productId: product.id,
       productName: product.name,
       originalAmountFen: product.originalPrice ?? product.price,
+      costPriceFen: product.costPrice,
       coverImage: product.image?.trim() || null,
       memberBaselineFen: pricing.memberBaselineFen,
       promotionId: pricing.promotionId,
@@ -142,6 +145,7 @@ export class ClubOrderServiceContextService {
         name: true,
         price: true,
         originalPrice: true,
+        costPrice: true,
         image: true,
         stock: true,
       },

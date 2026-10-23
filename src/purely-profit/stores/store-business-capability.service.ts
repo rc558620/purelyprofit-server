@@ -28,7 +28,7 @@ export interface StoreBusinessCapability {
   /**
    * 是否可使用会员护理档案。
    *
-   * 与业态无关的另一档位：仅注册时选择「SPA/养生/美容/」模式的门店为 true。
+   * 与业态无关的另一档位：仅注册时选择「SPA/养生/美容」模式的门店为 true。
    * 该模式属于非餐饮业态下的细分类型，因此 `canUseSpaceManagement` 为真不代表本项为真。
    */
   canUseMemberCare: boolean;
@@ -149,14 +149,14 @@ export class StoreBusinessCapabilityService {
   /**
    * 断言当前门店可使用会员护理档案，否则抛出 403。
    *
-   * 会员护理档案仅对注册时选择「SPA/养生/美容/」模式的门店开放；
+   * 会员护理档案仅对注册时选择「SPA/养生/美容」模式的门店开放；
    * 其余门店后端整体不运行该功能（入口隐藏 + 接口拒绝 + 结账不建档）。
    */
   async ensureMemberCareAccess(user: AuthenticatedUser): Promise<void> {
     const capabilities = await this.getCapabilities(user);
     if (!capabilities.canUseMemberCare) {
       throw new ForbiddenException(
-        '会员护理档案仅适用于「SPA/养生/美容/」模式的门店',
+        '会员护理档案仅适用于「SPA/养生/美容」模式的门店',
       );
     }
   }
@@ -227,7 +227,7 @@ export class StoreBusinessCapabilityService {
       canUseMarketingProductListing: isGeneral,
       // 自助下单面向非餐饮业态（空间场景）
       canUseSelfOrdering: isGeneral,
-      // 会员护理档案：仅注册时选择「SPA/养生/美容/」模式的门店可用
+      // 会员护理档案：仅注册时选择「SPA/养生/美容」模式的门店可用
       canUseMemberCare: isGeneral && memberCareEnabled === true,
     };
   }

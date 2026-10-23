@@ -22,6 +22,7 @@ import {
 } from './space-session-settlement-system-item.shared';
 import type {
   CheckoutPreviewFeeMode,
+  GrouponVoucherCostSnapshot,
   SpaceSessionItemRecord,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
@@ -38,6 +39,8 @@ export const buildSpaceSessionSettlement = (params: {
   renewRecords: SpaceSessionRenewRecord[];
   /** 开台团购券对应商品名（纯消费模式正向券面行的展示名来源） */
   voucherProductName?: string | null;
+  /** 开台团购券商品的成本快照；用于把券面行利润改为「券面 - 成本」 */
+  voucherCost?: GrouponVoucherCostSnapshot;
 }): SpaceSessionSettlement => {
   const core = buildSpaceSessionSettlementCore(params);
   const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
@@ -88,6 +91,8 @@ export const buildSpaceSessionSettlementMoney = (params: {
   renewRecords: SpaceSessionRenewRecord[];
   /** 开台团购券对应商品名（纯消费模式正向券面行的展示名来源） */
   voucherProductName?: string | null;
+  /** 开台团购券商品的成本快照；用于把券面行利润改为「券面 - 成本」 */
+  voucherCost?: GrouponVoucherCostSnapshot;
 }) => {
   const core = buildSpaceSessionSettlementCore(params);
   const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
@@ -121,6 +126,7 @@ const buildSpaceSessionSettlementCore = (params: {
   items: SpaceSessionItemRecord[];
   renewRecords: SpaceSessionRenewRecord[];
   voucherProductName?: string | null;
+  voucherCost?: GrouponVoucherCostSnapshot;
 }) => {
   const { session, checkoutAt, payload, items, renewRecords } = params;
   // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
@@ -159,6 +165,7 @@ const buildSpaceSessionSettlementCore = (params: {
     resolveGrouponVoucherConsumptionItem({
       session,
       voucherProductName: params.voucherProductName,
+      voucherCost: params.voucherCost,
     });
   if (voucherConsumptionItem) {
     orderItems.push(voucherConsumptionItem);

@@ -260,7 +260,7 @@ describe('StoresService', () => {
         name: '纯利优选示范店',
         address: '北京市朝阳区望京街道 1 号',
         businessMode: 'general',
-        // 门店类型为「零售」，非「SPA/养生/美容/」模式 → 不开通会员护理档案
+        // 门店类型为「零售」，非「SPA/养生/美容」模式 → 不开通会员护理档案
         memberCareEnabled: false,
         ownerId: user.id,
       },
@@ -368,7 +368,7 @@ describe('StoresService', () => {
     expect(result.memberCareEnabled).toBe(false);
   });
 
-  it('注册后不可切换护理档案档位：零售门店改为「SPA/养生/美容/」时拒绝', async () => {
+  it('注册后不可切换护理档案档位：零售门店改为「SPA/养生/美容」时拒绝', async () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:30:00.000Z');
 
@@ -383,7 +383,7 @@ describe('StoresService', () => {
     });
 
     await expect(
-      service.updateCurrent(user, { storeType: 'SPA/养生/美容/' }),
+      service.updateCurrent(user, { storeType: 'SPA/养生/美容' }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prismaService.store.update).not.toHaveBeenCalled();

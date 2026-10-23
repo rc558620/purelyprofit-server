@@ -205,6 +205,11 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         actualPointsDeducted: draft.metadata.pointsUsed,
         payType: 'balance',
         itemsSummary: draft.metadata.productName,
+        // 成本合计快照：下单时固化的商品成本 × 数量（无成本价则为 null）
+        costAmount:
+          draft.metadata.costPriceFen != null
+            ? draft.metadata.costPriceFen * (draft.metadata.quantity ?? 1)
+            : null,
         promotionId: draft.metadata.promotionId,
       },
     });

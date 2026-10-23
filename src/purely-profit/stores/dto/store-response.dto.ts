@@ -255,7 +255,7 @@ export class StoreResponseDto {
   @ApiProperty({
     example: false,
     description:
-      '是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容/」模式），注册后不可变更',
+      '是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容」模式），注册后不可变更',
   })
   @IsBoolean({ message: '会员护理档案开关必须是布尔值' })
   memberCareEnabled: boolean;

@@ -19,6 +19,7 @@ import {
   sumSelfOrderDeductionMoney,
 } from './space-session-settlement-system-item.shared';
 import type {
+  GrouponVoucherCostSnapshot,
   SpaceSessionItemRecord,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
@@ -133,6 +134,33 @@ const resolvePrepaidEffectiveMoney = (
 };
 
 /**
+ * 券面消费行应扣的商品成本。
+ *
+ * 券面金额 = 本次核销的券面额，可能对应多张券（一次买 2 张并开台核销），
+ * 因此按「券面额 ÷ 券单价」折算件数再乘单件成本；
+ * 单价缺失（历史数据）时按 1 件计，避免多扣。
+ *
+ * 无条件返回零成本的情形：券单未快照成本价（历史订单）→ 保持原「利润 = 券面」口径。
+ */
+const buildVoucherCostMoney = (
+  consumptionMoney: Money,
+  voucherCost?: GrouponVoucherCostSnapshot,
+): Money => {
+  const unitCostFen = voucherCost?.unitCostFen;
+  if (unitCostFen == null || unitCostFen <= 0) {
+    return Money.zero();
+  }
+
+  const unitPriceFen = voucherCost?.unitPriceFen;
+  const pieces =
+    unitPriceFen && unitPriceFen > 0
+      ? Math.max(1, Math.round(consumptionMoney.toDbCents() / unitPriceFen))
+      : 1;
+
+  return Money.fromDbCents(unitCostFen * pieces);
+};
+
+/**
  * 纯消费（items）模式 + 开台团购券：券面金额的**正向消费行**。
  *
  * 为什么只在 items 模式生成：
@@ -158,11 +186,13 @@ export const resolveGrouponVoucherConsumptionItem = (params: {
   >;
   /** 券对应商品名（purelyClub 团购商品，如「分手大师」）；查不到时按兜底名展示 */
   voucherProductName?: string | null;
+  /** 券商品成本快照（下单时固化）；无快照的历史券单保持「利润 = 券面」原口径 */
+  voucherCost?: GrouponVoucherCostSnapshot;
 }): {
   voucherConsumptionMoney: Money;
   orderItem: SpaceSessionItemRecord | null;
 } => {
-  const { session, voucherProductName } = params;
+  const { session, voucherProductName, voucherCost } = params;
   if (session.billingMode !== PrismaSpaceBillingMode.items) {
     return { voucherConsumptionMoney: Money.zero(), orderItem: null };
   }
@@ -180,6 +210,10 @@ export const resolveGrouponVoucherConsumptionItem = (params: {
 
   const consumptionYuan = voucherConsumptionMoney.toOutputYuan();
   const trimmedProductName = voucherProductName?.trim();
+  // 利润 = 券面 - 商品成本（有成本快照时）；可能出现的负值如实保留（券面低于成本的亏损核销）
+  const profitMoney = voucherConsumptionMoney.subtract(
+    buildVoucherCostMoney(voucherConsumptionMoney, voucherCost),
+  );
 
   return {
     voucherConsumptionMoney,
@@ -190,8 +224,7 @@ export const resolveGrouponVoucherConsumptionItem = (params: {
         : GROUPON_VOUCHER_FALLBACK_PRODUCT_NAME,
       categoryName: GROUPON_VOUCHER_CATEGORY_NAME,
       salePrice: consumptionYuan,
-      // 券面即门店券结算收入，无商品成本，与台位费行同口径（利润 = 金额）
-      profit: consumptionYuan,
+      profit: profitMoney.toOutputYuan(),
       quantity: 1,
       lineTotal: consumptionYuan,
     },

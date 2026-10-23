@@ -23,6 +23,8 @@ model ClubVoucherOrder {
   productPrice         Int                       @map("product_price")
   /// 商品原价（分，可为空）
   productOriginalPrice Int?                      @map("product_original_price")
+  /// 商品成本价快照（分，下单时固化用于利润统计；可为空）
+  productCostPrice     Int?                      @map("product_cost_price")
   /// 购买数量
   quantity             Int                       @default(1)
   /// 到店人数（下单时选择，快照）
