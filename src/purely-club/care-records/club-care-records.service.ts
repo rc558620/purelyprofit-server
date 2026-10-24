@@ -12,6 +12,7 @@ import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
 } from '../../purely-profit/marketing/marketing.utils';
+import { normalizeTechnicianLabel } from '../../purely-profit/stores/dto/store-response.dto';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
@@ -59,8 +60,13 @@ export class ClubCareRecordsService {
       CLUB_CARE_RECORD_DEFAULT_PAGE_SIZE,
     );
     const customerId = await this.resolveOwnedCustomerId(currentContext);
+    // 门店服务人员称呼：C 端把「护理师」列名替换为门店配置（空值 / 旧缓存回落「技师」）
+    const technicianLabel = normalizeTechnicianLabel(
+      currentContext.store.technicianLabel,
+    );
     if (customerId === null) {
       return {
+        technicianLabel,
         items: [],
         compareRange: { earliest: null, latest: null },
         meta: buildMarketingPaginationMeta(0, page, take),
@@ -94,6 +100,7 @@ export class ClubCareRecordsService {
     ]);
 
     return {
+      technicianLabel,
       items,
       compareRange,
       meta: buildMarketingPaginationMeta(total, page, take),

@@ -240,6 +240,7 @@ describe('ClubStoresService', () => {
         address: true,
         businessMode: true,
         memberCareEnabled: true,
+        technicianLabel: true,
         createdAt: true,
         updatedAt: true,
       },

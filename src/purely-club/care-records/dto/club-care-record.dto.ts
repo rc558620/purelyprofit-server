@@ -151,6 +151,14 @@ export class ClubCarePaginationMetaDto {
 
 export class ClubCareRecordsResponseDto {
   @ApiProperty({
+    example: '技师',
+    description:
+      '门店服务人员称呼（技师/美容师/洗车工等）：C 端据此把「护理师」列名替换为门店在提成设置中配置的称呼',
+  })
+  @IsString({ message: '服务人员称呼必须是字符串' })
+  technicianLabel: string;
+
+  @ApiProperty({
     type: [ClubCareRecordDto],
     description:
       '护理记录时间线的当前页，按 visitAt 倒序（最近一次在前），翻页向更早回溯',

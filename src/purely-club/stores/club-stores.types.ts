@@ -7,6 +7,8 @@ export const clubAccessibleStoreSelect = {
   address: true,
   businessMode: true,
   memberCareEnabled: true,
+  // 服务人员称呼：C 端护理档案等页面需要按门店配置替换「护理师」等列名
+  technicianLabel: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.StoreSelect;
@@ -23,12 +25,14 @@ export type ClubAccessibleStoreRecord = Omit<
   Prisma.StoreGetPayload<{
     select: typeof clubAccessibleStoreSelect;
   }>,
-  'createdAt' | 'updatedAt'
+  'createdAt' | 'updatedAt' | 'technicianLabel'
 > & {
   /** 创建时间：缓存命中回读后为 ISO 字符串 */
   createdAt: Date | string;
   /** 更新时间：缓存命中回读后为 ISO 字符串（列表查询按此字段排序，排序在 SQL 侧完成） */
   updatedAt: Date | string;
+  /** 服务人员称呼：新增字段前写入的缓存快照不含它，读取时必须走 normalizeTechnicianLabel 兜底 */
+  technicianLabel?: string;
 };
 
 export interface ClubCurrentContext {

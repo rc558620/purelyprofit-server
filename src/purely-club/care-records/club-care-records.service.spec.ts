@@ -29,10 +29,13 @@ const EARLIEST_PHOTO_ROW = {
 };
 
 /** 默认按「SPA/养生/美容」模式门店（已开通护理档案）构造上下文 */
-const buildContext = (memberCareEnabled = true): ClubCurrentContext =>
+const buildContext = (
+  memberCareEnabled = true,
+  technicianLabel?: string,
+): ClubCurrentContext =>
   ({
     user: { id: 201, phone: '13800138000' },
-    store: { id: 11, memberCareEnabled },
+    store: { id: 11, memberCareEnabled, technicianLabel },
   }) as unknown as ClubCurrentContext;
 
 describe('ClubCareRecordsService', () => {
@@ -107,6 +110,29 @@ describe('ClubCareRecordsService', () => {
       total: 23,
       totalPages: 3,
     });
+  });
+
+  it('透出门店服务人员称呼（C 端「护理师」列名按此替换）', async () => {
+    clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
+      customerId: 55,
+    });
+    prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
+    prismaService.careRecord.count.mockResolvedValue(1);
+
+    const result = await service.list(buildContext(true, '美容师'));
+
+    expect(result.technicianLabel).toBe('美容师');
+  });
+
+  it('门店称呼为空或旧缓存缺字段时回落「技师」', async () => {
+    clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
+      customerId: null,
+    });
+
+    const result = await service.list(buildContext(true, undefined));
+
+    expect(result.technicianLabel).toBe('技师');
+    expect(result.items).toEqual([]);
   });
 
   it('翻页按页码换算 skip，且不再计算对比首尾', async () => {
@@ -284,6 +310,7 @@ describe('ClubCareRecordsService', () => {
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue(null);
 
     await expect(service.list(buildContext())).resolves.toEqual({
+      technicianLabel: '技师',
       items: [],
       compareRange: { earliest: null, latest: null },
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
