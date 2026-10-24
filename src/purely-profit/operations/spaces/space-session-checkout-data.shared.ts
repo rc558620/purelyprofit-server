@@ -24,7 +24,7 @@ export const buildCheckoutSettlementData = (params: {
   platformSettledAmount?: number;
   platformFee?: number;
   timeFeeMode?: string;
-  /** 结账重算后的技师提成分配快照（金额为分），传入时回写会话 */
+  /** 结账重算后的服务人员提成分配快照（金额为分），传入时回写会话 */
   commissionAssignments?: CommissionAssignmentRecord[];
 }): Record<string, unknown> => {
   const data: Record<string, unknown> = {
@@ -84,7 +84,7 @@ export const buildCheckoutSettlementData = (params: {
   if (params.timeFeeMode !== undefined) {
     data.timeFeeMode = params.timeFeeMode;
   }
-  // 技师提成分配：结账重算后的最终快照（金额为分），保证会话展示与提成记录一致
+  // 服务人员提成分配：结账重算后的最终快照（金额为分），保证会话展示与提成记录一致
   if (params.commissionAssignments !== undefined) {
     data.commissionAssignments = params.commissionAssignments;
   }

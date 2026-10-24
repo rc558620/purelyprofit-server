@@ -244,7 +244,7 @@ export class SpaceSessionOpenService {
           }
         }
 
-        // 技师提成分配：开台时按配置解析快照（缺省金额由后端计算），落库供结账生成提成记录
+        // 服务人员提成分配：开台时按配置解析快照（缺省金额由后端计算），落库供结账生成提成记录
         const commissionAssignments = await this.resolveAssignmentsSnapshot(
           transaction,
           space.storeId,
@@ -368,7 +368,7 @@ export class SpaceSessionOpenService {
     return value;
   }
 
-  /** 将开台提成分配收敛为落库快照（技师校验 + 金额解析，金额为分）。 */
+  /** 将开台提成分配收敛为落库快照（服务人员校验 + 金额解析，金额为分）。 */
   private async resolveAssignmentsSnapshot(
     transaction: Prisma.TransactionClient,
     storeId: number,
@@ -378,7 +378,7 @@ export class SpaceSessionOpenService {
       return undefined;
     }
 
-    // 服务字典与技师姓名解析互不依赖，并行执行以缩短事务/分布式锁持有时间
+    // 服务字典与服务人员姓名解析互不依赖，并行执行以缩短事务/分布式锁持有时间
     const [servicesMap, nameById] = await Promise.all([
       this.commissionCoreService.buildServicesMap(transaction, storeId),
       this.commissionCoreService.resolveTechnicianNames(

@@ -10,7 +10,7 @@ export interface CommissionOverrideRecord {
   commission: number;
 }
 
-/** 技师提成分配（space_session.commission_assignments JSON 元素，金额为分）。 */
+/** 服务人员提成分配（space_session.commission_assignments JSON 元素，金额为分）。 */
 export interface CommissionAssignmentRecord {
   technicianId: number;
   technicianName: string;

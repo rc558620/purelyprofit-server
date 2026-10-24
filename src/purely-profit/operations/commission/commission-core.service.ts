@@ -1,6 +1,6 @@
 /**
- * 提成核心服务：提成解析、技师校验、分配快照规范化与提成记录生成。
- * 提成金额的唯一权威来源是后端配置（默认提成 + 技师覆盖表），
+ * 提成核心服务：提成解析、服务人员校验、分配快照规范化与提成记录生成。
+ * 提成金额的唯一权威来源是后端配置（默认提成 + 服务人员覆盖表），
  * 开台/结账均以后端重算为准，不信任前端传入金额。
  */
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
@@ -9,6 +9,10 @@ import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { formatShanghaiYearMonth } from '../../../shared/shanghai-time.utils';
 import { parseOverridesJson } from './commission.utils';
+import {
+  DEFAULT_TECHNICIAN_LABEL,
+  normalizeTechnicianLabel,
+} from '../../stores/dto/store-response.dto';
 import type {
   CommissionAssignmentInput,
   CommissionAssignmentRecord,
@@ -16,10 +20,10 @@ import type {
   CreateCommissionRecordsInput,
 } from './commission.types';
 
-/** 提成配置/技师/记录读写客户端（普通客户端或事务客户端）。 */
+/** 提成配置/服务人员/记录读写客户端（普通客户端或事务客户端）。 */
 type CommissionDbClient = Prisma.TransactionClient | PrismaService;
 
-/** 提成解析映射：serviceId → { 默认提成(分), 技师覆盖表, 服务名 }。 */
+/** 提成解析映射：serviceId → { 默认提成(分), 服务人员覆盖表, 服务名 }。 */
 export interface CommissionServicesMap {
   defaultByServiceId: Map<number, number>;
   overridesByServiceId: Map<number, Map<number, number>>;
@@ -62,7 +66,7 @@ export class CommissionCoreService {
   }
 
   /**
-   * 解析单个服务对指定技师的提成（分）：技师有覆盖用覆盖，否则回落默认提成。
+   * 解析单个服务对指定服务人员的提成（分）：服务人员有覆盖用覆盖，否则回落默认提成。
    */
   resolveServiceCommission(
     servicesMap: CommissionServicesMap,
@@ -77,7 +81,7 @@ export class CommissionCoreService {
     return servicesMap.defaultByServiceId.get(serviceId) ?? 0;
   }
 
-  /** 按技师结算一行多服务提成（分）：各服务覆盖/默认之和。 */
+  /** 按服务人员结算一行多服务提成（分）：各服务覆盖/默认之和。 */
   resolveCommission(
     servicesMap: CommissionServicesMap,
     technicianId: number,
@@ -94,8 +98,8 @@ export class CommissionCoreService {
   }
 
   /**
-   * 校验技师均属于该门店（含离职），返回技师 ID → 姓名映射。
-   * 任一技师不存在时抛出参数异常，防止伪造技师 ID 写入提成记录。
+   * 校验服务人员均属于该门店（含离职），返回服务人员 ID → 姓名映射。
+   * 任一服务人员不存在时抛出参数异常，防止伪造服务人员 ID 写入提成记录。
    */
   async resolveTechnicianNames(
     db: CommissionDbClient,
@@ -118,17 +122,41 @@ export class CommissionCoreService {
     const missingIds = uniqueIds.filter((id) => !nameById.has(id));
     if (missingIds.length > 0) {
       this.logger.warn(
-        `提成技师校验失败 storeId=${storeId} missingTechnicianIds=${missingIds.join(',')}`,
+        `提成服务人员校验失败 storeId=${storeId} missingTechnicianIds=${missingIds.join(',')}`,
       );
-      throw new BadRequestException('选择的技师不存在或不属于当前门店');
+      throw new BadRequestException(
+        `选择的${await this.resolveStoreTechnicianLabel(db, storeId)}不存在或不属于当前门店`,
+      );
     }
 
     return nameById;
   }
 
   /**
+   * 读取门店服务人员称呼（仅在校验失败时才回源，成功路径不增加查询）。
+   * 读取失败时回落默认称呼，不因文案查询异常改变校验结论。
+   */
+  private async resolveStoreTechnicianLabel(
+    db: CommissionDbClient,
+    storeId: number,
+  ): Promise<string> {
+    try {
+      const store = await db.store.findUnique({
+        where: { id: storeId },
+        select: { technicianLabel: true },
+      });
+      return normalizeTechnicianLabel(store?.technicianLabel);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `读取门店服务人员称呼失败，回落默认称呼: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return DEFAULT_TECHNICIAN_LABEL;
+    }
+  }
+
+  /**
    * 将开台提交的提成分配收敛为落库快照（金额为分）：
-   * - 技师必须属于当前门店，姓名快照以员工表为准
+   * - 服务人员必须属于当前门店，姓名快照以员工表为准
    * - 服务名快照以提成服务配置为准，缺失时保留前端快照
    * - commission 缺省时按配置解析（后端权威）；传入值仅作会话快照展示，
    *   结账生成提成记录时仍以后端重算为准

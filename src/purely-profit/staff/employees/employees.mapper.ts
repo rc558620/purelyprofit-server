@@ -49,6 +49,7 @@ export function toEmployeeResponse(
     phone: employee.phone,
     position: employee.position,
     department: employee.department,
+    isTechnician: employee.isTechnician,
     joinDate: toTimestampMs(employee.joinDate),
     baseSalary: Money.fromDbCents(employee.baseSalary).toOutputYuan(),
     ...(toOptionalMediaText(employee.avatar)

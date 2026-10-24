@@ -23,7 +23,7 @@ import {
 
 @ApiTags('CommissionRecords')
 @ApiBearerAuth()
-// 技师提成属非餐饮能力：提成记录仅在空间会话结账时生成，餐饮门店恒为空。
+// 服务人员提成属非餐饮能力：提成记录仅在空间会话结账时生成，餐饮门店恒为空。
 // 与权限集注释「非餐饮门店店长专用」对齐，避免餐饮门店建出永不生效的孤儿配置。
 @UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
 @RequireBusinessMode('general')
@@ -36,7 +36,7 @@ export class CommissionRecordsController {
   @Get()
   @RequirePermissions('commission:view')
   @ApiOperation({
-    summary: '查询提成明细分页（月份/技师/状态筛选），返回明细与汇总',
+    summary: '查询提成明细分页（月份/服务人员/状态筛选），返回明细与汇总',
   })
   @ApiOkResponse({ type: ListCommissionRecordsResponseDto })
   list(

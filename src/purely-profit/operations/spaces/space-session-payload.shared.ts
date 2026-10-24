@@ -105,7 +105,7 @@ export const normalizeOpenSessionPayload = (
   };
 };
 
-/** 开台提成分配收敛：丢弃非法行，名称 trim，服务名与技师名可缺省。 */
+/** 开台提成分配收敛：丢弃非法行，名称 trim，服务名与服务人员名可缺省。 */
 export const normalizeCommissionAssignmentsPayload = (
   assignments: CommissionAssignmentDto[],
 ): CommissionAssignmentInput[] =>

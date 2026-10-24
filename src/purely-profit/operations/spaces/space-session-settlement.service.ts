@@ -269,7 +269,7 @@ export class SpaceSessionSettlementService {
           // 结算时不需要重新写入 renewRecords
 
           // ①②④ 修复：结账侧团购/券/平台字段落库
-          // 技师提成：结账时按配置重算每行金额（后端权威），生成提成记录并回写会话最终快照
+          // 服务人员提成：结账时按配置重算每行金额（后端权威），生成提成记录并回写会话最终快照
           const commissionAssignments = await recomputeAndSettleCommissions(
             this.commissionCoreService,
             transaction,

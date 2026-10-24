@@ -42,7 +42,7 @@ export interface WriteCareRecordInput {
   serviceName: string;
   /** 本次消费金额（元，对外口径；落库转分） */
   amountYuan: number;
-  /** 护理师姓名快照；无技师时为 null */
+  /** 护理师姓名快照；无服务人员时为 null */
   technicianName: string | null;
   /** 建档操作人；倒计时自动结账（系统用户）为 null */
   staffId: number | null;

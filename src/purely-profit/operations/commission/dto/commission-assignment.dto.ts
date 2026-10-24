@@ -14,16 +14,16 @@ import { COMMISSION_AMOUNT_MAX } from '../commission.constants';
 
 /** 开台提成分配（金额为元；commission 缺省时后端按配置解析）。 */
 export class CommissionAssignmentDto {
-  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  @ApiProperty({ example: 1, description: '服务人员 ID' })
   @Type(() => Number)
-  @IsInt({ message: '技师员工 ID 必须是整数' })
-  @Min(1, { message: '技师员工 ID 必须大于等于 1' })
+  @IsInt({ message: '服务人员 ID 必须是整数' })
+  @Min(1, { message: '服务人员 ID 必须大于等于 1' })
   technicianId: number;
 
-  @ApiPropertyOptional({ example: '王强', description: '技师姓名快照' })
+  @ApiPropertyOptional({ example: '王强', description: '服务人员姓名快照' })
   @IsOptional()
-  @IsString({ message: '技师姓名必须是字符串' })
-  @MaxLength(20, { message: '技师姓名最长 20 个字符' })
+  @IsString({ message: '服务人员姓名必须是字符串' })
+  @MaxLength(20, { message: '服务人员姓名最长 20 个字符' })
   technicianName?: string;
 
   @ApiProperty({ example: [1, 2], description: '关联服务 ID 列表' })

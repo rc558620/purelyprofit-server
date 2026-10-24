@@ -1,6 +1,7 @@
 import { EmployeeGender } from '@prisma/client';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -35,6 +36,14 @@ export class UpdateEmployeeDto {
   @IsString({ message: '部门名称必须是字符串' })
   @MinLength(1, { message: '部门不能为空' })
   department?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否参与提成：true 表示可作为开台与提成设置里的服务人员',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '是否参与提成必须是布尔值' })
+  isTechnician?: boolean;
 
   @ApiPropertyOptional({
     example: 1740009600000,

@@ -120,6 +120,7 @@ describe('StoresService', () => {
         address: true,
         businessMode: true,
         memberCareEnabled: true,
+        technicianLabel: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -208,6 +209,8 @@ describe('StoresService', () => {
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
+      // mock 门店行未返回 technicianLabel → 兜底默认「技师」
+      technicianLabel: '技师',
       latitude: 39.984104,
       longitude: 116.307503,
       createdAt,
@@ -270,6 +273,7 @@ describe('StoresService', () => {
         address: true,
         businessMode: true,
         memberCareEnabled: true,
+        technicianLabel: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -298,6 +302,8 @@ describe('StoresService', () => {
       storeLogo: 'data:image/png;base64,abc',
       latitude: 39.984104,
       longitude: 116.307503,
+      // mock 门店行未返回 technicianLabel → 兜底默认「技师」
+      technicianLabel: '技师',
       createdAt,
       updatedAt,
     });
@@ -366,6 +372,78 @@ describe('StoresService', () => {
     expect(prismaService.store.update).toHaveBeenCalled();
     expect(result.storeType).toBe('服务');
     expect(result.memberCareEnabled).toBe(false);
+  });
+
+  it('更新服务人员称呼：写入 technicianLabel 并在响应中回显', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      memberCareEnabled: false,
+      technicianLabel: '技师',
+      createdAt,
+      updatedAt,
+    });
+    prismaService.store.update.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      memberCareEnabled: false,
+      technicianLabel: '美容师',
+      createdAt,
+      updatedAt,
+    });
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.updateCurrent(user, {
+      technicianLabel: '美容师',
+    });
+
+    expect(prismaService.store.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { technicianLabel: '美容师' } }),
+    );
+    expect(result.technicianLabel).toBe('美容师');
+  });
+
+  it('服务人员称呼传空字符串/全空格时回落默认「技师」', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      memberCareEnabled: false,
+      technicianLabel: '美容师',
+      createdAt,
+      updatedAt,
+    });
+    prismaService.store.update.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general',
+      memberCareEnabled: false,
+      technicianLabel: '技师',
+      createdAt,
+      updatedAt,
+    });
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.updateCurrent(user, {
+      technicianLabel: '   ',
+    });
+
+    expect(prismaService.store.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { technicianLabel: '技师' } }),
+    );
+    expect(result.technicianLabel).toBe('技师');
   });
 
   it('注册后不可切换护理档案档位：零售门店改为「SPA/养生/美容」时拒绝', async () => {
@@ -471,6 +549,8 @@ describe('StoresService', () => {
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
+      // mock 门店行未返回 technicianLabel → 兜底默认「技师」
+      technicianLabel: '技师',
       createdAt,
       updatedAt,
     });

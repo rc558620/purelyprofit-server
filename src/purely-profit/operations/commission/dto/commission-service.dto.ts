@@ -17,15 +17,15 @@ import {
   COMMISSION_SERVICE_NAME_MAX_LENGTH,
 } from '../commission.constants';
 
-/** 技师提成覆盖项（元）。 */
+/** 服务人员提成覆盖项（元）。 */
 export class CommissionOverrideDto {
-  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  @ApiProperty({ example: 1, description: '服务人员 ID' })
   @Type(() => Number)
-  @IsInt({ message: '技师员工 ID 必须是整数' })
-  @Min(1, { message: '技师员工 ID 必须大于等于 1' })
+  @IsInt({ message: '服务人员 ID 必须是整数' })
+  @Min(1, { message: '服务人员 ID 必须大于等于 1' })
   technicianId: number;
 
-  @ApiProperty({ example: 60, description: '该技师在此服务下的提成（元）' })
+  @ApiProperty({ example: 60, description: '该服务人员在此服务下的提成（元）' })
   @IsNumber({ maxDecimalPlaces: 2 }, { message: '提成金额最多保留两位小数' })
   @Min(0, { message: '提成金额不能为负数' })
   @Max(COMMISSION_AMOUNT_MAX, { message: '提成金额不能超过 100000 元' })
@@ -58,7 +58,7 @@ export class UpsertCommissionServiceDto {
 
   @ApiPropertyOptional({
     type: [CommissionOverrideDto],
-    description: '技师提成覆盖表（全量替换）',
+    description: '服务人员提成覆盖表（全量替换）',
   })
   @IsOptional()
   @IsArray({ message: '覆盖表必须是数组' })
@@ -67,9 +67,9 @@ export class UpsertCommissionServiceDto {
   overrides?: CommissionOverrideDto[];
 }
 
-/** 技师覆盖项响应（金额为元）。 */
+/** 服务人员覆盖项响应（金额为元）。 */
 export class CommissionOverrideResponseDto {
-  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  @ApiProperty({ example: 1, description: '服务人员 ID' })
   technicianId: number;
 
   @ApiProperty({ example: 60, description: '提成（元）' })

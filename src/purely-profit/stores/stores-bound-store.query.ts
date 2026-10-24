@@ -11,6 +11,8 @@ const BOUND_STORE_SELECT = {
   businessMode: true,
   // 会员护理档案档位：门店更新时据此拒绝跨档位修改门店类型
   memberCareEnabled: true,
+  // 服务人员称呼：auth/profile 与门店读取都据此回显
+  technicianLabel: true,
   createdAt: true,
   updatedAt: true,
 } as const;

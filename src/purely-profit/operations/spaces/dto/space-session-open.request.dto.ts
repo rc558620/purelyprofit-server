@@ -187,7 +187,7 @@ export class OpenSpaceSessionDto {
   @ApiPropertyOptional({
     type: [CommissionAssignmentDto],
     description:
-      '技师提成分配（仅非餐饮门店；commission 缺省时后端按配置解析）',
+      '服务人员提成分配（仅非餐饮门店；commission 缺省时后端按配置解析）',
   })
   @IsOptional()
   @IsArray({ message: '提成分配必须是数组' })

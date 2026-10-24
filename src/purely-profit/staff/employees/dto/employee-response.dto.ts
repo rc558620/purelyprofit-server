@@ -149,6 +149,13 @@ export class EmployeeResponseDto {
   department: string;
 
   @ApiProperty({
+    example: false,
+    description: '是否参与提成：true 表示可作为开台与提成设置里的服务人员',
+  })
+  @IsBoolean({ message: '是否参与提成必须是布尔值' })
+  isTechnician: boolean;
+
+  @ApiProperty({
     example: 1740009600000,
     description: '入职日期时间戳（毫秒）',
   })

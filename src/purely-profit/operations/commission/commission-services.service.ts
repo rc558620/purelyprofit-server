@@ -1,6 +1,6 @@
 /**
- * 提成服务配置 CRUD：按门店维护「服务 → 默认提成 + 技师覆盖表」。
- * 同名校验、技师存在性校验、软删除均在此收敛。
+ * 提成服务配置 CRUD：按门店维护「服务 → 默认提成 + 服务人员覆盖表」。
+ * 同名校验、服务人员存在性校验、软删除均在此收敛。
  */
 import {
   ConflictException,
@@ -44,7 +44,7 @@ export class CommissionServicesService {
     return records.map(toCommissionServiceResponse);
   }
 
-  /** 新增服务配置：同名（未软删）返回 409，技师覆盖表须全部存在。 */
+  /** 新增服务配置：同名（未软删）返回 409，服务人员覆盖表须全部存在。 */
   async create(
     user: AuthenticatedUser,
     dto: UpsertCommissionServiceDto,
@@ -82,7 +82,7 @@ export class CommissionServicesService {
     );
   }
 
-  /** 更新服务配置：overrides 全量替换，仍需校验技师存在与同名校验。 */
+  /** 更新服务配置：overrides 全量替换，仍需校验服务人员存在与同名校验。 */
   async update(
     user: AuthenticatedUser,
     serviceId: number,

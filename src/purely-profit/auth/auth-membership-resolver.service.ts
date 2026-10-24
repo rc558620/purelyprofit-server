@@ -47,6 +47,7 @@ export class AuthMembershipResolverService {
         | 'storeCreatedAt'
         | 'storeUpdatedAt'
         | 'memberCareEnabled'
+        | 'technicianLabel'
       >[]
     >`
       SELECT
@@ -54,6 +55,7 @@ export class AuthMembershipResolverService {
         s.address,
         s.business_mode AS "businessMode",
         s.member_care_enabled AS "memberCareEnabled",
+        s.technician_label AS "technicianLabel",
         s.created_at AS "storeCreatedAt",
         s.updated_at AS "storeUpdatedAt"
       FROM staffs st

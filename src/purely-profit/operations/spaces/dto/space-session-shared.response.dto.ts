@@ -129,10 +129,10 @@ export class SpaceSessionRenewRecordResponseDto {
 }
 
 export class SpaceSessionCommissionAssignmentResponseDto {
-  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  @ApiProperty({ example: 1, description: '服务人员 ID' })
   technicianId: number;
 
-  @ApiProperty({ example: '王强', description: '技师姓名快照' })
+  @ApiProperty({ example: '王强', description: '服务人员姓名快照' })
   technicianName: string;
 
   @ApiProperty({ example: [1, 2], description: '关联服务 ID 列表' })
@@ -290,7 +290,7 @@ export class SpaceSessionResponseDto {
 
   @ApiPropertyOptional({
     type: [SpaceSessionCommissionAssignmentResponseDto],
-    description: '技师提成分配（仅非餐饮门店会话）',
+    description: '服务人员提成分配（仅非餐饮门店会话）',
   })
   commissionAssignments?: SpaceSessionCommissionAssignmentResponseDto[];
 

@@ -158,6 +158,8 @@ describe('AuthProfileService', () => {
         businessMode: 'general',
         region: ['北京市', '北京市', '朝阳区'],
         address: '北京市朝阳区望京街道 1 号',
+        // mock 会员行未返回 technicianLabel → 兜底默认「技师」
+        technicianLabel: '技师',
         storeLogo: 'https://img.test/store.png',
         latitude: 39.984104,
         longitude: 116.307503,

@@ -66,7 +66,7 @@ export class SaveEmployeePayrollDto {
 
   @ApiPropertyOptional({
     example: 1200,
-    description: '技师提成（元，非技师员工为 0；缺省按 0 处理）',
+    description: '服务人员提成（元，非服务人员为 0；缺省按 0 处理）',
   })
   @IsOptional()
   @Min(0, { message: '提成不能为负数' })
@@ -116,7 +116,7 @@ export class UpdateEmployeePayrollDto {
 
   @ApiPropertyOptional({
     example: 1200,
-    description: '技师提成（元，非技师员工为 0）',
+    description: '服务人员提成（元，非服务人员为 0）',
   })
   @IsOptional()
   @Min(0, { message: '提成不能为负数' })
@@ -297,7 +297,7 @@ export class EmployeePayrollResponseDto {
   @ApiProperty({ example: 300, description: '奖金（元）' })
   bonus: number;
 
-  @ApiProperty({ example: 1200, description: '技师提成（元）' })
+  @ApiProperty({ example: 1200, description: '服务人员提成（元）' })
   commission: number;
 
   @ApiProperty({ example: 4630, description: '实发工资（元）' })

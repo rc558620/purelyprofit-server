@@ -191,8 +191,6 @@ describe('AccessControlService', () => {
       'cost:delete',
       'sales:view',
       'staff:view',
-      'commission:view',
-      'commission:manage',
       'service-call:view',
       'service-call:process',
       // 财务不参与交班（canUseHandover=false），但保留 handover:view 只读审计查看
@@ -208,6 +206,9 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('handover:create');
     expect(permissions).not.toContain('handover:update');
     expect(permissions).not.toContain('operation-entry:view');
+    // 财务不查看服务人员提成（明细/配置/导出均由 commission:view 把关）
+    expect(permissions).not.toContain('commission:view');
+    expect(permissions).not.toContain('commission:manage');
   });
 
   it('禁用交班时应从 cashier 权限中移除 handover:*', () => {

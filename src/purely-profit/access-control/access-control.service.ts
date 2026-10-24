@@ -157,7 +157,7 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'space:create',
   'space:update',
   'space:delete',
-  // 技师提成（配置与明细，非餐饮门店店长专用）
+  // 服务人员提成（配置与明细，非餐饮门店店长专用）
   'commission:view',
   'commission:manage',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
@@ -197,9 +197,6 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'cost:delete',
   'sales:view',
   'staff:view',
-  // 技师提成（配置与明细，财务专用）
-  'commission:view',
-  'commission:manage',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
   'service-call:process',

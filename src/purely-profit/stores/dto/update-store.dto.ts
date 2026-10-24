@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -45,6 +46,15 @@ export class UpdateStoreDto {
   @IsString({ message: '门店地址必须是字符串' })
   @MinLength(1, { message: '详细地址不能为空' })
   address?: string;
+
+  @ApiPropertyOptional({
+    example: '美容师',
+    description: '服务人员称呼（1-8 字），留空或全空格则回落默认「技师」',
+  })
+  @IsOptional()
+  @IsString({ message: '服务人员称呼必须是字符串' })
+  @MaxLength(8, { message: '服务人员称呼不能超过 8 个字' })
+  technicianLabel?: string;
 
   @ApiPropertyOptional({
     example: ['云南省', '昆明市', '五华区'],

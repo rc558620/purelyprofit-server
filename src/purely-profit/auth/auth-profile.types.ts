@@ -28,6 +28,8 @@ export interface ProfileMembershipRecord {
   businessMode: 'catering' | 'general';
   /// 会员护理档案档位：仅「SPA/养生/美容」模式门店为 true，注册时确定
   memberCareEnabled: boolean;
+  /// 服务人员称呼（技师/美容师/洗车工），缺省时由 buildStoreResponseDto 兜底
+  technicianLabel?: string;
   storeCreatedAt: Date;
   storeUpdatedAt: Date;
 }

@@ -34,7 +34,7 @@ import {
 
 @ApiTags('CommissionServices')
 @ApiBearerAuth()
-// 技师提成属非餐饮能力：提成配置仅在空间会话结账时消费，餐饮门店建出的配置永不生效。
+// 服务人员提成属非餐饮能力：提成配置仅在空间会话结账时消费，餐饮门店建出的配置永不生效。
 // 与权限集注释「非餐饮门店店长专用」对齐，避免产生孤儿配置。
 @UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
 @RequireBusinessMode('general')

@@ -2,7 +2,7 @@
  * 提成记录查询：明细分页 + 汇总 + 员工月度提成（工资弹窗回填）+ CSV 导出。
  * 汇总与金额均由后端计算，前端仅展示。
  */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma, CommissionRecordStatus } from '@prisma/client';
 import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
@@ -28,6 +28,10 @@ import type {
   ListCommissionRecordsQueryDto,
   ListCommissionRecordsResponseDto,
 } from './dto/commission-record.dto';
+import {
+  DEFAULT_TECHNICIAN_LABEL,
+  normalizeTechnicianLabel,
+} from '../../stores/dto/store-response.dto';
 
 /** 汇总聚合行（Prisma groupBy 结果）。 */
 interface CommissionStatusAggregate {
@@ -38,15 +42,22 @@ interface CommissionStatusAggregate {
 
 // ─── CSV 导出辅助 ─────────────────────────────────────────────────
 
-/** 提成明细 CSV 表头（列结构与打印报表一致）。 */
-const COMMISSION_EXPORT_HEADERS = [
-  '技师',
-  '空间',
-  '服务（每服务提成）',
-  '提成金额(元)',
-  '状态',
-  '结账时间',
-];
+/**
+ * 提成明细 CSV 表头（列结构与打印报表一致）。
+ * 首列按门店自定义的服务人员称呼生成，避免多门店不同称呼互相串用。
+ */
+export function buildCommissionExportHeaders(
+  technicianLabel: string,
+): string[] {
+  return [
+    technicianLabel,
+    '空间',
+    '服务（每服务提成）',
+    '提成金额(元)',
+    '状态',
+    '结账时间',
+  ];
+}
 
 /** 提成状态中文标签（与前端 COMMISSION_STATUS_META 保持一致）。 */
 const COMMISSION_STATUS_LABELS: Record<CommissionRecordStatusValue, string> = {
@@ -58,6 +69,8 @@ const COMMISSION_STATUS_LABELS: Record<CommissionRecordStatusValue, string> = {
 
 @Injectable()
 export class CommissionRecordsService {
+  private readonly logger = new Logger(CommissionRecordsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -186,13 +199,35 @@ export class CommissionRecordsService {
       this.buildExportCsvRow(this.toRecordRow(row)),
     );
 
+    const technicianLabel = await this.resolveStoreTechnicianLabel(storeId);
+
     safeStreamCsvExport(
       reply,
       `提成明细-${query.month ?? '全部'}.csv`,
-      COMMISSION_EXPORT_HEADERS,
+      buildCommissionExportHeaders(technicianLabel),
       dataRows,
       prefixRows,
     );
+  }
+
+  /**
+   * 读取门店服务人员称呼：导出表头首列需按门店定制。
+   * 读不到或查询失败时回落默认「技师」：称呼只影响表头文案，
+   * 不应让已经加载完成的导出失败（与 CommissionCoreService 同口径）。
+   */
+  private async resolveStoreTechnicianLabel(storeId: number): Promise<string> {
+    try {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { technicianLabel: true },
+      });
+      return normalizeTechnicianLabel(store?.technicianLabel);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `读取门店服务人员称呼失败，导出表头回落默认称呼: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return DEFAULT_TECHNICIAN_LABEL;
+    }
   }
 
   /** 筛选条件 → Prisma where（列表与导出共用同一口径）。 */

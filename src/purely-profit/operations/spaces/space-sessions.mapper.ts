@@ -205,7 +205,7 @@ export const toSpaceSessionResponse = (
     renewRecords: renewRecords.map(
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),
-    // 技师提成分配：DB JSON 金额为分，转为元输出
+    // 服务人员提成分配：DB JSON 金额为分，转为元输出
     ...(session.commissionAssignments
       ? {
           commissionAssignments: parseAssignmentsJson(

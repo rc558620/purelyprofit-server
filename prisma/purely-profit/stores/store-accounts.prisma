@@ -50,6 +50,9 @@ model Store {
   /// 是否启用会员护理档案：注册时由 storeType 派生（仅「SPA/养生/美容」模式为 true），
   /// 与业态一样属于注册时确定、注册后不可切换的门店档位。
   memberCareEnabled           Boolean                       @default(false) @map("member_care_enabled")
+  /// 服务人员称呼（技师/美容师/洗车工等）：非餐饮业态可自定义，默认「技师」。
+  /// 独立列而非 profileMetadata：称呼参与接口校验与导出表头，需可索引、可 SQL 读取。
+  technicianLabel             String                        @default("技师") @map("technician_label")
   /// 门店扩展字段 JSON（storeType/region/storeLogo/经纬度/regionLabels），持久化事实源
   profileMetadata             Json?                         @map("profile_metadata")
   /// 扫码点餐语音播报开关（默认关闭，商家端修改，顾客端据此展示取餐通知弹窗）

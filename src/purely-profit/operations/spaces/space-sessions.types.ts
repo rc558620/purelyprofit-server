@@ -167,7 +167,7 @@ export interface SpaceSessionRecord {
   /// Step 8.1: items 已拆到 space_session_items 表，通过 include 查询
   sessionItems: SpaceSessionItemRow[];
   itemsCost: number;
-  /// 技师提成分配快照 JSON（[{ technicianId, technicianName, serviceIds, serviceNames, commission(分) }]）
+  /// 服务人员提成分配快照 JSON（[{ technicianId, technicianName, serviceIds, serviceNames, commission(分) }]）
   commissionAssignments: Prisma.JsonValue | null;
   /// Step 8.1: renewRecords 已拆到 space_session_renew_records 表，通过 include 查询
   sessionRenewRecords: SpaceSessionRenewRecordRow[];
@@ -247,7 +247,7 @@ export interface NormalizedOpenSessionPayload {
   prepaidNote?: string;
   prepaidAmount?: number;
   prepaidVoucherFaceAmount?: number;
-  /** 技师提成分配（开台时录入，仅非餐饮门店；金额为元，缺省由后端解析） */
+  /** 服务人员提成分配（开台时录入，仅非餐饮门店；金额为元，缺省由后端解析） */
   commissionAssignments?: CommissionAssignmentInput[];
 }
 

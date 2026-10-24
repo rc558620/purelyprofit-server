@@ -25,11 +25,11 @@ export class ListCommissionRecordsQueryDto {
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: '月份格式必须为 YYYY-MM' })
   month?: string;
 
-  @ApiPropertyOptional({ example: 1, description: '技师员工 ID' })
+  @ApiPropertyOptional({ example: 1, description: '服务人员 ID' })
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: '技师员工 ID 必须是整数' })
-  @Min(1, { message: '技师员工 ID 必须大于等于 1' })
+  @IsInt({ message: '服务人员 ID 必须是整数' })
+  @Min(1, { message: '服务人员 ID 必须大于等于 1' })
   technicianId?: number;
 
   @ApiPropertyOptional({
@@ -80,10 +80,10 @@ export class CommissionRecordResponseDto {
   @ApiProperty({ example: 'A台', description: '空间名称快照' })
   spaceName: string;
 
-  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  @ApiProperty({ example: 1, description: '服务人员 ID' })
   technicianId: number;
 
-  @ApiProperty({ example: '王强', description: '技师姓名快照' })
+  @ApiProperty({ example: '王强', description: '服务人员姓名快照' })
   technicianName: string;
 
   @ApiProperty({ example: [1, 2], description: '关联服务 ID 列表' })
@@ -167,7 +167,7 @@ export class ListCommissionRecordsResponseDto {
 
 /** 员工月度提成汇总查询参数（工资弹窗回填）。 */
 export class CommissionSummaryByEmployeeQueryDto {
-  @ApiProperty({ example: 1, description: '员工 ID（技师）' })
+  @ApiProperty({ example: 1, description: '员工 ID（服务人员）' })
   @Type(() => Number)
   @IsInt({ message: '员工 ID 必须是整数' })
   @Min(1, { message: '员工 ID 必须大于等于 1' })

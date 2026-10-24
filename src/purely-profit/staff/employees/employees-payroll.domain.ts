@@ -11,7 +11,7 @@ export interface PayrollDraftInput {
   otherDeduction: Money;
   otherDeductionNote?: string | null;
   bonus: Money;
-  /** 技师提成（分），计入实发工资 */
+  /** 服务人员提成（分），计入实发工资 */
   commission: Money;
   socialInsurance?: Money;
   housingFund?: Money;

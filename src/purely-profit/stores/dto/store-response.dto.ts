@@ -25,6 +25,16 @@ export interface StoreProfileMetadata {
   regionLabels?: string[];
 }
 
+/** 服务人员称呼默认值：老门店未落 technician_label 或读到空值时兜底。 */
+export const DEFAULT_TECHNICIAN_LABEL = '技师';
+
+/** 服务人员称呼归一化：trim 后为空（含全空格）视为回落默认「技师」。 */
+export function normalizeTechnicianLabel(value: unknown): string {
+  return typeof value === 'string' && value.trim() !== ''
+    ? value.trim()
+    : DEFAULT_TECHNICIAN_LABEL;
+}
+
 export interface StoreRecordSnapshot {
   id: number;
   name: string;
@@ -33,6 +43,8 @@ export interface StoreRecordSnapshot {
   businessMode: 'catering' | 'general';
   /// 是否启用会员护理档案：注册时由 storeType 派生（仅 SPA/养生/美容 模式），注册后不可变更
   memberCareEnabled: boolean;
+  /// 服务人员称呼（技师/美容师/洗车工），缺省时由 buildStoreResponseDto 兜底为「技师」
+  technicianLabel?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -182,6 +194,8 @@ export function buildStoreResponseDto(
     businessMode: store.businessMode,
     // 护理档案档位：前端据此决定是否显示「会员护理档案」入口
     memberCareEnabled: store.memberCareEnabled,
+    // 服务人员称呼：老数据未落列或为空时兜底「技师」，避免前端文案出现空白
+    technicianLabel: normalizeTechnicianLabel(store.technicianLabel),
     region: metadata.region,
     address: store.address ?? '',
     ...(metadata.storeLogo ? { storeLogo: metadata.storeLogo } : {}),
@@ -259,6 +273,14 @@ export class StoreResponseDto {
   })
   @IsBoolean({ message: '会员护理档案开关必须是布尔值' })
   memberCareEnabled: boolean;
+
+  @ApiProperty({
+    example: '技师',
+    description:
+      '服务人员称呼（技师/美容师/洗车工），非餐饮门店可自定义，默认「技师」',
+  })
+  @IsString({ message: '服务人员称呼必须是字符串' })
+  technicianLabel: string;
 
   @ApiProperty({
     example: ['北京市', '北京市', '朝阳区'],

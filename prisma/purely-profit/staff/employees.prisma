@@ -37,6 +37,9 @@ model Employee {
   phone            String
   position         String
   department       String
+  /// 是否参与提成：true 表示该员工可作为开台与提成设置里的「服务人员」，
+  /// 与职位名解耦（服务人员称呼由门店 technician_label 决定，默认「技师」）
+  isTechnician     Boolean               @default(false) @map("is_technician")
   joinDate         DateTime              @map("join_date")
   baseSalary       Int                   @map("base_salary")
   avatar           String?

@@ -83,6 +83,7 @@ export class AuthRegisterStoreService {
             address: true,
             businessMode: true,
             memberCareEnabled: true,
+            technicianLabel: true,
             createdAt: true,
             updatedAt: true,
           },

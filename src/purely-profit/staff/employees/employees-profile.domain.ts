@@ -14,6 +14,8 @@ export interface CreateEmployeeProfileInput {
   empNo: string;
   name: string;
   phone: string;
+  /// 是否参与提成：不传时回落 false（新增员工默认不是服务人员）
+  isTechnician?: boolean;
   joinDate: number;
   baseSalary: number;
   avatar?: string;
@@ -30,6 +32,8 @@ export interface UpdateEmployeeProfileInput {
   position?: EmployeeProfileDictionaryRecord;
   name?: string;
   phone?: string;
+  /// 是否参与提成：不传表示不更新该字段
+  isTechnician?: boolean;
   joinDate?: number;
   baseSalary?: number;
   avatar?: string;
@@ -64,6 +68,7 @@ export function buildCreateEmployeeProfileData(
     phone: input.phone.trim(),
     position: input.position.name,
     department: input.department.name,
+    isTechnician: input.isTechnician ?? false,
     joinDate: new Date(input.joinDate),
     baseSalary: Money.fromInputYuan(input.baseSalary).toDbCents(),
     avatar: toNullableText(input.avatar),
@@ -96,6 +101,9 @@ export function buildUpdateEmployeeProfileData(
           positionId: input.position.id,
           position: input.position.name,
         }
+      : {}),
+    ...(input.isTechnician !== undefined
+      ? { isTechnician: input.isTechnician }
       : {}),
     ...(input.joinDate !== undefined
       ? { joinDate: new Date(input.joinDate) }

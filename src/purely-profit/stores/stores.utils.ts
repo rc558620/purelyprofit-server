@@ -1,5 +1,6 @@
 import {
   normalizeStoreProfileMetadata,
+  normalizeTechnicianLabel,
   type StoreProfileMetadata,
   type StoreRegionValue,
 } from './dto/store-response.dto';
@@ -86,6 +87,7 @@ export function extractStoreUpdatePayload(dto: UpdateStoreDto): {
   storeType?: string;
   storeRegion?: StoreRegionValue[];
   address?: string;
+  technicianLabel?: string;
   storeLogo?: string;
   latitude?: number;
   longitude?: number;
@@ -96,6 +98,7 @@ export function extractStoreUpdatePayload(dto: UpdateStoreDto): {
     storeType?: string;
     storeRegion?: StoreRegionValue[];
     address?: string;
+    technicianLabel?: string;
     storeLogo?: string;
     latitude?: number;
     longitude?: number;
@@ -116,6 +119,10 @@ export function extractStoreUpdatePayload(dto: UpdateStoreDto): {
   }
   if (dto.address !== undefined) {
     result.address = dto.address;
+  }
+  if (dto.technicianLabel !== undefined) {
+    // 传空字符串/全空格视为「清空自定义」，回落默认称呼而非写入空值
+    result.technicianLabel = normalizeTechnicianLabel(dto.technicianLabel);
   }
   if (dto.storeLogo !== undefined) {
     result.storeLogo = normalizeStoreLogo(dto.storeLogo);

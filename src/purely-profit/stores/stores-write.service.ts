@@ -56,6 +56,7 @@ export class StoresWriteService {
             address: true,
             businessMode: true,
             memberCareEnabled: true,
+            technicianLabel: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -148,6 +149,9 @@ export class StoresWriteService {
     if (updatePayload.address !== undefined) {
       storeUpdateData.address = updatePayload.address;
     }
+    if (updatePayload.technicianLabel !== undefined) {
+      storeUpdateData.technicianLabel = updatePayload.technicianLabel;
+    }
 
     const updatedStore =
       Object.keys(storeUpdateData).length > 0
@@ -160,6 +164,7 @@ export class StoresWriteService {
               address: true,
               businessMode: true,
               memberCareEnabled: true,
+              technicianLabel: true,
               createdAt: true,
               updatedAt: true,
             },

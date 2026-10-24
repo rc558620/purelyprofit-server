@@ -19,7 +19,7 @@ export interface CareRecordSnapshotSource {
 export interface CareRecordSnapshot {
   /** 护理项目名：剔除系统抵扣项与台位费行后的消费项目名，以「、」连接 */
   serviceName: string;
-  /** 护理师姓名：提成分配排序后的第一个；无技师时为 null */
+  /** 护理师姓名：提成分配排序后的第一个；无服务人员时为 null */
   technicianName: string | null;
   /** 本次消费金额（元） */
   amountYuan: number;

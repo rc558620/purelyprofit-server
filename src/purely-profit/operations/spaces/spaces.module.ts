@@ -67,7 +67,7 @@ import { StoreBusinessCapabilityModule } from '../../stores/store-business-capab
     StoresModule,
     // 复用扫码点餐的打印通道基础设施（云/USB/代理/ESC-POS）
     ScanOrderingModule,
-    // 技师提成：结账生成提成记录、开台解析提成分配
+    // 服务人员提成：结账生成提成记录、开台解析提成分配
     CommissionModule,
     // 追加点单的规格校验与权威定价
     ProductsModule,
