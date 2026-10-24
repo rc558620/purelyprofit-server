@@ -297,6 +297,8 @@ export async function bootstrap(): Promise<void> {
       'Wechatpay-Signature',
       'Wechatpay-Serial',
       'Wechatpay-Signature-Type',
+      // dev-only 短信通道开关接口的访问令牌头（仅非生产环境使用）
+      'x-sms-dev-token',
     ],
     credentials: allowCredentials,
   });

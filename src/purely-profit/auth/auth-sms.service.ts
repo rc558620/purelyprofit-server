@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuthSmsModeService } from './auth-sms-mode.service';
+import { maskPhone } from './auth.utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const tencentcloudSms = require('tencentcloud-sdk-nodejs-sms') as {
   sms: {
@@ -36,22 +38,24 @@ interface SendSmsResponse {
 
 const SmsClient = tencentcloudSms.sms.v20210111.Client;
 
-interface SendPasswordResetCodeParams {
-  phone: string;
-  code: string;
-  expiresInSeconds: number;
-}
+/** 验证码有效期由秒换算为分钟（向上取整），与短信模板 {2} 参数口径一致。 */
+const toExpireMinutes = (expiresInSeconds: number): number =>
+  Math.ceil(expiresInSeconds / 60);
 
-interface SendRegisterCodeParams {
+/**
+ * 发送验证码短信的统一入参。
+ *
+ * `shouldSendLive` 由 `AuthCodeService` 在本次发码前**统一裁决一次**后传入：
+ * 「是否真实发送」与「是否在响应中暴露明文验证码」必须复用同一结论，
+ * 否则两次独立裁决之间若发生模式切换，会出现
+ * 「真实发送了短信、同时把验证码明文回传前端」的不一致结果。
+ */
+interface SendSmsCodeParams {
   phone: string;
   code: string;
   expiresInSeconds: number;
-}
-
-interface SendLoginCodeParams {
-  phone: string;
-  code: string;
-  expiresInSeconds: number;
+  /** 本次是否真实发送短信（已由 AuthCodeService 裁决） */
+  shouldSendLive: boolean;
 }
 
 /**
@@ -70,7 +74,10 @@ export class AuthSmsService {
   private readonly loginTemplateId: string;
   private readonly passwordResetTemplateId: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly authSmsModeService: AuthSmsModeService,
+  ) {
     const secretId = configService.get<string>('tencentSms.secretId') ?? '';
     const secretKey = configService.get<string>('tencentSms.secretKey') ?? '';
     this.sdkAppId = configService.get<string>('tencentSms.sdkAppId') ?? '';
@@ -97,60 +104,81 @@ export class AuthSmsService {
     }
   }
 
-  async sendPasswordResetCode(
-    params: SendPasswordResetCodeParams,
-  ): Promise<void> {
-    const expireMinutes = Math.ceil(params.expiresInSeconds / 60);
-
-    if (!this.client) {
-      this.logger.log(
-        `[降级模式] 发送找回密码验证码到 ${params.phone}，验证码 ${params.code}，有效期 ${expireMinutes} 分钟`,
-      );
+  async sendPasswordResetCode(params: SendSmsCodeParams): Promise<void> {
+    if (!this.resolveSendLive(params, '找回密码')) {
       return;
     }
 
     await this.sendSms(
       params.phone,
       this.passwordResetTemplateId,
-      [params.code, String(expireMinutes)],
+      [params.code, String(toExpireMinutes(params.expiresInSeconds))],
       '找回密码',
     );
   }
 
-  async sendRegisterCode(params: SendRegisterCodeParams): Promise<void> {
-    const expireMinutes = Math.ceil(params.expiresInSeconds / 60);
-
-    if (!this.client) {
-      this.logger.log(
-        `[降级模式] 发送注册验证码到 ${params.phone}，验证码 ${params.code}，有效期 ${expireMinutes} 分钟`,
-      );
+  async sendRegisterCode(params: SendSmsCodeParams): Promise<void> {
+    if (!this.resolveSendLive(params, '注册')) {
       return;
     }
 
     await this.sendSms(
       params.phone,
       this.registerTemplateId,
-      [params.code, String(expireMinutes)],
+      [params.code, String(toExpireMinutes(params.expiresInSeconds))],
       '注册',
     );
   }
 
-  async sendLoginCode(params: SendLoginCodeParams): Promise<void> {
-    const expireMinutes = Math.ceil(params.expiresInSeconds / 60);
-
-    if (!this.client) {
-      this.logger.log(
-        `[降级模式] 发送登录验证码到 ${params.phone}，验证码 ${params.code}，有效期 ${expireMinutes} 分钟`,
-      );
+  async sendLoginCode(params: SendSmsCodeParams): Promise<void> {
+    if (!this.resolveSendLive(params, '登录')) {
       return;
     }
 
     await this.sendSms(
       params.phone,
       this.loginTemplateId,
-      [params.code, String(expireMinutes)],
+      [params.code, String(toExpireMinutes(params.expiresInSeconds))],
       '登录',
     );
+  }
+
+  /**
+   * 判断是否真实发送短信，并为降级场景输出**原因可区分**的日志。
+   *
+   * 真实发送需同时满足：
+   * 1. 腾讯云凭证已配置（客户端初始化成功）；
+   * 2. 调用方裁决为 live（由 AuthCodeService 综合通道模式与手机号白名单得出）。
+   *
+   * 「凭证缺失」与「主动测试模式」必须打不同级别的日志：
+   * 否则切到 live 后因凭证缺失而没真发时，日志仍显示“测试模式”，
+   * 会被误判成开关失效，白白增加排查成本。
+   * @returns 是否真实发送短信
+   */
+  private resolveSendLive(
+    params: SendSmsCodeParams,
+    sceneLabel: string,
+  ): boolean {
+    const expireMinutes = toExpireMinutes(params.expiresInSeconds);
+    const maskedPhone = maskPhone(params.phone);
+
+    if (!this.client) {
+      this.logger.warn(
+        `[凭证缺失] ${sceneLabel}验证码未真实发送 → ${maskedPhone}，` +
+          `验证码 ${params.code}，有效期 ${expireMinutes} 分钟（腾讯云凭证未配置）`,
+      );
+      return false;
+    }
+
+    if (!params.shouldSendLive) {
+      this.logger.log(
+        `[测试模式] ${sceneLabel}验证码未真实发送 → ${maskedPhone}，` +
+          `验证码 ${params.code}，有效期 ${expireMinutes} 分钟`,
+      );
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -191,10 +219,13 @@ export class AuthSmsService {
       }
 
       this.logger.log(
-        `${sceneLabel}验证码短信发送成功 → ${phone}，RequestId: ${resp.RequestId}`,
+        `${sceneLabel}验证码短信发送成功 → ${maskPhone(phone)}，RequestId: ${resp.RequestId}`,
       );
     } catch (error) {
-      this.logger.error(`${sceneLabel}验证码短信发送失败 → ${phone}`, error);
+      this.logger.error(
+        `${sceneLabel}验证码短信发送失败 → ${maskPhone(phone)}`,
+        error,
+      );
       throw error;
     }
   }

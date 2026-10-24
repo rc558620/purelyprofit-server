@@ -475,6 +475,41 @@ export default () => ({
      */
     wechatPhoneBindEnabled:
       (process.env.AUTH_WECHAT_PHONE_BIND_ENABLED ?? 'false') === 'true',
+    /**
+     * 短信发送通道模式。
+     * - `mock`：测试模式，仅打印日志、不真实发送（现状行为）
+     * - `live`：真实接通腾讯云短信
+     *
+     * 未显式配置时按环境推导：生产默认 `live`，其余环境默认 `mock`。
+     * 对应环境变量：AUTH_SMS_MODE
+     */
+    smsMode:
+      // 空串 / 纯空白也必须回落到按环境推导，否则生产配成 `AUTH_SMS_MODE=`
+      // 会被判成测试模式，短信静默失效且无任何报错
+      (process.env.AUTH_SMS_MODE ?? '').trim() ||
+      (process.env.NODE_ENV === 'production' ? 'live' : 'mock'),
+    /**
+     * 是否允许通过 dev-only 开关接口在运行期切换短信通道。
+     * 生产环境强制禁用（无论环境变量如何配置）。
+     * 对应环境变量：AUTH_SMS_MODE_SWITCH_ENABLED
+     */
+    smsModeSwitchEnabled:
+      (process.env.AUTH_SMS_MODE_SWITCH_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * dev-only 开关接口的访问令牌。
+     * 未配置时开关接口一律拒绝写入，防止测试环境公网可达时被任意切换。
+     * 对应环境变量：AUTH_SMS_MODE_DEV_TOKEN
+     */
+    smsModeDevToken: process.env.AUTH_SMS_MODE_DEV_TOKEN ?? '',
+    /**
+     * live 通道下允许真实发送短信的手机号白名单（逗号分隔）。
+     * 为空表示不限制；只要配置了白名单，名单外手机号一律降级为测试模式。
+     * 对应环境变量：AUTH_SMS_LIVE_ALLOWED_PHONES
+     */
+    smsLiveAllowedPhones: parseStringList(
+      process.env.AUTH_SMS_LIVE_ALLOWED_PHONES,
+    ),
   },
 
   pulse: {

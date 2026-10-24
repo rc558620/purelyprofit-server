@@ -2,6 +2,19 @@ export const AUTH_TOKEN_VERSION_KEY_PREFIX = 'auth:token-version:';
 export const AUTH_PASSWORD_RESET_CODE_KEY_PREFIX = 'auth:password-reset:';
 export const AUTH_REGISTER_CODE_KEY_PREFIX = 'auth:register:';
 export const AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX = 'auth:sms-cooldown:';
+/**
+ * 短信通道模式。
+ * - `mock`：测试模式，仅打印日志、不真实发送
+ * - `live`：真实接通腾讯云短信
+ */
+export type SmsMode = 'mock' | 'live';
+/** 运行期短信通道模式状态 key（仅非生产环境允许写入）。 */
+export const AUTH_SMS_MODE_KEY = 'auth:sms-mode';
+/**
+ * 运行期短信通道模式状态 TTL（秒）：12 小时。
+ * 避免开发者切到 live 后长期遗忘，超出 TTL 自动回落为配置默认模式。
+ */
+export const AUTH_SMS_MODE_TTL_SECONDS = 12 * 60 * 60;
 /** 验证码校验尝试次数 key 前缀 */
 export const AUTH_CODE_ATTEMPTS_KEY_PREFIX = 'auth:code-attempts:';
 /** 验证码最大尝试次数，超过后验证码自动失效 */

@@ -18,8 +18,10 @@ import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeLoginService } from './auth-code-login.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthCodeVerifyService } from './auth-code-verify.service';
+import { AuthSmsModeService } from './auth-sms-mode.service';
 import { CaptchaTokenService } from './captcha-token.service';
 import { AuthController } from './auth.controller';
+import { SmsModeController } from './sms-mode.controller';
 import { AuthLoginFailGuardService } from './auth-login-fail-guard.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthPasswordOpsService } from './auth-password-ops.service';
@@ -57,7 +59,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SmsModeController],
   providers: [
     AuthService,
     AuthAccountService,
@@ -82,6 +84,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProfileService,
     AuthPromoRecordService,
     AuthSessionService,
+    AuthSmsModeService,
     AuthSmsService,
     AuthWechatLoginService,
     AuthRegisterStoreService,

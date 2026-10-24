@@ -13,6 +13,7 @@ import {
   DEFAULT_SMS_SEND_COOLDOWN_SECONDS,
 } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthSmsModeService } from './auth-sms-mode.service';
 import { AuthSmsService } from './auth-sms.service';
 import type { AuthProductScope } from './auth-account.types';
 import { CaptchaTokenService } from './captcha-token.service';
@@ -33,6 +34,7 @@ export class AuthCodeService {
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
+    private readonly authSmsModeService: AuthSmsModeService,
     private readonly authSmsService: AuthSmsService,
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly captchaTokenService: CaptchaTokenService,
@@ -62,6 +64,10 @@ export class AuthCodeService {
     // 校验并消费拼图验证令牌
     await this.captchaTokenService.validateAndConsume(captchaToken);
 
+    // 本次发码只裁决一次通道：真实发送与「是否回传明文验证码」复用同一结论，
+    // 否则两次裁决之间若模式被切换，会出现「真发了短信又回传明文码」的不一致。
+    const shouldSendLive = await this.authSmsModeService.shouldSendLive(phone);
+
     const registerCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(productScope, phone);
     await this.redisService.set(
@@ -75,6 +81,7 @@ export class AuthCodeService {
         phone,
         code: registerCode,
         expiresInSeconds,
+        shouldSendLive,
       });
     } catch (error) {
       await this.redisService.del(registerCodeKey);
@@ -86,7 +93,7 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isExposeCodeEnabled()) {
+    if (this.isExposeCodeEnabled(shouldSendLive)) {
       return {
         ...response,
         code: registerCode,
@@ -116,6 +123,8 @@ export class AuthCodeService {
 
     await this.ensureSmsSendCooldown('login', productScope, phone);
 
+    const shouldSendLive = await this.authSmsModeService.shouldSendLive(phone);
+
     const loginCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(productScope, phone);
     await this.redisService.set(registerCodeKey, loginCode, expiresInSeconds);
@@ -125,13 +134,14 @@ export class AuthCodeService {
         phone,
         code: loginCode,
         expiresInSeconds,
+        shouldSendLive,
       });
     } catch (error) {
       await this.redisService.del(registerCodeKey);
       throw error;
     }
 
-    if (this.isExposeCodeEnabled()) {
+    if (this.isExposeCodeEnabled(shouldSendLive)) {
       return {
         ...response,
         code: loginCode,
@@ -162,6 +172,8 @@ export class AuthCodeService {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     await this.ensureSmsSendCooldown('login_or_register', 'purely_club', phone);
 
+    const shouldSendLive = await this.authSmsModeService.shouldSendLive(phone);
+
     const code = generateNumericCode();
     const codeKey = buildRegisterCodeKey('purely_club', phone);
 
@@ -172,6 +184,7 @@ export class AuthCodeService {
         phone,
         code,
         expiresInSeconds,
+        shouldSendLive,
       });
     } catch (error) {
       await this.redisService.del(codeKey);
@@ -183,7 +196,7 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isExposeCodeEnabled()) {
+    if (this.isExposeCodeEnabled(shouldSendLive)) {
       return { ...response, code };
     }
 
@@ -209,6 +222,8 @@ export class AuthCodeService {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     await this.ensureSmsSendCooldown('bind_phone', 'purely_club', phone);
 
+    const shouldSendLive = await this.authSmsModeService.shouldSendLive(phone);
+
     const code = generateNumericCode();
     const codeKey = buildRegisterCodeKey('purely_club', phone);
 
@@ -219,6 +234,7 @@ export class AuthCodeService {
         phone,
         code,
         expiresInSeconds,
+        shouldSendLive,
       });
     } catch (error) {
       await this.redisService.del(codeKey);
@@ -230,7 +246,7 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isExposeCodeEnabled()) {
+    if (this.isExposeCodeEnabled(shouldSendLive)) {
       return { ...response, code };
     }
 
@@ -266,6 +282,8 @@ export class AuthCodeService {
 
     await this.ensureSmsSendCooldown('password-reset', productScope, phone);
 
+    const shouldSendLive = await this.authSmsModeService.shouldSendLive(phone);
+
     const resetCode = generateNumericCode();
     const resetCodeKey = buildPasswordResetCodeKey(productScope, phone);
     await this.redisService.set(resetCodeKey, resetCode, expiresInSeconds);
@@ -275,13 +293,14 @@ export class AuthCodeService {
         phone,
         code: resetCode,
         expiresInSeconds,
+        shouldSendLive,
       });
     } catch (error) {
       await this.redisService.del(resetCodeKey);
       throw error;
     }
 
-    if (this.isExposeCodeEnabled()) {
+    if (this.isExposeCodeEnabled(shouldSendLive)) {
       return {
         ...response,
         resetCode,
@@ -344,12 +363,16 @@ export class AuthCodeService {
   /**
    * 是否在响应中暴露验证码明文。
    *
-   * 通过显式配置开关 `auth.exposeCodeInResponse` 控制，默认关闭。
-   * 仅在本地开发时手动设为 true 以方便调试，生产 / staging / QA 环境禁止启用。
+   * 需同时满足两个条件：
+   * 1. 显式配置开关 `auth.exposeCodeInResponse` 为 true（默认关闭，生产禁止启用）；
+   * 2. 本次未真实发送短信 —— 真实发送时必须禁止暴露明文验证码，
+   *    否则前端可直接拿到验证码，等同于绕过短信校验直接改密。
+   * @param shouldSendLive 本次发码的真实发送裁决结果
    */
-  private isExposeCodeEnabled(): boolean {
-    return (
-      this.configService.get<boolean>('auth.exposeCodeInResponse') === true
-    );
+  private isExposeCodeEnabled(shouldSendLive: boolean): boolean {
+    if (this.configService.get<boolean>('auth.exposeCodeInResponse') !== true) {
+      return false;
+    }
+    return !shouldSendLive;
   }
 }

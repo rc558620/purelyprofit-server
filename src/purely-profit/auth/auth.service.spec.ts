@@ -38,6 +38,7 @@ import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuditLogService } from '../../shared/audit-log.service';
 import { AuthSmsService } from './auth-sms.service';
+import { AuthSmsModeService } from './auth-sms-mode.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
 import { AuthCodeLoginService } from './auth-code-login.service';
 import { AuthPasswordOpsService } from './auth-password-ops.service';
@@ -132,6 +133,10 @@ describe('AuthService', () => {
     sendRegisterCode: jest.fn(),
     sendLoginCode: jest.fn(),
   };
+  /** 短信通道模式：本套用例固定为测试模式，不触发真实发送。 */
+  const authSmsModeService = {
+    shouldSendLive: jest.fn().mockResolvedValue(false),
+  };
   const platformMembershipAccessService = {
     getSubAccountQuota: jest.fn().mockResolvedValue(0),
   };
@@ -205,6 +210,7 @@ describe('AuthService', () => {
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: configService },
         { provide: AuthSmsService, useValue: authSmsService },
+        { provide: AuthSmsModeService, useValue: authSmsModeService },
         {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
@@ -606,6 +612,7 @@ describe('AuthService', () => {
       phone: '13800138000',
       code: result.code,
       expiresInSeconds: 600,
+      shouldSendLive: false,
     });
   });
 
@@ -664,6 +671,7 @@ describe('AuthService', () => {
       phone: '13800138000',
       code: result.resetCode,
       expiresInSeconds: 600,
+      shouldSendLive: false,
     });
   });
 
@@ -770,6 +778,7 @@ describe('AuthService', () => {
       phone: '13800138000',
       code: result.code,
       expiresInSeconds: 600,
+      shouldSendLive: false,
     });
   });
 
@@ -823,6 +832,7 @@ describe('AuthService', () => {
       phone: '13800138000',
       code: result.code,
       expiresInSeconds: 600,
+      shouldSendLive: false,
     });
   });
 
