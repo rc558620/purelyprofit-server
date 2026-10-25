@@ -1,4 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
 import {
@@ -63,20 +69,24 @@ export class ProfitPaymentModeService {
 
   /** 校验 dev-only 开关接口的访问令牌；未配置令牌时一律拒绝。 */
   isDevTokenValid(devToken?: string): boolean {
-    const expectedToken =
-      this.configService.get<string>('profit.paymentModeDevToken') ?? '';
-    if (!expectedToken) {
+    const expectedToken = this.readDevToken();
+    if (!expectedToken || typeof devToken !== 'string') {
       return false;
     }
-    return typeof devToken === 'string' && devToken === expectedToken;
+
+    const expectedBuffer = Buffer.from(expectedToken, 'utf8');
+    const providedBuffer = Buffer.from(devToken.trim(), 'utf8');
+    // timingSafeEqual 要求等长入参；长度本身不是有效秘密，直接判失败不构成信息泄露
+    if (expectedBuffer.length !== providedBuffer.length) {
+      return false;
+    }
+    // 定长比较，避免逐字符短路比较泄露令牌前缀
+    return timingSafeEqual(expectedBuffer, providedBuffer);
   }
 
   /** 服务端是否已配置切换访问令牌。 */
   isDevTokenConfigured(): boolean {
-    return (
-      (this.configService.get<string>('profit.paymentModeDevToken') ?? '')
-        .length > 0
-    );
+    return this.readDevToken().length > 0;
   }
 
   /** 运行期模式状态的 TTL（秒），到期后自动回落。 */
@@ -131,6 +141,24 @@ export class ProfitPaymentModeService {
 
   /** 切换运行期支付模式 */
   async setMode(mode: ProfitPaymentMode): Promise<ProfitPaymentMode> {
+    // 防御性二次校验：本 Service 对外导出，不能只依赖 controller 的 404 伪装，
+    // 否则将来任何模块注入后误调用都能在生产写运行期模式
+    if (this.isProduction()) {
+      throw new ForbiddenException('生产环境禁止切换支付模式');
+    }
+    if (!this.isSwitchEnabled()) {
+      throw new ForbiddenException('支付模式切换开关未开启，禁止切换支付模式');
+    }
+
+    // 一致性闸门（与 getMode() 同一口径）：配置默认模式为 live 时运行期不允许切到 test。
+    // 若这里仍静默写入 Redis，会出现「接口返回 200、日志说已切 test、实际仍按真实扣款」
+    // 的误导状态，因此必须显式拒绝，让调用方立刻看到真实原因。
+    if (mode === 'test' && this.getConfiguredMode() !== 'test') {
+      throw new ConflictException(
+        '配置默认模式为真实支付（PROFIT_MANUAL_PAID_ENABLED=false），运行期不允许切换到测试模式；请先在配置中打开该开关并重启服务',
+      );
+    }
+
     await this.redisService.set(
       PROFIT_PAYMENT_MODE_KEY,
       mode,
@@ -165,5 +193,12 @@ export class ProfitPaymentModeService {
     const manualPaidEnabled =
       this.configService.get<boolean>('profit.manualPaidEnabled') ?? false;
     return manualPaidEnabled ? 'test' : 'live';
+  }
+
+  /** 读取并归一化 dev-only 切换令牌（去首尾空白，未配置时为空串）。 */
+  private readDevToken(): string {
+    return (
+      this.configService.get<string>('profit.paymentModeDevToken') ?? ''
+    ).trim();
   }
 }

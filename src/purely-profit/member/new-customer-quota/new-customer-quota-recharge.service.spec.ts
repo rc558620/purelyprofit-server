@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -19,18 +19,24 @@ import { NewCustomerQuotaRechargeService } from './new-customer-quota-recharge.s
 
 interface PrismaMock {
   $transaction: jest.Mock;
+  $queryRaw: jest.Mock;
   platformPaymentOrder: {
     create: jest.Mock;
     update: jest.Mock;
     updateMany: jest.Mock;
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
   };
   storeMembershipProfile: {
     upsert: jest.Mock;
     update: jest.Mock;
     findUnique: jest.Mock;
   };
-  storeNewCustomerQuotaLog: { create: jest.Mock; aggregate: jest.Mock };
+  storeNewCustomerQuotaLog: {
+    create: jest.Mock;
+    aggregate: jest.Mock;
+    findFirst: jest.Mock;
+  };
 }
 
 let prismaMock: PrismaMock;
@@ -46,6 +52,8 @@ const buildPrismaMock = (): PrismaMock => {
       update: jest.fn(() => Promise.resolve(undefined)),
       updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
       findUnique: jest.fn(),
+      // 测试模式防重窗口：默认查不到近期同档位测试单
+      findFirst: jest.fn(() => Promise.resolve(null)),
     },
     storeMembershipProfile: {
       upsert: jest.fn(() => Promise.resolve(undefined)),
@@ -57,7 +65,11 @@ const buildPrismaMock = (): PrismaMock => {
     storeNewCustomerQuotaLog: {
       create: jest.fn(() => Promise.resolve(undefined)),
       aggregate: jest.fn(() => Promise.resolve({ _sum: { changeAmount: 0 } })),
+      // 幂等判定：默认该支付单尚未入账
+      findFirst: jest.fn(() => Promise.resolve(null)),
     },
+    // 入账前会锁支付单行，桩掉原始查询即可
+    $queryRaw: jest.fn(() => Promise.resolve([])),
   } as unknown as Omit<PrismaMock, '$transaction'>;
 
   return {
@@ -70,11 +82,28 @@ const buildPrismaMock = (): PrismaMock => {
 };
 
 describe('NewCustomerQuotaRechargeService', () => {
+  /** 微信下单 / 关单桩：用例需要断言关单是否被调用 */
+  let wechatMock: {
+    createNativeOrder: jest.Mock;
+    closeNativeOrder: jest.Mock;
+  };
+
   const buildService = async (overrides: {
     skipPayment: boolean;
     notifyUrl?: string;
     nativeImpl?: () => Promise<{ codeUrl: string }>;
+    /** 模拟二维码出图失败 */
+    qrImpl?: () => Promise<string>;
   }): Promise<NewCustomerQuotaRechargeService> => {
+    wechatMock = {
+      createNativeOrder: jest.fn(
+        overrides.nativeImpl ??
+          (() => Promise.resolve({ codeUrl: 'weixin://wxpay/x' })),
+      ),
+      // 超时惰性关单 / 出图失败关单都会调用它
+      closeNativeOrder: jest.fn(() => Promise.resolve('closed')),
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         NewCustomerQuotaRechargeService,
@@ -100,19 +129,15 @@ describe('NewCustomerQuotaRechargeService', () => {
         },
         {
           provide: PlatformWechatNativeService,
-          useValue: {
-            createNativeOrder: jest.fn(
-              overrides.nativeImpl ??
-                (() => Promise.resolve({ codeUrl: 'weixin://wxpay/x' })),
-            ),
-          },
+          useValue: wechatMock,
         },
         {
           // 二维码出图与支付无关：用桩隔离，避免测试依赖图形库
           provide: PlatformPaymentQrCodeService,
           useValue: {
-            renderPaymentQrCode: jest.fn(() =>
-              Promise.resolve('data:image/png;base64,MOCK'),
+            renderPaymentQrCode: jest.fn(
+              overrides.qrImpl ??
+                (() => Promise.resolve('data:image/png;base64,MOCK')),
             ),
           },
         },
@@ -168,6 +193,38 @@ describe('NewCustomerQuotaRechargeService', () => {
     ).not.toHaveBeenCalled();
   });
 
+  it('二维码出图失败：必须关掉已创建的微信单，不能只把本地单置失败', async () => {
+    const service = await buildService({
+      skipPayment: false,
+      notifyUrl: 'https://api.example.com/api/profit/payments/wechat/callback',
+      qrImpl: () => Promise.reject(new Error('出图失败')),
+    });
+
+    await expect(
+      service.createRechargeOrder({
+        storeId: 7,
+        operatorUserId: 100,
+        amountFen: 1000,
+      }),
+    ).rejects.toThrow('出图失败');
+
+    // 微信侧二维码 2 小时有效：只置本地 failed 会留下悬空可支付单
+    expect(wechatMock.closeNativeOrder).toHaveBeenCalledWith(
+      expect.stringMatching(/^PQ/),
+      'new_customer_quota',
+    );
+
+    const updateMany = (
+      prismaMock as { platformPaymentOrder: { updateMany: jest.Mock } }
+    ).platformPaymentOrder.updateMany;
+    expect(
+      updateMany.mock.calls.some(
+        (call: { data?: { status?: string } }[]) =>
+          call[0]?.data?.status === 'failed',
+      ),
+    ).toBe(true);
+  });
+
   it('回调地址未配置时拒绝下单，且支付单置 failed', async () => {
     const service = await buildService({ skipPayment: false });
 
@@ -214,7 +271,7 @@ describe('NewCustomerQuotaRechargeService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('重复回调不会重复加额度（置 paid 未命中即跳过入账）', async () => {
+  it('重复回调靠流水单号幂等，不重复加额度', async () => {
     const service = await buildService({ skipPayment: true });
     const paymentOrder = prismaMock as {
       platformPaymentOrder: { findUnique: jest.Mock; updateMany: jest.Mock };
@@ -228,11 +285,14 @@ describe('NewCustomerQuotaRechargeService', () => {
       amountFen: 1000,
       payMode: 'live',
       status: 'paid',
+      transactionId: 'wx-tx-1',
     });
     // 支付单已被处理过：带状态条件的更新命中 0 行
     paymentOrder.platformPaymentOrder.updateMany.mockResolvedValue({
       count: 0,
     });
+    // 该支付单的充值流水已存在：入账必须直接跳过，不能二次加额度
+    prismaMock.storeNewCustomerQuotaLog.findFirst.mockResolvedValue({ id: 1 });
 
     await service.settleByOrderNo({
       orderNo: 'PQ1',
@@ -244,6 +304,7 @@ describe('NewCustomerQuotaRechargeService', () => {
       (prismaMock as { storeMembershipProfile: { update: jest.Mock } })
         .storeMembershipProfile.update,
     ).not.toHaveBeenCalled();
+    expect(prismaMock.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
   });
 
   it('非档位金额直接拒绝，不产生支付单', async () => {
@@ -256,5 +317,89 @@ describe('NewCustomerQuotaRechargeService', () => {
         amountFen: 1234,
       }),
     ).rejects.toThrow(/档位/);
+  });
+
+  it('轮询校验门店归属：单号属于别家门店时按「不存在」拒绝', async () => {
+    const service = await buildService({ skipPayment: true });
+    (
+      prismaMock as { platformPaymentOrder: { findUnique: jest.Mock } }
+    ).platformPaymentOrder.findUnique.mockResolvedValue({
+      orderNo: 'PQ1',
+      bizType: 'new_customer_quota',
+      bizOrderId: null,
+      storeId: 99,
+      operatorUserId: 100,
+      amountFen: 1000,
+      payMode: 'live',
+      status: 'pending',
+    });
+
+    await expect(service.getRechargeStatus('PQ1', 7)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('轮询校验业务类型：非额度充值单按「不存在」拒绝', async () => {
+    const service = await buildService({ skipPayment: true });
+    (
+      prismaMock as { platformPaymentOrder: { findUnique: jest.Mock } }
+    ).platformPaymentOrder.findUnique.mockResolvedValue({
+      orderNo: 'PM1',
+      bizType: 'membership',
+      bizOrderId: null,
+      storeId: 7,
+      operatorUserId: 100,
+      amountFen: 9900,
+      payMode: 'live',
+      status: 'pending',
+    });
+
+    await expect(service.getRechargeStatus('PM1', 7)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('回调业务类型不匹配时拒绝入账', async () => {
+    const service = await buildService({ skipPayment: true });
+    (
+      prismaMock as { platformPaymentOrder: { findUnique: jest.Mock } }
+    ).platformPaymentOrder.findUnique.mockResolvedValue({
+      orderNo: 'PM1',
+      bizType: 'membership',
+      bizOrderId: null,
+      storeId: 7,
+      operatorUserId: 100,
+      amountFen: 1000,
+      payMode: 'live',
+      status: 'pending',
+    });
+
+    await expect(
+      service.settleByOrderNo({
+        orderNo: 'PM1',
+        transactionId: 'wx-tx-1',
+        amountFen: 1000,
+      }),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('测试模式入账的流水描述标明未真实扣款，不冒充微信支付', async () => {
+    const service = await buildService({ skipPayment: true });
+
+    await service.createRechargeOrder({
+      storeId: 7,
+      operatorUserId: 100,
+      amountFen: 1000,
+    });
+
+    const createLog = (
+      prismaMock as { storeNewCustomerQuotaLog: { create: jest.Mock } }
+    ).storeNewCustomerQuotaLog.create;
+    const description = (
+      createLog.mock.calls[0]?.[0] as { data?: { description?: string } }
+    )?.data?.description;
+
+    expect(description).toContain('测试模式');
+    expect(description).not.toContain('微信支付');
   });
 });

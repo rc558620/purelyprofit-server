@@ -5,7 +5,7 @@
 // 浏览器 / 小程序 <img src> 加载它只会得到一个坏图，商家看到的是「空白二维码」。
 // 若改由前端拿这个串去请求第三方在线生成服务，等于把支付链接明文交给外部——
 // 后端直接出图既不外泄，也让前端渲染逻辑保持在「只展示、不加工」。
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import QRCode from 'qrcode';
 
 /** 二维码边长（px）：与扫码点餐桌码同规格 */
@@ -22,7 +22,9 @@ export class PlatformPaymentQrCodeService {
   async renderPaymentQrCode(codeUrl: string): Promise<string> {
     const content = codeUrl?.trim();
     if (!content) {
-      throw new Error('支付二维码内容为空，无法出图');
+      // 用 NestJS 语义异常而不是裸 Error：裸 Error 会被全局过滤器当成未知错误，
+      // 前端只能拿到泛化 500，无法按错误码区分「下单失败」与「出图失败」
+      throw new InternalServerErrorException('支付二维码内容为空，无法出图');
     }
 
     return QRCode.toDataURL(content, {

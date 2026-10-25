@@ -17,6 +17,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   AllowLegacyOwnerAccess,
   RequirePermissions,
@@ -103,6 +104,9 @@ export class MarketingNewCustomerQuotaController {
   @Post('new-customer-quota/recharge')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('marketing:manage')
+  // 每次下单都会真实调用微信 Native 接口，必须限频：
+  // 否则重复点击或脚本会把微信下单接口刷穿，并留下一堆永不关闭的 pending 单
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({
     summary: '新用户额度充值下单',
     description:
@@ -135,6 +139,9 @@ export class MarketingNewCustomerQuotaController {
 
   @Get('new-customer-quota/recharge-orders/:orderNo')
   @RequirePermissions('marketing:view')
+  // 前端每 2 秒轮询一次，单店单笔就有约 30 次/分钟；全局默认按 IP 只给 100 次/分钟，
+  // 连锁门店共用出口 IP 时会被正常轮询打成 429，这里单独放宽
+  @Throttle({ default: { ttl: 60_000, limit: 600 } })
   @ApiOperation({
     summary: '查询额度充值支付单状态',
     description:
@@ -142,9 +149,16 @@ export class MarketingNewCustomerQuotaController {
   })
   @ApiOkResponse({ type: PlatformPaymentStatusDto })
   async getRechargeStatus(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('orderNo') orderNo: string,
+    @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
   ): Promise<PlatformPaymentStatusDto> {
-    const status = await this.quotaRechargeService.getRechargeStatus(orderNo);
+    // 单号不是凭证：必须校验它确实属于当前账号有权限的门店
+    const resolvedStoreId = await this.resolveStoreId(user, storeId);
+    const status = await this.quotaRechargeService.getRechargeStatus(
+      orderNo,
+      resolvedStoreId,
+    );
     return {
       status: status.status,
       paidAt: status.paidAt?.toISOString() ?? null,

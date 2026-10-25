@@ -10,8 +10,11 @@ export const PROFIT_PAYMENT_MODE_KEY = 'profit:payment-mode';
 /**
  * 运行期支付模式状态 TTL（秒）：12 小时。
  *
- * 到期后自动回落为 `test`——不是回落成 live。真实模式意味着「真的会扣钱」，
- * 遗忘在这一侧的成本远高于重新点一次切换。
+ * 到期后回落为**配置默认模式**（`profit.manualPaidEnabled` 决定的 test / live），
+ * 而不是固定回落到某一侧。注意商家端与 club 侧方向相反：
+ * - 商家端「非 test 即 live」，配置未打开时回落为 live；
+ * - 真实模式意味着「真的会扣钱」，遗忘在这一侧的成本远高于重新点一次切换；
+ * - 反过来若固定回落 test，会从「忘了切回去」进一步演变成白送会员权益与额度。
  */
 export const PROFIT_PAYMENT_MODE_TTL_SECONDS = 12 * 60 * 60;
 

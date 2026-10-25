@@ -70,6 +70,8 @@ export interface QuotaRechargeWriteParams {
   quotaCount: number;
   /** 支付单号，用于与微信支付对账 */
   orderId: string;
+  /** 支付模式：测试模式的充值没有真实微信流水，流水描述不能写成「微信支付充值」 */
+  payMode: 'test' | 'live';
 }
 
 /** 会员赠送：写额度 + 赠送流水 */

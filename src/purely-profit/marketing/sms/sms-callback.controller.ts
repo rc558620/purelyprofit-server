@@ -1,9 +1,17 @@
-import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SmsRechargeService } from './sms-recharge.service';
+import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
 import { SmsWechatCallbackAckDto, SmsWechatCallbackDto } from './dto/sms.dto';
 
-/** Minimal interface for raw body access (Fastify per-route rawBody) */
+/** 原始报文请求的最小结构（Fastify 按路由开启 rawBody 才有 rawBody 字段） */
 interface RawBodyRequest {
   rawBody?: string;
   body?: unknown;
@@ -21,9 +29,13 @@ interface RawBodyRequest {
 @ApiTags('营销中心')
 @Controller('marketing/sms')
 export class SmsCallbackController {
-  constructor(private readonly rechargeService: SmsRechargeService) {}
+  constructor(
+    private readonly callbackService: SmsRechargeCallbackService,
+  ) {}
 
   @Post('wechat/callback')
+  // 微信支付只认 200 / 204 为应答成功，POST 默认返回 201 会被当成失败并反复重投
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '接收短信钱包微信支付回调（v3 加密格式）',
     description:
@@ -42,7 +54,7 @@ export class SmsCallbackController {
     // rawBody 用于签名校验：由 bootstrap.ts 在该路由上按需注入（全局 rawBody 关闭）
     const rawBody = req.rawBody ?? JSON.stringify(payload);
 
-    return this.rechargeService.handleWechatCallback(
+    return this.callbackService.handleWechatCallback(
       payload,
       { timestamp, nonce, signature, serial },
       rawBody,

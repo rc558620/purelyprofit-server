@@ -13,6 +13,8 @@ export interface DashboardRevenueOrderRow {
 }
 
 export interface DashboardPartnerTopRow {
+  /** 目标商家门店 ID：名单行作为列表稳定主键，避免同名合伙人被合并 */
+  id: number;
   name: string;
   region: unknown;
   orders: number;

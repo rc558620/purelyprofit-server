@@ -110,21 +110,12 @@ export function resolveSmsRechargeTiersFen(
   return valid.length > 0 ? valid : [...SMS_RECHARGE_TIERS_FEN_DEFAULT];
 }
 
-/**
- * 是否开启「本地直充」（跳过微信支付直接入账）。
- *
- * 只认显式 `true`，其它一切取值（含 `'1'` / `1` / 未配置）都按 false 处理：
- * 这个开关一旦被误开就是白送钱，宁可保守。
- *
- * 生产环境**强制 false**：启动校验会先拦一道，这里再兜一道，
- * 避免「校验被跳过 / 配置热更新」时出现免费无限充值。
+/*
+ * 注意：这里曾有一个「短信场景直充开关」`resolveSmsDirectCredit`，
+ * 与商家端全局支付模式「取或」后会覆盖全局 `live`，导致全局已切真实支付、
+ * 短信仍在白送钱。现已删除，跳过微信支付只由
+ * `ProfitPaymentModeService.isSkipPaymentAllowed()` 单点裁决（生产恒为 false）。
  */
-export function resolveSmsDirectCredit(configService: ConfigService): boolean {
-  if (configService.get<string>('nodeEnv') === 'production') {
-    return false;
-  }
-  return configService.get<boolean>('sms.directCredit') === true;
-}
 
 /** 金额（分）→ 前端展示文案，如 1000 → "¥10" */
 export function formatFenAmountDisplay(fen: number): string {

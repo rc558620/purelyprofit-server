@@ -78,15 +78,21 @@ export class ClubPaymentCallbackSignatureService {
       return;
     }
 
-    if (this.isProduction()) {
+    // 公钥缺失时默认拒绝（fail-closed）：只校验时间戳 + 必填头是可伪造的，
+    // 任何公网可达环境都不该只靠这两项就接受回调报文。
+    // 仅当环境显式声明是调试环境（development / test，或手工打开开关）时才降级放行。
+    if (!this.isInsecureCallbackAllowed()) {
+      this.logger.error(
+        'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，当前环境不允许跳过验签，已拒绝回调',
+      );
       throw new UnauthorizedException(
-        '生产环境未配置微信支付平台公钥，拒绝处理支付回调',
+        '未配置微信支付平台公钥，拒绝处理支付回调',
       );
     }
 
     this.logger.warn(
       'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，跳过 RSA 验签（仅靠时间戳防重放）。' +
-        '生产环境请配置微信平台公钥以启用完整签名校验。',
+        '仅限本地调试环境，请尽快配置微信平台公钥以启用完整签名校验。',
     );
   }
 
@@ -141,8 +147,19 @@ export class ClubPaymentCallbackSignatureService {
     );
   }
 
-  private isProduction(): boolean {
-    return this.configService.get<string>('nodeEnv') === 'production';
+  /**
+   * 是否允许在公钥缺失时跳过 RSA 验签。
+   *
+   * 生产环境无条件返回 false：即便环境变量误开，启动校验也会先拦下；
+   * 这里再兜一层，避免「启动校验被绕过」时把回调验签一起放开。
+   */
+  private isInsecureCallbackAllowed(): boolean {
+    if (this.configService.get<string>('nodeEnv') === 'production') {
+      return false;
+    }
+    return (
+      this.configService.get<boolean>('wechat.allowInsecureCallback') === true
+    );
   }
 
   /**

@@ -1,4 +1,5 @@
 // 平台收款统一回调的回归用例：金额对不上或入账失败必须回 FAIL，不能静默丢单
+import type { ConfigService } from '@nestjs/config';
 import type { ClubPaymentCallbackSignatureService } from '../../purely-club/payments/club-payment-callback-signature.service';
 import type { WechatDecryptedTransaction } from '../../purely-club/payments/dto/club-wechat-callback.dto';
 import type { NewCustomerQuotaRechargeService } from '../member/new-customer-quota/new-customer-quota-recharge.service';
@@ -22,6 +23,10 @@ describe('PlatformPaymentCallbackService', () => {
   };
   const membershipPaymentService = {
     activateByPaymentOrderNo: jest.fn(),
+  };
+  const configService = {
+    // 未配置平台商户号时跳过商户号校验，避免影响本地 / 测试环境
+    get: jest.fn(() => undefined),
   };
 
   let service: PlatformPaymentCallbackService;
@@ -65,6 +70,7 @@ describe('PlatformPaymentCallbackService', () => {
       paymentOrderService as unknown as PlatformPaymentOrderService,
       quotaRechargeService as unknown as NewCustomerQuotaRechargeService,
       membershipPaymentService as unknown as PlatformMembershipPaymentService,
+      configService as unknown as ConfigService,
     );
   });
 

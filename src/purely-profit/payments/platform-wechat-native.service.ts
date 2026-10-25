@@ -25,8 +25,32 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-const WECHAT_NATIVE_ORDER_URL =
-  'https://api.mch.weixin.qq.com/v3/pay/transactions/native';
+/** 微信支付 API v3 基址 */
+const WECHAT_API_BASE = 'https://api.mch.weixin.qq.com';
+
+/** Native（扫码）下单路径 */
+const WECHAT_NATIVE_ORDER_PATH = '/v3/pay/transactions/native';
+
+/** 关单路径：out_trade_no 是路径段，必须编码后再拼，避免单号里的字符破坏 URL */
+const buildWechatCloseOrderPath = (orderNo: string): string =>
+  `/v3/pay/transactions/out-trade-no/${encodeURIComponent(orderNo)}/close`;
+
+/**
+ * 关单接口**参与签名**的 canonical url。
+ *
+ * 微信 v3 要求签名用未编码的原始 path，编码只作用于实际请求 URL；
+ * 两者混用会在订单号含保留字符时出现「URL 能通、签名对不上」。
+ */
+const buildWechatCloseOrderSignPath = (orderNo: string): string =>
+  `/v3/pay/transactions/out-trade-no/${orderNo}/close`;
+
+/**
+ * 微信 API 请求超时（毫秒）。
+ *
+ * 微信侧挂起时若不设上限，下单 / 关单会无限等待，把 Node 事件循环里的
+ * 连接和上层请求一起拖住；框架层的 requestTimeout 只断客户端，不会中断 fetch。
+ */
+const WECHAT_REQUEST_TIMEOUT_MS = 8000;
 
 /** 私钥缓存有效期：5 分钟，支持证书热更新而不必重启 */
 const PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -43,6 +67,13 @@ export interface CreatePlatformNativeOrderParams {
   description: string;
   /** 该业务链路专属的支付回调地址（公网 HTTPS） */
   notifyUrl: string;
+  /**
+   * 业务链路标记（如 `sms_recharge`），只用于日志定位。
+   *
+   * 下单能力上浮为公共服务后，日志类名不再随业务变化，
+   * 运维按类名检索会失真；因此由调用方显式带上自己的链路标识。
+   */
+  bizType?: string;
 }
 
 interface WechatNativeOrderResponse {
@@ -54,12 +85,23 @@ interface WechatErrorResponse {
   message?: string;
 }
 
+/**
+ * 关单结果。
+ *
+ * - `closed`：微信侧已不可支付（含「订单在微信侧不存在」），本地可以放心关单；
+ * - `paid`：用户其实已经付过钱，只是回调还在路上 —— 绝不能按关单处理，
+ *   否则会出现「本地显示超时未付、钱已扣、额度靠回调补」的错位。
+ */
+export type WechatCloseOrderResult = 'closed' | 'paid';
+
 @Injectable()
 export class PlatformWechatNativeService {
   private readonly logger = new Logger(PlatformWechatNativeService.name);
 
   private cachedPrivateKeyPem: string | null | undefined = undefined;
   private cachedPrivateKeyPemLoadedAt = 0;
+  /** 正在进行的私钥加载：并发请求共用同一次 IO，避免缓存失效瞬间重复 readFile */
+  private privateKeyLoadInFlight: Promise<string | null> | null = null;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -86,34 +128,129 @@ export class PlatformWechatNativeService {
       serialNo,
       privateKeyPem,
       body,
+      urlPath: WECHAT_NATIVE_ORDER_PATH,
     });
 
-    return this.requestCodeUrl(body, authorization);
+    return this.requestCodeUrl(body, authorization, params.bizType);
+  }
+
+  /**
+   * 关闭微信侧订单。
+   *
+   * 只关本地单是不够的：微信二维码有效期是 2 小时，本地 15 分钟就把单标成 closed，
+   * 用户在 15 分钟～2 小时之间扫码仍能付款成功，就会出现「前端已放弃轮询、钱照扣」。
+   * 所以本地关单之前必须先调这里，把微信侧也关掉。
+   */
+  async closeNativeOrder(
+    orderNo: string,
+    bizType?: string,
+  ): Promise<WechatCloseOrderResult> {
+    const bizTag = this.formatBizTag(bizType);
+    const mchId = this.getPlatformMchId();
+    const serialNo = this.getRequiredConfig('wechat.mchSerialNo');
+    const privateKeyPem = await this.loadPrivateKeyPem();
+    const urlPath = buildWechatCloseOrderPath(orderNo);
+    const body = JSON.stringify({ mchid: mchId });
+    const authorization = this.buildAuthorization({
+      mchId,
+      serialNo,
+      privateKeyPem,
+      body,
+      // 签名用未编码 path，请求用编码后的 path：两者不能混用
+      urlPath: buildWechatCloseOrderSignPath(orderNo),
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(`${WECHAT_API_BASE}${urlPath}`, {
+        method: 'POST',
+        headers: this.buildHeaders(authorization),
+        body,
+        signal: AbortSignal.timeout(WECHAT_REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      this.logger.error(`微信关单网络异常${bizTag} orderNo=${orderNo}`, error);
+      throw new InternalServerErrorException(
+        '微信支付服务暂时不可用，请稍后重试',
+      );
+    }
+
+    // 关单成功固定返回 204 No Content，没有响应体，不能去读 json
+    if (response.ok) {
+      return 'closed';
+    }
+
+    const errorPayload = await this.readErrorPayload(response);
+
+    // 用户其实已经付过钱：回调只是还没到，此时绝不能把单当超时关掉
+    if (errorPayload?.code === 'ORDERPAID') {
+      this.logger.warn(
+        `微信关单发现订单已支付${bizTag} orderNo=${orderNo}，保持 pending 等待回调`,
+      );
+      return 'paid';
+    }
+
+    // 微信侧根本没有这笔单（未下单成功/已被微信回收），等价于「不可支付」
+    if (errorPayload?.code === 'ORDER_NOT_EXIST') {
+      return 'closed';
+    }
+
+    this.logger.error(
+      `微信关单失败${bizTag} orderNo=${orderNo}: ${errorPayload?.code ?? 'UNKNOWN'} - ${errorPayload?.message ?? ''}`,
+    );
+    throw new InternalServerErrorException('微信支付关单失败，请稍后重试');
+  }
+
+  /** 日志用的业务链路标记，未传时返回空串（保持日志格式稳定） */
+  private formatBizTag(bizType?: string): string {
+    return bizType ? ` [bizType=${bizType}]` : '';
+  }
+
+  /** 安全读取微信错误响应体（204 或非 JSON 时返回 null） */
+  private async readErrorPayload(
+    response: Response,
+  ): Promise<WechatErrorResponse | null> {
+    try {
+      return (await response.json()) as WechatErrorResponse;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 微信支付 API v3 统一请求头 */
+  private buildHeaders(authorization: string): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: authorization,
+      'User-Agent': 'purelyprofit-server/1.0',
+    };
   }
 
   /** 发起下单请求并校验微信返回的 code_url 存在 */
   private async requestCodeUrl(
     body: string,
     authorization: string,
+    bizType?: string,
   ): Promise<{ codeUrl: string }> {
+    const bizTag = this.formatBizTag(bizType);
     let response: Response;
     let responseJson: WechatErrorResponse & WechatNativeOrderResponse;
 
     try {
-      response = await fetch(WECHAT_NATIVE_ORDER_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: authorization,
-          'User-Agent': 'purelyprofit-server/1.0',
+      response = await fetch(
+        `${WECHAT_API_BASE}${WECHAT_NATIVE_ORDER_PATH}`,
+        {
+          method: 'POST',
+          headers: this.buildHeaders(authorization),
+          body,
+          signal: AbortSignal.timeout(WECHAT_REQUEST_TIMEOUT_MS),
         },
-        body,
-      });
+      );
       responseJson = (await response.json()) as WechatErrorResponse &
         WechatNativeOrderResponse;
     } catch (error) {
-      this.logger.error('微信 Native 下单网络异常', error);
+      this.logger.error(`微信 Native 下单网络异常${bizTag}`, error);
       throw new InternalServerErrorException(
         '微信支付服务暂时不可用，请稍后重试',
       );
@@ -122,7 +259,7 @@ export class PlatformWechatNativeService {
     if (!response.ok) {
       const { code, message } = responseJson;
       this.logger.error(
-        `微信 Native 下单失败: ${code ?? 'UNKNOWN'} - ${message ?? ''}`,
+        `微信 Native 下单失败${bizTag}: ${code ?? 'UNKNOWN'} - ${message ?? ''}`,
       );
       throw new InternalServerErrorException(
         `微信支付下单失败：${message ?? '请联系平台管理员'}`,
@@ -174,14 +311,15 @@ export class PlatformWechatNativeService {
     serialNo: string;
     privateKeyPem: string | null;
     body: string;
+    /** 参与签名的 canonical url（不含域名、不含 query），由调用方按实际接口传入 */
+    urlPath: string;
   }): string {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const nonce = randomBytes(16).toString('hex');
-    const canonicalUrl = new URL(WECHAT_NATIVE_ORDER_URL).pathname;
 
     const signMessage = [
       'POST',
-      canonicalUrl,
+      opts.urlPath,
       timestamp,
       nonce,
       opts.body,
@@ -227,6 +365,20 @@ export class PlatformWechatNativeService {
       return this.cachedPrivateKeyPem;
     }
 
+    // 缓存失效瞬间的多笔下单会同时走到这里：共用同一次加载，
+    // 否则并发度多高就会重复读多少次私钥文件
+    if (!this.privateKeyLoadInFlight) {
+      this.privateKeyLoadInFlight = this.loadPrivateKeyPemFromSource().finally(
+        () => {
+          this.privateKeyLoadInFlight = null;
+        },
+      );
+    }
+    return this.privateKeyLoadInFlight;
+  }
+
+  /** 真正读取私钥（文件优先，其次内联），结果写入缓存 */
+  private async loadPrivateKeyPemFromSource(): Promise<string | null> {
     // 先清缓存再加载：读取失败时不会残留上一次的旧值
     this.cachedPrivateKeyPem = undefined;
     this.cachedPrivateKeyPemLoadedAt = Date.now();

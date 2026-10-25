@@ -1,43 +1,33 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ClubPaymentCallbackSignatureService } from '../../../purely-club/payments/club-payment-callback-signature.service';
-import type { WechatDecryptedTransaction } from '../../../purely-club/payments/dto/club-wechat-callback.dto';
 import { SmsAccountService } from './sms-account.service';
-import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
 import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
 import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
+import type { ProfitPaymentMode } from '../../payments/profit-payment-mode.constants';
 import { SMS_RECHARGE_ORDER_TTL_SECONDS } from './sms.constants';
 import type {
   SmsRechargeOrderResponseDto,
   SmsRechargeOrderStatusDto,
-  SmsWechatCallbackAckDto,
-  SmsWechatCallbackDto,
 } from './dto/sms.dto';
-import { isSmsOrderNo } from './dto/sms.dto';
-import {
-  buildSmsOrderNo,
-  formatFenAmountDisplay,
-  resolveSmsDirectCredit,
-} from './sms.utils';
-
-/** 与 club 侧 `ClubWechatCallbackHeaders` 同构，独立定义避免反向依赖 club 模块 */
-export interface SmsWechatCallbackHeaders {
-  timestamp: string | undefined;
-  nonce: string | undefined;
-  signature: string | undefined;
-  serial: string | undefined;
-}
+import { buildSmsOrderNo, formatFenAmountDisplay } from './sms.utils';
 
 /** 微信下单描述文案（微信限制 127 字符内） */
 const ORDER_DESCRIPTION = '短信钱包充值';
 
 /**
- * 短信钱包充值服务：下单、轮询状态、微信回调入账。
+ * 短信钱包充值服务：下单、轮询状态、入账。
  *
- * 回调入账的两个铁律：
+ * 回调验签/解密/金额核对在 `SmsRechargeCallbackService`，本类只提供
+ * 「下单 → 出码 → 惰性关单」和「真正加钱」两件事，避免单文件过长难审。
+ *
+ * 入账的两个铁律：
  * 1. **只有 status !== 'paid' 才入账**——微信会重复投递同一笔回调；
  * 2. 用条件更新（`where status != paid`）而非「先读后写」，
  *    否则并发的两次回调会各自读到 pending 并重复加钱。
@@ -46,87 +36,102 @@ const ORDER_DESCRIPTION = '短信钱包充值';
 export class SmsRechargeService {
   private readonly logger = new Logger(SmsRechargeService.name);
 
-  /** 本地直充开关（构造时定格，运行中不会漂移） */
-  private readonly directCredit: boolean;
-
   constructor(
     private readonly prisma: PrismaService,
-    configService: ConfigService,
     private readonly accountService: SmsAccountService,
     private readonly nativeService: SmsWechatNativeService,
-    private readonly signatureService: ClubPaymentCallbackSignatureService,
-    private readonly decryptorService: SmsWechatCallbackDecryptorService,
     private readonly qrCodeService: PlatformPaymentQrCodeService,
     private readonly paymentModeService: ProfitPaymentModeService,
-  ) {
-    this.directCredit = resolveSmsDirectCredit(configService);
-    if (this.directCredit) {
-      this.logger.warn(
-        'SMS_RECHARGE_DIRECT_CREDIT 已开启：短信充值将跳过微信支付直接入账，' +
-          '仅用于本地联调跑通流程。接入真支付前必须关闭，否则用户可无限免费充值。',
-      );
-    }
-  }
+  ) {}
 
   /**
    * 本次充值是否跳过微信支付、直接入账。
    *
-   * 判据是「短信自身的直充开关 **或** 商家端全局支付模式」，取或而不是取替：
-   * - 两条开关历史上各自独立，任一开启都意味着「不打算真实扣款」；
-   * - 统一到商家端支付模式后，短信仍是唯一保留独立开关的链路（它比
-   *   会员 / 额度链路上线更早），直接替换会在已按 SMS_RECHARGE_DIRECT_CREDIT
-   *   配置过的环境里造成行为突变。
-   *
-   * 生产环境两侧都强制为 false（启动校验已覆盖），因此这里不会出现
-   * 「生产悄悄直充」的口子。
+   * **唯一裁决方是商家端全局支付模式**：短信链路历史上另有一个独立直充开关，
+   * 与全局模式「取或」，会出现「全局已切真实支付、短信仍在白送」。
+   * 生产环境 `isSkipPaymentAllowed()` 恒为 false，前端无法单独切换。
    */
-  private async shouldSkipWechatPayment(): Promise<boolean> {
-    if (this.directCredit) {
-      return true;
+  private async resolvePayMode(): Promise<ProfitPaymentMode> {
+    return (await this.paymentModeService.isSkipPaymentAllowed())
+      ? 'test'
+      : 'live';
+  }
+
+  /**
+   * 充值金额合法性：必须命中**后端下发的充值档位**。
+   *
+   * 金额计算权归后端，前端传来的 `amountFen` 只能当「选了哪一档」的标识，
+   * 不能当权威金额：否则客户端可以构造任意金额下单（含 1 分钱刷流水、
+   * 超大金额触发风控），回调对账也没有可比对的基准。
+   */
+  private assertConfiguredTierAmount(amountFen: number): number {
+    const tiers = this.accountService
+      .resolveRechargeTiers()
+      .map((tier) => tier.amountFen);
+
+    if (!Number.isInteger(amountFen) || !tiers.includes(amountFen)) {
+      throw new BadRequestException('充值金额必须是后端下发的充值档位');
     }
 
-    return this.paymentModeService.isSkipPaymentAllowed();
+    return amountFen;
   }
 
   async createRechargeOrder(
     storeId: number,
     amountFen: number,
   ): Promise<SmsRechargeOrderResponseDto> {
+    const tierAmountFen = this.assertConfiguredTierAmount(amountFen);
+    const payMode = await this.resolvePayMode();
     const orderNo = buildSmsOrderNo();
     const expiresAt = new Date(
       Date.now() + SMS_RECHARGE_ORDER_TTL_SECONDS * 1000,
     );
 
     await this.prisma.smsRechargeOrder.create({
-      data: { orderNo, storeId, amountFen, expiresAt, status: 'pending' },
+      data: {
+        orderNo,
+        storeId,
+        amountFen: tierAmountFen,
+        expiresAt,
+        status: 'pending',
+        payMode,
+      },
     });
 
-    // 本地直充：对齐新客额度 writeRecharge（无外部支付单号，直接入账）。
-    // 订单已是 paid，前端首次轮询即命中，契约与走微信时完全一致。
-    if (await this.shouldSkipWechatPayment()) {
+    // 测试模式：对齐新客额度 writeRecharge（无外部支付单号，直接入账）。
+    // 响应里显式回传 paid，前端不必先渲染二维码再等轮询才发现已到账。
+    if (payMode === 'test') {
       await this.creditRecharge({
         orderNo,
         storeId,
-        amountFen,
+        amountFen: tierAmountFen,
+        payMode,
         // 本地单号，仅用于对账（微信真支付时这里是 transaction_id）
         transactionId: `DIRECT${storeId}${Date.now()}`,
       });
 
       return {
         orderNo,
+        status: 'paid',
         codeUrl: '',
         qrCodeImageUrl: '',
-        amountFen,
+        amountFen: tierAmountFen,
         expiresAt: expiresAt.toISOString(),
       };
     }
 
+    // 微信侧订单一旦创建成功，后续任何一步失败都必须把它关掉：
+    // 用户拿不到二维码不会付款，但微信侧订单仍可支付（2 小时有效），
+    // 只把本地单标 failed 会留下「本地失败、微信仍可支付」的悬空订单。
+    let wechatOrderCreated = false;
+
     try {
       const { codeUrl } = await this.nativeService.createNativeOrder({
         orderNo,
-        amountFen,
+        amountFen: tierAmountFen,
         description: ORDER_DESCRIPTION,
       });
+      wechatOrderCreated = true;
 
       await this.prisma.smsRechargeOrder.update({
         where: { orderNo },
@@ -135,17 +140,24 @@ export class SmsRechargeService {
 
       return {
         orderNo,
+        status: 'pending',
         codeUrl,
         qrCodeImageUrl: await this.qrCodeService.renderPaymentQrCode(codeUrl),
-        amountFen,
+        amountFen: tierAmountFen,
         expiresAt: expiresAt.toISOString(),
       };
     } catch (error) {
-      // 下单失败要落 failed，否则前端会一直轮询一个永远不会有结果的订单
-      await this.prisma.smsRechargeOrder.update({
-        where: { orderNo },
-        data: { status: 'failed' },
-      });
+      if (wechatOrderCreated) {
+        this.logger.error(
+          `短信充值下单后续步骤失败，回滚微信订单：orderNo=${orderNo}`,
+        );
+        this.logger.debug(String(error));
+        // 关单失败不覆盖原始错误：调用方需要看到真正的失败原因
+        await this.closeWechatOrderSafely(orderNo, true);
+      }
+
+      // 落 failed，否则前端会一直轮询一个永远不会有结果的订单
+      await this.markOrderFailed(orderNo);
       throw error;
     }
   }
@@ -153,6 +165,9 @@ export class SmsRechargeService {
   /**
    * 轮询订单状态。**惰性关闭**：pending 且已过期时顺手置 closed，
    * 不额外起定时任务（定时任务在集群下还要处理选主与重复执行）。
+   *
+   * 关本地单之前必须先关微信单，否则用户在「本地已过期」到「微信二维码失效」
+   * 之间扫码仍能付款，出现前端提示已关单、钱却被扣走。
    */
   async getRechargeOrderStatus(
     storeId: number,
@@ -160,7 +175,13 @@ export class SmsRechargeService {
   ): Promise<SmsRechargeOrderStatusDto> {
     const order = await this.prisma.smsRechargeOrder.findUnique({
       where: { orderNo },
-      select: { orderNo: true, storeId: true, status: true, expiresAt: true },
+      select: {
+        orderNo: true,
+        storeId: true,
+        status: true,
+        expiresAt: true,
+        codeUrl: true,
+      },
     });
 
     if (!order || order.storeId !== storeId) {
@@ -168,9 +189,18 @@ export class SmsRechargeService {
     }
 
     if (order.status === 'pending' && order.expiresAt.getTime() <= Date.now()) {
+      const closeResult = await this.closeWechatOrderSafely(
+        orderNo,
+        Boolean(order.codeUrl),
+      );
+
+      // 微信侧已支付或关单结果未知：本地绝不能关，保持 pending 等回调/重试
+      if (closeResult !== 'closed') {
+        return { orderNo, status: 'pending' };
+      }
+
       // 条件关单：上面读到的 pending 可能在这几毫秒内已被支付回调改成 paid。
-      // 无条件 update 会把 paid 覆盖回 closed，出现「钱扣了、单关了」，
-      // 之后微信重投回调再入账一次，账实两清但用户看到的是失败。
+      // 无条件 update 会把 paid 覆盖回 closed，出现「钱扣了、单关了」。
       const closed = await this.prisma.smsRechargeOrder.updateMany({
         where: { orderNo, status: 'pending' },
         data: { status: 'closed' },
@@ -182,7 +212,7 @@ export class SmsRechargeService {
           where: { orderNo },
           select: { status: true },
         });
-        return { orderNo, status: latest?.status ?? 'closed' };
+        return { orderNo, status: latest?.status ?? 'pending' };
       }
 
       return { orderNo, status: 'closed' };
@@ -192,94 +222,28 @@ export class SmsRechargeService {
   }
 
   /**
-   * 处理微信支付回调。
+   * 关闭微信侧订单，失败不向上抛。
    *
-   * ⚠️ 这是**独立**的短信钱包回调，不复用 `/api/club/payments/wechat/callback`
-   * （那是 C 端 club 订单上下文）。验签与解密复用现有实现，落账逻辑独立。
+   * @returns `closed` 可安全关本地单；`paid` 用户其实已付款；`unknown` 关单失败
    */
-  async handleWechatCallback(
-    payload: SmsWechatCallbackDto,
-    headers: SmsWechatCallbackHeaders,
-    rawBody: string,
-  ): Promise<SmsWechatCallbackAckDto> {
-    this.signatureService.assertWechatCallbackSignature(rawBody, headers);
+  private async closeWechatOrderSafely(
+    orderNo: string,
+    hasWechatOrder: boolean,
+  ): Promise<'closed' | 'paid' | 'unknown'> {
+    // 直充 / 下单未成功过：微信侧根本没有可支付的单
+    if (!hasWechatOrder) {
+      return 'closed';
+    }
 
-    const transaction: WechatDecryptedTransaction =
-      this.decryptorService.decryptCallback(payload);
-
-    const orderNo = transaction.out_trade_no ?? '';
-    if (!isSmsOrderNo(orderNo)) {
-      // 订单号不是 SM 前缀 → 说明 notify url 配错了，属于配置事故，必须留日志
+    try {
+      return await this.nativeService.closeNativeOrder(orderNo);
+    } catch (error) {
       this.logger.error(
-        `短信充值回调收到非短信订单号：${orderNo}，请检查 SMS_WECHAT_PAY_NOTIFY_URL 配置`,
+        `关闭微信订单失败，本地保持 pending 等待回调：orderNo=${orderNo}`,
       );
-      return {
-        success: false,
-        orderNo,
-        status: 'failed',
-        message: '订单号不属于短信充值，已忽略',
-      };
+      this.logger.debug(String(error));
+      return 'unknown';
     }
-
-    if (transaction.trade_state !== 'SUCCESS') {
-      await this.markOrderFailed(orderNo);
-      return {
-        success: false,
-        orderNo,
-        status: 'failed',
-        message: `微信支付状态为 ${transaction.trade_state}`,
-      };
-    }
-
-    const order = await this.prisma.smsRechargeOrder.findUnique({
-      where: { orderNo },
-      select: {
-        orderNo: true,
-        storeId: true,
-        amountFen: true,
-        status: true,
-      },
-    });
-
-    if (!order) {
-      this.logger.error(`短信充值回调找不到订单：${orderNo}`);
-      return {
-        success: false,
-        orderNo,
-        status: 'failed',
-        message: '订单不存在',
-      };
-    }
-
-    // 金额唯一权威是后端落单金额：回调金额对不上说明订单被改过或回调被伪造，
-    // 绝不能「按订单金额照常入账」，只能挂起等人工对账
-    const paidAmountFen = transaction.amount?.total;
-    if (typeof paidAmountFen === 'number' && paidAmountFen !== order.amountFen) {
-      this.logger.error(
-        `短信充值金额不一致，已拒绝入账：orderNo=${orderNo}，订单 ${order.amountFen} 分，回调 ${paidAmountFen} 分`,
-      );
-      await this.markOrderFailed(orderNo);
-      return {
-        success: true,
-        orderNo,
-        status: 'failed',
-        message: '支付金额与订单金额不一致，订单已挂起，待人工核对',
-      };
-    }
-
-    const credited = await this.creditRecharge({
-      orderNo,
-      storeId: order.storeId,
-      amountFen: order.amountFen,
-      transactionId: transaction.transaction_id,
-    });
-
-    return {
-      success: true,
-      orderNo,
-      status: 'paid',
-      message: credited ? '充值已入账' : '重复回调，已忽略',
-    };
   }
 
   // ─── 入账 ──────────────────────────────────────────────────────────────────
@@ -289,6 +253,7 @@ export class SmsRechargeService {
     orderNo: string;
     storeId: number;
     amountFen: number;
+    payMode: ProfitPaymentMode;
     transactionId?: string;
   }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
@@ -296,6 +261,7 @@ export class SmsRechargeService {
         where: { orderNo: params.orderNo, status: { not: 'paid' } },
         data: {
           status: 'paid',
+          payMode: params.payMode,
           transactionId: params.transactionId ?? null,
           paidAt: new Date(),
         },
@@ -321,29 +287,36 @@ export class SmsRechargeService {
         data: {
           storeId: params.storeId,
           type: 'recharge',
+          payMode: params.payMode,
           changeFen: params.amountFen,
           balanceAfterFen: account.balanceFen,
-          description: `微信充值 ${formatFenAmountDisplay(params.amountFen)}`,
+          // 测试模式的充值不来自微信，流水说明必须能一眼区分，
+          // 否则报表 / 人工对账会把白送的余额当成真实收款
+          description: `${this.formatRechargeLabel(params.payMode)} ${formatFenAmountDisplay(params.amountFen)}`,
           orderNo: params.orderNo,
         },
       });
 
       this.logger.log(
-        `短信钱包入账：orderNo=${params.orderNo}，storeId=${params.storeId}，${params.amountFen} 分`,
+        `短信钱包入账：orderNo=${params.orderNo}，storeId=${params.storeId}，${params.amountFen} 分，payMode=${params.payMode}`,
       );
 
       return true;
     });
   }
 
-  private async markOrderFailed(orderNo: string): Promise<void> {
+  private formatRechargeLabel(payMode: ProfitPaymentMode): string {
+    return payMode === 'test' ? '测试充值' : '微信充值';
+  }
+
+  /** 把订单标记为失败；订单不存在时只告警，不影响调用方流程 */
+  async markOrderFailed(orderNo: string): Promise<void> {
     try {
       await this.prisma.smsRechargeOrder.updateMany({
         where: { orderNo, status: 'pending' },
         data: { status: 'failed' },
       });
     } catch (error) {
-      // 订单可能根本不存在（订单号前缀校验已过，但库里没有），不应影响回调应答
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         this.logger.warn(
           `标记充值订单失败状态异常：orderNo=${orderNo}，${error.message}`,

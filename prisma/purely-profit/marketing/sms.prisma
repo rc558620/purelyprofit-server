@@ -40,6 +40,9 @@ model SmsWalletLog {
   balanceAfterFen  Int              @map("balance_after_fen")
   /// 流水说明（前端直接展示）
   description      String
+  /// 该笔变动所属支付模式：live=真实收款，test=测试模式直充
+  /// 真实对账 / 报表必须只统计 live，否则测试白送的余额会被算成营收
+  payMode          SmsPayMode       @default(live) @map("pay_mode")
   /// 关联充值订单号（仅 recharge / refund 有值）
   orderNo          String?          @map("order_no")
   /// 关联群发任务 ID（仅 consume / refund 有值）
@@ -48,6 +51,8 @@ model SmsWalletLog {
 
   @@index([storeId, createdAt])
   @@index([storeId, type, createdAt])
+  /// 对账 / 报表按支付模式过滤
+  @@index([payMode, createdAt])
   @@map("sms_wallet_logs")
 }
 
@@ -153,6 +158,9 @@ model SmsRechargeOrder {
   status        SmsRechargeOrderStatus @default(pending)
   /// 微信 Native 支付二维码链接（下单时返回）
   codeUrl       String?                @map("code_url")
+  /// 该订单的支付模式：live=微信真实收款，test=测试模式直充（无微信订单）
+  /// 真实对账只处理 live；测试单必须能被结构性识别，而不是靠金额猜
+  payMode       SmsPayMode             @default(live) @map("pay_mode")
   /// 微信支付流水号（回调带回）
   transactionId String?                @map("transaction_id")
   /// 支付完成时间
@@ -164,7 +172,15 @@ model SmsRechargeOrder {
 
   @@index([storeId, status])
   @@index([storeId, createdAt])
+  /// 真实对账只处理 live，需要能低成本过滤出测试单
+  @@index([payMode, createdAt])
   @@map("sms_recharge_orders")
+}
+
+/// 支付模式（短信充值）。test 只允许在非生产环境出现，生产侧由后端强制 live。
+enum SmsPayMode {
+  live
+  test
 }
 
 /// 钱包流水类型。

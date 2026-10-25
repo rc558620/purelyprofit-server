@@ -16,6 +16,7 @@ import { PlatformPaymentOrderService } from './platform-payment-order.service';
 import { PlatformPaymentQrCodeService } from './platform-payment-qrcode.service';
 import { ProfitPaymentModeService } from './profit-payment-mode.service';
 import { ProfitPaymentModeController } from './profit-payment-mode.controller';
+import { ProfitPaymentModeDevGuard } from './guards/profit-payment-mode-dev.guard';
 
 @Module({
   imports: [PrismaModule],
@@ -27,6 +28,8 @@ import { ProfitPaymentModeController } from './profit-payment-mode.controller';
     // 短信 / 会员 / 新客额度三条充值链路都要把 code_url 渲染成 PNG，统一由本模块导出
     PlatformPaymentQrCodeService,
     ProfitPaymentModeService,
+    // dev-only 支付模式调试接口的可用性守卫（生产环境伪装 404），仅供本模块 controller 使用
+    ProfitPaymentModeDevGuard,
   ],
   exports: [
     PlatformWechatNativeService,

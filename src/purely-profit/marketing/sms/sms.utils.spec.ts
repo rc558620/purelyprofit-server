@@ -5,7 +5,6 @@ import {
   countSmsSegmentDiff,
   formatFenAmountDisplay,
   normalizeSmsMobile,
-  resolveSmsDirectCredit,
   resolveSmsRechargeTiersFen,
   resolveSmsUnitPriceFen,
   toE164MainlandMobile,
@@ -132,24 +131,6 @@ describe('sms.utils', () => {
           makeConfig({ 'sms.rechargeTiersFen': [0, 2000] }) as never,
         ),
       ).toEqual([2000]);
-    });
-
-    it('直充开关只认 true：误配成 "1" / 1 / 未配置都按关闭处理', () => {
-      // 这个开关误开就是白送钱，宁可保守
-      expect(resolveSmsDirectCredit(makeConfig({}) as never)).toBe(false);
-      expect(
-        resolveSmsDirectCredit(
-          makeConfig({ 'sms.directCredit': '1' }) as never,
-        ),
-      ).toBe(false);
-      expect(
-        resolveSmsDirectCredit(makeConfig({ 'sms.directCredit': 1 }) as never),
-      ).toBe(false);
-      expect(
-        resolveSmsDirectCredit(
-          makeConfig({ 'sms.directCredit': true }) as never,
-        ),
-      ).toBe(true);
     });
 
     it('金额展示文案由后端下发', () => {

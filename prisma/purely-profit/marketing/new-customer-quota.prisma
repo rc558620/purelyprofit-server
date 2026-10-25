@@ -25,6 +25,14 @@ model StoreNewCustomerQuotaLog {
   description  String
   createdAt    DateTime                     @default(now()) @map("created_at")
 
+  /// 同一门店同一支付单号只能有一条充值流水。
+  ///
+  /// 额度发放的幂等本来就靠支付单的「带状态条件更新」，那只有一层；
+  /// 一旦出现绕过支付单的写入（人工补偿脚本、将来的新入口），
+  /// 同一笔支付就会被重复加额度。这里补数据库唯一约束作为最终兜底。
+  /// orderId 允许 NULL，PostgreSQL 唯一索引默认 NULLS DISTINCT，
+  /// 赠送 / 消耗 / 清零等不关联订单的流水不会互相冲突。
+  @@unique([storeId, orderId])
   @@index([storeId, createdAt])
   @@index([storeId, type, createdAt])
   @@map("store_new_customer_quota_logs")

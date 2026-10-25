@@ -168,4 +168,14 @@ describe('SmsWechatNativeService', () => {
 
     expect(calls[0].headers.Authorization).toContain('DEV_MODE_NO_RSA_KEY');
   });
+
+  it('关单委托给平台服务，短信侧不再自己实现一套关单', async () => {
+    const calls = mockFetch({});
+
+    await expect(makeService().closeNativeOrder('SM1')).resolves.toBe(
+      'closed',
+    );
+
+    expect(calls[0].url).toContain('/v3/pay/transactions/out-trade-no/SM1');
+  });
 });

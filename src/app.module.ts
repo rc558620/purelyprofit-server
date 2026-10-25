@@ -95,7 +95,11 @@ import { UploadModule } from './shared/upload.module';
           throttlers: [
             {
               name: 'default',
-              ttl: configService.get<number>('app.throttleTtlSeconds') ?? 60,
+              // @nestjs/throttler v5+ 的 ttl 单位是**毫秒**，而配置项语义是秒，
+              // 必须换算；否则 60 只等于 60ms 窗口，全局限流事实上不生效
+              ttl:
+                (configService.get<number>('app.throttleTtlSeconds') ?? 60) *
+                1000,
               limit: configService.get<number>('app.throttleLimit') ?? 100,
             },
           ],

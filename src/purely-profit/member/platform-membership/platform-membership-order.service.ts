@@ -42,6 +42,18 @@ import {
 } from './platform-membership.query';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
 import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
+import {
+  closeExpiredPendingOrders,
+  sumPendingOccupiedDeductions,
+} from './membership-pending-occupancy.shared';
+
+/**
+ * 测试模式（跳过支付）的重复提交判定窗口。
+ *
+ * 真实模式靠「未过期待支付单直接复用」挡住连点；测试模式下单即生效，
+ * 没有可复用的待支付态，必须靠时间窗 + 同档案同档位把连点收成一次。
+ */
+const SKIP_PAYMENT_DEDUP_WINDOW_MS = 30 * 1000;
 
 /**
  * 购买会员的结果。
@@ -95,6 +107,18 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
         }`,
       );
     }
+
+    // 真实模式下的兜底：支付成功但回调入账失败（豆 / 积分被别处消耗）的单子
+    // 微信重试耗尽后会永久停在待确认，必须在启动时捞回来补生效
+    try {
+      await this.membershipPaymentService.backfillPendingPaidOrders();
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[会员支付] 已付款未生效补偿扫描失败: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   async previewOrder(
@@ -110,7 +134,21 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     const plan = await requirePlan(this.prisma, dto.planId);
     const profile = await ensureMembershipProfile(this.prisma, storeId);
     const partner = await findCurrentStorePartner(this.prisma, storeId);
-    const availableBeans = partner?.beanBalance ?? 0;
+
+    // 预览与实际下单必须同口径：待支付订单占用的额度不算可用，
+    // 否则预览显示可抵扣、下单时却被拒
+    const occupied = await sumPendingOccupiedDeductions(
+      this.prisma,
+      profile.id,
+    );
+    const usablePoints = Math.max(
+      0,
+      profile.availablePoints - occupied.points,
+    );
+    const usableBeans = Math.max(
+      0,
+      (partner?.beanBalance ?? 0) - occupied.beans,
+    );
 
     const pricingContext =
       await this.lockedPriceService.loadRenewalPricingContext(storeId);
@@ -127,9 +165,9 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     const preview = calcPreviewResult({
       planPrice,
       requestedPoints,
-      availablePoints: profile.availablePoints,
+      availablePoints: usablePoints,
       requestedBeans,
-      availableBeans,
+      availableBeans: usableBeans,
     });
 
     return {
@@ -184,8 +222,41 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     const response = await this.prisma.$transaction(async (tx) => {
       const plan = await requirePlan(tx, dto.planId);
       const profile = await ensureMembershipProfile(tx, storeId);
+
+      // 测试模式下单即生效，没有「待支付单复用」这层天然去重：
+      // 连点 / 网络重试会各扣一次积分与纯利豆、各开一次会员档期。
+      // 窗口内同档案同档位的已支付订单视为同一次操作，直接拒绝而不是再扣一笔。
+      const duplicated = await tx.storeMembershipOrder.findFirst({
+        where: {
+          storeId,
+          profileId: profile.id,
+          planId: plan.id,
+          status: 'paid',
+          createdAt: {
+            gte: new Date(Date.now() - SKIP_PAYMENT_DEDUP_WINDOW_MS),
+          },
+        },
+        select: { id: true },
+      });
+      if (duplicated) {
+        this.logger.warn(
+          `[会员购买] 测试模式重复提交已拦截 orderId=${duplicated.id} storeId=${storeId} planId=${plan.id}`,
+        );
+        throw new ConflictException('订单正在处理，请勿重复提交');
+      }
+
       const partner = await findCurrentStorePartner(tx, storeId);
+      // 真实余额：生效时扣减要基于它，不能用扣掉占用后的额度
       const availableBeans = partner?.beanBalance ?? 0;
+
+      // 与真实模式下单共用同一份占用口径：待支付订单已承诺出去的额度不能再算可用
+      await closeExpiredPendingOrders(tx, profile.id);
+      const occupied = await sumPendingOccupiedDeductions(tx, profile.id);
+      const usablePoints = Math.max(
+        0,
+        profile.availablePoints - occupied.points,
+      );
+      const usableBeans = Math.max(0, availableBeans - occupied.beans);
 
       // 曾开通子账号功能的门店按首购锁定价结算；月 / 季会被直接拒绝，避免误降级
       // （会员到期后实时能力会被归零，故必须用「曾开通」口径，否则到期即可降级）
@@ -203,9 +274,9 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       const payment = calcMemberPlanPayment({
         planPrice,
         requestedPoints,
-        availablePoints: profile.availablePoints,
+        availablePoints: usablePoints,
         requestedBeans,
-        availableBeans,
+        availableBeans: usableBeans,
       });
 
       if (requestedPoints > 0 && payment.actualPointsUsed === 0) {

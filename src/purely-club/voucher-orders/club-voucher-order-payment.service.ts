@@ -352,7 +352,12 @@ export class ClubVoucherOrderPaymentService {
     if (!order) {
       throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
     }
-    return this.completePayment(order.id, order.paidAmountFen, undefined);
+    // 测试模式落账必须留下可识别标记：统一用 `dev-` 前缀的交易号，
+    // 与扫码点餐 / 自助点餐两条链路同口径，对账侧可据此排除测试订单，
+    // 避免「测试模式订单混进真实对账」。
+    return this.completePayment(order.id, order.paidAmountFen, {
+      transactionId: `dev-${order.orderNo}`,
+    });
   }
 
   /** 微信回调确认支付成功：按订单号路由，校验金额后完成落账 */

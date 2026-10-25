@@ -13,7 +13,7 @@ export class PulseDashboardOnlineStatsDto {
   @ApiProperty({
     example: 2847,
     description:
-      '当前在线人数：最近 10 分钟内有经过鉴权请求的账号数（users.last_active_at）',
+      '当前在线总人数（商家端 + 个人端）：最近 10 分钟内有经过鉴权请求的账号数（users.last_active_at）',
   })
   @IsInt()
   onlineCount: number;
@@ -25,6 +25,22 @@ export class PulseDashboardOnlineStatsDto {
   })
   @IsInt()
   onlinePeak: number;
+
+  @ApiProperty({
+    example: 1820,
+    description:
+      '当前商家端（purelyProfit）在线人数：最近 10 分钟内有鉴权请求、且归属商家产品线的账号数',
+  })
+  @IsInt()
+  profitOnlineCount: number;
+
+  @ApiProperty({
+    example: 1027,
+    description:
+      '当前个人端（purelyClub）在线人数：最近 10 分钟内有鉴权请求、且归属个人端产品线的账号数',
+  })
+  @IsInt()
+  clubOnlineCount: number;
 
   @ApiProperty({
     example: 12.0,
@@ -56,22 +72,46 @@ export class PulseDashboardPartnerStatsDto {
   activeRate: number;
 
   @ApiProperty({
-    example: 124800,
-    description: '全平台推广带来的总充值金额（分）',
+    example: 12480000,
+    description: '全平台推广带来的总充值金额（分），累计口径不限时间',
   })
   @IsInt()
   totalRevenue: number;
+
+  @ApiProperty({
+    example: '124800',
+    description: '全平台推广总充值金额展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  totalRevenueDisplay: string;
 
   @ApiProperty({ example: 3640, description: '全平台推广累计订阅单数' })
   @IsInt()
   totalOrders: number;
 
-  @ApiProperty({ example: 400, description: '人均贡献金额（分）' })
+  @ApiProperty({
+    example: 40000,
+    description: '人均贡献金额（分），按合伙人总数平摊',
+  })
   @IsInt()
   avgPerPartner: number;
+
+  @ApiProperty({
+    example: '400',
+    description: '人均贡献金额展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  avgPerPartnerDisplay: string;
 }
 
 export class PulseDashboardPartnerTopItemDto {
+  @ApiProperty({
+    example: '1024',
+    description: '合伙人关联的目标商家门店 ID，用作列表稳定主键',
+  })
+  @IsString()
+  id: string;
+
   @ApiProperty({ example: '张三', description: '合伙人姓名' })
   @IsString()
   name: string;
@@ -84,9 +124,16 @@ export class PulseDashboardPartnerTopItemDto {
   @IsInt()
   orders: number;
 
-  @ApiProperty({ example: 12000, description: '推广带来的充值金额（分）' })
+  @ApiProperty({ example: 1200000, description: '推广带来的充值金额（分）' })
   @IsInt()
   revenue: number;
+
+  @ApiProperty({
+    example: '12000',
+    description: '推广带来的充值金额展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  revenueDisplay: string;
 }
 
 export class PulseDashboardRevenueTrendDto {

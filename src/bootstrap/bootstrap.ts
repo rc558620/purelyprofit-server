@@ -335,13 +335,19 @@ export async function bootstrap(): Promise<void> {
       configService.get<boolean>('club.manualConfirmPaidEnabled') ??
       !isProduction;
     // 支付模式调试开关只在非生产环境且已打开切换开关时暴露到文档；
-    // 生产环境必须隐藏，避免对外暴露「可以切换支付模式」的入口
-    const paymentModeDebugVisible =
+    // 生产环境必须隐藏，避免对外暴露「可以切换支付模式」的入口。
+    // club / profit 两侧独立裁决：(1) 只开一侧时另一侧仍必须剔除；
+    // (2) 任一侧开关打开都不能把另一侧的入口顺带留在文档里
+    const clubPaymentModeDebugVisible =
       !isProduction &&
       (configService.get<boolean>('club.paymentModeSwitchEnabled') ?? false);
+    const profitPaymentModeDebugVisible =
+      !isProduction &&
+      (configService.get<boolean>('profit.paymentModeSwitchEnabled') ?? false);
     filterSwaggerDocumentForEnvironment(document, {
       manualConfirmPaidEnabled,
-      paymentModeDebugVisible,
+      clubPaymentModeDebugVisible,
+      profitPaymentModeDebugVisible,
     });
     SwaggerModule.setup('api-docs', app, document);
   }

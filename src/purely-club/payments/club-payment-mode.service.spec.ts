@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '../../redis/redis.service';
@@ -47,7 +48,7 @@ describe('ClubPaymentModeService', () => {
     redisSet = jest.fn().mockResolvedValue(undefined);
   });
 
-  it('未设置运行期状态时按安全侧落为 test', async () => {
+  it('未设置运行期状态时回落为配置默认模式（默认 test）', async () => {
     const service = await buildService();
 
     await expect(service.getMode()).resolves.toBe('test');
@@ -129,10 +130,48 @@ describe('ClubPaymentModeService', () => {
     );
   });
 
-  it('Redis 读取失败时按安全侧回落为 test', async () => {
+  it('Redis 读取失败时回落为配置默认模式（默认 test），而非硬编码 test', async () => {
     redisGet.mockRejectedValue(new Error('redis down'));
     const service = await buildService();
 
     await expect(service.getMode()).resolves.toBe('test');
+  });
+
+  it('Redis 读取失败且配置默认 live 时不得放行手动确认支付', async () => {
+    configMap['club.manualConfirmPaidEnabled'] = false;
+    redisGet.mockRejectedValue(new Error('redis down'));
+    const service = await buildService();
+
+    await expect(service.getMode()).resolves.toBe('live');
+    await expect(service.isManualConfirmPaidAllowed()).resolves.toBe(false);
+  });
+
+  it('运行期状态缺失（TTL 到期）时回落为配置默认模式', async () => {
+    configMap['club.manualConfirmPaidEnabled'] = false;
+    redisGet.mockResolvedValue(null);
+    const service = await buildService();
+
+    await expect(service.getMode()).resolves.toBe('live');
+  });
+
+  it('生产环境切换模式被拒绝，且不写入 Redis', async () => {
+    configMap.nodeEnv = 'production';
+    configMap['club.manualConfirmPaidEnabled'] = false;
+    const service = await buildService();
+
+    await expect(service.setMode('test')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(redisSet).not.toHaveBeenCalled();
+  });
+
+  it('切换开关关闭时切换模式被拒绝', async () => {
+    configMap['club.paymentModeSwitchEnabled'] = false;
+    const service = await buildService();
+
+    await expect(service.setMode('live')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(redisSet).not.toHaveBeenCalled();
   });
 });

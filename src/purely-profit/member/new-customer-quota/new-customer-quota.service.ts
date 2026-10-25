@@ -2,7 +2,7 @@
 //
 // 分层：入参校验、文案组装与 HTTP 语义在本文件；数据库读写在 .query.ts / .write.ts；
 // 纯计算（档位换算、期数与增量归一化、展示格式化）在 .domain.ts。
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { PrismaExecutor } from '../platform-membership/platform-membership.types';
 import {
@@ -13,7 +13,6 @@ import {
 import {
   calcQuotaByAmountFen,
   formatAmountFenToYuanDisplay,
-  isAllowedRechargeTier,
   normalizePeriodCount,
   normalizeQuotaDelta,
   resolvePlanGrant,
@@ -37,7 +36,6 @@ import {
   writeClear,
   writeConsume,
   writeGrant,
-  writeRecharge,
 } from './new-customer-quota.write';
 
 @Injectable()
@@ -117,33 +115,11 @@ export class NewCustomerQuotaService {
     return true;
   }
 
-  /** 充值到账：校验档位 → 叠加额度 → 写流水 */
-  async recharge(
-    storeId: number,
-    amountFen: number,
-  ): Promise<NewCustomerQuotaOverview> {
-    if (!isAllowedRechargeTier(amountFen)) {
-      throw new ForbiddenException('充值档位不合法');
-    }
-
-    await this.runWrite((tx) =>
-      writeRecharge(tx, {
-        storeId,
-        amountFen,
-        quotaCount: calcQuotaByAmountFen(amountFen),
-        // 无外部支付单号：用「门店 + 时间戳」拼一个可对账的本地单号
-        orderId: `QUOTA${storeId}${Date.now()}`,
-      }),
-    );
-
-    return this.getOverview(storeId);
-  }
-
   /**
    * 运营增减额度：按增量调整余额（不会低于 0），并写一条流水。
    *
    * 供 purelyPulse「新客额度」管理页使用：平台运营代商家发放 / 回收额度。
-   * 与 `recharge`（微信支付充值）、`grantByPlan`（会员赠送）共用同一张流水表，
+   * 与 `NewCustomerQuotaRechargeService`（微信支付充值）、`grantByPlan`（会员赠送）共用同一张流水表，
    * 保证 purelyProfit 额度页的「余额 + 累计赠送 + 流水」三者始终自洽。
    *
    * 一律记 `admin_adjust`（平台运营调整），不再借 `grant` / `clear` 表达：

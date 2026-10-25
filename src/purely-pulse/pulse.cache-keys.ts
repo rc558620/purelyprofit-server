@@ -108,14 +108,34 @@ export function buildPulseOnboardingStatusPatternByUser(
   return `pulse:onboarding:status:user:${userId}:mode:*:store:*`;
 }
 
+/**
+ * Home 页自定义收入区间。
+ *
+ * 自定义单日 / 区间必须进入缓存键：否则首次按自定义日期查询的结果
+ * 会被同周期、同地区的默认查询命中复用，表现为筛选「时灵时不灵」。
+ */
+export interface PulseDashboardHomeCacheDateRange {
+  customDate?: string | undefined;
+  customRangeStart?: string | undefined;
+  customRangeEnd?: string | undefined;
+}
+
 export function buildPulseDashboardHomeCacheKey(
   revenuePeriod: string,
   region: string | undefined,
   regionCode: string | undefined = undefined,
+  dateRange: PulseDashboardHomeCacheDateRange = {},
 ): string {
   const regionSegment = encodeURIComponent(region ?? 'all');
   const regionCodeSegment = encodeURIComponent(regionCode ?? 'all');
-  return `pulse:dashboard:home:period:${revenuePeriod}:region:${regionSegment}:regionCode:${regionCodeSegment}`;
+  return [
+    `pulse:dashboard:home:period:${revenuePeriod}`,
+    `region:${regionSegment}`,
+    `regionCode:${regionCodeSegment}`,
+    `day:${toCacheSegment(dateRange.customDate)}`,
+    `start:${toCacheSegment(dateRange.customRangeStart)}`,
+    `end:${toCacheSegment(dateRange.customRangeEnd)}`,
+  ].join(':');
 }
 
 export function buildPulseDashboardHomePattern(): string {

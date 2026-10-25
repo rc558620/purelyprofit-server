@@ -7,7 +7,13 @@
  */
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
+import {
+  PlatformWechatNativeService,
+  type WechatCloseOrderResult,
+} from '../../payments/platform-wechat-native.service';
+
+/** 日志定位用的业务链路标记：下单实现上浮后靠它区分短信链路 */
+const BIZ_TYPE = 'sms_recharge';
 
 export interface CreateSmsNativeOrderParams {
   orderNo: string;
@@ -29,7 +35,19 @@ export class SmsWechatNativeService {
     return this.platformNativeService.createNativeOrder({
       ...params,
       notifyUrl: this.getSmsNotifyUrl(),
+      bizType: BIZ_TYPE,
     });
+  }
+
+  /**
+   * 关闭微信侧订单。
+   *
+   * 本地订单过期只置 `closed` 是不够的：微信二维码最长 2 小时有效，
+   * 本地 30 分钟就关，用户在两者之间扫码仍能付款成功，出现「前端提示已关单、钱照扣」。
+   * 因此关本地单之前必须先关微信单。
+   */
+  async closeNativeOrder(orderNo: string): Promise<WechatCloseOrderResult> {
+    return this.platformNativeService.closeNativeOrder(orderNo, BIZ_TYPE);
   }
 
   /**

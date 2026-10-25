@@ -157,6 +157,9 @@ describe('main bootstrap', () => {
           // 平台收款统一回调：会员真实支付 / 额度充值下单强依赖
           'profit.wechatPayNotifyUrl':
             'https://api.purelyprofit.com/api/profit/payments/wechat/callback',
+          // 短信钱包充值专属回调：漏配时商家充值直接 500，启动校验强制要求
+          'sms.wechatPayNotifyUrl':
+            'https://api.purelyprofit.com/api/marketing/sms/wechat/callback',
           port: 3000,
         };
         return configMap[key];
@@ -238,7 +241,8 @@ describe('main bootstrap', () => {
     expect(
       filterSwaggerDocumentForEnvironment(document, {
         manualConfirmPaidEnabled: false,
-        paymentModeDebugVisible: false,
+        clubPaymentModeDebugVisible: false,
+        profitPaymentModeDebugVisible: false,
       }),
     ).toEqual({
       tags: [{ name: 'Club / Orders' }],
@@ -260,15 +264,20 @@ describe('main bootstrap', () => {
       },
     };
 
-    // 生产环境：即便保留了手动确认支付能力，调试开关也必须从文档消失
-    expect(
-      filterSwaggerDocumentForEnvironment(document, {
-        manualConfirmPaidEnabled: true,
-        paymentModeDebugVisible: false,
-      }).paths,
-    ).toEqual({
+    // 生产环境：即便保留了手动确认支付能力，调试开关也必须从文档消失；
+    // 路径与 @ApiTags 分组都要消失，否则 tags 列表仍会暴露「调试入口存在」
+    const filtered = filterSwaggerDocumentForEnvironment(document, {
+      manualConfirmPaidEnabled: true,
+      clubPaymentModeDebugVisible: false,
+      profitPaymentModeDebugVisible: false,
+    });
+
+    expect(filtered.paths).toEqual({
       '/club/orders/{id}': { get: { summary: 'query' } },
     });
+    expect(filtered.tags?.map((tag) => tag.name)).not.toContain(
+      'Club / Payments · 调试',
+    );
   });
 
   it('filterSwaggerDocumentForEnvironment 在开发态保留并高亮 club 兜底接口', () => {
@@ -287,7 +296,8 @@ describe('main bootstrap', () => {
     expect(
       filterSwaggerDocumentForEnvironment(document, {
         manualConfirmPaidEnabled: true,
-        paymentModeDebugVisible: true,
+        clubPaymentModeDebugVisible: true,
+        profitPaymentModeDebugVisible: true,
       }),
     ).toEqual({
       tags: [
@@ -313,6 +323,67 @@ describe('main bootstrap', () => {
         },
       },
     });
+  });
+
+  it('filterSwaggerDocumentForEnvironment 剔除带全局前缀的 profit 调试接口', () => {
+    const document = {
+      tags: [
+        { name: 'Club / Payments · 调试' },
+        { name: 'Profit / Payments · 调试' },
+      ],
+      paths: {
+        // createDocument 会把 setGlobalPrefix('api') 拼进 key，
+        // 清单里的相对路由必须能命中带前缀的真实 key
+        '/api/club/dev/payment-mode': {
+          get: { summary: '查询当前支付模式' },
+          post: { summary: '切换支付模式' },
+        },
+        '/api/profit/dev/payment-mode': {
+          get: { summary: '查询当前支付模式' },
+          post: { summary: '切换支付模式' },
+        },
+        '/api/profit/payments/orders': { get: { summary: '查询平台支付单' } },
+      },
+    };
+
+    // 只开 club 开关：profit 侧必须被独立剔除，
+    // 不能因为 club 可见就把 profit 的入口顺带保留在文档里
+    const filtered = filterSwaggerDocumentForEnvironment(document, {
+      manualConfirmPaidEnabled: false,
+      clubPaymentModeDebugVisible: true,
+      profitPaymentModeDebugVisible: false,
+    });
+
+    expect(Object.keys(filtered.paths ?? {})).toEqual([
+      '/api/club/dev/payment-mode',
+      '/api/profit/payments/orders',
+    ]);
+    expect(filtered.tags?.map((tag) => tag.name)).toEqual([
+      'Club / Payments · 调试',
+    ]);
+  });
+
+  it('filterSwaggerDocumentForEnvironment 对未显式传 true 的调试开关按不可见处理', () => {
+    const document = {
+      tags: [{ name: 'Profit / Payments · 调试' }],
+      paths: {
+        '/profit/dev/payment-mode': {
+          get: { summary: '查询当前支付模式' },
+        },
+        '/profit/payments/orders': { get: { summary: '查询平台支付单' } },
+      },
+    };
+
+    const filtered = filterSwaggerDocumentForEnvironment(document, {
+      manualConfirmPaidEnabled: false,
+      clubPaymentModeDebugVisible: false,
+      profitPaymentModeDebugVisible: false,
+    });
+
+    expect(Object.keys(filtered.paths ?? {})).toEqual([
+      '/profit/payments/orders',
+    ]);
+    expect(filtered.tags).toEqual([]);
   });
 
   it('开发环境启动前会清理 3000-3002 残留 node 进程', async () => {

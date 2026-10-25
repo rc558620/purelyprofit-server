@@ -46,17 +46,6 @@ describe('NewCustomerQuotaService', () => {
     ),
   };
 
-  /** 让 getOverview 返回指定余额：findUnique + 两条 aggregate */
-  const mockOverviewRead = (remaining: number, consumed: number): void => {
-    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
-      newCustomerQuota: remaining,
-      newCustomerQuotaConsumed: consumed,
-    });
-    delegates.storeNewCustomerQuotaLog.aggregate.mockResolvedValue({
-      _sum: { changeAmount: 0 },
-    });
-  };
-
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -111,43 +100,6 @@ describe('NewCustomerQuotaService', () => {
       { amountFen: 5000, amountDisplay: '¥50', quotaCount: 1666 },
       { amountFen: 10000, amountDisplay: '¥100', quotaCount: 3333 },
     ]);
-  });
-
-  it('非法充值档位直接拒绝，不写库', async () => {
-    await expect(service.recharge(42, 9999)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-    expect(delegates.storeMembershipProfile.upsert).not.toHaveBeenCalled();
-    expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
-  });
-
-  it('充值到账：余额叠加并写充值流水', async () => {
-    delegates.storeMembershipProfile.upsert.mockResolvedValue({ storeId: 42 });
-    delegates.storeMembershipProfile.update.mockResolvedValue({
-      newCustomerQuota: 333,
-    });
-    mockOverviewRead(333, 0);
-
-    await expect(service.recharge(42, 1000)).resolves.toMatchObject({
-      remaining: 333,
-    });
-
-    expect(delegates.storeMembershipProfile.update).toHaveBeenCalledWith({
-      where: { storeId: 42 },
-      data: { newCustomerQuota: { increment: 333 } },
-      select: { newCustomerQuota: true },
-    });
-    expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          storeId: 42,
-          type: 'recharge',
-          changeAmount: 333,
-          balanceAfter: 333,
-          amountFen: 1000,
-        }),
-      }),
-    );
   });
 
   it('会员赠送：月度 +50，永久同年度 +300', async () => {

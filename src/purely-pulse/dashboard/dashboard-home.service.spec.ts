@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -68,7 +69,6 @@ describe('PulseDashboardHomeService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-30T12:00:00.000Z'));
     jest.clearAllMocks();
     // 在线统计默认无人在线，避免各用例都要显式桩 user 查询
-    prismaService.user.count.mockResolvedValue(0);
     prismaService.user.findMany.mockResolvedValue([]);
     refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
@@ -94,6 +94,8 @@ describe('PulseDashboardHomeService', () => {
     const cached = {
       online: {
         onlineCount: 10,
+        profitOnlineCount: 6,
+        clubOnlineCount: 4,
         onlinePeak: 20,
         onlineChangeRatio: 12,
         onlineTrend: [1, 2],
@@ -144,12 +146,14 @@ describe('PulseDashboardHomeService', () => {
     ]);
     prismaService.$queryRaw.mockResolvedValue([
       {
+        id: 11,
         name: '张三',
         region: ['广东省', '深圳市'],
         orders: 2,
         revenue: 5000,
       },
       {
+        id: 12,
         name: '李四',
         region: ['北京市', '北京市'],
         orders: 1,
@@ -171,8 +175,22 @@ describe('PulseDashboardHomeService', () => {
     expect(prismaService.storeMembershipOrder.groupBy).toHaveBeenCalled();
     expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(result.partnerTop).toEqual([
-      { name: '张三', city: '深圳市', orders: 2, revenue: 50 },
-      { name: '李四', city: '北京市', orders: 1, revenue: 10 },
+      {
+        id: '11',
+        name: '张三',
+        city: '深圳市',
+        orders: 2,
+        revenue: 5000,
+        revenueDisplay: '50',
+      },
+      {
+        id: '12',
+        name: '李四',
+        city: '北京市',
+        orders: 1,
+        revenue: 1000,
+        revenueDisplay: '10',
+      },
     ]);
     expect(result.revenueTypeBreakdown).toEqual([
       { label: '月卡会员', value: 67 },
@@ -183,23 +201,48 @@ describe('PulseDashboardHomeService', () => {
     ]);
     expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        cacheKey: 'pulse:dashboard:home:period:month:region:all:regionCode:all',
+        cacheKey:
+          'pulse:dashboard:home:period:month:region:all:regionCode:all:day:na:start:na:end:na',
         ttlSeconds: 30,
       }),
     );
   });
 
-  it('getHome 在线统计取真实鉴权活跃时间：在线数 / 今日峰值 / 趋势 / 环比', async () => {
+  it('getHome 在线统计取真实鉴权活跃时间：总数 / 两端拆分 / 今日峰值 / 趋势 / 环比', async () => {
     // 冻结时间 2026-05-30T12:00Z；上海时区今日起点 = 05-29T16:00Z，昨日起点 = 05-28T16:00Z
     // 趋势窗口 = 最近 10 小时 = [05-30T02:00Z, 05-30T12:00Z)
-    prismaService.user.count.mockResolvedValue(3);
+    // 实时在线窗口 = [05-30T11:50Z, ∞)
     prismaService.user.findMany.mockResolvedValue([
-      { lastActiveAt: new Date('2026-05-30T11:30:00.000Z') }, // 今日 / 趋势第 10 桶
-      { lastActiveAt: new Date('2026-05-30T11:10:00.000Z') }, // 今日 / 趋势第 10 桶
-      { lastActiveAt: new Date('2026-05-30T02:30:00.000Z') }, // 今日 / 趋势第 1 桶
-      { lastActiveAt: new Date('2026-05-29T20:00:00.000Z') }, // 今日（不在趋势窗口）
-      { lastActiveAt: new Date('2026-05-29T10:00:00.000Z') }, // 昨日
-      { lastActiveAt: new Date('2026-05-20T10:00:00.000Z') }, // 更早：两项统计都不计入
+      // 在线窗口内：2 个商家端（含历史 phone_ 前缀）+ 1 个个人端
+      {
+        lastActiveAt: new Date('2026-05-30T11:55:00.000Z'),
+        email: 'profit_phone_13800138000@purelyprofit.local',
+      },
+      {
+        lastActiveAt: new Date('2026-05-30T11:52:00.000Z'),
+        email: 'phone_13900139000@purelyprofit.local',
+      },
+      {
+        lastActiveAt: new Date('2026-05-30T11:51:00.000Z'),
+        email: 'club_phone_13700137000@purelyprofit.local',
+      },
+      // 今日活跃但已滑出在线窗口
+      {
+        lastActiveAt: new Date('2026-05-30T11:10:00.000Z'),
+        email: 'profit_phone_13600136000@purelyprofit.local',
+      },
+      {
+        lastActiveAt: new Date('2026-05-30T02:30:00.000Z'),
+        email: 'club_wechat_openid_1@purelyprofit.local',
+      },
+      {
+        lastActiveAt: new Date('2026-05-29T20:00:00.000Z'),
+        email: 'profit_phone_13500135000@purelyprofit.local',
+      },
+      {
+        lastActiveAt: new Date('2026-05-29T10:00:00.000Z'),
+        email: 'profit_phone_13400134000@purelyprofit.local',
+      },
     ]);
     prismaService.storePartner.count
       .mockResolvedValueOnce(0)
@@ -216,19 +259,22 @@ describe('PulseDashboardHomeService', () => {
 
     const result = await service.getHome(user, {});
 
-    // 实时在线人数来自「最近 10 分钟有鉴权请求」的计数
-    expect(prismaService.user.count).toHaveBeenCalledWith({
+    // 趋势 / 环比 / 实时在线三个窗口取并集，一次查询拿全
+    expect(prismaService.user.findMany).toHaveBeenCalledWith({
       where: {
-        lastActiveAt: { gt: new Date('2026-05-30T11:50:00.000Z') },
+        lastActiveAt: { gte: new Date('2026-05-28T16:00:00.000Z') },
       },
+      select: { lastActiveAt: true, email: true },
     });
-    // 今日 4 人活跃、昨日 1 人 → 环比 (4-1)/1 = 300%
-    // 今日小时桶：13:30-14:00 有 2 人（峰值）
+    // 今日 6 人活跃、昨日 1 人 → 环比 (6-1)/1 = 500%
+    // 今日小时桶：11:00-12:00 有 4 人（峰值）
     expect(result.online).toEqual({
       onlineCount: 3,
-      onlinePeak: 2,
-      onlineChangeRatio: 300,
-      onlineTrend: [1, 0, 0, 0, 0, 0, 0, 0, 0, 2],
+      profitOnlineCount: 2,
+      clubOnlineCount: 1,
+      onlinePeak: 4,
+      onlineChangeRatio: 500,
+      onlineTrend: [1, 0, 0, 0, 0, 0, 0, 0, 0, 4],
     });
   });
 
@@ -250,6 +296,8 @@ describe('PulseDashboardHomeService', () => {
 
     expect(result.online).toEqual({
       onlineCount: 0,
+      profitOnlineCount: 0,
+      clubOnlineCount: 0,
       onlinePeak: 0,
       onlineChangeRatio: 0,
       onlineTrend: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -326,5 +374,85 @@ describe('PulseDashboardHomeService', () => {
     await service.getHome(user, { revenuePeriod: 'month' });
 
     expect(serializeQueryRawCall(0)).not.toContain('array_to_string');
+  });
+
+  it('getHome 传 customDate 时按该自然日统计收入，环比窗口取前一天', async () => {
+    prismaService.storePartner.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0);
+    prismaService.storePartnerApplication.count.mockResolvedValue(0);
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    prismaService.$queryRaw.mockResolvedValue([]);
+    prismaService.storeMembershipPromoRecord.aggregate.mockResolvedValue({
+      _count: { _all: 0 },
+      _sum: { chargedAmount: 0 },
+    });
+    prismaService.storeMembershipOrder.groupBy.mockResolvedValue([]);
+
+    const result = await service.getHome(user, {
+      revenuePeriod: 'month',
+      customDate: '2026-05-21',
+    });
+
+    // 订单查询范围 = 所选当日 ∪ 前一天；上海时区下 05-21 = [05-20T16:00Z, 05-21T15:59:59.999Z]
+    expect(prismaService.storeMembershipOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: {
+            gte: new Date('2026-05-19T16:00:00.000Z'),
+            lte: new Date('2026-05-21T15:59:59.999Z'),
+          },
+        }),
+      }),
+    );
+    // 趋势只统计所选当日，不含环比日
+    expect(prismaService.storeMembershipOrder.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: {
+            gte: new Date('2026-05-20T16:00:00.000Z'),
+            lte: new Date('2026-05-21T15:59:59.999Z'),
+          },
+        }),
+      }),
+    );
+    // 自定义日期必须进入缓存键，否则会被同周期的默认查询命中复用
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: expect.stringContaining('day:2026-05-21'),
+      }),
+    );
+    expect(result.revenueSummary).toEqual({
+      total: 0,
+      totalDisplay: '0',
+      avg: 0,
+      avgDisplay: '0',
+      growth: 0,
+    });
+  });
+
+  it('getHome 自定义区间缺失一端时抛 400，且不落到数据库查询', async () => {
+    await expect(
+      service.getHome(user, {
+        revenuePeriod: 'month',
+        customRangeStart: '2026-05-01',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prismaService.storePartner.count).not.toHaveBeenCalled();
+    expect(prismaService.storeMembershipOrder.findMany).not.toHaveBeenCalled();
+  });
+
+  it('getHome 自定义区间开始晚于结束时抛 400', async () => {
+    await expect(
+      service.getHome(user, {
+        revenuePeriod: 'month',
+        customRangeStart: '2026-05-21',
+        customRangeEnd: '2026-05-01',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prismaService.storePartner.count).not.toHaveBeenCalled();
   });
 });

@@ -56,12 +56,26 @@ async function ensureQuotaProfile(
   });
 }
 
-/** 充值到账：叠加额度 + 写充值流水 */
+/**
+ * 充值到账：叠加额度 + 写充值流水。
+ *
+ * 幂等：同一支付单号只入账一次。
+ * 支付单的「置 paid」与入账已拆成两段事务（钱先落定、入账可重试），
+ * 微信重投或补偿重试会再次走到这里，必须靠支付单号自己挡住重复加额度。
+ */
 export async function writeRecharge(
   tx: PrismaExecutor,
   params: QuotaRechargeWriteParams,
 ): Promise<void> {
-  const { storeId, amountFen, quotaCount, orderId } = params;
+  const { storeId, amountFen, quotaCount, orderId, payMode } = params;
+
+  const settled = await tx.storeNewCustomerQuotaLog.findFirst({
+    where: { storeId, orderId },
+    select: { id: true },
+  });
+  if (settled) {
+    return;
+  }
 
   await ensureQuotaProfile(tx, storeId);
 
@@ -79,7 +93,11 @@ export async function writeRecharge(
       balanceAfter: updated.newCustomerQuota,
       amountFen,
       orderId,
-      description: `微信支付充值 ${formatAmountFenToYuanDisplay(amountFen)}`,
+      // 测试模式没有真实微信流水，写成「微信支付充值」会让商家对账时找不到对应的微信交易
+      description:
+        payMode === 'test'
+          ? `测试模式充值 ${formatAmountFenToYuanDisplay(amountFen)}（未真实扣款）`
+          : `微信支付充值 ${formatAmountFenToYuanDisplay(amountFen)}`,
     },
   });
 }

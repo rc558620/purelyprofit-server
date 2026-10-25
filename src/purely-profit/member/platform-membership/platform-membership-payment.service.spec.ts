@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -38,6 +38,7 @@ interface PrismaMockShape {
     findFirst: jest.Mock;
     findUnique: jest.Mock;
     update: jest.Mock;
+    updateMany: jest.Mock;
     aggregate: jest.Mock;
   };
   platformPaymentOrder: { findUnique: jest.Mock };
@@ -131,11 +132,14 @@ const buildPrismaMock = (): PrismaMockShape => {
         }),
       ),
       update: jest.fn(() => Promise.resolve({ id: 31 })),
-      // 默认没有待支付订单占用积分
-      aggregate: jest.fn(() => Promise.resolve({ _sum: { pointsUsed: 0 } })),
+      updateMany: jest.fn(() => Promise.resolve({ count: 0 })),
+      // 默认没有待支付订单占用积分 / 纯利豆
+      aggregate: jest.fn(() =>
+        Promise.resolve({ _sum: { pointsUsed: 0, beansUsed: 0 } }),
+      ),
     },
     platformPaymentOrder: {
-      // 推广奖励归属人只认支付单发起人，桩里必须能取到
+      // 推广活动归属人只认支付单发起人，桩里必须能取到
       findUnique: jest.fn(() => Promise.resolve({ operatorUserId: USER_ID })),
     },
   } as unknown as Omit<PrismaMockShape, '$transaction'>;
@@ -158,12 +162,17 @@ describe('PlatformMembershipPaymentService', () => {
     markFailed: jest.Mock;
     markPaid: jest.Mock;
     settleWithBusinessWrite: jest.Mock;
+    findByOrderNo: jest.Mock;
+    getStatus: jest.Mock;
+    closeWechatOrderQuietly: jest.Mock;
   };
 
   const buildService = async (overrides?: {
     notifyUrl?: string;
     /** 模拟「置 paid 未命中」（重复回调）：跳过业务写入并返回 null */
     skipSettle?: boolean;
+    /** 模拟二维码出图失败 */
+    qrImpl?: () => Promise<string>;
   }): Promise<PlatformMembershipPaymentService> => {
     paymentOrderService = {
       createOrder: jest.fn(() =>
@@ -181,6 +190,7 @@ describe('PlatformMembershipPaymentService', () => {
       ),
       attachCodeUrl: jest.fn(() => Promise.resolve(undefined)),
       markFailed: jest.fn(() => Promise.resolve(undefined)),
+      closeWechatOrderQuietly: jest.fn(() => Promise.resolve(undefined)),
       markPaid: jest.fn(() => Promise.resolve(true)),
       // 默认真实执行业务写入：金额校验与生效逻辑都在 write 回调里，
       // 桩掉它就等于没测到资金安全分支
@@ -191,6 +201,22 @@ describe('PlatformMembershipPaymentService', () => {
           write: (tx: unknown) => Promise<unknown>,
         ) =>
           overrides?.skipSettle ? Promise.resolve(null) : write(prismaMock),
+      ),
+      // 轮询 / 补偿路径的反查：默认是本店待支付单，用例按需覆盖
+      findByOrderNo: jest.fn(() =>
+        Promise.resolve({
+          orderNo: ORDER_NO,
+          bizType: 'membership',
+          storeId: STORE_ID,
+          amountFen: PLAN_PRICE_FEN,
+          payMode: 'live',
+          status: 'pending',
+          codeUrl: null,
+          expiresAt: new Date('2026-01-01T00:15:00.000Z'),
+        }),
+      ),
+      getStatus: jest.fn(() =>
+        Promise.resolve({ status: 'pending', paidAt: null }),
       ),
     };
 
@@ -246,8 +272,9 @@ describe('PlatformMembershipPaymentService', () => {
           // 二维码出图与支付无关：用桩隔离，避免测试依赖图形库
           provide: PlatformPaymentQrCodeService,
           useValue: {
-            renderPaymentQrCode: jest.fn(() =>
-              Promise.resolve('data:image/png;base64,MOCK'),
+            renderPaymentQrCode: jest.fn(
+              overrides?.qrImpl ??
+                (() => Promise.resolve('data:image/png;base64,MOCK')),
             ),
           },
         },
@@ -382,5 +409,122 @@ describe('PlatformMembershipPaymentService', () => {
     ).rejects.toThrow(ConflictException);
 
     expect(prismaMock.storeMembershipProfile.update).not.toHaveBeenCalled();
+  });
+
+  it('待支付订单已占用的纯利豆会从可用额度里扣掉，不能重复承诺', async () => {
+    // 余额 50 豆，其中 40 豆已被另一笔待支付订单占用 → 本次最多只能抵 10 豆
+    prismaMock.storeMembershipOrder.aggregate.mockResolvedValue({
+      _sum: { pointsUsed: 0, beansUsed: 40 },
+    });
+    const service = await buildService({
+      notifyUrl: 'https://api.example.com/api/profit/payments/wechat/callback',
+    });
+
+    await service.createMembershipPaymentOrder(USER_ID, STORE_ID, {
+      planId: 'yearly',
+      useBeans: 50,
+    });
+
+    const createdOrder =
+      prismaMock.storeMembershipOrder.create.mock.calls[0][0];
+    expect(createdOrder.data.beansUsed).toBe(10);
+  });
+
+  it('同一份抵扣组合存在待支付订单时复用二维码，不重复建单', async () => {
+    prismaMock.storeMembershipOrder.findFirst.mockResolvedValue({
+      id: 77,
+      planId: 'yearly',
+      pointsUsed: 0,
+      beansUsed: 0,
+      amount: PLAN_PRICE_FEN,
+      paymentOrderId: 'PM-EXISTING',
+    });
+    prismaMock.platformPaymentOrder.findUnique.mockResolvedValue({
+      status: 'pending',
+      codeUrl: 'weixin://wxpay/existing',
+      // 复用只发生在二维码仍在有效期内时
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    const service = await buildService({
+      notifyUrl: 'https://api.example.com/api/profit/payments/wechat/callback',
+    });
+
+    const result = await service.createMembershipPaymentOrder(
+      USER_ID,
+      STORE_ID,
+      { planId: 'yearly' },
+    );
+
+    expect(result.orderNo).toBe('PM-EXISTING');
+    expect(result.codeUrl).toBe('weixin://wxpay/existing');
+    expect(prismaMock.storeMembershipOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('轮询时不允许查他店支付单（按门店归属校验）', async () => {
+    const service = await buildService();
+    paymentOrderService.findByOrderNo.mockResolvedValue({
+      orderNo: ORDER_NO,
+      bizType: 'membership',
+      storeId: STORE_ID + 1,
+      amountFen: PLAN_PRICE_FEN,
+      payMode: 'live',
+      status: 'pending',
+      codeUrl: null,
+      expiresAt: new Date('2026-01-01T00:15:00.000Z'),
+    });
+
+    await expect(
+      service.getMembershipPaymentStatus({ orderNo: ORDER_NO, storeId: STORE_ID }),
+    ).rejects.toThrow(NotFoundException);
+
+    expect(paymentOrderService.getStatus).not.toHaveBeenCalled();
+  });
+
+  it('支付单已 paid 但权益未落地时，轮询会补生效', async () => {
+    const service = await buildService();
+    paymentOrderService.findByOrderNo.mockResolvedValue({
+      orderNo: ORDER_NO,
+      bizType: 'membership',
+      storeId: STORE_ID,
+      amountFen: PLAN_PRICE_FEN,
+      payMode: 'live',
+      status: 'paid',
+      codeUrl: null,
+      expiresAt: new Date('2026-01-01T00:15:00.000Z'),
+    });
+    paymentOrderService.getStatus.mockResolvedValue({
+      status: 'paid',
+      paidAt: new Date('2026-01-01T00:05:00.000Z'),
+    });
+
+    const status = await service.getMembershipPaymentStatus({
+      orderNo: ORDER_NO,
+      storeId: STORE_ID,
+    });
+
+    expect(status.status).toBe('paid');
+    // 补生效走的是同一套激活逻辑：会员档期必须被写回
+    expect(prismaMock.storeMembershipProfile.update).toHaveBeenCalled();
+  });
+
+  it('二维码出图失败：必须关掉已创建的微信单，不能只把本地单置失败', async () => {
+    const service = await buildService({
+      notifyUrl:
+        'https://api.purelyprofit.com/api/profit/payments/wechat/callback',
+      qrImpl: () => Promise.reject(new Error('出图失败')),
+    });
+
+    await expect(
+      service.createMembershipPaymentOrder(USER_ID, STORE_ID, {
+        planId: 'yearly',
+      }),
+    ).rejects.toThrow('出图失败');
+
+    // 微信侧二维码 2 小时有效：只置本地 failed 会留下「本地失败、微信仍可支付」的悬空单
+    expect(paymentOrderService.closeWechatOrderQuietly).toHaveBeenCalledWith(
+      ORDER_NO,
+      'membership',
+    );
+    expect(paymentOrderService.markFailed).toHaveBeenCalledWith(ORDER_NO);
   });
 });

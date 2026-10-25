@@ -1,10 +1,11 @@
 // 短信充值**微信回调**相关用例（下单 / 直充 / 轮询见 sms-recharge.service.spec.ts）
+import { InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ClubPaymentCallbackSignatureService } from '../../../purely-club/payments/club-payment-callback-signature.service';
 import { SmsAccountService } from './sms-account.service';
+import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
 import { SmsRechargeService } from './sms-recharge.service';
 import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
-import { SmsWechatNativeService } from './sms-wechat-native.service';
 import { buildSmsOrderNo } from './sms.utils';
 
 const STORE_ID = 18;
@@ -21,8 +22,8 @@ const SUCCESS_TX = {
   amount: { total: AMOUNT_FEN },
 };
 
-describe('SmsRechargeService · 微信回调', () => {
-  let service: SmsRechargeService;
+describe('SmsRechargeCallbackService', () => {
+  let service: SmsRechargeCallbackService;
   let prisma: {
     smsRechargeOrder: {
       updateMany: jest.Mock;
@@ -83,24 +84,27 @@ describe('SmsRechargeService · 微信回调', () => {
       decryptCallback: jest.fn().mockReturnValue(SUCCESS_TX),
     };
 
-    service = new SmsRechargeService(
+    // 入账仍走真实 SmsRechargeService：这里要验的正是「回调 → 入账」的联动
+    const rechargeService = new SmsRechargeService(
       prisma as unknown as PrismaService,
-      { get: jest.fn() } as never,
-      { ensureAccount: jest.fn() } as unknown as SmsAccountService,
-      null as unknown as SmsWechatNativeService,
-      signatureService as unknown as ClubPaymentCallbackSignatureService,
-      decryptorService as unknown as SmsWechatCallbackDecryptorService,
       {
-        renderPaymentQrCode: jest.fn(() =>
-          Promise.resolve('data:image/png;base64,MOCK'),
-        ),
-      } as never,
-      // 支付模式裁决桩：默认不跳过真实扣款，由用例按需覆盖
+        ensureAccount: jest.fn(),
+        resolveRechargeTiers: jest.fn().mockReturnValue([]),
+      } as unknown as SmsAccountService,
+      null as never,
+      { renderPaymentQrCode: jest.fn() } as never,
       {
         isSkipPaymentAllowed: jest.fn(
           (): Promise<boolean> => Promise.resolve(false),
         ),
       } as never,
+    );
+
+    service = new SmsRechargeCallbackService(
+      prisma as unknown as PrismaService,
+      rechargeService,
+      signatureService as unknown as ClubPaymentCallbackSignatureService,
+      decryptorService as unknown as SmsWechatCallbackDecryptorService,
     );
   });
 
@@ -129,6 +133,8 @@ describe('SmsRechargeService · 微信回调', () => {
         data: expect.objectContaining({
           type: 'recharge',
           changeFen: AMOUNT_FEN,
+          payMode: 'live',
+          description: '微信充值 ¥10',
         }),
       }),
     );
@@ -198,5 +204,33 @@ describe('SmsRechargeService · 微信回调', () => {
 
     expect(ack).toMatchObject({ success: false, message: '订单不存在' });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('回调缺少金额时拒绝入账，返回非 2xx 让微信重投', async () => {
+    decryptorService.decryptCallback.mockReturnValue({
+      ...SUCCESS_TX,
+      amount: undefined,
+    });
+
+    await expect(
+      service.handleWechatCallback(callbackPayload, headers, '{}'),
+    ).rejects.toThrow(InternalServerErrorException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('回调金额与订单金额不一致时拒绝入账，且不把订单标成 failed', async () => {
+    decryptorService.decryptCallback.mockReturnValue({
+      ...SUCCESS_TX,
+      amount: { total: AMOUNT_FEN + 1 },
+    });
+
+    await expect(
+      service.handleWechatCallback(callbackPayload, headers, '{}'),
+    ).rejects.toThrow(InternalServerErrorException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    // 钱可能真的收了：保持 pending 等人工核对，不能标 failed 让线索消失
+    expect(prisma.smsRechargeOrder.updateMany).not.toHaveBeenCalled();
   });
 });

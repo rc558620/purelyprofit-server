@@ -5,7 +5,7 @@
 -- 本次为它们补上真实的微信 Native 支付链路，并把「钱」抽到独立的支付单表里：
 -- 支付单只管钱（下单/回调/幂等/状态机），业务结果仍写各自业务表，弱引用关联。
 --
--- pay_mode 落库用于对账与列表筛选：测试单必须与真实单可区分，
+-- pay_mode 落库用于对账：测试单必须与真实单可区分，
 -- 否则测试流量会污染真实对账。
 
 -- CreateEnum
@@ -49,3 +49,6 @@ CREATE INDEX "platform_payment_orders_store_id_status_idx" ON "platform_payment_
 
 -- CreateIndex
 CREATE INDEX "platform_payment_orders_pay_mode_created_at_idx" ON "platform_payment_orders"("pay_mode", "created_at");
+
+-- 建表迁移，无需锁表处理；updated_at 由 Prisma 客户端始终写入，
+-- 手工 SQL 插入数据时需显式提供该列。

@@ -89,6 +89,7 @@ export function queryPartnerTop(
         sp.id DESC
     )
     SELECT
+      lp."storeId" AS "id",
       lp.name,
       lp.region,
       COUNT(pr.id)::int AS orders,
@@ -99,16 +100,16 @@ export function queryPartnerTop(
      AND pr.has_charged = true
     WHERE lp.name IS NOT NULL
     ${regionCondition}
-    GROUP BY lp.name, lp.region
+    GROUP BY lp."storeId", lp.name, lp.region
     ORDER BY revenue DESC, orders DESC, lp.name ASC
     LIMIT 5
   `;
 }
 
-/** 在线统计的原始数据：实时在线数 + 窗口内活跃时间戳列表（ms） */
-export interface PulseHomeOnlineRawData {
-  onlineCount: number;
-  activeAtMsList: number[];
+/** 在线统计的原始数据：窗口内活跃账号的活跃时间戳（ms）+ 用于归属产品线的登录邮箱 */
+export interface PulseHomeOnlineActivityRow {
+  lastActiveAtMs: number;
+  email: string;
 }
 
 /**
@@ -117,38 +118,35 @@ export interface PulseHomeOnlineRawData {
  * 数据源：`users.last_active_at` —— 鉴权链路在每次请求时异步写入（5 分钟节流），
  * 因此它是「账号最近一次访问后端」的权威时间。
  *
- * 趋势窗口与「环比」所需窗口取并集，一次查询覆盖两项统计。
+ * 趋势窗口、「环比」窗口与实时在线窗口取并集，一次查询覆盖三项统计；
+ * 商家端 / 个人端的拆分在内存里按登录邮箱归类，不为拆分再扫一次 users。
  */
 export async function queryOnlineActivity(
   prisma: PrismaService,
   now: Date,
-): Promise<PulseHomeOnlineRawData> {
+): Promise<PulseHomeOnlineActivityRow[]> {
   const nowMs = now.getTime();
   const yesterdayStartMs = getShanghaiDayStartMs(nowMs) - DAY_MS;
   const trendStartMs = nowMs - ONLINE_TREND_HOURS * HOUR_MS;
+  const onlineWindowStartMs = nowMs - MEMBER_ONLINE_WINDOW_MS;
 
-  const [onlineCount, activeUsers] = await Promise.all([
-    prisma.user.count({
-      where: {
-        lastActiveAt: { gt: new Date(nowMs - MEMBER_ONLINE_WINDOW_MS) },
+  const activeUsers = await prisma.user.findMany({
+    where: {
+      lastActiveAt: {
+        gte: new Date(
+          Math.min(yesterdayStartMs, trendStartMs, onlineWindowStartMs),
+        ),
       },
-    }),
-    prisma.user.findMany({
-      where: {
-        lastActiveAt: {
-          gte: new Date(Math.min(trendStartMs, yesterdayStartMs)),
-        },
-      },
-      select: { lastActiveAt: true },
-    }),
-  ]);
+    },
+    select: { lastActiveAt: true, email: true },
+  });
 
-  return {
-    onlineCount,
-    activeAtMsList: activeUsers
-      .map((row) => row.lastActiveAt?.getTime())
-      .filter((value): value is number => typeof value === 'number'),
-  };
+  return activeUsers.flatMap((row) => {
+    const lastActiveAtMs = row.lastActiveAt?.getTime();
+    return typeof lastActiveAtMs === 'number'
+      ? [{ lastActiveAtMs, email: row.email }]
+      : [];
+  });
 }
 
 /** 推广充值汇总：全平台累计单数与累计充值金额（分） */
@@ -167,7 +165,7 @@ export interface PulseHomeRawData {
   partnerTopRows: DashboardPartnerTopRow[];
   promoSummary: PulseHomePromoSummary;
   revenueTypeCounts: DashboardRevenueTypeCountRow[];
-  online: PulseHomeOnlineRawData;
+  online: PulseHomeOnlineActivityRow[];
 }
 
 export interface LoadPulseHomeRawDataParams {

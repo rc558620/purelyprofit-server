@@ -1,28 +1,17 @@
 import {
+  BadRequestException,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ClubPaymentCallbackSignatureService } from '../../../purely-club/payments/club-payment-callback-signature.service';
 import { SmsAccountService } from './sms-account.service';
 import { SmsRechargeService } from './sms-recharge.service';
-import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
-
 import { buildSmsOrderNo } from './sms.utils';
 
 const STORE_ID = 18;
 const AMOUNT_FEN = 1000;
 const SMS_ORDER_NO = buildSmsOrderNo();
-
-const SUCCESS_TX = {
-  out_trade_no: SMS_ORDER_NO,
-  transaction_id: 'wx-tx-1',
-  trade_state: 'SUCCESS',
-  mchid: '1234567890',
-  appid: 'wxappid',
-  amount: { total: AMOUNT_FEN },
-};
 
 describe('SmsRechargeService', () => {
   let service: SmsRechargeService;
@@ -40,10 +29,12 @@ describe('SmsRechargeService', () => {
     storeSmsAccount: { update: jest.Mock };
     smsWalletLog: { create: jest.Mock };
   };
-  let signatureService: { assertWechatCallbackSignature: jest.Mock };
-  let decryptorService: { decryptCallback: jest.Mock };
-  let nativeService: { createNativeOrder: jest.Mock };
-  let accountService: { ensureAccount: jest.Mock };
+  let nativeService: { createNativeOrder: jest.Mock; closeNativeOrder: jest.Mock };
+  let accountService: {
+    ensureAccount: jest.Mock;
+    resolveRechargeTiers: jest.Mock;
+  };
+  let qrCodeService: { renderPaymentQrCode: jest.Mock };
 
   /** 商家端支付模式裁决桩：默认不跳过真实扣款，由用例按需覆盖 */
   const paymentMode = {
@@ -52,27 +43,12 @@ describe('SmsRechargeService', () => {
     ),
   };
 
-  /** 直充开关只认 true，其它取值一律按 false */
-  const makeConfig = (directCredit: unknown) => ({
-    get: jest.fn((key: string) =>
-      key === 'sms.directCredit' ? directCredit : undefined,
-    ),
-  });
-
-  const buildService = (directCredit: unknown): SmsRechargeService =>
+  const buildService = (): SmsRechargeService =>
     new SmsRechargeService(
       prisma as unknown as PrismaService,
-      makeConfig(directCredit) as never,
       accountService as unknown as SmsAccountService,
       nativeService as unknown as SmsWechatNativeService,
-      signatureService as unknown as ClubPaymentCallbackSignatureService,
-      decryptorService as unknown as SmsWechatCallbackDecryptorService,
-      // 二维码出图与充值逻辑无关：用桩隔离，避免测试依赖图形库
-      {
-        renderPaymentQrCode: jest.fn(() =>
-          Promise.resolve('data:image/png;base64,MOCK'),
-        ),
-      } as never,
+      qrCodeService as never,
       paymentMode as never,
     );
 
@@ -103,37 +79,94 @@ describe('SmsRechargeService', () => {
           amountFen: AMOUNT_FEN,
           status: 'pending',
           expiresAt: new Date(Date.now() + 60_000),
+          codeUrl: 'weixin://wxpay/x',
         }),
       },
       $transaction: jest.fn((fn: (client: unknown) => unknown) => fn(tx)),
     };
 
-    signatureService = { assertWechatCallbackSignature: jest.fn() };
-    decryptorService = {
-      // 真实解密器是同步的（纯 CPU 操作），mock 同步返回
-      decryptCallback: jest.fn().mockReturnValue(SUCCESS_TX),
-    };
     nativeService = {
       createNativeOrder: jest
         .fn()
         .mockResolvedValue({ codeUrl: 'weixin://wxpay/x' }),
+      closeNativeOrder: jest.fn().mockResolvedValue('closed'),
     };
-    accountService = { ensureAccount: jest.fn().mockResolvedValue({ id: 1 }) };
+    accountService = {
+      ensureAccount: jest.fn().mockResolvedValue({ id: 1 }),
+      // 金额必须命中后端档位：测试只开放 1000 分这一档
+      resolveRechargeTiers: jest.fn().mockReturnValue([
+        { amountFen: AMOUNT_FEN, amountDisplay: '¥10' },
+        { amountFen: 5000, amountDisplay: '¥50' },
+      ]),
+    };
+    qrCodeService = {
+      renderPaymentQrCode: jest
+        .fn()
+        .mockResolvedValue('data:image/png;base64,MOCK'),
+    };
 
-    service = buildService(false);
+    service = buildService();
   });
 
-  describe('本地直充（SMS_RECHARGE_DIRECT_CREDIT）', () => {
-    it('商家端支付模式为测试模式时也跳过微信支付（两套开关取或）', async () => {
-      // 短信自身的直充开关关闭，但商家端全局处于测试模式：
-      // 两条开关取「或」，任一开启都意味着不打算真实扣款
+  describe('金额权威性', () => {
+    it('金额不在后端档位内时拒绝下单', async () => {
+      await expect(service.createRechargeOrder(STORE_ID, 1)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.smsRechargeOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('命中的档位金额按后端档位原值下单', async () => {
+      await service.createRechargeOrder(STORE_ID, 5000);
+
+      expect(prisma.smsRechargeOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amountFen: 5000 }),
+        }),
+      );
+    });
+  });
+
+  describe('支付模式裁决', () => {
+    it('全局测试模式：跳过微信下单，直接入账并回传 paid 状态', async () => {
       paymentMode.isSkipPaymentAllowed.mockResolvedValue(true);
 
-      const service = buildService(false);
-      const order = await service.createRechargeOrder(18, 1000);
+      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
 
       expect(nativeService.createNativeOrder).not.toHaveBeenCalled();
       expect(order.codeUrl).toBe('');
+      // 前端只看 status，不必先渲染二维码再等轮询才发现已到账
+      expect(order.status).toBe('paid');
+
+      expect(tx.smsRechargeOrder.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'paid', payMode: 'test' }),
+        }),
+      );
+      expect(tx.smsWalletLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'recharge',
+            payMode: 'test',
+            changeFen: AMOUNT_FEN,
+            description: '测试充值 ¥10',
+          }),
+        }),
+      );
+    });
+
+    it('全局真实模式：走微信 Native 下单，订单保持 pending', async () => {
+      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
+
+      expect(nativeService.createNativeOrder).toHaveBeenCalledTimes(1);
+      expect(order.status).toBe('pending');
+      expect(order.codeUrl).toBe('weixin://wxpay/x');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.smsRechargeOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'pending', payMode: 'live' }),
+        }),
+      );
     });
 
     it('真实下单返回二维码图片，而非无法展示的 weixin:// 协议串', async () => {
@@ -142,150 +175,148 @@ describe('SmsRechargeService', () => {
       });
       prisma.smsRechargeOrder.update.mockResolvedValue(undefined);
 
-      const service = buildService(false);
-      const order = await service.createRechargeOrder(18, 1000);
+      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
 
       expect(order.codeUrl).toBe('weixin://wxpay/bizpayurl?pr=abc');
       // 前端 <img> 加载不了 weixin://，必须同时给出可展示的图
       expect(order.qrCodeImageUrl).toBe('data:image/png;base64,MOCK');
     });
+  });
 
-    it('开启时跳过微信下单，直接入账并返回空 codeUrl', async () => {
-      service = buildService(true);
-
-      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
-
-      expect(nativeService.createNativeOrder).not.toHaveBeenCalled();
-      // codeUrl 只在微信下单成功后回写，直充没有码可写
-      expect(prisma.smsRechargeOrder.update).not.toHaveBeenCalled();
-      expect(order.codeUrl).toBe('');
-      expect(order.amountFen).toBe(AMOUNT_FEN);
-
-      expect(tx.storeSmsAccount.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            balanceFen: { increment: AMOUNT_FEN },
-            totalRechargedFen: { increment: AMOUNT_FEN },
-          }),
-        }),
+  describe('下单失败回滚', () => {
+    it('微信下单失败时订单落 failed 并向上抛出（否则前端会永远轮询）', async () => {
+      nativeService.createNativeOrder.mockRejectedValue(
+        new InternalServerErrorException('微信支付下单失败'),
       );
-      expect(tx.smsWalletLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'recharge',
-            changeFen: AMOUNT_FEN,
-          }),
-        }),
+
+      await expect(
+        service.createRechargeOrder(STORE_ID, AMOUNT_FEN),
+      ).rejects.toThrow(InternalServerErrorException);
+
+      expect(prisma.smsRechargeOrder.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'failed' } }),
       );
     });
 
-    it('开启时订单立即 paid：前端首次轮询即命中，无需扫码', async () => {
-      service = buildService(true);
-      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
+    it('二维码出图失败时回滚微信订单，避免留下可支付的悬空单', async () => {
+      qrCodeService.renderPaymentQrCode.mockRejectedValue(new Error('出图失败'));
 
-      // 直充后订单已是 paid，惰性关闭不会把它误改成 closed
+      await expect(
+        service.createRechargeOrder(STORE_ID, AMOUNT_FEN),
+      ).rejects.toThrow('出图失败');
+
+      // 下单时订单号是服务端现生成的，这里只断言「关了同一笔单」
+      expect(nativeService.closeNativeOrder).toHaveBeenCalledWith(
+        expect.any(String),
+      );
+      expect(prisma.smsRechargeOrder.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'failed' } }),
+      );
+    });
+  });
+
+  describe('过期惰性关闭', () => {
+    it('pending 且已过期：先关微信单，再置 closed', async () => {
       prisma.smsRechargeOrder.findUnique.mockResolvedValue({
-        orderNo: order.orderNo,
+        orderNo: SMS_ORDER_NO,
         storeId: STORE_ID,
-        status: 'paid',
-        expiresAt: new Date(Date.now() + 60_000),
+        status: 'pending',
+        expiresAt: new Date(Date.now() - 1_000),
+        codeUrl: 'weixin://wxpay/x',
       });
 
       await expect(
-        service.getRechargeOrderStatus(STORE_ID, order.orderNo),
-      ).resolves.toEqual({ orderNo: order.orderNo, status: 'paid' });
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).resolves.toEqual({ orderNo: SMS_ORDER_NO, status: 'closed' });
+
+      expect(nativeService.closeNativeOrder).toHaveBeenCalledWith(SMS_ORDER_NO);
     });
 
-    it('关闭时仍走微信 Native 下单（默认行为不变）', async () => {
-      service = buildService(false);
+    it('微信侧其实已支付：本地绝不关单，保持 pending 等回调', async () => {
+      prisma.smsRechargeOrder.findUnique.mockResolvedValue({
+        orderNo: SMS_ORDER_NO,
+        storeId: STORE_ID,
+        status: 'pending',
+        expiresAt: new Date(Date.now() - 1_000),
+        codeUrl: 'weixin://wxpay/x',
+      });
+      nativeService.closeNativeOrder.mockResolvedValue('paid');
 
-      const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
+      await expect(
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).resolves.toEqual({ orderNo: SMS_ORDER_NO, status: 'pending' });
 
-      expect(nativeService.createNativeOrder).toHaveBeenCalledTimes(1);
-      expect(order.codeUrl).toBe('weixin://wxpay/x');
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.smsRechargeOrder.updateMany).not.toHaveBeenCalled();
     });
 
-    it('开关只认 true：误配成字符串 "1" 不会开启直充', async () => {
-      service = buildService('1');
+    it('微信关单失败：本地保持 pending，不误标 closed', async () => {
+      prisma.smsRechargeOrder.findUnique.mockResolvedValue({
+        orderNo: SMS_ORDER_NO,
+        storeId: STORE_ID,
+        status: 'pending',
+        expiresAt: new Date(Date.now() - 1_000),
+        codeUrl: 'weixin://wxpay/x',
+      });
+      nativeService.closeNativeOrder.mockRejectedValue(
+        new InternalServerErrorException('微信支付关单失败'),
+      );
 
-      await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
-
-      expect(nativeService.createNativeOrder).toHaveBeenCalledTimes(1);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      await expect(
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).resolves.toEqual({ orderNo: SMS_ORDER_NO, status: 'pending' });
     });
-  });
 
-  it('下单成功返回 codeUrl 与过期时间', async () => {
-    const order = await service.createRechargeOrder(STORE_ID, AMOUNT_FEN);
+    it('直充单没有微信订单，过期时不调用微信关单', async () => {
+      prisma.smsRechargeOrder.findUnique.mockResolvedValue({
+        orderNo: SMS_ORDER_NO,
+        storeId: STORE_ID,
+        status: 'pending',
+        expiresAt: new Date(Date.now() - 1_000),
+        codeUrl: null,
+      });
 
-    expect(order.amountFen).toBe(AMOUNT_FEN);
-    expect(order.codeUrl).toBe('weixin://wxpay/x');
-    expect(prisma.smsRechargeOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+      await service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO);
+
+      expect(nativeService.closeNativeOrder).not.toHaveBeenCalled();
+    });
+
+    it('条件关单未命中（并发被改成 paid）时不覆盖状态', async () => {
+      prisma.smsRechargeOrder.findUnique
+        .mockResolvedValueOnce({
+          orderNo: SMS_ORDER_NO,
           storeId: STORE_ID,
-          amountFen: AMOUNT_FEN,
           status: 'pending',
-        }),
-      }),
-    );
-  });
+          expiresAt: new Date(Date.now() - 1_000),
+          codeUrl: 'weixin://wxpay/x',
+        })
+        .mockResolvedValueOnce({ status: 'paid' });
+      prisma.smsRechargeOrder.updateMany.mockResolvedValue({ count: 0 });
 
-  it('微信下单失败时订单落 failed 并向上抛出（否则前端会永远轮询）', async () => {
-    nativeService.createNativeOrder.mockRejectedValue(
-      new InternalServerErrorException('微信支付下单失败'),
-    );
-
-    await expect(
-      service.createRechargeOrder(STORE_ID, AMOUNT_FEN),
-    ).rejects.toThrow(InternalServerErrorException);
-
-    expect(prisma.smsRechargeOrder.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'failed' } }),
-    );
-  });
-
-  it('轮询：pending 且已过期时惰性置 closed；未过期保持 pending', async () => {
-    prisma.smsRechargeOrder.findUnique.mockResolvedValueOnce({
-      orderNo: SMS_ORDER_NO,
-      storeId: STORE_ID,
-      status: 'pending',
-      expiresAt: new Date(Date.now() - 1_000),
+      await expect(
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).resolves.toEqual({ orderNo: SMS_ORDER_NO, status: 'paid' });
     });
 
-    await expect(
-      service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
-    ).resolves.toEqual({
-      orderNo: SMS_ORDER_NO,
-      status: 'closed',
+    it('未过期保持 pending', async () => {
+      await expect(
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).resolves.toEqual({ orderNo: SMS_ORDER_NO, status: 'pending' });
     });
 
-    prisma.smsRechargeOrder.findUnique.mockResolvedValueOnce({
-      orderNo: SMS_ORDER_NO,
-      storeId: STORE_ID,
-      status: 'pending',
-      expiresAt: new Date(Date.now() + 60_000),
-    });
+    it('跨门店查询订单视为不存在', async () => {
+      prisma.smsRechargeOrder.findUnique.mockResolvedValue({
+        orderNo: SMS_ORDER_NO,
+        storeId: 999,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 60_000),
+        codeUrl: 'weixin://wxpay/x',
+      });
 
-    await expect(
-      service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
-    ).resolves.toEqual({
-      orderNo: SMS_ORDER_NO,
-      status: 'pending',
+      await expect(
+        service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  it('跨门店查询订单视为不存在', async () => {
-    prisma.smsRechargeOrder.findUnique.mockResolvedValue({
-      orderNo: SMS_ORDER_NO,
-      storeId: 999,
-      status: 'pending',
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-
-    await expect(
-      service.getRechargeOrderStatus(STORE_ID, SMS_ORDER_NO),
-    ).rejects.toThrow(NotFoundException);
-  });
+  // 回调验签 / 解密 / 金额核对见 sms-recharge-callback.service.spec.ts
 });

@@ -1,6 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+} from 'class-validator';
 import { transformOptionalInt } from '../../../purely-profit/stores/dto/store-response.dto';
 import {
   BUSINESS_ANALYSIS_PERIOD_VALUES,
@@ -142,6 +149,12 @@ export type PulseHomeRevenuePeriodValue =
   (typeof PULSE_HOME_REVENUE_PERIOD_VALUES)[number];
 
 /**
+ * 自定义日期 / 区间的文本格式：yyyy-MM-dd。
+ * 分隔符兼容 `.` 与 `/`，由 {@link parseShanghaiDateText} 在解析阶段归一。
+ */
+const DATE_TEXT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
  * GET /pulse/dashboard/home
  * Home 页聚合数据查询参数
  */
@@ -173,6 +186,41 @@ export class GetPulseDashboardHomeQueryDto {
   @IsOptional()
   @IsString({ message: '地区编码筛选必须是字符串' })
   regionCode?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-05-21',
+    description:
+      '自定义单日，格式 yyyy-MM-dd（兼容 yyyy/MM/dd）。传了它时收入图表按该天统计，' +
+      '环比取前一天；不可晚于今天',
+  })
+  @IsOptional()
+  @IsString({ message: '自定义日期必须是字符串' })
+  @Matches(DATE_TEXT_PATTERN, {
+    message: '自定义日期格式不合法，应为 yyyy-MM-dd',
+  })
+  customDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-05-01',
+    description: '自定义区间开始日期，格式 yyyy-MM-dd',
+  })
+  @IsOptional()
+  @IsString({ message: '自定义区间开始日期必须是字符串' })
+  @Matches(DATE_TEXT_PATTERN, {
+    message: '自定义区间开始日期格式不合法，应为 yyyy-MM-dd',
+  })
+  customRangeStart?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-05-21',
+    description: '自定义区间结束日期，格式 yyyy-MM-dd',
+  })
+  @IsOptional()
+  @IsString({ message: '自定义区间结束日期必须是字符串' })
+  @Matches(DATE_TEXT_PATTERN, {
+    message: '自定义区间结束日期格式不合法，应为 yyyy-MM-dd',
+  })
+  customRangeEnd?: string;
 }
 
 export class GetPulseRevenueDetailQueryDto {

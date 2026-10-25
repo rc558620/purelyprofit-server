@@ -33,8 +33,10 @@ export class ClubPaymentModeController {
     private readonly clubPaymentModeService: ClubPaymentModeService,
   ) {}
 
+  // 注意：@nestjs/throttler v5+ 的 ttl 单位是**毫秒**。
+  // 写成 60 只有 60ms 窗口，等于完全没限流。
   @Get('payment-mode')
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '查询当前支付模式',
     description:
@@ -48,12 +50,12 @@ export class ClubPaymentModeController {
 
   @Post('payment-mode')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiOperation({
     summary: '切换支付模式',
     description:
       '在测试模式与真实支付模式之间切换，需在 `x-payment-dev-token` 请求头携带服务端配置的访问令牌。' +
-      '切换结果 12 小时后自动回落为 test（安全侧），避免长期遗忘在真实扣款状态。',
+      '切换结果 12 小时后自动回落为配置默认模式，避免长期遗忘在真实扣款状态。',
   })
   @ApiOkResponse({
     description: '切换后的支付模式',

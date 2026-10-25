@@ -1,14 +1,14 @@
 // 团购券下单幂等的回归用例：同一幂等键重复提交只能有一单，且不重复算价/下单
-import type { ClubCurrentContext } from '../shared/club-current-context.types';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import type { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
-import type { ClubOrderPreviewBreakdownService } from '../shared/club-order-preview-breakdown.service';
+import type { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import type { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import type { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import type { ClubPaymentModeService } from '../payments/club-payment-mode.service';
-import type { CacheInvalidatorService } from '../../shared/cache/cache-invalidator.service';
+import type { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { ScanOrderingRealtimeService } from '../../scan-ordering/scan-ordering-realtime.service';
+import type { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.service';
 import type { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import type { CreateClubVoucherOrderDto } from './dto/club-voucher-order.dto';
@@ -16,6 +16,8 @@ import type { CreateClubVoucherOrderDto } from './dto/club-voucher-order.dto';
 describe('ClubVoucherOrderPaymentService 幂等', () => {
   const prisma = {
     clubVoucherOrder: { findFirst: jest.fn() },
+    // 落账走 $transaction，这里只用于证明确实进入了落账流程
+    $transaction: jest.fn(),
   };
   const clubPaymentModeService = {
     isManualConfirmPaidAllowed: jest.fn(),
@@ -111,5 +113,31 @@ describe('ClubVoucherOrderPaymentService 幂等', () => {
     ).rejects.toThrow('resolve-context-stub');
 
     expect(prisma.clubVoucherOrder.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('手动确认支付被闸门关闭时直接拒绝，且不查订单', async () => {
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
+
+    await expect(
+      service.confirmOrderPaid(currentContext, 'VC20261025000001'),
+    ).rejects.toThrow('当前环境未开启手动确认支付');
+
+    expect(prisma.clubVoucherOrder.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('测试模式允许手动确认支付时进入落账事务', async () => {
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
+    prisma.clubVoucherOrder.findFirst.mockResolvedValue({
+      id: 1,
+      orderNo: 'VC20261025000001',
+      paidAmountFen: 9900,
+    });
+    prisma.$transaction.mockRejectedValue(new Error('settle-probe'));
+
+    await expect(
+      service.confirmOrderPaid(currentContext, 'VC20261025000001'),
+    ).rejects.toThrow('settle-probe');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

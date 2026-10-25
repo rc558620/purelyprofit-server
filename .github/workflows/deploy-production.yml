@@ -1,5 +1,10 @@
 # ┌─────────────────────────────────────────────────────────────────────────┐
-# │  当前状态：尚未上线                                                      │
+# │  部署流水线：CI 在 main 分支成功后自动发布，也支持手动触发。            │
+# │                                                                         │
+# │  自动链路：push main → CI(构建/测试/DB 门) 成功 → workflow_run → 本文件 │
+# │  手动链路：Actions 面板手动 Run workflow（默认 dry-run 预演）           │
+# │                                                                         │
+# │  上线前置条件（见文件头历史清单）：                                     │
 # │  - [ ] 购买服务器                                                       │
 # │  - [ ] 注册域名 + SSL 证书                                              │
 # │  - [ ] 办理营业执照                                                     │
@@ -7,10 +12,18 @@
 # │  - [ ] 开通腾讯云短信（需营业执照）                                      │
 # │  - [ ] 配置 self-hosted runner + production Environment                 │
 # │  - [ ] 填入 Secrets / Variables 并执行首次部署                           │
+# │  自动部署总开关：Variables.AUTO_DEPLOY_ENABLED（设为 false 可一键降级为 │
+# │  手动发布，无需改代码）。                                               │
 # └─────────────────────────────────────────────────────────────────────────┘
 name: Deploy Production
 
 on:
+  # CI 跑完即触发：只认 conclusion=success 且来源分支为 main 的 CI 运行，
+  # fork PR 的 CI 运行时 head_branch 不是 main，不会命中自动部署。
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -24,9 +37,9 @@ on:
         default: false
         type: boolean
       skip_db_precheck:
-        description: Skip release precheck DB gate
+        description: Skip release precheck DB gate (CI 已验证，默认跳过)
         required: true
-        default: false
+        default: true
         type: boolean
       skip_db_chain_verify:
         description: Skip fresh-database migration chain verification
@@ -46,6 +59,8 @@ on:
 
 permissions:
   contents: read
+  # 下载 CI 上传的构建产物需要 actions: read
+  actions: read
 
 concurrency:
   group: deploy-production
@@ -54,6 +69,12 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Production
+    # 手动触发始终执行；自动触发要求：CI 成功 + 来源分支 main + 自动部署开关未关闭。
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       vars.AUTO_DEPLOY_ENABLED != 'false')
     runs-on:
       - self-hosted
       - production
@@ -160,6 +181,7 @@ jobs:
       TENCENT_COS_PATH_PREFIX: ${{ vars.TENCENT_COS_PATH_PREFIX || 'uploads/' }}
       SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'http://localhost:3000/api' }}
       SMOKE_TIMEOUT_SECONDS: ${{ vars.SMOKE_TIMEOUT_SECONDS || '10' }}
+      SMOKE_WAIT_SECONDS: ${{ vars.SMOKE_WAIT_SECONDS || '60' }}
       RELEASE_LOAD_ENV_FILE: 'false'
       RELEASE_VALIDATE_ENV: 'true'
       RELEASE_REQUIRE_BACKUP: ${{ vars.RELEASE_REQUIRE_BACKUP || 'true' }}
@@ -173,17 +195,34 @@ jobs:
       RELEASE_PM2_APP_NAME: ${{ vars.RELEASE_PM2_APP_NAME }}
       RELEASE_LAUNCHD_SERVICE_NAME: ${{ vars.RELEASE_LAUNCHD_SERVICE_NAME }}
     steps:
-      - name: Ensure main branch only
+      - name: Resolve deploy target
+        id: target
         shell: bash
         run: |
-          if [ "${GITHUB_REF_NAME}" != 'main' ]; then
-            echo 'Production deploy only supports main branch.'
+          set -euo pipefail
+          # workflow_run 场景下 GITHUB_SHA 是部署 workflow 所在分支的 HEAD，
+          # 真正要发布的是触发 CI 的那次提交，必须显式对齐，避免发布错版本。
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            sha="${{ github.event.workflow_run.head_sha }}"
+            branch="${{ github.event.workflow_run.head_branch }}"
+          else
+            sha="${GITHUB_SHA}"
+            branch="${GITHUB_REF_NAME}"
+          fi
+
+          if [ "${branch}" != 'main' ]; then
+            echo "::error::Production deploy only supports main branch, got: ${branch}"
             exit 1
           fi
+
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          echo "trigger=${GITHUB_EVENT_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.target.outputs.sha }}
           fetch-depth: 1
 
       - name: Setup pnpm
@@ -200,12 +239,41 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 复用 CI 已构建的产物：保证「CI 验证过的那份代码」与「线上运行的那份产物」一致，
+      # 同时省去生产机上的编译开销。手动触发时若拿不到产物则回退为本机构建。
+      - name: Download CI build artifact
+        id: artifact
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: app-dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve build strategy
+        id: build_strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f dist/main.js ] && [ -f dist/cluster-main.js ] && [ -f dist/config/cluster.configuration.js ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo '复用 CI 构建产物，跳过本机构建'
+          else
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+            echo '未获取到 CI 构建产物，回退为在本机执行构建'
+          fi
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
       - name: Verify release prerequisites
         shell: bash
         run: |
           command -v bash >/dev/null || { echo 'Missing bash on self-hosted runner.'; exit 1; }
           command -v psql >/dev/null || { echo 'Missing psql on self-hosted runner.'; exit 1; }
           command -v pg_dump >/dev/null || { echo 'Missing pg_dump on self-hosted runner.'; exit 1; }
+          command -v curl >/dev/null || { echo 'Missing curl on self-hosted runner.'; exit 1; }
 
       - name: Verify release strategy
         shell: bash
@@ -226,13 +294,23 @@ jobs:
       - name: Execute production release
         shell: bash
         env:
-          RELEASE_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
-          RELEASE_FORCE: ${{ inputs.dry_run && 'false' || 'true' }}
+          # 自动触发时 inputs 为空 → dry_run=false、force=true（真实发布）；
+          # 手动触发时沿用面板输入，默认仍是 dry-run 预演。
+          RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          RELEASE_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'false' || 'true' }}
           RELEASE_SKIP_SMOKE: ${{ inputs.skip_smoke && 'true' || 'false' }}
-          RELEASE_SKIP_DB_PRECHECK: ${{ inputs.skip_db_precheck && 'true' || 'false' }}
-          RELEASE_SKIP_BUILD: ${{ inputs.skip_build && 'true' || 'false' }}
+          # CI 的 db job 已完成 validate / migrate status / drift 校验，
+          # 生产机上无需重复执行（release:precheck 还包含全量测试与构建，应留给 CI）。
+          # 仅手动触发且显式关闭该 input 时才在生产机补跑。
+          RELEASE_SKIP_DB_PRECHECK: ${{ inputs.skip_db_precheck == true && 'true' || (github.event_name == 'workflow_run' && 'true' || 'false') }}
+          RELEASE_SKIP_BUILD: ${{ inputs.skip_build && 'true' || steps.build_strategy.outputs.skip }}
           RELEASE_SKIP_MIGRATE_DEPLOY: ${{ inputs.skip_migrate_deploy && 'true' || 'false' }}
         run: pnpm run release:execute
+
+      - name: Post-deploy readiness check
+        if: ${{ success() && !inputs.skip_smoke && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        shell: bash
+        run: pnpm run realtime:ready
 
       - name: Publish deploy summary
         if: always()
@@ -241,14 +319,15 @@ jobs:
           {
             echo '## Deploy Production'
             echo "- Result: ${{ job.status }}"
-            echo "- Branch: ${GITHUB_REF_NAME}"
-            echo "- Commit: ${GITHUB_SHA}"
-            echo "- Dry run: ${{ inputs.dry_run }}"
-            echo "- Skip smoke: ${{ inputs.skip_smoke }}"
-            echo "- Skip DB precheck: ${{ inputs.skip_db_precheck }}"
-            echo "- Skip DB chain verify: ${{ inputs.skip_db_chain_verify }}"
-            echo "- Skip build: ${{ inputs.skip_build }}"
-            echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy }}"
+            echo "- Trigger: ${{ steps.target.outputs.trigger || github.event_name }}"
+            echo "- Branch: ${{ steps.target.outputs.branch || github.ref_name }}"
+            echo "- Commit: ${{ steps.target.outputs.sha || github.sha }}"
+            echo "- Dry run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}"
+            echo "- Skip smoke: ${{ inputs.skip_smoke || false }}"
+            echo "- Skip DB precheck: ${{ inputs.skip_db_precheck == true && 'true' || (github.event_name == 'workflow_run' && 'true' || 'false') }}"
+            echo "- Skip DB chain verify: ${{ inputs.skip_db_chain_verify || false }}"
+            echo "- Reuse CI artifact: ${{ steps.build_strategy.outputs.skip || 'unknown' }}"
+            echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy || false }}"
             echo "- Smoke base URL: ${SMOKE_BASE_URL}"
             if [ -n "${RELEASE_RESTART_CMD}" ]; then
               echo '- Restart strategy: custom command'
@@ -260,5 +339,10 @@ jobs:
               echo "- Restart strategy: launchd (${RELEASE_LAUNCHD_SERVICE_NAME})"
             else
               echo '- Restart strategy: missing'
+            fi
+            if [ "${{ job.status }}" != 'success' ]; then
+              echo ''
+              echo '> 发布失败：请核对上一步 release summary 中的失败阶段与备份产物路径，'
+              echo '> 通过 pg_restore 回滚数据库后重新发布修复版本，切勿在半迁移状态下反复重启服务。'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

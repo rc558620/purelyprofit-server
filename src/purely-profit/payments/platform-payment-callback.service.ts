@@ -1,8 +1,12 @@
 // 平台收款统一回调分发：验签 → 解密 → 按支付单的 bizType 派发给对应业务入账
 //
-// 三条收款链路共用一个回调地址（/profit/payments/wechat/callback）：
+// 会员开通 / 新客额度充值两条链路共用这个回调地址（/profit/payments/wechat/callback）：
 // 省掉两份重复的验签解密实现，也只需要维护一份 rawBody 白名单。
+//
+// 短信钱包充值**不走这里**：它的订单在 sms_recharge_orders（SM 前缀），
+// 有自己的回调路由 /marketing/sms/wechat/callback，两边不可混配。
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ClubPaymentCallbackSignatureService } from '../../purely-club/payments/club-payment-callback-signature.service';
 import type { ClubWechatCallbackHeaders } from '../../purely-club/payments/club-payments.types';
 import type { WechatDecryptedTransaction } from '../../purely-club/payments/dto/club-wechat-callback.dto';
@@ -27,6 +31,7 @@ export class PlatformPaymentCallbackService {
     private readonly paymentOrderService: PlatformPaymentOrderService,
     private readonly quotaRechargeService: NewCustomerQuotaRechargeService,
     private readonly membershipPaymentService: PlatformMembershipPaymentService,
+    private readonly configService: ConfigService,
   ) {}
 
   /** 处理一次微信支付回调；任何业务失败都返回 SUCCESS 之外的码以触发重试 */
@@ -93,6 +98,18 @@ export class PlatformPaymentCallbackService {
       return { code: 'SUCCESS' };
     }
 
+    // 商户号必须与平台收款商户号一致：多个商户号共用同一个回调地址时，
+    // 不校验就可能把别家的支付结果记到自己的单上
+    const expectedMchId = this.configService
+      .get<string>('wechat.payMchId')
+      ?.trim();
+    if (expectedMchId && decrypted.mchid !== expectedMchId) {
+      this.logger.error(
+        `[平台收款回调] ${orderNo} 商户号不匹配：期望 ${expectedMchId}，实际 ${decrypted.mchid ?? '空'}`,
+      );
+      return { code: 'FAIL', message: '商户号不匹配' };
+    }
+
     const order = await this.paymentOrderService.findByOrderNo(orderNo);
     if (!order) {
       this.logger.error(`[平台收款回调] 支付单不存在: ${orderNo}`);
@@ -132,8 +149,19 @@ export class PlatformPaymentCallbackService {
       return { code: 'SUCCESS' };
     }
 
-    // 会员链路的入账 handler 尚未接入：这里显式失败让微信重试，
-    // 绝不能回 SUCCESS —— 那会让「用户已付款、会员没开通」变成永久静默丢单
+    if (order.bizType === 'sms_recharge') {
+      // 短信充值走独立的 sms_recharge_orders 链路，不会生成平台支付单。
+      // 真走到这里说明数据串了：置 failed 让它在对账里可见，并回 SUCCESS ——
+      // 重投再多次也不会凭空长出一个入账处理器，只会刷屏并拖慢后续回调。
+      await this.paymentOrderService.markFailed(orderNo);
+      this.logger.error(
+        `[平台收款回调] ${orderNo} 属于短信充值链路，不应出现在平台支付单中，已置 failed`,
+      );
+      return { code: 'SUCCESS' };
+    }
+
+    // 其余情况（将来新增但尚未接入入账的 bizType）：保持 pending 并显式失败，
+    // 既触发微信重投，也把「已付款但无处入账」留在对账里等人工处理
     this.logger.error(
       `[平台收款回调] 支付单 ${orderNo} 的业务类型 ${order.bizType} 尚无入账处理器`,
     );

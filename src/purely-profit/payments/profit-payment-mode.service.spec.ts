@@ -1,3 +1,4 @@
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '../../redis/redis.service';
@@ -126,5 +127,30 @@ describe('ProfitPaymentModeService', () => {
     const service = await buildService();
 
     await expect(service.getMode()).resolves.toBe('test');
+  });
+
+  it('配置默认模式为 live 时，运行期切到 test 直接拒绝，避免接口假成功', async () => {
+    configMap['profit.manualPaidEnabled'] = false;
+    const service = await buildService();
+
+    await expect(service.setMode('test')).rejects.toThrow(ConflictException);
+    expect(redisSet).not.toHaveBeenCalled();
+  });
+
+  it('生产环境禁止写入运行期模式', async () => {
+    configMap.nodeEnv = 'production';
+    configMap['profit.manualPaidEnabled'] = false;
+    const service = await buildService();
+
+    await expect(service.setMode('live')).rejects.toThrow(ForbiddenException);
+    expect(redisSet).not.toHaveBeenCalled();
+  });
+
+  it('切换开关未开启时禁止写入运行期模式', async () => {
+    configMap['profit.paymentModeSwitchEnabled'] = false;
+    const service = await buildService();
+
+    await expect(service.setMode('live')).rejects.toThrow(ForbiddenException);
+    expect(redisSet).not.toHaveBeenCalled();
   });
 });

@@ -65,9 +65,14 @@ export function validateProductionConfiguration(
     configService.get<boolean>('profit.manualPaidEnabled') ?? false;
   const profitPaymentModeSwitchEnabled =
     configService.get<boolean>('profit.paymentModeSwitchEnabled') ?? false;
-  // 短信本地直充：true = 跳过微信支付直接加余额，生产开着等于免费无限充值
-  const smsDirectCredit =
-    configService.get<boolean>('sms.directCredit') ?? false;
+  // 跳过微信回调验签：true = 只校验时间戳，报文可被伪造，生产必须关闭
+  const wechatAllowInsecureCallback =
+    configService.get<boolean>('wechat.allowInsecureCallback') ?? false;
+  // 短信充值回调地址：漏配时服务能正常启动，直到商家真去充值才 500
+  const smsWechatPayNotifyUrl = getTrimmedConfigValue(
+    configService,
+    'sms.wechatPayNotifyUrl',
+  );
   const portAutoTerminateEnabled =
     configService.get<boolean>('app.portAutoTerminateEnabled') ?? false;
   const portAutoShiftEnabled =
@@ -182,10 +187,21 @@ export function validateProductionConfiguration(
     errors.push('profit.paymentModeSwitchEnabled 生产环境必须为 false');
   }
 
-  // 免费直充闸门：与 sms.utils.resolveSmsDirectCredit 的第二把锁配对使用
-  if (smsDirectCredit) {
+  if (wechatAllowInsecureCallback) {
     errors.push(
-      'sms.directCredit（SMS_RECHARGE_DIRECT_CREDIT）生产环境必须为 false，否则短信充值可无限免费入账',
+      'wechat.allowInsecureCallback（WECHAT_ALLOW_INSECURE_CALLBACK）生产环境必须为 false，否则支付回调可被伪造',
+    );
+  }
+
+  // 短信充值回调地址：漏配时服务能正常启动，直到商家真去充值才 500，
+  // 属于「上线后才发现」的典型事故，必须前移到启动校验
+  if (
+    !smsWechatPayNotifyUrl ||
+    !smsWechatPayNotifyUrl.startsWith('https://') ||
+    smsWechatPayNotifyUrl.includes('yourdomain.com')
+  ) {
+    errors.push(
+      'sms.wechatPayNotifyUrl（SMS_WECHAT_PAY_NOTIFY_URL）生产环境必须是可访问的 HTTPS 正式地址，否则短信充值无法下单',
     );
   }
 

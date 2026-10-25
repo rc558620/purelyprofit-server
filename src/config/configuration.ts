@@ -5,9 +5,33 @@ function parseStringList(raw: string | undefined): string[] {
     .filter((item) => item.length > 0);
 }
 
+/**
+ * 归一化运行环境名：忽略首尾空白与大小写，空值兜底为 development。
+ *
+ * `NODE_ENV=Production` / `NODE_ENV="production "` 这类写法此前会被判成非生产，
+ * 从而让生产启动校验、支付模式硬禁用等资金安全闸门被整体跳过。
+ */
+function normalizeNodeEnv(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase() || 'development';
+}
+
+/**
+ * 默认允许「跳过真实扣款」的环境白名单：只认本地开发与自动化测试。
+ *
+ * staging / pre / 预发 / 任何未列入白名单的环境一律按真实模式处理（fail-closed），
+ * 禁止把「非 production」当成「可以免费下单」的通行证。
+ */
+const TEST_MODE_DEFAULT_ENV_WHITELIST = ['development', 'test'];
+
+function isTestModeDefaultEnvironment(): boolean {
+  return TEST_MODE_DEFAULT_ENV_WHITELIST.includes(
+    normalizeNodeEnv(process.env.NODE_ENV),
+  );
+}
+
 export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
-  nodeEnv: process.env.NODE_ENV ?? 'development',
+  nodeEnv: normalizeNodeEnv(process.env.NODE_ENV),
 
   app: {
     corsOrigin: process.env.APP_CORS_ORIGIN ?? '*',
@@ -524,21 +548,24 @@ export default () => ({
      * 新客额度充值）没有接入真实支付，服务端直接把订单置为已生效。
      * 接入真实支付后，这个值应该在各环境都设为 false（= 真实模式）。
      *
-     * ⚠️ 当前**故意保持现状**（非生产默认 true），避免在生产真实支付链路
-     * 落地前就先把这几条链路掐断。补齐真实支付后再一并收紧。
+     * 默认值策略与 club 侧保持一致（fail-closed）：仅 `development` / `test`
+     * 两个环境默认 true；staging / pre / 预发等未列入白名单的环境默认 false，
+     * 避免「NODE_ENV 不叫 production」就自动放开免费开通会员 / 免费充值额度。
+     * 生产环境无论环境变量如何配置都会被启动校验强制拦下。
      * 对应环境变量：PROFIT_MANUAL_PAID_ENABLED
      */
     manualPaidEnabled:
       (process.env.PROFIT_MANUAL_PAID_ENABLED ??
-        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+        (isTestModeDefaultEnvironment() ? 'true' : 'false')) === 'true',
     /**
      * 是否允许通过 dev-only 接口在运行期切换支付模式（test / live）。
-     * 生产环境强制禁用（无论环境变量如何配置）。
+     * 默认值策略与上一项一致（仅 development / test 默认开启）。
+     * 生产环境无论环境变量如何配置都强制禁用。
      * 对应环境变量：PROFIT_PAYMENT_MODE_SWITCH_ENABLED
      */
     paymentModeSwitchEnabled:
       (process.env.PROFIT_PAYMENT_MODE_SWITCH_ENABLED ??
-        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+        (isTestModeDefaultEnvironment() ? 'true' : 'false')) === 'true',
     /**
      * dev-only 支付模式开关接口的访问令牌。
      * 未配置时切换请求一律拒绝，防止测试环境公网可达时被任意切到真实扣款。
@@ -549,8 +576,13 @@ export default () => ({
     /**
      * 平台收款的**统一**回调地址（`POST /profit/payments/wechat/callback`）。
      *
-     * 三条收款链路共用一个回调入口：回调里按支付单号反查 bizType 再分发，
-     * 比「每条链路一个回调地址」少两个 rawBody 白名单、少一份验签解密实现。
+     * 会员开通 / 新客额度充值两条链路共用这个入口：回调里按支付单号反查
+     * `platform_payment_orders.bizType` 再分发，省掉一份重复的验签解密实现。
+     *
+     * ⚠️ 短信钱包充值**不在其中**：它的订单落在 `sms_recharge_orders`（SM 前缀），
+     * 统一回调按 platform_payment_orders 反查会查不到。短信链路必须配
+     * `SMS_WECHAT_PAY_NOTIFY_URL`（/api/marketing/sms/wechat/callback），两者不可混用。
+     *
      * 必须是公网可达 HTTPS。
      * 对应环境变量：PROFIT_WECHAT_PAY_NOTIFY_URL
      * 示例：https://api.yourdomain.com/api/profit/payments/wechat/callback
@@ -569,21 +601,25 @@ export default () => ({
      * 开发态兜底开关：为 true 表示默认处于**测试支付模式**（允许跳过微信扣款、
      * 由 confirm-paid 直接把订单置为已支付）。
      *
-     * 生产环境必须为 false（`bootstrap/production-config.utils.ts` 启动校验已强制），
-     * 否则任意持订单号的人都能把未支付订单标记成已支付并真实落账。
+     * 默认值只在 `development` / `test` 两个环境为 true；
+     * staging / pre / 预发等非白名单环境默认 false（fail-closed），
+     * 避免「NODE_ENV 不叫 production」就自动放开免费下单。
+     * 生产环境无论环境变量如何配置都会被启动校验强制拦下
+     * （`bootstrap/production-config.utils.ts`）。
      * 对应环境变量：CLUB_MANUAL_CONFIRM_PAID_ENABLED
      */
     manualConfirmPaidEnabled:
       (process.env.CLUB_MANUAL_CONFIRM_PAID_ENABLED ??
-        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+        (isTestModeDefaultEnvironment() ? 'true' : 'false')) === 'true',
     /**
      * 是否允许通过 dev-only 开关接口在运行期切换支付模式（test / live）。
-     * 生产环境强制禁用（无论环境变量如何配置）。
+     * 默认值策略与 manualConfirmPaidEnabled 一致：仅 development / test 默认开启。
+     * 生产环境无论环境变量如何配置都强制禁用。
      * 对应环境变量：CLUB_PAYMENT_MODE_SWITCH_ENABLED
      */
     paymentModeSwitchEnabled:
       (process.env.CLUB_PAYMENT_MODE_SWITCH_ENABLED ??
-        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+        (isTestModeDefaultEnvironment() ? 'true' : 'false')) === 'true',
     /**
      * dev-only 支付模式开关接口的访问令牌。
      * 未配置时切换请求一律拒绝，避免测试环境公网可达时被任意切到真实扣款。
@@ -699,6 +735,19 @@ export default () => ({
       process.env.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT ?? '',
 
     /**
+     * 是否允许在**未配置平台公钥**的情况下跳过 RSA 验签处理支付回调。
+     *
+     * fail-closed：默认仅 `development` / `test` 打开，staging / 预发等环境默认关闭。
+     * 关闭时若公钥缺失，回调一律拒绝 —— 只靠时间戳 + 必填头是可伪造的，
+     * 任何公网可达的非生产环境都不该接受这种报文。
+     * 生产环境强制为 false（启动校验会拦下显式开启）。
+     * 对应环境变量：WECHAT_ALLOW_INSECURE_CALLBACK
+     */
+    allowInsecureCallback:
+      (process.env.WECHAT_ALLOW_INSECURE_CALLBACK ??
+        (isTestModeDefaultEnvironment() ? 'true' : 'false')) === 'true',
+
+    /**
      * **平台收款商户号**（商家向平台付费的场景：短信钱包充值等）。
      *
      * ⚠️ 与门店微信收款（stores_wechat_pay，C 端顾客付钱给商家）是两条
@@ -785,11 +834,11 @@ export default () => ({
      */
     wechatPayNotifyUrl: process.env.SMS_WECHAT_PAY_NOTIFY_URL ?? '',
     /**
-     * 本地直充开关：true 时 `POST /marketing/sms/recharge-orders` 跳过微信
-     * 下单，直接入账，用于微信 Native 开通前把前后端流程跑通。
-     * 对应环境变量：SMS_RECHARGE_DIRECT_CREDIT（只认字符串 'true'）
+     * 注意：这里曾有 `SMS_RECHARGE_DIRECT_CREDIT` 场景级直充开关，
+     * 与全局支付模式「取或」后会覆盖全局 `live`，已删除。
+     * 现在是否跳过微信支付**只**由
+     * `ProfitPaymentModeService.isSkipPaymentAllowed()` 单点裁决。
      */
-    directCredit: process.env.SMS_RECHARGE_DIRECT_CREDIT === 'true',
     /**
      * 腾讯云**送达状态回执**的校验口令。
      *

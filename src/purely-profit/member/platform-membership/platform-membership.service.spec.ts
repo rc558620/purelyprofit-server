@@ -76,8 +76,11 @@ describe('PlatformMembershipService', () => {
     storeMembershipOrder: {
       count: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
       create: jest.fn(),
       aggregate: jest.fn(),
+      updateMany: jest.fn(),
     },
     storeMembershipPointsLog: {
       create: jest.fn(),
@@ -246,9 +249,12 @@ describe('PlatformMembershipService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    // 默认没有被待支付订单占用的积分
+    // 默认没有被待支付订单占用的积分 / 纯利豆
     prismaService.storeMembershipOrder.aggregate.mockResolvedValue({
-      _sum: { pointsUsed: 0 },
+      _sum: { pointsUsed: 0, beansUsed: 0 },
+    });
+    prismaService.storeMembershipOrder.updateMany.mockResolvedValue({
+      count: 0,
     });
     // 默认档案：未开通子账号功能 → 续费按配置价，不命中首购锁定价
     prismaService.storeMembershipProfile.findUnique.mockResolvedValue({

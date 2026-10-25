@@ -14,6 +14,7 @@ import { SmsBroadcastService } from './sms-broadcast.service';
 import { SmsCallbackController } from './sms-callback.controller';
 import { SmsQuoteService } from './sms-quote.service';
 import { SmsRefundService } from './sms-refund.service';
+import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
 import { SmsRechargeService } from './sms-recharge.service';
 import { SmsTencentProvider } from './sms-tencent.provider';
 import { SmsWalletService } from './sms-wallet.service';
@@ -50,6 +51,7 @@ import { SmsController } from './sms.controller';
     SmsDeliveryReconcileService,
     SmsRefundService,
     SmsRechargeService,
+    SmsRechargeCallbackService,
     SmsWalletService,
     SmsTencentProvider,
     SmsWechatNativeService,

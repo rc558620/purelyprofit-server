@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
 import {
@@ -22,7 +23,8 @@ const normalizePaymentMode = (value: string | undefined): ClubPaymentMode =>
  * 负责「测试模式 / 真实模式」的读取、切换与裁决，是「能否跳过真实扣款」的唯一权威来源：
  * - 生产环境：恒为 `live`，禁止任何运行期状态覆盖，手动确认支付（confirm-paid）一律不可用；
  * - 非生产环境：以 `club.manualConfirmPaidEnabled` 作为配置默认模式，
- *   在配置了访问令牌且开关打开的前提下，允许运行期覆盖 12 小时（TTL 到期自动回落到安全侧）。
+ *   在配置了访问令牌且开关打开的前提下，允许运行期覆盖 12 小时
+ *   （TTL 到期或状态缺失时回落到**配置默认模式**，而不是硬编码 test）。
  *
  * ⚠️ 这里是资金安全边界：任何放宽都必须同步检查
  * `bootstrap/production-config.utils.ts` 的生产启动校验。
@@ -61,14 +63,22 @@ export class ClubPaymentModeService {
   /**
    * 校验 dev-only 开关接口的访问令牌。
    * 未配置令牌时一律拒绝，避免测试环境公网可达时被任意切换到真实扣款。
+   *
+   * 比较使用常量时间算法：普通 `===` 会在首个不同字节处提前返回，
+   * 理论上可被用于逐字节猜测令牌。
    */
   isDevTokenValid(devToken?: string): boolean {
     const expectedToken =
       this.configService.get<string>('club.paymentModeDevToken') ?? '';
-    if (!expectedToken) {
+    if (!expectedToken || typeof devToken !== 'string' || devToken === '') {
       return false;
     }
-    return typeof devToken === 'string' && devToken === expectedToken;
+    const actualBuffer = Buffer.from(devToken, 'utf8');
+    const expectedBuffer = Buffer.from(expectedToken, 'utf8');
+    if (actualBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+    return timingSafeEqual(actualBuffer, expectedBuffer);
   }
 
   /** 服务端是否已配置切换访问令牌。 */
@@ -88,7 +98,8 @@ export class ClubPaymentModeService {
    * 读取当前支付模式。
    *
    * 生产环境恒返回 `live`；非生产环境在允许切换时优先取运行期状态，
-   * key 不存在（含 TTL 到期）时按安全侧回落为 `test`，避免遗忘在真实扣款状态。
+   * key 不存在（含 TTL 到期）时回落为配置默认模式，
+   * 保证「TTL 到期」不会把本该真实扣款的环境静默切成免费下单。
    */
   async getMode(): Promise<ClubPaymentMode> {
     const mode = await this.readRawMode();
@@ -115,29 +126,42 @@ export class ClubPaymentModeService {
 
     try {
       const runtimeMode = await this.redisService.get(CLUB_PAYMENT_MODE_KEY);
-      return runtimeMode ? normalizePaymentMode(runtimeMode) : 'test';
+      // key 缺失（含 TTL 到期）回落为配置默认模式：
+      // 缓存只是加速层，不能成为「本环境是否允许跳过扣款」的第二事实来源。
+      return runtimeMode
+        ? normalizePaymentMode(runtimeMode)
+        : this.getConfiguredMode();
     } catch (error) {
-      // Redis 只是模式状态的加速层，不能成为唯一数据源：
-      // 读取失败时按安全侧回落为 test，保证测试链路不被缓存故障阻断。
-      this.logger.warn('[支付模式] 运行期模式读取失败，按安全侧回落为 test');
+      // 禁止硬编码回落 test：非生产环境一旦 Redis 抖动，
+      // 就会把「本该真实扣款」的环境静默变成免费下单。
+      const fallbackMode = this.getConfiguredMode();
+      this.logger.warn(
+        `[支付模式] 运行期模式读取失败，回落为配置默认模式 ${fallbackMode}`,
+      );
       this.logger.debug(String(error));
-      return 'test';
+      return fallbackMode;
     }
   }
 
   /**
    * 切换运行期支付模式。
+   *
+   * 除 controller 前置的 404 伪装外，这里再做一次纵深校验：
+   * 任何调用方（含未来新增的复用方）都不能在生产环境或开关关闭时写入运行期状态。
    * @param mode 目标模式
    * @returns 切换后的实际模式
    */
   async setMode(mode: ClubPaymentMode): Promise<ClubPaymentMode> {
+    if (this.isProduction() || !this.isSwitchEnabled()) {
+      throw new NotFoundException();
+    }
     await this.redisService.set(
       CLUB_PAYMENT_MODE_KEY,
       mode,
       CLUB_PAYMENT_MODE_TTL_SECONDS,
     );
     this.logger.warn(
-      `[支付模式] 已切换为 ${mode} 模式，${CLUB_PAYMENT_MODE_TTL_SECONDS} 秒后自动回落为 test`,
+      `[支付模式] 已切换为 ${mode} 模式，${CLUB_PAYMENT_MODE_TTL_SECONDS} 秒后自动回落为 ${this.getConfiguredMode()}`,
     );
     return mode;
   }

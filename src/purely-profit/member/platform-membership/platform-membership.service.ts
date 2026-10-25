@@ -31,11 +31,11 @@ import type {
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
   PreviewPlatformMembershipOrderResponseDto,
+  PurchaseMembershipResultDto,
 } from './dto/platform-membership-response.dto';
 import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
-import type { PurchaseMembershipResult } from './platform-membership-order.service';
 import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
@@ -180,21 +180,45 @@ export class PlatformMembershipService {
   async purchaseOrder(
     user: AuthenticatedUser,
     dto: PurchasePlatformMembershipOrderDto,
-  ): Promise<PurchaseMembershipResult> {
+  ): Promise<PurchaseMembershipResultDto> {
     this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipOrderService.purchaseOrder(
+    const result = await this.platformMembershipOrderService.purchaseOrder(
       user.id,
       storeId,
       dto,
     );
+
+    // 真实模式：只回支付信息，权益等回调生效
+    // qrCodeImageUrl 必须透传：weixin:// 协议串无法直接作为 <img> 源，前端只认这个字段
+    if (result.mode === 'live') {
+      return {
+        mode: 'live',
+        orderNo: result.orderNo,
+        codeUrl: result.codeUrl,
+        qrCodeImageUrl: result.qrCodeImageUrl,
+        amountFen: result.amountFen,
+        expiresAt: result.expiresAt.toISOString(),
+      };
+    }
+
+    return {
+      mode: 'test',
+      order: result.order,
+      profile: result.profile,
+      overview: result.overview,
+    };
   }
 
   /** 查询会员支付单状态（真实模式扫码支付后轮询） */
   async getMembershipPaymentStatus(
+    user: AuthenticatedUser,
     orderNo: string,
   ): Promise<{ status: string; paidAt: Date | null }> {
-    return this.membershipPaymentService.getMembershipPaymentStatus(orderNo);
+    return this.membershipPaymentService.getMembershipPaymentStatus({
+      orderNo,
+      storeId: this.getCurrentStoreIdOrThrow(user),
+    });
   }
 
   async listPointsLogs(

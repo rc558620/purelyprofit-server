@@ -1,3 +1,9 @@
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  CI：构建与测试流水线                                                   │
+# │  职责边界：本文件只做「质量校验 + 产物构建」，不执行任何部署动作。      │
+# │  部署由 deploy-production.yml 在本工作流于 main 分支成功结束后自动接管， │
+# │  二者通过 workflow_run 事件解耦，避免 CI 直接持有生产密钥。             │
+# └─────────────────────────────────────────────────────────────────────────┘
 name: CI
 
 on:
@@ -16,15 +22,23 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# 时区必须与 deploy/systemd 中的 TZ 一致（Asia/Shanghai）：
+# 业务日/月/周边界按上海时区计算，CI 时区漂移会让日期边界用例出现假红/假绿。
+env:
+  CI: 'true'
+  NODE_ENV: test
+  TZ: Asia/Shanghai
+
 jobs:
   quality:
-    name: Lint Test Build
+    name: Typecheck Lint Unit E2E
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      CI: 'true'
-      NODE_ENV: test
-      TZ: Asia/Shanghai
+      # Prisma CLI 在 generate 阶段只需要可解析的连接串，不会建立真实连接；
+      # 真实数据库只存在于 db job 的 service 容器中。
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/purelyprofit_ci?schema=public
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/purelyprofit_ci_shadow?schema=public
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,30 +57,32 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Audit dependencies for vulnerabilities
-        run: pnpm audit --audit-level=high
-        continue-on-error: true
+      # Prisma 7 起不再默认通过 postinstall 生成 Client；
+      # typecheck / jest / build 都依赖生成的 @prisma/client 类型，必须先 generate。
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
 
-      - name: Run CI lint gate
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # 刻意不使用 `pnpm run lint`：该脚本带 --fix，在 CI 上会静默改写源码并恒返回成功，
+      # 使质量门失效。这里直接调用 eslint（配置已含 eslint-plugin-prettier）。
+      - name: Lint
         run: pnpm exec eslint "{src,apps,libs,test}/**/*.ts"
 
       - name: Run SQL timezone gate
         run: pnpm run sql:tz:check
 
-      - name: Run quality gate
-        run: pnpm run release:precheck:quality
+      - name: Run unit tests
+        run: pnpm run test --ci
 
-      - name: Build application
-        run: pnpm run release:precheck:build
+      - name: Run e2e tests
+        run: pnpm run test:e2e --ci
 
   release_regression:
     name: Release Script Regression
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      CI: 'true'
-      NODE_ENV: test
-      TZ: Asia/Shanghai
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -93,9 +109,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      CI: 'true'
-      NODE_ENV: test
-      TZ: Asia/Shanghai
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/purelyprofit_ci?schema=public
       SHADOW_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/purelyprofit_ci_shadow?schema=public
       PGHOST: 127.0.0.1
@@ -137,8 +150,209 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
       - name: Create shadow database
         run: psql postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE purelyprofit_ci_shadow'
 
       - name: Run Prisma DB gate
         run: pnpm run release:precheck:db
+
+  rules:
+    name: Convention Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Collect changed TypeScript files
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            base_ref="${GITHUB_BASE_REF}"
+          else
+            base_ref="${GITHUB_BASE_REF:-main}"
+          fi
+
+          git fetch --no-tags --prune --depth=1 origin "${base_ref}" || true
+
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            range="origin/${base_ref}...HEAD"
+          else
+            # push 场景：GITHUB_EVENT_BEFORE 在首个提交/强制推送时可能是全零 SHA，需兜底。
+            before="${GITHUB_EVENT_BEFORE:-}"
+            case "$before" in
+              ''|0000000000000000000000000000000000000000) range='HEAD~1...HEAD' ;;
+              *) range="${before}...HEAD" ;;
+            esac
+          fi
+
+          files="$(git diff --name-only --diff-filter=ACMR "$range" -- 'src/**/*.ts' || true)"
+          count="$(printf '%s\n' "$files" | grep -c . || true)"
+          printf '%s\n' "$files" | grep . > changed-files.txt || true
+
+          echo "range=${range}" >> "$GITHUB_OUTPUT"
+          echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+
+      # 当前为「报告模式」：存量违规不阻断合并，避免团队为绕过红灯而长期忽略该 Job。
+      # 存量清理完成后，把 continue-on-error 改为 false 即可升级为强制质量门。
+      - name: Run f0rest convention gate
+        id: gate
+        if: ${{ steps.changed.outputs.count != '0' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          max_files=300
+          total="$(wc -l < changed-files.txt | tr -d ' ')"
+
+          if [ "$total" -gt "$max_files" ]; then
+            echo "变更文件 ${total} 个，超过 ${max_files} 个阈值，跳过逐文件规范扫描。"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          failed=0
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            [ -f "$file" ] || continue
+            if ! node scripts/check-f0rest-rules.mjs "$file"; then
+              echo "::error file=${file}::f0rest 规范校验未通过"
+              failed=$((failed + 1))
+            fi
+          done < changed-files.txt
+
+          echo "failed=${failed}" >> "$GITHUB_OUTPUT"
+
+          if [ "$failed" -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: Publish convention summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Convention Gate'
+            echo "- Diff range: ${{ steps.changed.outputs.range || 'n/a' }}"
+            echo "- Changed files: ${{ steps.changed.outputs.count || '0' }}"
+            echo "- Failed files: ${{ steps.gate.outputs.failed || '0' }}"
+            echo "- Mode: report (continue-on-error)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build Artifact
+    needs: [quality, release_regression, db]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/purelyprofit_ci?schema=public
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Build application
+        run: pnpm run build
+
+      # 生产以 dist/cluster-main.js 启动（deploy/systemd/purelyprofit-server.service），
+      # 任一产物缺失都会在重启后才暴露为启动失败，这里提前拦截。
+      - name: Verify build output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dist/main.js || { echo '::error::dist/main.js 缺失'; exit 1; }
+          test -f dist/cluster-main.js || { echo '::error::dist/cluster-main.js 缺失'; exit 1; }
+          test -f dist/config/cluster.configuration.js || { echo '::error::dist/config/cluster.configuration.js 缺失'; exit 1; }
+          echo '构建产物校验通过'
+
+      # 产物自带 package.json / pnpm-lock.yaml / prisma，保证部署侧 migrate 与运行时依赖可复现。
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-dist
+          path: |
+            dist
+            package.json
+            pnpm-lock.yaml
+            prisma
+            prisma.config.ts
+          retention-days: 7
+          if-no-files-found: error
+
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies for vulnerabilities
+        id: audit
+        continue-on-error: true
+        run: pnpm audit --audit-level=high
+
+      - name: Publish audit summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Dependency Audit'
+            echo "- Result: ${{ steps.audit.outcome }}"
+            echo "- Level: high"
+            echo ''
+            echo '> 该 Job 当前不阻断合并；出现高危漏洞时应作为独立修复任务排期。'
+          } >> "$GITHUB_STEP_SUMMARY"

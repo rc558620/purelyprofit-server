@@ -15,7 +15,9 @@ export const CLUB_PAYMENT_MODE_KEY = 'club:payment-mode';
  * 运行期支付模式状态 TTL（秒）：12 小时。
  *
  * 避免开发者切到 live 后长期遗忘，造成「本以为在测试、实际在真实扣款」的资金事故；
- * TTL 到期后读者看到的仍是 key 不存在，按安全侧回落为 test（生产环境恒为 live）。
+ * TTL 到期后读者看到的仍是 key 不存在，回落为**配置默认模式**
+ * （`club.manualConfirmPaidEnabled` 推导；生产环境恒为 live）。
+ * 注意：回落方向跟随配置默认值，不一定是 test，不能用「TTL 到期就安全」来推理。
  */
 export const CLUB_PAYMENT_MODE_TTL_SECONDS = 12 * 60 * 60;
 

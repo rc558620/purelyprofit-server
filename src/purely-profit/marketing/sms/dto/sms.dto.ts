@@ -97,7 +97,17 @@ export class CreateSmsBroadcastDto {
 }
 
 export class CreateSmsRechargeOrderDto {
-  @ApiProperty({ example: 1000, description: '充值金额（分），最小 1 分' })
+  /**
+   * 只作为「用户选了哪一档」的标识，**不是**权威金额。
+   *
+   * Service 会把它与后端下发的充值档位逐一比对，不在档位内直接 400，
+   * 因此客户端无法构造任意金额下单。
+   */
+  @ApiProperty({
+    example: 1000,
+    description:
+      '充值金额（分）。必须是 GET /marketing/sms/recharge-tiers 下发的档位金额，否则 400',
+  })
   @IsInt({ message: '充值金额必须是整数（分）' })
   @Min(1, { message: '充值金额必须大于 0' })
   @Max(100_000_000, { message: '单次充值金额过大' })
@@ -192,6 +202,21 @@ export class SmsBroadcastResponseDto {
 export class SmsRechargeOrderResponseDto {
   @ApiProperty({ example: 'SM202610152030001234AB', description: '充值订单号' })
   orderNo!: string;
+
+  /**
+   * 下单后的**权威状态**。
+   *
+   * 测试模式（全局支付模式为 test 且非生产）下单即入账，这里直接是 `paid`。
+   * 前端必须按该字段决定走「已到账」还是「出示二维码」，
+   * 不能靠 `qrCodeImageUrl` 是否为空去猜模式——那会把已到账显示成支付失败。
+   */
+  @ApiProperty({
+    enum: SMS_RECHARGE_ORDER_STATUS_VALUES,
+    example: 'pending',
+    description:
+      '下单结果状态：pending=待扫码支付 paid=已直接入账（测试模式）',
+  })
+  status!: SmsRechargeOrderStatusValue;
 
   @ApiProperty({
     example: 'weixin://wxpay/bizpayurl?pr=abcdefg',

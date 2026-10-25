@@ -40,7 +40,8 @@ export class PaymentModeResponseDto {
 
   @ApiProperty({
     example: 43200,
-    description: '运行期模式状态剩余生效秒数；到期后按安全侧回落为配置默认模式',
+    description:
+      '运行期模式状态的有效期（秒，每次切换重置）；到期后回落为配置默认模式。注意这里是固定有效期，不是剩余倒计时',
   })
   @IsNumber({}, { message: 'ttlSeconds 必须是数字' })
   ttlSeconds: number;

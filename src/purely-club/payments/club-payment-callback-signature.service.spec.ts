@@ -6,10 +6,12 @@ import { ClubPaymentCallbackSignatureService } from './club-payment-callback-sig
 describe('ClubPaymentCallbackSignatureService', () => {
   let service: ClubPaymentCallbackSignatureService;
 
-  const configState: Record<string, string | number> = {
+  const configState: Record<string, string | number | boolean> = {
     nodeEnv: 'development',
     'club.wechatCallbackMaxAgeSeconds': 300,
     'wechat.platformPublicKeyContent': '',
+    // 本地调试环境默认允许跳过 RSA 验签；其它环境默认 false（fail-closed）
+    'wechat.allowInsecureCallback': true,
   };
 
   const configService = {
@@ -21,6 +23,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
     configState.nodeEnv = 'development';
     configState['club.wechatCallbackMaxAgeSeconds'] = 300;
     configState['wechat.platformPublicKeyContent'] = '';
+    configState['wechat.allowInsecureCallback'] = true;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,7 +37,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
     );
   });
 
-  it('assertWechatCallbackSignature 在未配置平台公钥时仅校验时间戳有效性', () => {
+  it('显式允许调试降级时，未配置平台公钥仅校验时间戳有效性', () => {
     const rawBody = JSON.stringify({
       id: 'test-callback-id',
       event_type: 'TRANSACTION.SUCCESS',
@@ -62,6 +65,33 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: String(Math.floor(Date.now() / 1000)),
         nonce: 'callback-nonce',
         signature: 'IGNORED',
+        serial: 'CERT_SERIAL_001',
+      }),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('非生产环境未显式允许时同样拒绝跳过验签（fail-closed）', () => {
+    configState['wechat.allowInsecureCallback'] = false;
+
+    expect(() =>
+      service.assertWechatCallbackSignature('{}', {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'FORGED',
+        serial: 'CERT_SERIAL_001',
+      }),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('生产环境即便误开 allowInsecureCallback 也拒绝跳过验签', () => {
+    configState.nodeEnv = 'production';
+    configState['wechat.allowInsecureCallback'] = true;
+
+    expect(() =>
+      service.assertWechatCallbackSignature('{}', {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'FORGED',
         serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
