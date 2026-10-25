@@ -4,26 +4,25 @@ import {
   Logger,
   OnApplicationBootstrap,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { PlatformPaymentOrderService } from '../../payments/platform-payment-order.service';
+import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
+import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
+import { PlatformMembershipActivationService } from './platform-membership-activation.service';
+import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
 
-import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
 import {
   isRenewalPlanPurchasable,
   SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE,
 } from './membership-renewal-policy.shared';
-import { resolveEffectivePlanId } from './membership-plan-resolver';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
-import {
-  buildPlanExpiryAt,
-  resolveMembershipExpiry,
-} from './membership-expiry.utils';
 import { buildProfileResponse } from './membership-profile.mapper';
 import {
   buildOrdersOverview,
   calcMemberPlanPayment,
   calcPreviewResult,
-  generateWechatOrderId,
   mapOrder,
 } from './platform-membership-ledger.domain';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
@@ -44,6 +43,29 @@ import {
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
 import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
 
+/**
+ * 购买会员的结果。
+ *
+ * 两种模式共用入口，前端按 `mode` 分支：
+ * - `test`：权益已生效，直接拿订单与资料（历史行为不变）；
+ * - `live`：只返回支付信息，权益要等支付回调生效，前端凭 `orderNo` 轮询。
+ */
+export type PurchaseMembershipResult =
+  | ({ mode: 'test' } & PurchasePlatformMembershipOrderResponseDto)
+  | {
+      mode: 'live';
+      /** 平台支付单号，用于轮询 */
+      orderNo: string;
+      /** 微信 Native 二维码链接（协议串，不可直接当图片展示） */
+      codeUrl: string;
+      /** 由 codeUrl 渲染出的 PNG data URL，前端可直接 <img src> 展示 */
+      qrCodeImageUrl: string;
+      /** 应付金额（分），由后端算价得出 */
+      amountFen: number;
+      /** 支付单过期时间 */
+      expiresAt: Date;
+    };
+
 @Injectable()
 export class PlatformMembershipOrderService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PlatformMembershipOrderService.name);
@@ -54,6 +76,12 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     private readonly promoService: PlatformMembershipPromoService,
     private readonly lockedPriceService: StoreMembershipLockedPriceService,
     private readonly quotaService: NewCustomerQuotaService,
+    private readonly activationService: PlatformMembershipActivationService,
+    private readonly membershipPaymentService: PlatformMembershipPaymentService,
+    private readonly configService: ConfigService,
+    private readonly paymentModeService: ProfitPaymentModeService,
+    private readonly paymentOrderService: PlatformPaymentOrderService,
+    private readonly nativeService: PlatformWechatNativeService,
   ) {}
 
   /** 服务启动后自动修复历史未充值推广记录（在 Redis 就绪后执行） */
@@ -118,13 +146,38 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * 购买会员。
+   *
+   * 按支付模式分两条路径，但**生效规则只有一份实现**（activationService）：
+   * - 测试模式：下单即生效（历史行为不变），同时落一条 paid 的 test 支付单保证对账一致；
+   * - 真实模式：先落待支付订单 + 支付单，拿到二维码，等支付回调再生效。
+   */
   async purchaseOrder(
     userId: number,
     storeId: number,
     dto: PurchasePlatformMembershipOrderDto,
-  ): Promise<PurchasePlatformMembershipOrderResponseDto> {
+  ): Promise<PurchaseMembershipResult> {
     await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
 
+    const skipPayment = await this.paymentModeService.isSkipPaymentAllowed();
+    if (!skipPayment) {
+      return this.membershipPaymentService.createMembershipPaymentOrder(
+        userId,
+        storeId,
+        dto,
+      );
+    }
+
+    return this.purchaseWithSkippedPayment(userId, storeId, dto);
+  }
+
+  /** 测试模式：与原行为一致，下单即生效 */
+  private async purchaseWithSkippedPayment(
+    userId: number,
+    storeId: number,
+    dto: PurchasePlatformMembershipOrderDto,
+  ): Promise<Extract<PurchaseMembershipResult, { mode: 'test' }>> {
     const requestedPoints = dto.usePoints ?? 0;
     const requestedBeans = dto.useBeans ?? 0;
 
@@ -163,140 +216,49 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
         throw new ConflictException('当前无可抵扣纯利豆');
       }
 
-      if (payment.actualBeansUsed > 0) {
-        // 单合伙人扣减：每个账号只有一个当前合伙人
-        if (!partner || partner.beanBalance < payment.actualBeansUsed) {
-          throw new ConflictException('纯利豆余额不足，请刷新后重试');
-        }
+      // 测试模式也必须落一条支付单：否则「跳过支付」的订单在对账里完全不可见，
+      // 真实单与测试单就无从区分（与额度充值链路同口径）
+      const paymentOrder = await this.paymentOrderService.createOrder({
+        bizType: 'membership',
+        storeId,
+        operatorUserId: userId,
+        amountFen: payment.finalAmount,
+        payMode: 'test',
+        executor: tx,
+      });
 
-        // 原子 decrement 并校验非负（并发安全）
-        const updateResult = await tx.storePartner.updateMany({
-          where: {
-            id: partner.id,
-            storeId,
-            status: 'approved',
-            beanBalance: { gte: payment.actualBeansUsed },
-          },
-          data: {
-            beanBalance: { decrement: payment.actualBeansUsed },
-          },
-        });
-
-        if (updateResult.count !== 1) {
-          throw new ConflictException('纯利豆余额不足，请刷新后重试');
-        }
-
-        await tx.storePartnerBeanLog.create({
-          data: {
-            storeId,
-            partnerId: partner.id,
-            source: 'deduct_payment',
-            changeAmount: -payment.actualBeansUsed,
-            description: `纯利豆抵扣 · 订阅${plan.name}`,
-            relatedPlanType: plan.id,
-          },
-        });
-      }
-
-      const bonusPoints = PURCHASE_BONUS_POINTS[plan.id] ?? 0;
-      const nextAvailablePoints =
-        profile.availablePoints - payment.actualPointsUsed + bonusPoints;
-      const nextTotalPoints =
-        profile.totalPoints - payment.actualPointsUsed + bonusPoints;
-      const now = new Date();
-      const isLegacyLifetimeMembership =
-        profile.currentPlanId === 'yearly' && profile.expiresAt === null;
-      const currentExpiryMs =
-        resolveMembershipExpiry(profile).expiresAt?.getTime() ?? 0;
-      const baseMs =
-        currentExpiryMs > now.getTime() ? currentExpiryMs : now.getTime();
-      const nextExpiresAt = buildPlanExpiryAt(plan, baseMs);
-      const currentActivePlanId =
-        currentExpiryMs > now.getTime() ? profile.currentPlanId : null;
-      const nextPlanId = isLegacyLifetimeMembership
-        ? 'yearly'
-        : resolveEffectivePlanId(currentActivePlanId, plan.id);
-      const nextStartsAt = isLegacyLifetimeMembership
-        ? new Date(nextExpiresAt.getTime() - 730 * DAY_MS)
-        : (profile.startsAt ?? now);
-
-      const updatedProfile = await tx.storeMembershipProfile.update({
-        where: { id: profile.id },
-        data: {
-          currentPlanId: nextPlanId,
-          // 下单成功后 currentPlanId 就是最新的续费依据，清掉降级时转存的原档位
-          previousPlanId: null,
-          startsAt: nextStartsAt,
-          expiresAt: isLegacyLifetimeMembership ? null : nextExpiresAt,
-          totalPoints: nextTotalPoints,
-          availablePoints: nextAvailablePoints,
-        },
-        select: {
-          id: true,
-          storeId: true,
-          currentPlanId: true,
-          previousPlanId: true,
-          startsAt: true,
-          expiresAt: true,
-          totalPoints: true,
-          availablePoints: true,
+      // 生效（扣豆 / 更新档期与积分 / 写流水 / 建单）统一走激活服务，
+      // 与支付回调路径同源，避免两条路径的权益结果漂移
+      const activated = await this.activationService.activate(tx, {
+        storeId,
+        profileId: profile.id,
+        planId: plan.id,
+        planPrice,
+        actualBeansUsed: payment.actualBeansUsed,
+        actualPointsUsed: payment.actualPointsUsed,
+        finalAmount: payment.finalAmount,
+        paymentOrderId: paymentOrder.orderNo,
+        partner: partner
+          ? { id: partner.id, beanBalance: availableBeans }
+          : null,
+        profile: {
+          availablePoints: profile.availablePoints,
+          totalPoints: profile.totalPoints,
+          currentPlanId: profile.currentPlanId,
+          startsAt: profile.startsAt,
+          expiresAt: profile.expiresAt,
         },
       });
 
-      if (payment.actualPointsUsed > 0) {
-        await tx.storeMembershipPointsLog.create({
-          data: {
-            storeId,
-            profileId: profile.id,
-            source: 'deduct_payment',
-            changeType: 'decrease',
-            changeAmount: payment.actualPointsUsed,
-            description: `订阅${plan.name}抵扣`,
-          },
-        });
-      }
-
-      if (bonusPoints > 0) {
-        await tx.storeMembershipPointsLog.create({
-          data: {
-            storeId,
-            profileId: profile.id,
-            source: 'purchase_bonus',
-            changeType: 'increase',
-            changeAmount: bonusPoints,
-            description: `购买${plan.name}赠积分`,
-          },
-        });
-      }
-
-      const order = await tx.storeMembershipOrder.create({
-        data: {
-          storeId,
-          profileId: profile.id,
-          planId: plan.id,
-          planName: plan.name,
-          originalAmount: planPrice,
-          pointsUsed: payment.actualPointsUsed,
-          beansUsed: payment.actualBeansUsed,
-          amount: payment.finalAmount,
-          status: 'paid',
-          paymentChannel: 'wechat',
-          paymentOrderId: generateWechatOrderId(storeId, now),
-          paidAt: now,
-        },
-        select: {
-          id: true,
-          planId: true,
-          planName: true,
-          amount: true,
-          pointsUsed: true,
-          beansUsed: true,
-          status: true,
-          paymentChannel: true,
-          paymentOrderId: true,
-          createdAt: true,
-        },
+      await this.paymentOrderService.markPaid({
+        orderNo: paymentOrder.orderNo,
+        transactionId: `manual-test-${paymentOrder.orderNo}`,
+        executor: tx,
       });
+
+      // 订单与会员档案都由生效服务直接回传，避免写完再回查一次
+      const order = activated.order;
+      const updatedProfile = activated.profile;
 
       // 首次成交价快照：已存在则不覆盖（锁定语义）
       await this.lockedPriceService.lockPriceOnFirstDeal({
@@ -350,16 +312,19 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     // 提取内部字段，返回干净的响应
     const { _planId, _amount, ...cleanResponse } = response;
 
+    // 测试模式：权益已生效，带上 mode 让前端知道无需轮询
+    const testResult = { mode: 'test' as const, ...cleanResponse };
+
     // 新用户额度：购买 / 续费成功后按档位一次性叠加（失败只告警，不影响订单结果）
-    void this.quotaService
-      .grantByPlan(storeId, _planId)
-      .catch((err: unknown) => {
-        this.logger.warn(
-          `新用户额度赠送失败（不影响订单）: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      });
+    try {
+      await this.quotaService.grantByPlan(storeId, _planId);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `新用户额度赠送失败（不影响订单）: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     // 首次充值推广奖励：必须在订单响应返回前同步完成。
     //
@@ -385,7 +350,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       );
     }
 
-    return cleanResponse;
+    return testResult;
   }
 
   /**

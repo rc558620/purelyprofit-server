@@ -37,12 +37,37 @@ export function validateProductionConfiguration(
     configService,
     'wechat.privateKeyContent',
   );
+  // 平台收款商户号与其 APIv3 密钥：短信钱包充值走的是 Native 真实下单 + 回调验签解密，
+  // 缺任一都会在「用户已扫码付款、后端无法解密回调」时才炸，必须在启动期就拦下
+  const wechatPayMchId = getTrimmedConfigValue(
+    configService,
+    'wechat.payMchId',
+  );
+  const wechatPayApiV3Key = getTrimmedConfigValue(
+    configService,
+    'wechat.payApiV3Key',
+  );
   const wechatPlatformPublicKey = getTrimmedConfigValue(
     configService,
     'wechat.platformPublicKeyContent',
   );
   const manualConfirmPaidEnabled =
     configService.get<boolean>('club.manualConfirmPaidEnabled') ?? false;
+  const paymentModeSwitchEnabled =
+    configService.get<boolean>('club.paymentModeSwitchEnabled') ?? false;
+  // 商家端平台收款（会员订阅 / 新客额度充值）回调地址：缺失时只能等用户
+  // 点了付款才暴露「下不了单」，必须在启动期就拦下
+  const profitWechatPayNotifyUrl = getTrimmedConfigValue(
+    configService,
+    'profit.wechatPayNotifyUrl',
+  );
+  const profitManualPaidEnabled =
+    configService.get<boolean>('profit.manualPaidEnabled') ?? false;
+  const profitPaymentModeSwitchEnabled =
+    configService.get<boolean>('profit.paymentModeSwitchEnabled') ?? false;
+  // 短信本地直充：true = 跳过微信支付直接加余额，生产开着等于免费无限充值
+  const smsDirectCredit =
+    configService.get<boolean>('sms.directCredit') ?? false;
   const portAutoTerminateEnabled =
     configService.get<boolean>('app.portAutoTerminateEnabled') ?? false;
   const portAutoShiftEnabled =
@@ -97,6 +122,14 @@ export function validateProductionConfiguration(
     errors.push('wechat.mchSerialNo 未配置或仍在使用示例值');
   }
 
+  if (!wechatPayMchId) {
+    errors.push('wechat.payMchId 未配置，平台收款链路无法真实下单');
+  }
+
+  if (!wechatPayApiV3Key) {
+    errors.push('wechat.payApiV3Key 未配置，生产环境无法解密微信支付回调报文');
+  }
+
   if (!wechatPrivateKeyPath && !wechatPrivateKeyContent) {
     errors.push(
       'wechat.privateKeyPath / wechat.privateKeyContent 至少要配置一个',
@@ -123,6 +156,37 @@ export function validateProductionConfiguration(
 
   if (manualConfirmPaidEnabled) {
     errors.push('club.manualConfirmPaidEnabled 生产环境必须为 false');
+  }
+
+  // 运行期支付模式切换会在缺乏任何 brake 的情况下让人把测试订单打成真实扣款，
+  // 因此必须与手动确认支付同等对待：生产环境强制关闭
+  if (paymentModeSwitchEnabled) {
+    errors.push('club.paymentModeSwitchEnabled 生产环境必须为 false');
+  }
+
+  if (
+    !profitWechatPayNotifyUrl ||
+    !profitWechatPayNotifyUrl.startsWith('https://') ||
+    profitWechatPayNotifyUrl.includes('yourdomain.com')
+  ) {
+    errors.push(
+      'profit.wechatPayNotifyUrl（PROFIT_WECHAT_PAY_NOTIFY_URL）生产环境必须是可访问的 HTTPS 正式地址',
+    );
+  }
+
+  if (profitManualPaidEnabled) {
+    errors.push('profit.manualPaidEnabled 生产环境必须为 false');
+  }
+
+  if (profitPaymentModeSwitchEnabled) {
+    errors.push('profit.paymentModeSwitchEnabled 生产环境必须为 false');
+  }
+
+  // 免费直充闸门：与 sms.utils.resolveSmsDirectCredit 的第二把锁配对使用
+  if (smsDirectCredit) {
+    errors.push(
+      'sms.directCredit（SMS_RECHARGE_DIRECT_CREDIT）生产环境必须为 false，否则短信充值可无限免费入账',
+    );
   }
 
   if (portAutoTerminateEnabled) {

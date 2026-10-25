@@ -210,6 +210,124 @@ export class PulseAdminSmsBroadcastRefundResultDto {
   balanceFen: number;
 }
 
+/** 一条短信钱包流水（平台运营追溯口径） */
+export class PulseAdminSmsWalletLogDto {
+  @ApiProperty({ example: '128', description: '流水 ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ example: '1', description: '所属门店 ID' })
+  @IsString()
+  storeId: string;
+
+  @ApiProperty({
+    example: 'grant',
+    description:
+      '流水类型：recharge=商家充值，consume=群发扣费，refund=失败退费，' +
+      'grant=平台赠送，admin_adjust=平台回收',
+  })
+  @IsString()
+  type: string;
+
+  @ApiProperty({
+    example: 10000,
+    description: '变动金额（分）：正数入账、负数出账',
+  })
+  @IsInt()
+  changeFen: number;
+
+  @ApiProperty({ example: 16000, description: '变动后的账户余额（分）' })
+  @IsInt()
+  balanceAfterFen: number;
+
+  @ApiProperty({ example: '客服补偿短信额度', description: '流水说明' })
+  @IsString()
+  description: string;
+
+  @ApiPropertyOptional({
+    example: 'SMS20260520123456',
+    description: '关联充值订单号，仅 recharge / refund 有值',
+  })
+  @IsOptional()
+  @IsString()
+  orderNo?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'bc_1a2b3c4d5e6f7081',
+    description: '关联群发任务 ID，仅 consume / refund 有值',
+  })
+  @IsOptional()
+  @IsString()
+  broadcastId?: string | null;
+
+  @ApiProperty({ example: 1747123200000, description: '发生时间戳（ms）' })
+  @IsInt()
+  createdAt: number;
+}
+
+/**
+ * 短信钱包流水统计概览（后端权威计算）。
+ *
+ * 口径与列表**同源**（吃当前 Tab、不吃分页）：概览卡「总记录」必须等于
+ * 列表头「共 N 条」，否则切到「充值」Tab 会出现自相矛盾的数字。
+ */
+export class PulseAdminSmsWalletLogsStatsDto {
+  @ApiProperty({ example: 86, description: '当前 Tab 下的流水总条数' })
+  @IsInt()
+  totalRecords: number;
+
+  @ApiProperty({ example: 6, description: '平台调整次数（赠送 + 回收）' })
+  @IsInt()
+  adminAdjustCount: number;
+
+  @ApiProperty({ example: 3, description: '商家充值次数' })
+  @IsInt()
+  rechargeCount: number;
+
+  @ApiProperty({ example: 74, description: '群发扣费次数' })
+  @IsInt()
+  consumeCount: number;
+
+  @ApiProperty({ example: 3, description: '失败退费次数' })
+  @IsInt()
+  refundCount: number;
+}
+
+export class PulseAdminSmsWalletLogsResponseDto {
+  @ApiProperty({
+    type: [PulseAdminSmsWalletLogDto],
+    description: '当前页短信钱包流水',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseAdminSmsWalletLogDto)
+  items: PulseAdminSmsWalletLogDto[];
+
+  @ApiProperty({ example: 86, description: '当前 Tab 下的流水总数' })
+  @IsInt()
+  total: number;
+
+  @ApiProperty({ example: 1, description: '当前页码（从 1 开始）' })
+  @IsInt()
+  page: number;
+
+  @ApiProperty({ example: 20, description: '每页条数' })
+  @IsInt()
+  pageSize: number;
+
+  @ApiProperty({ example: true, description: '是否还有下一页' })
+  @IsBoolean()
+  hasMore: boolean;
+
+  @ApiProperty({
+    type: PulseAdminSmsWalletLogsStatsDto,
+    description: '统计概览（按当前 Tab 的完整流水集合计算，与分页无关）',
+  })
+  @ValidateNested()
+  @Type(() => PulseAdminSmsWalletLogsStatsDto)
+  stats: PulseAdminSmsWalletLogsStatsDto;
+}
+
 export class PulseAdminSmsAccountsResponseDto {
   @ApiProperty({
     type: [PulseAdminSmsAccountDto],

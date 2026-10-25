@@ -33,10 +33,14 @@ type ApprovedPartnerLike = Pick<
 export function buildOrdersOverview(
   orders: StoreMembershipOrderRecord[],
 ): PlatformMembershipOrdersOverviewDto {
+  // 只统计**已支付**订单：接入真实支付后会出现 pending / failed 订单，
+  // 把它们算进「累计消费」会让商家看到一笔自己根本没付过的钱。
+  // 历史数据全为 paid，该修正对存量无影响。
+  const paidOrders = orders.filter((order) => order.status === 'paid');
   // 汇总金额直接使用数据库分值，不再做分→元转换；前端统一消费分
-  const totalAmount = orders.reduce((sum, order) => sum + order.amount, 0);
+  const totalAmount = paidOrders.reduce((sum, order) => sum + order.amount, 0);
   return {
-    orderCount: orders.length,
+    orderCount: paidOrders.length,
     totalAmount,
   };
 }

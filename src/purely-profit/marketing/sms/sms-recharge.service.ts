@@ -7,6 +7,8 @@ import type { WechatDecryptedTransaction } from '../../../purely-club/payments/d
 import { SmsAccountService } from './sms-account.service';
 import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
+import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
+import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
 import { SMS_RECHARGE_ORDER_TTL_SECONDS } from './sms.constants';
 import type {
   SmsRechargeOrderResponseDto,
@@ -54,6 +56,8 @@ export class SmsRechargeService {
     private readonly nativeService: SmsWechatNativeService,
     private readonly signatureService: ClubPaymentCallbackSignatureService,
     private readonly decryptorService: SmsWechatCallbackDecryptorService,
+    private readonly qrCodeService: PlatformPaymentQrCodeService,
+    private readonly paymentModeService: ProfitPaymentModeService,
   ) {
     this.directCredit = resolveSmsDirectCredit(configService);
     if (this.directCredit) {
@@ -62,6 +66,26 @@ export class SmsRechargeService {
           '仅用于本地联调跑通流程。接入真支付前必须关闭，否则用户可无限免费充值。',
       );
     }
+  }
+
+  /**
+   * 本次充值是否跳过微信支付、直接入账。
+   *
+   * 判据是「短信自身的直充开关 **或** 商家端全局支付模式」，取或而不是取替：
+   * - 两条开关历史上各自独立，任一开启都意味着「不打算真实扣款」；
+   * - 统一到商家端支付模式后，短信仍是唯一保留独立开关的链路（它比
+   *   会员 / 额度链路上线更早），直接替换会在已按 SMS_RECHARGE_DIRECT_CREDIT
+   *   配置过的环境里造成行为突变。
+   *
+   * 生产环境两侧都强制为 false（启动校验已覆盖），因此这里不会出现
+   * 「生产悄悄直充」的口子。
+   */
+  private async shouldSkipWechatPayment(): Promise<boolean> {
+    if (this.directCredit) {
+      return true;
+    }
+
+    return this.paymentModeService.isSkipPaymentAllowed();
   }
 
   async createRechargeOrder(
@@ -79,7 +103,7 @@ export class SmsRechargeService {
 
     // 本地直充：对齐新客额度 writeRecharge（无外部支付单号，直接入账）。
     // 订单已是 paid，前端首次轮询即命中，契约与走微信时完全一致。
-    if (this.directCredit) {
+    if (await this.shouldSkipWechatPayment()) {
       await this.creditRecharge({
         orderNo,
         storeId,
@@ -91,6 +115,7 @@ export class SmsRechargeService {
       return {
         orderNo,
         codeUrl: '',
+        qrCodeImageUrl: '',
         amountFen,
         expiresAt: expiresAt.toISOString(),
       };
@@ -111,6 +136,7 @@ export class SmsRechargeService {
       return {
         orderNo,
         codeUrl,
+        qrCodeImageUrl: await this.qrCodeService.renderPaymentQrCode(codeUrl),
         amountFen,
         expiresAt: expiresAt.toISOString(),
       };
@@ -142,10 +168,23 @@ export class SmsRechargeService {
     }
 
     if (order.status === 'pending' && order.expiresAt.getTime() <= Date.now()) {
-      await this.prisma.smsRechargeOrder.update({
-        where: { orderNo },
+      // 条件关单：上面读到的 pending 可能在这几毫秒内已被支付回调改成 paid。
+      // 无条件 update 会把 paid 覆盖回 closed，出现「钱扣了、单关了」，
+      // 之后微信重投回调再入账一次，账实两清但用户看到的是失败。
+      const closed = await this.prisma.smsRechargeOrder.updateMany({
+        where: { orderNo, status: 'pending' },
         data: { status: 'closed' },
       });
+
+      if (closed.count === 0) {
+        // 关单失败说明状态已变（多半是已支付），按最新状态返回，不能再写 closed
+        const latest = await this.prisma.smsRechargeOrder.findUnique({
+          where: { orderNo },
+          select: { status: true },
+        });
+        return { orderNo, status: latest?.status ?? 'closed' };
+      }
+
       return { orderNo, status: 'closed' };
     }
 
@@ -212,11 +251,20 @@ export class SmsRechargeService {
       };
     }
 
-    const paidAmountFen = transaction.amount?.total ?? order.amountFen;
-    if (paidAmountFen !== order.amountFen) {
-      this.logger.warn(
-        `短信充值金额不一致：orderNo=${orderNo}，订单 ${order.amountFen} 分，回调 ${paidAmountFen} 分，按订单金额入账`,
+    // 金额唯一权威是后端落单金额：回调金额对不上说明订单被改过或回调被伪造，
+    // 绝不能「按订单金额照常入账」，只能挂起等人工对账
+    const paidAmountFen = transaction.amount?.total;
+    if (typeof paidAmountFen === 'number' && paidAmountFen !== order.amountFen) {
+      this.logger.error(
+        `短信充值金额不一致，已拒绝入账：orderNo=${orderNo}，订单 ${order.amountFen} 分，回调 ${paidAmountFen} 分`,
       );
+      await this.markOrderFailed(orderNo);
+      return {
+        success: true,
+        orderNo,
+        status: 'failed',
+        message: '支付金额与订单金额不一致，订单已挂起，待人工核对',
+      };
     }
 
     const credited = await this.creditRecharge({

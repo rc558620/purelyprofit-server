@@ -90,6 +90,17 @@ describe('SmsRechargeService · 微信回调', () => {
       null as unknown as SmsWechatNativeService,
       signatureService as unknown as ClubPaymentCallbackSignatureService,
       decryptorService as unknown as SmsWechatCallbackDecryptorService,
+      {
+        renderPaymentQrCode: jest.fn(() =>
+          Promise.resolve('data:image/png;base64,MOCK'),
+        ),
+      } as never,
+      // 支付模式裁决桩：默认不跳过真实扣款，由用例按需覆盖
+      {
+        isSkipPaymentAllowed: jest.fn(
+          (): Promise<boolean> => Promise.resolve(false),
+        ),
+      } as never,
     );
   });
 

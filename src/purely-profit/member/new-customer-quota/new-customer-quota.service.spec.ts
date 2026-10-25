@@ -235,9 +235,9 @@ describe('NewCustomerQuotaService', () => {
       newCustomerQuota: 150,
     });
 
-    await expect(service.adjustQuota(42, 50, '平台运营调整新客额度')).resolves.toBe(
-      150,
-    );
+    await expect(
+      service.adjustQuota(42, 50, '平台运营调整新客额度'),
+    ).resolves.toBe(150);
 
     expect(delegates.storeMembershipProfile.update).toHaveBeenCalledWith({
       where: { storeId: 42 },
@@ -258,9 +258,9 @@ describe('NewCustomerQuotaService', () => {
   it('运营回收额度超过余额时只扣到 0，流水按实际变动量记', async () => {
     queryRaw.mockResolvedValue([{ remaining: 30 }]);
 
-    await expect(service.adjustQuota(42, -80, '平台运营调整新客额度')).resolves.toBe(
-      0,
-    );
+    await expect(
+      service.adjustQuota(42, -80, '平台运营调整新客额度'),
+    ).resolves.toBe(0);
 
     expect(delegates.storeNewCustomerQuotaLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -276,9 +276,9 @@ describe('NewCustomerQuotaService', () => {
   it('余额已是 0 仍继续回收时不写流水（避免 0 变动噪音记录）', async () => {
     queryRaw.mockResolvedValue([{ remaining: 0 }]);
 
-    await expect(service.adjustQuota(42, -10, '平台运营调整新客额度')).resolves.toBe(
-      0,
-    );
+    await expect(
+      service.adjustQuota(42, -10, '平台运营调整新客额度'),
+    ).resolves.toBe(0);
 
     expect(delegates.storeMembershipProfile.update).not.toHaveBeenCalled();
     expect(delegates.storeNewCustomerQuotaLog.create).not.toHaveBeenCalled();
@@ -298,9 +298,9 @@ describe('NewCustomerQuotaService', () => {
   it('档案不存在时加锁查询回空，按余额 0 处理', async () => {
     queryRaw.mockResolvedValue([]);
 
-    await expect(service.adjustQuota(42, 20, '平台运营调整新客额度')).resolves.toBe(
-      20,
-    );
+    await expect(
+      service.adjustQuota(42, 20, '平台运营调整新客额度'),
+    ).resolves.toBe(20);
   });
 
   it('新客扣减：余额充足时扣 1 并写消耗流水', async () => {

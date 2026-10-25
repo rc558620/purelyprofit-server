@@ -34,10 +34,12 @@ export class ClubOrdersService {
   createServiceOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubServiceOrderDto,
+    idempotencyKey?: string,
   ): Promise<ClubServiceOrderResponseDto> {
     return this.clubOrderServiceCreationService.createServiceOrder(
       currentContext,
       dto,
+      idempotencyKey,
     );
   }
 

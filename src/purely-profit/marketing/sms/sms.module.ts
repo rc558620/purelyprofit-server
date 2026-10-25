@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClubPaymentCallbackSignatureService } from '../../../purely-club/payments/club-payment-callback-signature.service';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
+import { ProfitPaymentsModule } from '../../payments/profit-payments.module';
 import { MarketingModule } from '../marketing.module';
 import { SmsAccountService } from './sms-account.service';
 import { SmsDeliveryCallbackController } from './sms-delivery-callback.controller';
@@ -32,7 +33,8 @@ import { SmsController } from './sms.controller';
  *   解密用短信专用解密器（平台 APIv3Key，club 的解密器遍历门店密钥不适用）。
  */
 @Module({
-  imports: [PrismaModule, RedisModule, MarketingModule],
+  // ProfitPaymentsModule 提供平台级 Native 下单能力（该模块不反向依赖业务模块）
+  imports: [PrismaModule, RedisModule, MarketingModule, ProfitPaymentsModule],
   controllers: [
     SmsController,
     SmsCallbackController,

@@ -4,7 +4,9 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubMemberModule } from '../member/club-member.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
+import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import { ClubOrderServiceCreationService } from './club-order-service-creation.service';
@@ -30,6 +32,8 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
     ClubStoresModule,
     ClubMemberModule,
     ClubWechatPayModule,
+    // 手动确认支付的闸门由支付模式服务裁决（配置开关 && 运行期模式）
+    ClubPaymentModeModule,
     // 会员过期门店需拦截会员专区服务购买，依赖该模块提供的 MembershipDowngradeService
     PlatformMembershipAccessModule,
     NewCustomerQuotaModule,
@@ -37,6 +41,7 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
   controllers: [ClubOrdersController],
   providers: [
     ClubOrderDraftsService,
+    ClubOrderIdempotencyService,
     ClubOrderPromotionsService,
     ClubOrderServiceContextService,
     ClubOrderServiceCreationService,

@@ -22,6 +22,7 @@ import { PulseMembershipAdminMembershipMutationOrderService } from './membership
 import { PulseMembershipAdminNewCustomerQuotaService } from './membership-admin-new-customer-quota.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
+import { PulseMembershipAdminQuotaLogsService } from './membership-admin-quota-logs.service';
 import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
@@ -166,6 +167,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipAdminMembershipMutationService,
       PulseMembershipAdminMembershipMutationOrderService,
       PulseMembershipAdminNewCustomerQuotaService,
+      PulseMembershipAdminQuotaLogsService,
       PulseMembershipAdminPricingPreviewService,
       PulseMembershipAdminRenewalPriceService,
       PulseMembershipAdminMemberRecordsService,

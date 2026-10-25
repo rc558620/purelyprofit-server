@@ -5,7 +5,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ClubWechatPaymentParamsDto } from '../orders/dto/club-order.dto';
@@ -14,7 +13,9 @@ import type {
   ClubPaymentCallbackSettlementParams,
 } from '../payments/club-payments.types';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubScanOrderingMarketingCustomerService } from '../scan-ordering/club-scan-ordering-marketing-customer.service';
 import { ClubSelfOrderingPaymentNotifierService } from './club-self-ordering-payment-notifier.service';
 import { ClubSelfOrderingPaymentRepository } from './club-self-ordering-payment.repository';
@@ -46,13 +47,14 @@ export class ClubSelfOrderingPaymentService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
     private readonly paymentLockService: ClubPaymentLockService,
     private readonly wechatJsapiService: ClubWechatJsapiService,
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
     private readonly paymentRepository: ClubSelfOrderingPaymentRepository,
     private readonly settlementService: ClubSelfOrderingPaymentSettlementService,
     private readonly notifier: ClubSelfOrderingPaymentNotifierService,
+    private readonly clubWechatOpenidService: ClubWechatOpenidService,
   ) {}
 
   /** 余额支付：扣减储值余额并落账 */
@@ -108,8 +110,9 @@ export class ClubSelfOrderingPaymentService {
   /**
    * 微信支付：创建支付尝试并返回拉起支付的参数
    *
-   * openid 缺省时不下单（商户号/营业执照未就绪），paymentParams 返回 undefined，
-   * 前端据此走开发态 confirm-paid 兜底，保证端到端流程仍可跑通。
+   * openid 显式传入优先，未传则按 userId 回查 users.wechat_openid；
+   * 仍解析不到时不下单，paymentParams 返回 undefined。
+   * 注意 confirm-paid 兜底在生产已禁用，此分支在生产等同支付不可用。
    */
   async createWechatPayment(
     user: AuthenticatedUser,
@@ -127,15 +130,20 @@ export class ClubSelfOrderingPaymentService {
       throw new ConflictException('支付请求正在处理中，请勿重复发起');
     }
 
+    const resolvedOpenid = await this.clubWechatOpenidService.resolveOpenid(
+      user.id,
+      openid,
+    );
+
     const merchantPaymentNo = createMerchantPaymentNo(order.orderNo);
     await this.paymentRepository.createAttempt({
       orderId: order.id,
       merchantPaymentNo,
       amountFen: order.payableAmount,
-      status: openid ? 'paying' : 'pending',
+      status: resolvedOpenid ? 'paying' : 'pending',
     });
 
-    if (!openid) {
+    if (!resolvedOpenid) {
       return { merchantPaymentNo, paymentParams: undefined };
     }
 
@@ -146,7 +154,7 @@ export class ClubSelfOrderingPaymentService {
           orderNo: merchantPaymentNo,
           description: `自助下单 ${order.orderNo}`,
           amountFen: order.payableAmount,
-          openid,
+          openid: resolvedOpenid,
         });
       await this.paymentRepository.markAttemptCreated(merchantPaymentNo);
       return { merchantPaymentNo, paymentParams };
@@ -164,8 +172,14 @@ export class ClubSelfOrderingPaymentService {
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<Record<string, unknown>> {
-    if (this.configService.get<string>('nodeEnv') === 'production') {
-      throw new ForbiddenException('开发态支付确认接口在生产环境不可用');
+    // 资金安全闸门：与通用 confirm-paid 同口径，只有测试模式才允许跳过真实扣款。
+    // 生产环境恒为 false，切到真实模式后同样不可用。
+    const manualConfirmPaidAllowed =
+      await this.clubPaymentModeService.isManualConfirmPaidAllowed();
+    if (!manualConfirmPaidAllowed) {
+      throw new ForbiddenException(
+        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+      );
     }
 
     const order = await this.paymentRepository.loadPayableOrder(user, orderId);

@@ -93,6 +93,65 @@ export class RechargeNewCustomerQuotaDto {
   amountFen!: number;
 }
 
+/**
+ * 充值下单结果。
+ *
+ * 两种模式共用一个返回体，前端按 `mode` 分支：
+ * - `test`：额度已直接到账，`overview` 为最新概览（历史行为不变）；
+ * - `live`：需要拉起微信支付，`codeUrl` 渲染成二维码，用 `orderNo` 轮询支付状态。
+ */
+export class RechargeNewCustomerQuotaResultDto {
+  /** 本次落单的支付模式 */
+  @ApiProperty({
+    enum: ['test', 'live'],
+    description: 'test=测试模式（直接到账）/ live=真实模式（需扫码付款）',
+  })
+  mode!: 'test' | 'live';
+
+  /** 支付单号：真实模式下用于轮询状态 */
+  @ApiProperty({ description: '平台支付单号' })
+  orderNo!: string;
+
+  /** 真实模式：微信 Native 二维码链接（协议串） */
+  @ApiPropertyOptional({ description: '微信支付二维码链接（真实模式）' })
+  codeUrl?: string;
+
+  /**
+   * 真实模式：由 codeUrl 渲染出的 PNG data URL。
+   * weixin:// 协议串无法被 <img> 直接加载，前端一律用这个字段展示。
+   */
+  @ApiPropertyOptional({
+    description: '支付二维码图片（PNG data URL，真实模式）',
+  })
+  qrCodeImageUrl?: string;
+
+  /** 真实模式：应付金额（分），由后端档位计算 */
+  @ApiPropertyOptional({ description: '应付金额（分）' })
+  amountFen?: number;
+
+  /** 真实模式：支付单过期时间 */
+  @ApiPropertyOptional({ description: '支付单过期时间（ISO 字符串）' })
+  expiresAt?: string;
+
+  /** 测试模式：到账后的最新概览 */
+  @ApiPropertyOptional({ type: NewCustomerQuotaOverviewDto })
+  overview?: NewCustomerQuotaOverviewDto;
+}
+
+/** 支付单状态轮询结果 */
+export class PlatformPaymentStatusDto {
+  /** pending / paid / closed / failed */
+  @ApiProperty({
+    enum: ['pending', 'paid', 'closed', 'failed'],
+    description: '支付单状态',
+  })
+  status!: string;
+
+  /** 支付完成时间（未支付为 null） */
+  @ApiPropertyOptional({ description: '支付完成时间（ISO 字符串）' })
+  paidAt?: string | null;
+}
+
 /** 额度流水分页查询：与前端分页参数对齐，pageSize 兼作返回条数 */
 export class NewCustomerQuotaLogsQueryDto {
   @ApiPropertyOptional({ description: '页码，默认 1' })

@@ -57,6 +57,9 @@ import { ClubHomeModule } from './purely-club/home/club-home.module';
 import { ClubMemberModule } from './purely-club/member/club-member.module';
 import { ClubOrdersModule } from './purely-club/orders/club-orders.module';
 import { ClubPaymentsModule } from './purely-club/payments/club-payments.module';
+import { ClubPaymentModeModule } from './purely-club/payments/club-payment-mode.module';
+import { ProfitPaymentsModule } from './purely-profit/payments/profit-payments.module';
+import { PlatformPaymentCallbackModule } from './purely-profit/payments/platform-payment-callback.module';
 import { ClubProductsModule } from './purely-club/products/club-products.module';
 import { ClubProductBootstrapModule } from './purely-club/products/bootstrap/club-product-bootstrap.module';
 import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.module';
@@ -156,6 +159,9 @@ import { UploadModule } from './shared/upload.module';
     ClubMemberModule,
     ClubOrdersModule,
     ClubPaymentsModule,
+    ClubPaymentModeModule,
+    ProfitPaymentsModule,
+    PlatformPaymentCallbackModule,
     ClubProductsModule,
     ClubProductBootstrapModule,
     ClubPromotionsModule,

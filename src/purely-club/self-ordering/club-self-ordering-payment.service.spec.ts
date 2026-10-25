@@ -8,7 +8,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubScanOrderingMarketingCustomerService } from '../scan-ordering/club-scan-ordering-marketing-customer.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
@@ -46,6 +48,12 @@ describe('ClubSelfOrderingPaymentService', () => {
   };
 
   const config = { get: jest.fn() };
+  /** 支付模式裁决桩：默认处于测试模式，允许跳过真实扣款 */
+  const paymentMode = {
+    isManualConfirmPaidAllowed: jest.fn(
+      (): Promise<boolean> => Promise.resolve(true),
+    ),
+  };
   const paymentLock = {
     withOrderLock: jest.fn((_key: string, cb: () => Promise<unknown>) => cb()),
   };
@@ -86,6 +94,7 @@ describe('ClubSelfOrderingPaymentService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     config.get.mockReturnValue('development');
+    paymentMode.isManualConfirmPaidAllowed.mockResolvedValue(true);
     prisma.selfOrder.findFirst.mockResolvedValue(pendingOrder);
     prisma.selfOrderPaymentAttempt.findFirst.mockResolvedValue(null);
     prisma.selfOrderPaymentAttempt.create.mockResolvedValue({});
@@ -110,8 +119,19 @@ describe('ClubSelfOrderingPaymentService', () => {
         ClubSelfOrderingPaymentService,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: config },
+        { provide: ClubPaymentModeService, useValue: paymentMode },
         { provide: ClubPaymentLockService, useValue: paymentLock },
         { provide: ClubWechatJsapiService, useValue: wechatJsapi },
+        {
+          // 显式传入优先，未传时回 null（等价于「查不到 openid」）
+          provide: ClubWechatOpenidService,
+          useValue: {
+            resolveOpenid: jest.fn(
+              (_userId: number, explicitOpenid?: string | null) =>
+                Promise.resolve(explicitOpenid ?? null),
+            ),
+          },
+        },
         {
           provide: ClubScanOrderingMarketingCustomerService,
           useValue: marketingCustomer,
@@ -311,8 +331,8 @@ describe('ClubSelfOrderingPaymentService', () => {
   });
 
   describe('开发态确认支付', () => {
-    it('生产环境禁用', async () => {
-      config.get.mockReturnValue('production');
+    it('真实支付模式下禁用（含生产环境）', async () => {
+      paymentMode.isManualConfirmPaidAllowed.mockResolvedValue(false);
 
       await expect(service.confirmPaidForDevelopment(user, 1)).rejects.toThrow(
         ForbiddenException,
@@ -320,7 +340,7 @@ describe('ClubSelfOrderingPaymentService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it('非生产环境直接落账且不扣余额', async () => {
+    it('测试模式下直接落账且不扣余额', async () => {
       await service.confirmPaidForDevelopment(user, 1);
 
       expect(tx.marketingCustomer.updateMany).not.toHaveBeenCalled();

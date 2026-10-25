@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
   ClubOrderDraftPayload,
@@ -7,6 +6,7 @@ import type {
 } from './club-order-drafts.types';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 import { ClubPaymentConfirmationOrchestrator } from '../payments/club-payment-confirmation.orchestrator';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import type { ClubServiceOrderResponseDto } from './dto/club-order.dto';
@@ -20,13 +20,14 @@ export class ClubOrderServicePaymentService {
   >;
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
     private readonly clubOrderSettlementService: ClubOrderSettlementService,
     private readonly clubOrderServiceQueryService: ClubOrderServiceQueryService,
   ) {
     this.paymentConfirmationOrchestrator =
       new ClubPaymentConfirmationOrchestrator({
-        configService: this.configService,
+        isManualConfirmPaidAllowed: () =>
+          this.clubPaymentModeService.isManualConfirmPaidAllowed(),
         loadDraftForManualConfirm: (
           currentContext: ClubCurrentContext,
           orderNo: string,

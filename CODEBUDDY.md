@@ -19,7 +19,7 @@
 ```
 /Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md
 ```
-- `purelyprofit-server` `purelyProfit` `purelyClub` 经常会放到一个工作区接到任务时先看工作区有哪些项目。
+- `purelyprofit-server` `purelyProfit` `purelyClub` `purelyPulse` 经常会放到一个工作区接到任务时先看工作区有哪些项目。
 - 禁止依赖记忆或直觉编码，必须实际读取。
 - 读取后在回答开头标注当前模式，例如：【模式：main】。
 - **按需加载**：基础规范只含 `main` 模式与通用编码规则；其余模式（`strict` / `refactor` / `bug` / `auth` / `data` / `arch` / `page-check`）已拆至 `/Users/f0rest/Documents/AgentMode/backend-modes/`，**只有真正进入该模式时才读取**，严禁一次性全读（路由表见基础文件内置章节）。
@@ -62,7 +62,7 @@
 
 ### 4. 前端项目判断
 
-- 任务涉及页面联调、页面验收、接口对接检查、`page-check` 模式时，必须先判断对应前端项目是 `purelyProfit` 还是 `purelyClub`。
+- 任务涉及页面联调、页面验收、接口对接检查、`page-check` 模式时，必须先判断对应前端项目是 `purelyProfit`、`purelyClub` 还是 `purelyPulse`。
 - 用户只提“前端页面”“某个页面”“页面联调”“检查页面”但未明确产品线时，默认按业务对象判断：商家/老板侧按 `purelyProfit` 理解，个人端/消费者/会员侧按 `purelyClub` 理解。
 - 用户明确提到“前端样式已经写好 `purelyClub`”“个人端页面”“C 端页面”“用户端页面”时，默认前端联调对象就是 `purelyClub`。
 - 不要误映射到其他前端仓库或通用示例页面。

@@ -337,11 +337,16 @@ describe('StoreSubAccountSlotService', () => {
       ).resolves.toEqual(summary);
       expect(
         storeSubAccountLoginService.ensureEmployeeHasLoginAccount,
-      ).toHaveBeenCalledWith(storeId, 100, {
-        password: 'test123456',
-        loginAccount: undefined,
-        // 第 4 个参数为事务客户端：凭证创建必须与槽位写入同事务
-      }, expect.anything());
+      ).toHaveBeenCalledWith(
+        storeId,
+        100,
+        {
+          password: 'test123456',
+          loginAccount: undefined,
+          // 第 4 个参数为事务客户端：凭证创建必须与槽位写入同事务
+        },
+        expect.anything(),
+      );
       expect(prismaService.storeSubAccount.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {

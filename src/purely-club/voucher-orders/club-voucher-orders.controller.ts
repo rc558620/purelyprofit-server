@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   Query,
@@ -94,6 +95,8 @@ export class ClubVoucherOrdersController {
   createVoucherOrder(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Body() dto: CreateClubVoucherOrderDto,
+    // 可选幂等键：带上则重复提交返回 409，不带则保持旧行为
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ClubVoucherOrderResponseDto> {
     return this.clubVoucherOrdersService.createVoucherOrder(
       currentContext,

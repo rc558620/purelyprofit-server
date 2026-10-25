@@ -14,6 +14,7 @@ import etag from '@fastify/etag';
 import multipart from '@fastify/multipart';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../app.module';
+import configuration from '../config/configuration';
 import { isClusterMode } from '../config/cluster.configuration';
 import { setupHttpObservability } from './http-observability';
 import { AllExceptionsFilter } from './all-exceptions.filter';
@@ -57,11 +58,15 @@ function resolveCorsOrigin(corsOrigin: string): true | string[] {
  * 命中的路由：
  *  - /club/payments/wechat/callback — purelyClub C 端订单回调
  *  - /marketing/sms/wechat/callback — B 端短信钱包充值回调（独立路由，不复用上面那条）
+ *  - /profit/payments/wechat/callback — 平台收款统一回调（会员 / 额度等）
+ *
+ * ⚠️ 新增任何微信回调路由都必须登记到这里，否则验签会因 rawBody 缺失而必然失败。
  */
 function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
   const WECHAT_CALLBACK_PATHS = [
     '/club/payments/wechat/callback',
     '/marketing/sms/wechat/callback',
+    '/profit/payments/wechat/callback',
   ];
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
@@ -171,7 +176,11 @@ function logBootstrapResult(options: {
 }
 
 export async function bootstrap(): Promise<void> {
-  const bootstrapConfigService = new ConfigService();
+  // 必须把 configuration() 的结果喂给 ConfigService：
+  // 裸 `new ConfigService()` 只能读到进程环境变量里同名的小写键（如 nodeEnv），
+  // 而运行环境注入的是大写的 NODE_ENV，导致这里恒为 development，
+  // 生产配置校验（validateProductionConfiguration）会被整体跳过。
+  const bootstrapConfigService = new ConfigService(configuration());
   const isProduction =
     (bootstrapConfigService.get<string>('nodeEnv') ?? 'development') ===
     'production';
@@ -299,6 +308,8 @@ export async function bootstrap(): Promise<void> {
       'Wechatpay-Signature-Type',
       // dev-only 短信通道开关接口的访问令牌头（仅非生产环境使用）
       'x-sms-dev-token',
+      // dev-only 支付模式开关接口的访问令牌头（仅非生产环境使用）
+      'x-payment-dev-token',
     ],
     credentials: allowCredentials,
   });
@@ -323,8 +334,14 @@ export async function bootstrap(): Promise<void> {
     const manualConfirmPaidEnabled =
       configService.get<boolean>('club.manualConfirmPaidEnabled') ??
       !isProduction;
+    // 支付模式调试开关只在非生产环境且已打开切换开关时暴露到文档；
+    // 生产环境必须隐藏，避免对外暴露「可以切换支付模式」的入口
+    const paymentModeDebugVisible =
+      !isProduction &&
+      (configService.get<boolean>('club.paymentModeSwitchEnabled') ?? false);
     filterSwaggerDocumentForEnvironment(document, {
       manualConfirmPaidEnabled,
+      paymentModeDebugVisible,
     });
     SwaggerModule.setup('api-docs', app, document);
   }

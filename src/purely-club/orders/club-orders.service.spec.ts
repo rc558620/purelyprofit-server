@@ -14,6 +14,7 @@ import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
+import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { ClubOrderPreviewService } from './club-order-preview.service';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
@@ -23,6 +24,8 @@ import { ClubOrderServiceQueryService } from './club-order-service-query.service
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
@@ -80,6 +83,13 @@ describe('ClubOrdersService', () => {
     }),
   };
 
+  /** 支付模式裁决桩：默认处于测试模式，允许跳过真实扣款 */
+  const clubPaymentModeService = {
+    isManualConfirmPaidAllowed: jest.fn(
+      (): Promise<boolean> => Promise.resolve(true),
+    ),
+  };
+
   const clubOrderPreviewService = {
     previewServiceOrder: jest.fn(),
   };
@@ -91,6 +101,13 @@ describe('ClubOrdersService', () => {
     markPaid: jest.fn(),
     toOrderStatusResponse: jest.fn(),
     toServiceOrderResponse: jest.fn(),
+  };
+
+  const clubOrderIdempotencyService = {
+    normalizeKey: jest.fn(),
+    findOrderNo: jest.fn(),
+    reserve: jest.fn(),
+    release: jest.fn(),
   };
 
   const cacheInvalidatorService = {
@@ -175,6 +192,12 @@ describe('ClubOrdersService', () => {
       };
       return configMap[key];
     });
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
+    // 默认不带幂等键；需要幂等的用例自行覆盖 normalizeKey
+    clubOrderIdempotencyService.normalizeKey.mockReturnValue(null);
+    clubOrderIdempotencyService.findOrderNo.mockResolvedValue(null);
+    clubOrderIdempotencyService.reserve.mockResolvedValue(null);
+    clubOrderIdempotencyService.release.mockResolvedValue(undefined);
     prismaService.$transaction.mockImplementation(
       async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
         callback(prismaService),
@@ -259,9 +282,28 @@ describe('ClubOrdersService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: ClubOrderPreviewService, useValue: clubOrderPreviewService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: ClubPaymentModeService,
+          useValue: clubPaymentModeService,
+        },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
+        {
+          // 默认「不带幂等键」：既有用例保持原行为
+          provide: ClubOrderIdempotencyService,
+          useValue: clubOrderIdempotencyService,
+        },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
+        {
+          // 显式传入优先，未传时回 null（等价于「查不到 openid」）
+          provide: ClubWechatOpenidService,
+          useValue: {
+            resolveOpenid: jest.fn(
+              (_userId: number, explicitOpenid?: string | null) =>
+                Promise.resolve(explicitOpenid ?? null),
+            ),
+          },
+        },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
         { provide: MembershipDowngradeService, useValue: downgradeService },
         {
@@ -931,6 +973,25 @@ describe('ClubOrdersService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('createServiceOrder 幂等键命中时复用原草稿，不重复建单', async () => {
+    const draft = createServiceDraft();
+    clubOrderIdempotencyService.normalizeKey.mockReturnValue('idem-key-0001');
+    clubOrderIdempotencyService.findOrderNo.mockResolvedValue(draft.orderNo);
+    clubOrderDraftsService.getDraft.mockResolvedValue(draft);
+
+    await expect(
+      service.createServiceOrder(
+        currentContext,
+        { storeId: 11, productId: 18 },
+        'idem-key-0001',
+      ),
+    ).resolves.toEqual(expect.objectContaining({ id: draft.orderNo }));
+
+    // 双击的第二次请求不应再落草稿、也不应再占位扣额度
+    expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
+    expect(clubOrderIdempotencyService.reserve).not.toHaveBeenCalled();
+  });
+
   it('getOrderStatus 读取当前用户的服务订单状态', async () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(createServiceDraft());
 
@@ -1142,13 +1203,9 @@ describe('ClubOrdersService', () => {
     });
   });
 
-  it('confirmOrderPaid 在关闭开发态兜底时拒绝调用', async () => {
-    configService.get.mockImplementation((key: string) => {
-      const configMap: Record<string, boolean> = {
-        'club.manualConfirmPaidEnabled': false,
-      };
-      return configMap[key];
-    });
+  it('confirmOrderPaid 在真实支付模式下拒绝调用', async () => {
+    // 切换到真实支付模式：跳过微信扣款的兜底入口必须整体失效（生产环境等同）
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
 
     await expect(
       service.confirmOrderPaid(currentContext, 'SV123'),

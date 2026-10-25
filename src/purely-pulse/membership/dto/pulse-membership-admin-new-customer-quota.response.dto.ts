@@ -118,3 +118,114 @@ export class PulseAdminNewCustomerQuotaStoresResponseDto {
   @Type(() => PulseAdminNewCustomerQuotaStoresStatsDto)
   stats: PulseAdminNewCustomerQuotaStoresStatsDto;
 }
+
+/** 额度变动记录条目（一条额度流水） */
+export class PulseAdminNewCustomerQuotaLogDto {
+  @ApiProperty({ example: '1024', description: '流水 ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ example: '12', description: '门店 ID' })
+  @IsString()
+  storeId: string;
+
+  @ApiProperty({
+    enum: ['recharge', 'grant', 'consume', 'clear', 'admin_adjust'],
+    description:
+      '变动类型：recharge=商家充值，grant=会员赠送，consume=新客消耗，' +
+      'clear=额度清零，admin_adjust=平台运营调整',
+  })
+  @IsString()
+  type: string;
+
+  @ApiProperty({ example: 100, description: '变动数量：正数增加，负数减少' })
+  @IsInt()
+  changeAmount: number;
+
+  @ApiProperty({ example: 320, description: '变动后的余额（位新客）' })
+  @IsInt()
+  balanceAfter: number;
+
+  @ApiPropertyOptional({
+    example: 1000,
+    description: '充值金额（分），仅 recharge 流水有值',
+  })
+  @IsOptional()
+  @IsInt()
+  amountFen?: number | null;
+
+  @ApiProperty({ example: '平台运营发放活动额度', description: '流水说明' })
+  @IsString()
+  description: string;
+
+  @ApiProperty({
+    example: '2026-09-29T08:56:00.000Z',
+    description: '变动时间（ISO 字符串）',
+  })
+  @IsString()
+  createdAt: string;
+}
+
+/**
+ * 额度变动记录统计概览（后端权威计算，前端仅展示）。
+ *
+ * 口径与列表同源：**吃当前 Tab 过滤、不吃分页**。
+ * `totalRecords` 因此恒等于响应体的 `total`（列表头「共 N 条」的事实源），
+ * 避免「总记录 24 / 共 8 条」这类自相矛盾；切回「全部」Tab 即为完整分布。
+ */
+export class PulseAdminNewCustomerQuotaLogsStatsDto {
+  @ApiProperty({ example: 24, description: '变动记录总条数' })
+  @IsInt()
+  totalRecords: number;
+
+  @ApiProperty({ example: 6, description: '管理员调整次数' })
+  @IsInt()
+  adminAdjustCount: number;
+
+  @ApiProperty({ example: 8, description: '充值次数（商家自付充值）' })
+  @IsInt()
+  rechargeCount: number;
+
+  @ApiProperty({
+    example: 10,
+    description: '消耗次数（新客消耗 + 额度清零）',
+  })
+  @IsInt()
+  consumeCount: number;
+}
+
+/** 额度变动记录分页结果（page / pageSize 真分页） */
+export class PulseAdminNewCustomerQuotaLogsResponseDto {
+  @ApiProperty({
+    type: [PulseAdminNewCustomerQuotaLogDto],
+    description: '当前页变动记录',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseAdminNewCustomerQuotaLogDto)
+  items: PulseAdminNewCustomerQuotaLogDto[];
+
+  @ApiProperty({ example: 24, description: '当前 Tab 下的记录总数' })
+  @IsInt()
+  total: number;
+
+  @ApiProperty({ example: 1, description: '当前页码（从 1 开始）' })
+  @IsInt()
+  page: number;
+
+  @ApiProperty({ example: 20, description: '每页条数' })
+  @IsInt()
+  pageSize: number;
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  @IsBoolean()
+  hasMore: boolean;
+
+  @ApiProperty({
+    type: PulseAdminNewCustomerQuotaLogsStatsDto,
+    description: '统计概览（按门店全量流水计算，与 Tab 与分页无关）',
+  })
+  @ValidateNested()
+  @Type(() => PulseAdminNewCustomerQuotaLogsStatsDto)
+  stats: PulseAdminNewCustomerQuotaLogsStatsDto;
+}

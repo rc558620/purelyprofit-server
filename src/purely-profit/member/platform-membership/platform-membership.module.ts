@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
+import { ProfitPaymentsModule } from '../../payments/profit-payments.module';
 import { NewCustomerQuotaModule } from '../new-customer-quota/new-customer-quota.module';
 import { PlatformMembershipAccessModule } from './platform-membership-access.module';
+import { PlatformMembershipActivationService } from './platform-membership-activation.service';
+import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
 import { PartnerReviewController } from './partner-review.controller';
 import { PlatformMembershipController } from './platform-membership.controller';
 import { PromotionDetailCompatController } from './promotion-detail-compat.controller';
@@ -21,7 +24,13 @@ import { StoreSubAccountService } from './store-sub-account.service';
 import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
 
 @Module({
-  imports: [AuthModule, PlatformMembershipAccessModule, NewCustomerQuotaModule],
+  // ProfitPaymentsModule 提供支付单与平台 Native 下单能力（不反向依赖业务模块）
+  imports: [
+    AuthModule,
+    PlatformMembershipAccessModule,
+    NewCustomerQuotaModule,
+    ProfitPaymentsModule,
+  ],
   controllers: [
     PlatformMembershipController,
     PromotionDetailCompatController,
@@ -33,6 +42,8 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
     PlatformMembershipLedgerService,
     PlatformMembershipPartnerService,
     PlatformMembershipOrderService,
+    PlatformMembershipActivationService,
+    PlatformMembershipPaymentService,
     PlatformMembershipPromoService,
     PlatformMembershipPromoBeanReconciliationService,
     MembershipRenewalService,
@@ -45,6 +56,8 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
   ],
   exports: [
     PlatformMembershipService,
+    // 支付回调分发需要按支付单号反查并生效会员订单
+    PlatformMembershipPaymentService,
     MembershipRenewalService,
     StoreMembershipLockedPriceService,
     // 导出整个轻量模块，使其中的 MembershipDowngradeService 对

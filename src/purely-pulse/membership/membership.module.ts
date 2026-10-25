@@ -14,6 +14,7 @@ import { PulseMembershipAdminMutationStateService } from './membership-admin-mut
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
+import { PulseMembershipAdminQuotaLogsService } from './membership-admin-quota-logs.service';
 import { PulseMembershipAdminStatusMutationService } from './membership-admin-status-mutation.service';
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
@@ -68,6 +69,7 @@ import { PulseMembershipService } from './membership.service';
     PulseMembershipAdminMembershipMutationService,
     PulseMembershipAdminMembershipMutationOrderService,
     PulseMembershipAdminNewCustomerQuotaService,
+    PulseMembershipAdminQuotaLogsService,
     PulseMembershipAdminPricingPreviewService,
     PulseMembershipAdminRenewalPriceService,
     PulseMembershipAdminPointsMutationService,

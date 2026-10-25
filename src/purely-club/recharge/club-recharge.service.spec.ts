@@ -11,7 +11,9 @@ import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
 import { ClubRechargePackagesService } from './club-recharge-packages.service';
@@ -49,8 +51,20 @@ describe('ClubRechargeService', () => {
     }),
   };
 
+  /** 支付模式裁决桩：默认处于测试模式，允许跳过真实扣款 */
+  const clubPaymentModeService = {
+    isManualConfirmPaidAllowed: jest.fn(
+      (): Promise<boolean> => Promise.resolve(true),
+    ),
+  };
+
   const clubWechatJsapiService = {
     createJsapiPaymentParams: jest.fn(),
+  };
+
+  const clubWechatOpenidService = {
+    // 默认按「DB 里查不到 openid」处理，个别用例自行覆盖
+    resolveOpenid: jest.fn(),
   };
 
   const clubOrderDraftsService = {
@@ -132,6 +146,12 @@ describe('ClubRechargeService', () => {
       };
       return configMap[key];
     });
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
+    // 默认行为：显式传入优先；未传则视为查不到 openid
+    clubWechatOpenidService.resolveOpenid.mockImplementation(
+      (_userId: number, explicitOpenid?: string | null) =>
+        Promise.resolve(explicitOpenid ?? null),
+    );
     prismaService.$transaction.mockImplementation(
       async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
         callback(prismaService),
@@ -174,9 +194,17 @@ describe('ClubRechargeService', () => {
         ClubRechargeService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: ClubPaymentModeService,
+          useValue: clubPaymentModeService,
+        },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
+        {
+          provide: ClubWechatOpenidService,
+          useValue: clubWechatOpenidService,
+        },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
       ],
     }).compile();
@@ -545,10 +573,10 @@ describe('ClubRechargeService', () => {
     expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
   });
 
-  // Bug 1 修复：前端不下发 openid，服务端从微信用户的占位手机号还原。
+  // Bug 1 修复：前端不下发 openid，服务端按 userId 回查 users.wechat_openid。
   // 此前「无 openid + 关闭手动确认」直接抛 BadRequest，而生产环境必须关闭该开关，
   // 导致生产每次点支付都失败。
-  it('createOrder 前端未传 openid 时从微信用户身份还原并正常 JSAPI 下单', async () => {
+  it('createOrder 前端未传 openid 时按用户身份回查并正常 JSAPI 下单', async () => {
     // 生产环境口径：手动确认已关闭
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, boolean> = {
@@ -565,6 +593,8 @@ describe('ClubRechargeService', () => {
       }),
     ]);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 66 });
+    // 服务端按 userId 回查到的 openid
+    clubWechatOpenidService.resolveOpenid.mockResolvedValue('oOPENID123');
     clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue({
       timeStamp: '1773556800',
       nonceStr: 'wx-nonce',
@@ -816,13 +846,9 @@ describe('ClubRechargeService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('confirmOrderPaid 在关闭开发态兜底时拒绝调用', async () => {
-    configService.get.mockImplementation((key: string) => {
-      const configMap: Record<string, boolean> = {
-        'club.manualConfirmPaidEnabled': false,
-      };
-      return configMap[key];
-    });
+  it('confirmOrderPaid 在真实支付模式下拒绝调用', async () => {
+    // 切换到真实支付模式：跳过微信扣款的兜底入口必须整体失效（生产环境等同）
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
 
     await expect(
       service.confirmOrderPaid(currentContext, 'RC123'),

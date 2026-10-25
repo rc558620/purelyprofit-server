@@ -412,4 +412,13 @@ export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
   })
   @IsOptional()
   paymentParams: ClubWechatPaymentParamsDto | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否为幂等复用：true 表示命中已创建的同键订单，本次没有新建订单、也没有新的支付参数，前端不应再次调起收银台',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'reused 必须是布尔值' })
+  reused?: boolean;
 }

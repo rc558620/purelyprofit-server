@@ -42,7 +42,7 @@ export class RetentionCleanupService {
 
     const result = await this.prisma.$executeRaw`
       DELETE FROM idempotency_records
-      WHERE expires_at < NOW() - INTERVAL '${RetentionCleanupService.IDEMPOTENCY_RETENTION_DAYS} days'
+      WHERE expires_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '${RetentionCleanupService.IDEMPOTENCY_RETENTION_DAYS} days'
     `;
 
     const durationMs = Date.now() - startedAt;
@@ -67,7 +67,7 @@ export class RetentionCleanupService {
     // 查出需删除的最大 id（单次聚合，不拉数据）
     const maxIdRows: Array<{ max_id: bigint }> = await this.prisma.$queryRaw`
       SELECT MAX(id) as max_id FROM audit_logs
-      WHERE created_at < NOW() - INTERVAL '${RetentionCleanupService.AUDIT_LOG_RETENTION_DAYS} days'
+      WHERE created_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '${RetentionCleanupService.AUDIT_LOG_RETENTION_DAYS} days'
     `;
     const maxId = maxIdRows[0]?.max_id;
     if (!maxId) {
@@ -89,7 +89,7 @@ export class RetentionCleanupService {
         DELETE FROM audit_logs
         WHERE id > ${cursorId} AND id <= ${batchEndId}
           AND id <= ${maxId}
-          AND created_at < NOW() - INTERVAL '${RetentionCleanupService.AUDIT_LOG_RETENTION_DAYS} days'
+          AND created_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '${RetentionCleanupService.AUDIT_LOG_RETENTION_DAYS} days'
       `;
       totalDeleted += Number(result);
 

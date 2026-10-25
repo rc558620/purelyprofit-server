@@ -68,6 +68,24 @@ export function isRenewalPlanPurchasable(params: {
   return !SUB_ACCOUNT_BLOCKED_PLAN_IDS.includes(planId);
 }
 
+/**
+ * 断言指定档位可购买，否则抛子账号屏蔽文案。
+ *
+ * 抽成共享纯函数的原因：下单（含真实支付下单）与预览两条路径都要用同一个判据，
+ * 而支付编排已拆到独立 service，两边各自实现一份必然漂移。
+ */
+export function assertRenewalPlanPurchasable(params: {
+  planId: PlatformMembershipPlanId;
+  subAccountFeatureOwned: boolean;
+  throwWith: (message: string) => never;
+}): void {
+  const { planId, subAccountFeatureOwned, throwWith } = params;
+
+  if (!isRenewalPlanPurchasable({ planId, subAccountFeatureOwned })) {
+    throwWith(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+  }
+}
+
 /** 永久卡不展示划线原价与月均价（后端没有配置 durationMonths / originalPrice） */
 export function shouldHideRenewalPlanPriceExtras(
   planId: PlatformMembershipPlanId,

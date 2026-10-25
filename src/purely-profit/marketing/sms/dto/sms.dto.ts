@@ -195,9 +195,23 @@ export class SmsRechargeOrderResponseDto {
 
   @ApiProperty({
     example: 'weixin://wxpay/bizpayurl?pr=abcdefg',
-    description: '微信 Native 支付二维码链接',
+    description:
+      '微信 Native 支付二维码链接（weixin:// 协议串，不可直接当图片展示）',
   })
   codeUrl!: string;
+
+  /**
+   * 由 codeUrl 渲染出的 PNG data URL，前端可直接 <img src> 展示。
+   *
+   * 后端出图而不是前端渲染：weixin:// 无法被 <img> 加载（会是一张空白二维码），
+   * 而改由前端请求第三方在线生成服务等于把支付链接明文外泄。
+   * 本地直充（跳过微信）时为空串。
+   */
+  @ApiPropertyOptional({
+    example: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...',
+    description: '支付二维码图片（PNG data URL；本地直充时为空串）',
+  })
+  qrCodeImageUrl?: string;
 
   @ApiProperty({ example: 1000, description: '充值金额（分）' })
   amountFen!: number;

@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
-import { parseClubWechatMemberOpenid } from '../../purely-profit/auth/auth.utils';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import { buildOrderNo } from '../orders/club-order-drafts.utils';
 import type { ClubRechargeOrderMetadata } from '../orders/club-order-drafts.types';
@@ -24,6 +23,7 @@ import {
 } from './club-recharge.constants';
 import { Money } from './club-recharge.utils';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 
 @Injectable()
 export class ClubRechargeCreationService {
@@ -32,6 +32,7 @@ export class ClubRechargeCreationService {
     private readonly clubRechargePackagesService: ClubRechargePackagesService,
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
+    private readonly clubWechatOpenidService: ClubWechatOpenidService,
   ) {}
 
   async createOrder(
@@ -61,15 +62,13 @@ export class ClubRechargeCreationService {
     const now = Date.now();
     const orderNo = buildOrderNo('recharge', now);
 
-    // Bug 1 修复：前端不下发 openid，微信用户的 openid 由服务端从占位身份还原。
-    // 两者都拿不到时不再抛错，而是与 service / 扫码点餐 / 自助点餐同口径：
-    // 不调起真实微信支付，草稿保留开发态 mock 支付参数，由前端开发态兜底
-    // （confirm-paid）收口。此前这里对「无 openid + 未开手动确认」直接抛
-    // BadRequest，而生产环境 club.manualConfirmPaidEnabled 强制为 false，
-    // 导致生产每次点「微信支付」都失败，充值链路整体不可用。
-    const openid =
-      dto.openid?.trim() ||
-      parseClubWechatMemberOpenid(currentContext.user.phone);
+    // 前端目前不下发 openid：显式传入时优先使用，未传则按 userId 回查
+    // users.wechat_openid。不再依赖占位手机号还原——用户绑定真实手机号后
+    // 占位值会被抹掉，那条路径会失效。
+    const openid = await this.clubWechatOpenidService.resolveOpenid(
+      currentContext.user.id,
+      dto.openid,
+    );
 
     // 先创建草稿（含 mock 支付参数），再调用微信下单
     // 这样微信下单失败时可以删除草稿回滚，避免产生无法支付的孤立草稿

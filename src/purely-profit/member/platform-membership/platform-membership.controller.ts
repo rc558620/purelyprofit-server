@@ -43,8 +43,11 @@ import {
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
   PreviewPlatformMembershipOrderResponseDto,
-  PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
+import {
+  PlatformPaymentStatusDto,
+  PurchaseMembershipResultDto,
+} from './dto/platform-membership-orders.response.dto';
 import { PlatformMembershipService } from './platform-membership.service';
 
 @ApiTags('PlatformMembership')
@@ -154,16 +157,61 @@ export class PlatformMembershipController {
   }
 
   @Post('orders')
-  @ApiOperation({ summary: '开通或续费会员并创建充值订单' })
-  @ApiCreatedResponse({
-    description: '创建订单成功，并返回最新会员信息与充值汇总',
-    type: PurchasePlatformMembershipOrderResponseDto,
+  @ApiOperation({
+    summary: '开通或续费会员',
+    description:
+      '测试模式直接生效并返回最新会员信息；真实模式返回微信支付二维码，需按 orderNo 轮询支付状态。',
   })
-  purchaseOrder(
+  @ApiCreatedResponse({
+    description: '购买结果：按 mode 分支消费',
+    type: PurchaseMembershipResultDto,
+  })
+  async purchaseOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PurchasePlatformMembershipOrderDto,
-  ): Promise<PurchasePlatformMembershipOrderResponseDto> {
-    return this.platformMembershipService.purchaseOrder(user, dto);
+  ): Promise<PurchaseMembershipResultDto> {
+    const result = await this.platformMembershipService.purchaseOrder(
+      user,
+      dto,
+    );
+
+    // 真实模式：只回支付信息，权益等回调生效
+    // qrCodeImageUrl 必须透传：weixin:// 协议串无法直接作为 <img> 源，前端只认这个字段
+    if (result.mode === 'live') {
+      return {
+        mode: 'live',
+        orderNo: result.orderNo,
+        codeUrl: result.codeUrl,
+        qrCodeImageUrl: result.qrCodeImageUrl,
+        amountFen: result.amountFen,
+        expiresAt: result.expiresAt.toISOString(),
+      };
+    }
+
+    return {
+      mode: 'test',
+      order: result.order,
+      profile: result.profile,
+      overview: result.overview,
+    };
+  }
+
+  @Get('payment-orders/:orderNo')
+  @ApiOperation({
+    summary: '查询会员支付单状态',
+    description:
+      '真实模式扫码支付后前端轮询该接口；超时未付会被惰性置为 closed。',
+  })
+  @ApiOkResponse({ type: PlatformPaymentStatusDto })
+  async getPaymentStatus(
+    @Param('orderNo') orderNo: string,
+  ): Promise<PlatformPaymentStatusDto> {
+    const status =
+      await this.platformMembershipService.getMembershipPaymentStatus(orderNo);
+    return {
+      status: status.status,
+      paidAt: status.paidAt?.toISOString() ?? null,
+    };
   }
 
   @Get('points/logs')

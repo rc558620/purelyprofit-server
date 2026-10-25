@@ -4,6 +4,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubRechargeController } from './club-recharge.controller';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
@@ -21,6 +22,8 @@ import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
     ClubStoresModule,
     ClubOrdersModule,
     ClubWechatPayModule,
+    // 手动确认支付的闸门由支付模式服务裁决（配置开关 && 运行期模式）
+    ClubPaymentModeModule,
   ],
   controllers: [ClubRechargeController],
   providers: [

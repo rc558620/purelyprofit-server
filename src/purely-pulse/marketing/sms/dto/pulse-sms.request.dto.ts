@@ -114,6 +114,63 @@ export class GetPulseAdminSmsBroadcastsQueryDto {
 export const PULSE_ADMIN_SMS_REFUNDABLE_STATUS_VALUES =
   SMS_BROADCAST_REFUNDABLE_STATUS_VALUES;
 
+/** 短信钱包流水 Tab（与前端 SmsBroadcastLogTab 一一对应） */
+export const PULSE_ADMIN_SMS_WALLET_LOG_TAB_VALUES = [
+  'all',
+  'admin',
+  'recharge',
+  'consume',
+  'refund',
+] as const;
+
+/** 短信钱包流水 Tab 类型 */
+export type PulseAdminSmsWalletLogTab =
+  (typeof PULSE_ADMIN_SMS_WALLET_LOG_TAB_VALUES)[number];
+
+/** 短信钱包流水默认单页条数（与前端 SMS_BROADCAST_LOG_PAGE_SIZE 同口径） */
+export const PULSE_ADMIN_SMS_WALLET_LOGS_DEFAULT_PAGE_SIZE = 20;
+
+/** 短信钱包流水最大单页条数 */
+export const PULSE_ADMIN_SMS_WALLET_LOGS_MAX_PAGE_SIZE = 100;
+
+/** 单门店短信钱包流水查询：Tab 筛选 / 分页 */
+export class GetPulseAdminSmsWalletLogsQueryDto {
+  @ApiPropertyOptional({
+    enum: PULSE_ADMIN_SMS_WALLET_LOG_TAB_VALUES,
+    description:
+      '流水 Tab：all=全部，admin=平台调整（赠送 + 回收），recharge=充值，' +
+      'consume=群发扣费，refund=失败退费；不传按 all 处理',
+  })
+  @IsOptional()
+  @IsIn(PULSE_ADMIN_SMS_WALLET_LOG_TAB_VALUES, {
+    message: 'tab 只支持 all / admin / recharge / consume / refund',
+  })
+  tab?: PulseAdminSmsWalletLogTab;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: '页码，从 1 开始，默认 1',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '页码必须是整数' })
+  @Min(1, { message: '页码不能小于 1' })
+  page?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: `每页条数，默认 ${PULSE_ADMIN_SMS_WALLET_LOGS_DEFAULT_PAGE_SIZE}，最大 ${PULSE_ADMIN_SMS_WALLET_LOGS_MAX_PAGE_SIZE}`,
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '每页条数必须是整数' })
+  @Min(1, { message: '每页条数不能小于 1' })
+  @Max(PULSE_ADMIN_SMS_WALLET_LOGS_MAX_PAGE_SIZE, {
+    message: `每页条数不能超过 ${PULSE_ADMIN_SMS_WALLET_LOGS_MAX_PAGE_SIZE}`,
+  })
+  pageSize?: number;
+}
+
 /** 门店短信账户列表查询：搜索 / 余额健康度筛选 / 分页 */
 export class GetPulseAdminSmsAccountsQueryDto {
   @ApiPropertyOptional({

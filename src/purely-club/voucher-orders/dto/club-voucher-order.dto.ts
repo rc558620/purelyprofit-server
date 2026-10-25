@@ -373,6 +373,13 @@ export class ClubVoucherOrderResponseDto {
     description: '微信支付参数；openid 未传时为 undefined（开发态）',
   })
   paymentParams?: ClubVoucherWechatPaymentParamsDto;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否为幂等复用：true 表示本次请求命中了已创建的订单，未新建订单，此时不返回支付参数',
+  })
+  reused?: boolean;
 }
 
 /** 团购券订单列表响应（分页） */

@@ -1,4 +1,5 @@
 import { InternalServerErrorException } from '@nestjs/common';
+import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
 
 const PLATFORM_MCH_ID = '1900000001';
@@ -15,10 +16,15 @@ function makeConfig(overrides: Record<string, string> = {}) {
   return { get: jest.fn((key: string) => values[key]) };
 }
 
+// 下单实现已上浮到 PlatformWechatNativeService，这里用真实实现做委托方，
+// 保证「短信侧薄适配 + 平台侧真实下单」这条链路被端到端覆盖而不是只测桩
 const makeService = (
   overrides: Record<string, string> = {},
 ): SmsWechatNativeService =>
-  new SmsWechatNativeService(makeConfig(overrides) as never);
+  new SmsWechatNativeService(
+    makeConfig(overrides) as never,
+    new PlatformWechatNativeService(makeConfig(overrides) as never),
+  );
 
 /** 捕获 fetch 调用 */
 function mockFetch(responseBody: unknown, ok = true) {

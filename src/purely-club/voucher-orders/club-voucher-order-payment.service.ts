@@ -1,11 +1,12 @@
 // 团购券订单支付服务：创建订单草稿（JSAPI 下单 / 余额直接结算）→ 支付成功确认（生成券码 + 扣库存 + 起算有效期）
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import {
   buildClubMemberDisplayName,
@@ -14,11 +15,14 @@ import {
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import { deductPointsForSettlement } from '../orders/club-order-settlement-points.utils';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { settleVoucherBalancePayment } from './club-voucher-order-balance-settlement.helper';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import { buildVoucherOrderNo } from './club-voucher-order-code.utils';
@@ -42,26 +46,47 @@ import type {
   CreateClubVoucherOrderDto,
 } from './dto/club-voucher-order.dto';
 
+/** 团购券订单的幂等作用域（与服务购买订单区分开） */
+const VOUCHER_ORDER_IDEMPOTENCY_SCOPE = 'club:voucher-order:create';
+
 @Injectable()
 export class ClubVoucherOrderPaymentService {
   private readonly logger = new Logger(ClubVoucherOrderPaymentService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
     private readonly clubVoucherOrderContextService: ClubVoucherOrderContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly quotaService: ClubNewCustomerQuotaService,
+    private readonly clubWechatOpenidService: ClubWechatOpenidService,
+    private readonly idempotencyService: ClubOrderIdempotencyService,
   ) {}
 
   /** 创建团购券订单草稿：校验商品/算价 → JSAPI 下单 → 落库 unpaid */
   async createVoucherOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubVoucherOrderDto,
+    idempotencyKey?: string,
   ): Promise<ClubVoucherOrderResponseDto> {
+    const idempotency = this.idempotencyService.normalizeKey(idempotencyKey);
+
+    // 重复提交（双击 / 网络重试）一律复用已建订单：团购券订单会扣库存与新客额度，
+    // 同一笔意图绝不能再建一单。数据库 (user_id, idempotency_key) 唯一键是最终兜底，
+    // 这里先查一次，绝大多数重复请求连算价与微信下单都不会走到。
+    if (idempotency) {
+      const existing = await this.findReusableOrder(
+        currentContext.user.id,
+        idempotency,
+      );
+      if (existing) {
+        return existing;
+      }
+    }
+
     const context = await this.clubVoucherOrderContextService.resolveContext(
       currentContext,
       dto,
@@ -108,78 +133,181 @@ export class ClubVoucherOrderPaymentService {
       );
     }
 
-    // 微信 JSAPI 真实下单；openid 未传时开发态直接返回草稿（前端可走 confirmPaid 兜底）
-    // 余额支付无需微信下单参数，直接落 unpaid 后在同一请求内完成结算
-    const paymentParams =
-      paymentMethod === 'wechat' && dto.openid
-        ? await this.clubWechatJsapiService.createJsapiPaymentParams({
-            storeId: context.store.id,
-            orderNo,
-            description: `购买${context.product.name}`,
-            amountFen: pricing.paidAmountFen,
-            openid: dto.openid,
-          })
-        : undefined;
+    // 微信 JSAPI 真实下单：openid 显式传入优先，未传则按 userId 回查。
+    // 解析不到时不调起真实支付，保持既有降级口径。
+    // 余额支付无需微信下单参数，直接落 unpaid 后在同一请求内完成结算。
+    const wechatOpenid =
+      paymentMethod === 'wechat'
+        ? await this.clubWechatOpenidService.resolveOpenid(
+            currentContext.user.id,
+            dto.openid,
+          )
+        : null;
+    const paymentParams = wechatOpenid
+      ? await this.clubWechatJsapiService.createJsapiPaymentParams({
+          storeId: context.store.id,
+          orderNo,
+          description: `购买${context.product.name}`,
+          amountFen: pricing.paidAmountFen,
+          openid: wechatOpenid,
+        })
+      : undefined;
 
-    // 落库与额度扣减必须在同一事务：扣不到额度（并发下被别人抢走最后一个）就回滚，
-    // 保证「服务的新客数」严格等于「扣掉的额度」。老客在扣减处直接放行。
-    // 余额结算（completePayment）刻意留在事务外——它自带事务且要发实时通知。
-    const created = await this.prisma.$transaction(
-      async (tx) => {
-        const order = await tx.clubVoucherOrder.create({
-          data: buildVoucherOrderCreateInput({
-            orderNo,
-            storeId: context.store.id,
-            userId: currentContext.user.id,
-            customerId: context.customer.id,
-            product: context.product,
-            guestName: guestSnapshot.guestName,
-            guestPhone: guestSnapshot.guestPhone,
-            quantity,
-            personCount,
-            remark: dto.remark,
-            pricing,
-            breakdownItems,
-            paymentMethod,
-          }),
-          select: { id: true },
-        });
-
-        await this.quotaService.consumeWithinOrderTransaction(
-          tx,
-          context.store.id,
+    // 并发双击：同一幂等键只允许一笔真正落库
+    if (idempotency) {
+      const occupiedOrderNo = await this.idempotencyService.reserve({
+        scope: VOUCHER_ORDER_IDEMPOTENCY_SCOPE,
+        userId: currentContext.user.id,
+        key: idempotency,
+        orderNo,
+      });
+      if (occupiedOrderNo && occupiedOrderNo !== orderNo) {
+        // 并发重复提交：对方已占位，优先返回对方那笔（已提交则能查到）
+        const occupied = await this.findReusableOrder(
           currentContext.user.id,
-          currentContext.user.phone || null,
+          idempotency,
         );
+        if (occupied) {
+          return occupied;
+        }
+        throw new ConflictException('订单正在处理，请稍后在订单列表查看');
+      }
+    }
 
-        return order;
-      },
-      { timeout: TX_TIMEOUT_MEDIUM },
-    );
+    try {
+      // 落库与额度扣减必须在同一事务：扣不到额度（并发下被别人抢走最后一个）就回滚，
+      // 保证「服务的新客数」严格等于「扣掉的额度」。老客在扣减处直接放行。
+      // 余额结算（completePayment）刻意留在事务外——它自带事务且要发实时通知。
+      const created = await this.prisma.$transaction(
+        async (tx) => {
+          const order = await tx.clubVoucherOrder.create({
+            data: {
+              ...buildVoucherOrderCreateInput({
+                orderNo,
+                storeId: context.store.id,
+                userId: currentContext.user.id,
+                customerId: context.customer.id,
+                product: context.product,
+                guestName: guestSnapshot.guestName,
+                guestPhone: guestSnapshot.guestPhone,
+                quantity,
+                personCount,
+                remark: dto.remark,
+                pricing,
+                breakdownItems,
+                paymentMethod,
+              }),
+              // 幂等键随单落库，(user_id, idempotency_key) 唯一键是并发兜底
+              idempotencyKey: idempotency,
+            },
+            select: { id: true },
+          });
 
-    // 余额支付：同一请求内完成落账（扣余额 + 生成券码 + 扣库存 + 起算有效期）
-    if (paymentMethod === 'balance') {
-      const view = await this.completePayment(
-        created.id,
-        pricing.paidAmountFen,
-        undefined,
+          await this.quotaService.consumeWithinOrderTransaction(
+            tx,
+            context.store.id,
+            currentContext.user.id,
+            currentContext.user.phone || null,
+          );
+
+          return order;
+        },
+        { timeout: TX_TIMEOUT_MEDIUM },
       );
+
+      // 余额支付：同一请求内完成落账（扣余额 + 生成券码 + 扣库存 + 起算有效期）
+      if (paymentMethod === 'balance') {
+        const view = await this.completePayment(
+          created.id,
+          pricing.paidAmountFen,
+          undefined,
+        );
+        return {
+          id: view.id,
+          orderNo: view.orderNo,
+          voucherCode: view.voucherCode ?? undefined,
+          status: view.status,
+          amountFen: view.amountFen,
+        };
+      }
+
       return {
-        id: view.id,
-        orderNo: view.orderNo,
-        voucherCode: view.voucherCode ?? undefined,
-        status: view.status,
-        amountFen: view.amountFen,
+        id: orderNo,
+        orderNo,
+        status: 'unpaid',
+        amountFen: pricing.paidAmountFen,
+        paymentParams,
       };
+    } catch (error) {
+      // 唯一键兜底命中：说明并发的另一笔请求已经提交成功，直接返回它，
+      // 不能把「重复提交」报成 500，也不能让用户看到两笔订单
+      if (idempotency && this.isUniqueConstraintError(error)) {
+        const duplicated = await this.findReusableOrder(
+          currentContext.user.id,
+          idempotency,
+        );
+        if (duplicated) {
+          return duplicated;
+        }
+      }
+
+      // 建单失败必须释放幂等占位，否则用户 15 分钟内用同一个键重试只会被 409 拦住
+      if (idempotency) {
+        try {
+          await this.idempotencyService.release({
+            scope: VOUCHER_ORDER_IDEMPOTENCY_SCOPE,
+            userId: currentContext.user.id,
+            key: idempotency,
+          });
+        } catch {
+          // 释放失败只会让对方多等一个 TTL，不影响已抛出的业务错误
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 按幂等键找已创建的订单并组装复用响应。
+   *
+   * 复用响应刻意不带支付参数：微信同一 out_trade_no 不能重复下单，
+   * 前端拿到 reused=true 时应当引导用户去订单列表继续支付或查看，
+   * 而不是再次调起收银台。
+   */
+  private async findReusableOrder(
+    userId: number,
+    idempotencyKey: string,
+  ): Promise<ClubVoucherOrderResponseDto | null> {
+    const order = await this.prisma.clubVoucherOrder.findFirst({
+      where: { userId, idempotencyKey },
+      select: {
+        orderNo: true,
+        status: true,
+        paidAmountFen: true,
+        voucherCode: true,
+      },
+    });
+
+    if (!order) {
+      return null;
     }
 
     return {
-      id: orderNo,
-      orderNo,
-      status: 'unpaid',
-      amountFen: pricing.paidAmountFen,
-      paymentParams,
+      id: order.orderNo,
+      orderNo: order.orderNo,
+      voucherCode: order.voucherCode ?? undefined,
+      status: order.status,
+      amountFen: order.paidAmountFen,
+      reused: true,
     };
+  }
+
+  /** 是否命中唯一约束（P2002）：并发重复提交的唯一兜底信号 */
+  private isUniqueConstraintError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
   }
 
   /**
@@ -205,13 +333,14 @@ export class ClubVoucherOrderPaymentService {
     currentContext: ClubCurrentContext,
     orderNo: string,
   ): Promise<ClubVoucherOrderDraftView> {
-    // 开发态兜底开关（与 club-payment-confirmation.orchestrator 同一口径）：
-    // 手动 confirm-paid 只能用于本地/联调。生产环境该开关必须为 false
-    // （bootstrap 生产配置校验已强制），否则任意持订单号的人都能把未支付订单
-    // 标记成已支付并真实落账——直接拿到券码并扣掉库存。
-    const manualConfirmPaidEnabled =
-      this.configService.get<boolean>('club.manualConfirmPaidEnabled') ?? false;
-    if (!manualConfirmPaidEnabled) {
+    // 资金安全闸门（统一由 ClubPaymentModeService 裁决，口径与
+    // club-payment-confirmation.orchestrator 完全一致）：
+    // 手动 confirm-paid 只能用于本地/联调的测试模式。生产环境强制不可用，
+    // 否则任意持订单号的人都能把未支付订单标记成已支付并真实落账——
+    // 直接拿到券码并扣掉库存。
+    const manualConfirmPaidAllowed =
+      await this.clubPaymentModeService.isManualConfirmPaidAllowed();
+    if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
         '当前环境未开启手动确认支付，请通过支付回调驱动落账',
       );

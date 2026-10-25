@@ -33,6 +33,29 @@ export const PULSE_ADMIN_QUOTA_STORES_DEFAULT_PAGE_SIZE = 20;
 /** 额度门店列表最大单页条数 */
 export const PULSE_ADMIN_QUOTA_STORES_MAX_PAGE_SIZE = 100;
 
+/**
+ * 额度变动记录 Tab。
+ *
+ * 与流水 `type` 不是一对一：`consume` Tab 同时覆盖 `consume` 与 `clear`
+ * （清零同样让余额减少），`grant`（会员赠送）不单独占 Tab，只在 `all` 中出现。
+ */
+export const PULSE_ADMIN_QUOTA_LOG_TAB_VALUES = [
+  'all',
+  'admin',
+  'recharge',
+  'consume',
+] as const;
+
+/** 额度变动记录 Tab 类型 */
+export type PulseAdminQuotaLogTab =
+  (typeof PULSE_ADMIN_QUOTA_LOG_TAB_VALUES)[number];
+
+/** 额度变动记录默认单页条数 */
+export const PULSE_ADMIN_QUOTA_LOGS_DEFAULT_PAGE_SIZE = 20;
+
+/** 额度变动记录最大单页条数 */
+export const PULSE_ADMIN_QUOTA_LOGS_MAX_PAGE_SIZE = 100;
+
 /** 增减门店新客额度：正数为发放，负数为回收，余额不会低于 0 */
 export class AdjustPulseAdminNewCustomerQuotaDto {
   @ApiProperty({
@@ -106,6 +129,49 @@ export class GetPulseAdminNewCustomerQuotaStoresQueryDto {
   @Min(1, { message: '每页条数不能小于 1' })
   @Max(PULSE_ADMIN_QUOTA_STORES_MAX_PAGE_SIZE, {
     message: `每页条数不能超过 ${PULSE_ADMIN_QUOTA_STORES_MAX_PAGE_SIZE}`,
+  })
+  pageSize?: number;
+}
+
+/**
+ * 门店新客额度变动记录查询（真分页：page / pageSize + 类型 Tab）。
+ *
+ * 分页由后端按 `skip / take` 权威切片，前端不再累积游标，
+ * 便于直接跳页与「共 N 条」口径对齐。
+ */
+export class GetPulseAdminNewCustomerQuotaLogsQueryDto {
+  @ApiPropertyOptional({
+    enum: PULSE_ADMIN_QUOTA_LOG_TAB_VALUES,
+    description:
+      '变动记录 Tab：all=全部，admin=管理员调整，recharge=充值，' +
+      'consume=消耗（含额度清零）；不传按 all 处理',
+  })
+  @IsOptional()
+  @IsIn(PULSE_ADMIN_QUOTA_LOG_TAB_VALUES, {
+    message: 'tab 只支持 all / admin / recharge / consume',
+  })
+  tab?: PulseAdminQuotaLogTab;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: '页码，从 1 开始，默认 1',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '页码必须是整数' })
+  @Min(1, { message: '页码不能小于 1' })
+  page?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: `每页条数，默认 ${PULSE_ADMIN_QUOTA_LOGS_DEFAULT_PAGE_SIZE}，最大 ${PULSE_ADMIN_QUOTA_LOGS_MAX_PAGE_SIZE}`,
+  })
+  @IsOptional()
+  @Transform(({ value }) => toNullableNumber(value))
+  @IsInt({ message: '每页条数必须是整数' })
+  @Min(1, { message: '每页条数不能小于 1' })
+  @Max(PULSE_ADMIN_QUOTA_LOGS_MAX_PAGE_SIZE, {
+    message: `每页条数不能超过 ${PULSE_ADMIN_QUOTA_LOGS_MAX_PAGE_SIZE}`,
   })
   pageSize?: number;
 }

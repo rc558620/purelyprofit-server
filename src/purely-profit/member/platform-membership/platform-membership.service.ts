@@ -31,11 +31,12 @@ import type {
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
   PreviewPlatformMembershipOrderResponseDto,
-  PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
 import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
+import type { PurchaseMembershipResult } from './platform-membership-order.service';
+import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import type {
@@ -55,6 +56,7 @@ export class PlatformMembershipService {
     private readonly platformMembershipLedgerService: PlatformMembershipLedgerService,
     private readonly platformMembershipPartnerService: PlatformMembershipPartnerService,
     private readonly platformMembershipOrderService: PlatformMembershipOrderService,
+    private readonly membershipPaymentService: PlatformMembershipPaymentService,
     private readonly membershipRenewalService: MembershipRenewalService,
     private readonly refreshableCache: RefreshableCacheService,
   ) {}
@@ -178,7 +180,7 @@ export class PlatformMembershipService {
   async purchaseOrder(
     user: AuthenticatedUser,
     dto: PurchasePlatformMembershipOrderDto,
-  ): Promise<PurchasePlatformMembershipOrderResponseDto> {
+  ): Promise<PurchaseMembershipResult> {
     this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipOrderService.purchaseOrder(
@@ -186,6 +188,13 @@ export class PlatformMembershipService {
       storeId,
       dto,
     );
+  }
+
+  /** 查询会员支付单状态（真实模式扫码支付后轮询） */
+  async getMembershipPaymentStatus(
+    orderNo: string,
+  ): Promise<{ status: string; paidAt: Date | null }> {
+    return this.membershipPaymentService.getMembershipPaymentStatus(orderNo);
   }
 
   async listPointsLogs(

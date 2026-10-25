@@ -162,3 +162,57 @@ export class PurchasePlatformMembershipOrderResponseDto {
   @Type(() => PlatformMembershipOrdersOverviewDto)
   overview: PlatformMembershipOrdersOverviewDto;
 }
+
+/** 平台支付单状态轮询结果 */
+export class PlatformPaymentStatusDto {
+  /** pending / paid / closed / failed */
+  @ApiProperty({
+    enum: ['pending', 'paid', 'closed', 'failed'],
+    description: '支付单状态',
+  })
+  status: string;
+
+  /** 支付完成时间（未支付为 null） */
+  @ApiPropertyOptional({ description: '支付完成时间（ISO 字符串）' })
+  paidAt?: string | null;
+}
+
+/**
+ * 购买会员的统一结果。
+ *
+ * 测试模式下 `order / profile / overview` 一定有值（权益当场生效）；
+ * 真实模式下只有支付信息，权益要等支付回调，前端凭 `orderNo` 轮询状态。
+ */
+export class PurchaseMembershipResultDto {
+  @ApiProperty({
+    enum: ['test', 'live'],
+    description: 'test=测试模式（已生效）/ live=真实模式（待扫码支付）',
+  })
+  mode: 'test' | 'live';
+
+  @ApiPropertyOptional({ description: '平台支付单号（真实模式用于轮询）' })
+  orderNo?: string;
+
+  @ApiPropertyOptional({ description: '微信支付二维码链接（真实模式）' })
+  codeUrl?: string;
+
+  @ApiPropertyOptional({
+    description: '支付二维码图片（PNG data URL，真实模式）',
+  })
+  qrCodeImageUrl?: string;
+
+  @ApiPropertyOptional({ description: '应付金额（分），由后端算价得出' })
+  amountFen?: number;
+
+  @ApiPropertyOptional({ description: '支付单过期时间（ISO 字符串）' })
+  expiresAt?: string;
+
+  @ApiPropertyOptional({ type: PlatformMembershipOrderResponseDto })
+  order?: PlatformMembershipOrderResponseDto;
+
+  @ApiPropertyOptional({ type: PlatformMembershipProfileResponseDto })
+  profile?: PlatformMembershipProfileResponseDto;
+
+  @ApiPropertyOptional({ type: PlatformMembershipOrdersOverviewDto })
+  overview?: PlatformMembershipOrdersOverviewDto;
+}

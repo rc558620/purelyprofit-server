@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   UseGuards,
@@ -59,8 +60,14 @@ export class ClubOrdersController {
   createServiceOrder(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Body() dto: CreateClubServiceOrderDto,
+    // 可选幂等键：带上则重复提交返回同一笔订单，不带则保持旧行为
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ClubServiceOrderResponseDto> {
-    return this.clubOrdersService.createServiceOrder(currentContext, dto);
+    return this.clubOrdersService.createServiceOrder(
+      currentContext,
+      dto,
+      idempotencyKey,
+    );
   }
 
   @Get(':id')

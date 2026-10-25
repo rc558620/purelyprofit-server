@@ -516,6 +516,48 @@ export default () => ({
     devAccountEmails: parseStringList(process.env.PULSE_DEV_ACCOUNT_EMAILS),
   },
 
+  profit: {
+    /**
+     * 商家端（purelyProfit）是否默认允许「跳过真实扣款、订单直接生效」。
+     *
+     * 这是配套的技术方案开关，不是业务开关：历史上有几条链路（平台会员开通/续费、
+     * 新客额度充值）没有接入真实支付，服务端直接把订单置为已生效。
+     * 接入真实支付后，这个值应该在各环境都设为 false（= 真实模式）。
+     *
+     * ⚠️ 当前**故意保持现状**（非生产默认 true），避免在生产真实支付链路
+     * 落地前就先把这几条链路掐断。补齐真实支付后再一并收紧。
+     * 对应环境变量：PROFIT_MANUAL_PAID_ENABLED
+     */
+    manualPaidEnabled:
+      (process.env.PROFIT_MANUAL_PAID_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * 是否允许通过 dev-only 接口在运行期切换支付模式（test / live）。
+     * 生产环境强制禁用（无论环境变量如何配置）。
+     * 对应环境变量：PROFIT_PAYMENT_MODE_SWITCH_ENABLED
+     */
+    paymentModeSwitchEnabled:
+      (process.env.PROFIT_PAYMENT_MODE_SWITCH_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * dev-only 支付模式开关接口的访问令牌。
+     * 未配置时切换请求一律拒绝，防止测试环境公网可达时被任意切到真实扣款。
+     * 对应环境变量：PROFIT_PAYMENT_MODE_DEV_TOKEN
+     */
+    paymentModeDevToken: process.env.PROFIT_PAYMENT_MODE_DEV_TOKEN ?? '',
+
+    /**
+     * 平台收款的**统一**回调地址（`POST /profit/payments/wechat/callback`）。
+     *
+     * 三条收款链路共用一个回调入口：回调里按支付单号反查 bizType 再分发，
+     * 比「每条链路一个回调地址」少两个 rawBody 白名单、少一份验签解密实现。
+     * 必须是公网可达 HTTPS。
+     * 对应环境变量：PROFIT_WECHAT_PAY_NOTIFY_URL
+     * 示例：https://api.yourdomain.com/api/profit/payments/wechat/callback
+     */
+    wechatPayNotifyUrl: process.env.PROFIT_WECHAT_PAY_NOTIFY_URL ?? '',
+  },
+
   club: {
     wechatCallbackSecret:
       process.env.CLUB_WECHAT_CALLBACK_SECRET ?? 'club_wechat_callback_secret',
@@ -523,9 +565,32 @@ export default () => ({
       process.env.CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS ?? '300',
       10,
     ),
+    /**
+     * 开发态兜底开关：为 true 表示默认处于**测试支付模式**（允许跳过微信扣款、
+     * 由 confirm-paid 直接把订单置为已支付）。
+     *
+     * 生产环境必须为 false（`bootstrap/production-config.utils.ts` 启动校验已强制），
+     * 否则任意持订单号的人都能把未支付订单标记成已支付并真实落账。
+     * 对应环境变量：CLUB_MANUAL_CONFIRM_PAID_ENABLED
+     */
     manualConfirmPaidEnabled:
       (process.env.CLUB_MANUAL_CONFIRM_PAID_ENABLED ??
         (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * 是否允许通过 dev-only 开关接口在运行期切换支付模式（test / live）。
+     * 生产环境强制禁用（无论环境变量如何配置）。
+     * 对应环境变量：CLUB_PAYMENT_MODE_SWITCH_ENABLED
+     */
+    paymentModeSwitchEnabled:
+      (process.env.CLUB_PAYMENT_MODE_SWITCH_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * dev-only 支付模式开关接口的访问令牌。
+     * 未配置时切换请求一律拒绝，避免测试环境公网可达时被任意切到真实扣款。
+     * 前端需通过构建期注入的同值令牌携带 `x-payment-dev-token` 请求头。
+     * 对应环境变量：CLUB_PAYMENT_MODE_DEV_TOKEN
+     */
+    paymentModeDevToken: process.env.CLUB_PAYMENT_MODE_DEV_TOKEN ?? '',
     /**
      * 邀请二维码使用的俱乐部公共域名（长期稳定、公网可达、不随环境/部署变动）。
      * 未配置时二维码回退为裸邀请码（legacy）格式，避免把 localhost / 内网地址写入二维码。

@@ -21,6 +21,7 @@ import type { AuthenticatedUser } from '../../../purely-profit/auth/strategies/j
 import {
   GetPulseAdminSmsAccountsQueryDto,
   GetPulseAdminSmsBroadcastsQueryDto,
+  GetPulseAdminSmsWalletLogsQueryDto,
   GrantPulseAdminSmsBalanceDto,
   RefundPulseAdminSmsBroadcastDto,
 } from './dto/pulse-sms.request.dto';
@@ -29,8 +30,10 @@ import {
   PulseAdminSmsAccountsResponseDto,
   PulseAdminSmsBroadcastRefundResultDto,
   PulseAdminSmsBroadcastsResponseDto,
+  PulseAdminSmsWalletLogsResponseDto,
 } from './dto/pulse-sms.response.dto';
 import { PulseSmsService } from './pulse-sms.service';
+import { PulseSmsWalletLogsService } from './pulse-sms-wallet-logs.service';
 
 /** 群发短信管理 - 门店短信账户与平台赠送 */
 @ApiTags('Pulse / Marketing')
@@ -38,7 +41,10 @@ import { PulseSmsService } from './pulse-sms.service';
 @UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/marketing/admin/sms')
 export class PulseSmsController {
-  constructor(private readonly pulseSmsService: PulseSmsService) {}
+  constructor(
+    private readonly pulseSmsService: PulseSmsService,
+    private readonly walletLogsService: PulseSmsWalletLogsService,
+  ) {}
 
   @Get('accounts')
   @ApiOperation({ summary: '获取 Pulse 门店短信账户列表' })
@@ -70,6 +76,22 @@ export class PulseSmsController {
     @Body() dto: GrantPulseAdminSmsBalanceDto,
   ): Promise<PulseAdminSmsAccountDto> {
     return this.pulseSmsService.grantAdminSmsBalance(user, storeId, dto);
+  }
+
+  @Get('accounts/:storeId/wallet-logs')
+  @ApiOperation({ summary: '获取 Pulse 门店短信钱包变动记录' })
+  @ApiOkResponse({
+    description:
+      '按 Tab（全部 / 平台调整 / 充值 / 消耗 / 退费）返回单门店短信钱包流水，' +
+      'page / pageSize 真分页；stats 与列表同口径聚合，不吃分页。',
+    type: PulseAdminSmsWalletLogsResponseDto,
+  })
+  listAdminSmsWalletLogs(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Query() query: GetPulseAdminSmsWalletLogsQueryDto,
+  ): Promise<PulseAdminSmsWalletLogsResponseDto> {
+    return this.walletLogsService.listAdminSmsWalletLogs(user, storeId, query);
   }
 
   @Get('accounts/:storeId/broadcasts')

@@ -4,6 +4,7 @@ import { SmsModule } from '../../../purely-profit/marketing/sms/sms.module';
 import { PulseMembershipModule } from '../../membership/membership.module';
 import { PulseSmsController } from './pulse-sms.controller';
 import { PulseSmsService } from './pulse-sms.service';
+import { PulseSmsWalletLogsService } from './pulse-sms-wallet-logs.service';
 
 /**
  * Pulse 群发短信模块（平台运营视角）。
@@ -18,6 +19,6 @@ import { PulseSmsService } from './pulse-sms.service';
 @Module({
   imports: [PrismaModule, PulseMembershipModule, SmsModule],
   controllers: [PulseSmsController],
-  providers: [PulseSmsService],
+  providers: [PulseSmsService, PulseSmsWalletLogsService],
 })
 export class PulseSmsModule {}

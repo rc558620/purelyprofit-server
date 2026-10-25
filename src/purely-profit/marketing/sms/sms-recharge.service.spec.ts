@@ -45,6 +45,13 @@ describe('SmsRechargeService', () => {
   let nativeService: { createNativeOrder: jest.Mock };
   let accountService: { ensureAccount: jest.Mock };
 
+  /** 商家端支付模式裁决桩：默认不跳过真实扣款，由用例按需覆盖 */
+  const paymentMode = {
+    isSkipPaymentAllowed: jest.fn(
+      (): Promise<boolean> => Promise.resolve(false),
+    ),
+  };
+
   /** 直充开关只认 true，其它取值一律按 false */
   const makeConfig = (directCredit: unknown) => ({
     get: jest.fn((key: string) =>
@@ -60,9 +67,17 @@ describe('SmsRechargeService', () => {
       nativeService as unknown as SmsWechatNativeService,
       signatureService as unknown as ClubPaymentCallbackSignatureService,
       decryptorService as unknown as SmsWechatCallbackDecryptorService,
+      // 二维码出图与充值逻辑无关：用桩隔离，避免测试依赖图形库
+      {
+        renderPaymentQrCode: jest.fn(() =>
+          Promise.resolve('data:image/png;base64,MOCK'),
+        ),
+      } as never,
+      paymentMode as never,
     );
 
   beforeEach(() => {
+    paymentMode.isSkipPaymentAllowed.mockResolvedValue(false);
     tx = {
       // 条件更新：只有 status != paid 才返回 count 1，第二次变 0（重复回调）
       smsRechargeOrder: {
@@ -109,6 +124,32 @@ describe('SmsRechargeService', () => {
   });
 
   describe('本地直充（SMS_RECHARGE_DIRECT_CREDIT）', () => {
+    it('商家端支付模式为测试模式时也跳过微信支付（两套开关取或）', async () => {
+      // 短信自身的直充开关关闭，但商家端全局处于测试模式：
+      // 两条开关取「或」，任一开启都意味着不打算真实扣款
+      paymentMode.isSkipPaymentAllowed.mockResolvedValue(true);
+
+      const service = buildService(false);
+      const order = await service.createRechargeOrder(18, 1000);
+
+      expect(nativeService.createNativeOrder).not.toHaveBeenCalled();
+      expect(order.codeUrl).toBe('');
+    });
+
+    it('真实下单返回二维码图片，而非无法展示的 weixin:// 协议串', async () => {
+      nativeService.createNativeOrder.mockResolvedValue({
+        codeUrl: 'weixin://wxpay/bizpayurl?pr=abc',
+      });
+      prisma.smsRechargeOrder.update.mockResolvedValue(undefined);
+
+      const service = buildService(false);
+      const order = await service.createRechargeOrder(18, 1000);
+
+      expect(order.codeUrl).toBe('weixin://wxpay/bizpayurl?pr=abc');
+      // 前端 <img> 加载不了 weixin://，必须同时给出可展示的图
+      expect(order.qrCodeImageUrl).toBe('data:image/png;base64,MOCK');
+    });
+
     it('开启时跳过微信下单，直接入账并返回空 codeUrl', async () => {
       service = buildService(true);
 

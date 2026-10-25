@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
@@ -13,6 +12,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 
@@ -26,11 +27,12 @@ export class ClubScanOrderingCheckoutService {
     private readonly prisma: PrismaService,
     private readonly wechatJsapiService: ClubWechatJsapiService,
     private readonly realtimeService: ScanOrderingRealtimeService,
-    private readonly configService: ConfigService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly clubWechatOpenidService: ClubWechatOpenidService,
   ) {}
 
   async createWechatPayment(
@@ -104,10 +106,14 @@ export class ClubScanOrderingCheckoutService {
       },
     });
 
-    // 营业执照/商户号就绪前 openid 缺省：不调起真实微信支付，
-    // 仅保留一笔本地尝试并返回空 paymentParams，前端走开发态 confirm-paid 兜底，
-    // 保证「微信支付」入口在联调期同样能跑通；后续补齐 openid 即自动切到真实支付。
-    if (!openid) {
+    // openid 显式传入优先，未传则按 userId 回查 users.wechat_openid。
+    // 仍解析不到时不调起真实微信支付，仅保留一笔本地尝试并返回空 paymentParams；
+    // 注意 confirm-paid 兜底在生产已被禁用，此分支在生产等同于支付不可用。
+    const resolvedOpenid = await this.clubWechatOpenidService.resolveOpenid(
+      user.id,
+      openid,
+    );
+    if (!resolvedOpenid) {
       await this.prisma.scanOrderPaymentAttempt.update({
         where: { id: attempt.id },
         data: { status: ScanOrderPaymentAttemptStatus.created },
@@ -122,7 +128,7 @@ export class ClubScanOrderingCheckoutService {
           orderNo: merchantPaymentNo,
           description: `扫码点餐订单 ${order.orderNo}`,
           amountFen: order.payableAmount,
-          openid,
+          openid: resolvedOpenid,
         });
       await this.prisma.scanOrderPaymentAttempt.update({
         where: { id: attempt.id },
@@ -293,8 +299,14 @@ export class ClubScanOrderingCheckoutService {
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<unknown> {
-    if (this.configService.get<string>('nodeEnv') === 'production') {
-      throw new ForbiddenException('开发态支付确认接口在生产环境不可用');
+    // 资金安全闸门：与通用 confirm-paid 同口径，只有测试模式才允许跳过真实扣款。
+    // 生产环境恒为 false，切到真实模式后同样不可用。
+    const manualConfirmPaidAllowed =
+      await this.clubPaymentModeService.isManualConfirmPaidAllowed();
+    if (!manualConfirmPaidAllowed) {
+      throw new ForbiddenException(
+        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+      );
     }
     const updated = await this.prisma.$transaction(async (tx) => {
       const order = await tx.scanOrders.findFirst({

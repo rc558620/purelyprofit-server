@@ -4,6 +4,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { RedisModule } from '../../redis/redis.module';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubSelfOrderingController } from './club-self-ordering.controller';
@@ -33,6 +34,8 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
     ProductsModule,
     // 复用微信 JSAPI 下单能力（该模块只依赖 StoresModule，无循环依赖）
     ClubWechatPayModule,
+    // 自助下单开发态确认支付的闸门由支付模式服务裁决
+    ClubPaymentModeModule,
     // 复用营销顾客解析（含历史客户认领），避免重复实现这套易错逻辑
     ClubScanOrderingModule,
     NewCustomerQuotaModule,

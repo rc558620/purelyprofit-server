@@ -1,0 +1,66 @@
+// 平台收款支付单（商家 / 门店付钱给平台）。
+//
+// 与三条业务链路的关系：支付单只负责「钱」，业务结果仍写在各自的业务表里，
+// 两边用 orderNo / bizOrderId 关联（弱引用、不加外键，避免跨模块耦合）。
+//
+// 为什么单独建一张通用表而不是每条链路各建一张：
+// 下单 → codeUrl → 轮询 → 回调验签解密 → 幂等入账这套状态机对三条链路
+// 完全一致，重复三份必然在实现与对账口径上漂移。
+
+/// 平台收款业务类型。
+enum PlatformPaymentBizType {
+  /// 平台会员开通 / 续费
+  membership
+  /// 新客额度充值
+  new_customer_quota
+  /// 短信钱包充值（存量链路仍走 sms_recharge_orders，保留枚举位便于后续迁移）
+  sms_recharge
+}
+
+/// 支付单状态。与 SmsRechargeOrderStatus 同口径，前端轮询只读这四种。
+enum PlatformPaymentStatus {
+  pending
+  paid
+  closed
+  failed
+}
+
+/// 支付模式（落库用于对账与列表筛选）。
+/// test=测试模式：未真实扣款，订单由服务端直接置生效；
+/// live=真实模式：必须走微信支付，由回调驱动生效。
+enum PlatformPayMode {
+  test
+  live
+}
+
+/// 平台收款支付单。
+model PlatformPaymentOrder {
+  id Int @id @default(autoincrement())
+  /// 支付单号（对外唯一，同时作为微信 out_trade_no）
+  orderNo String @unique @map("order_no")
+  bizType PlatformPaymentBizType @map("biz_type")
+  /// 对应业务单据 ID（会员订单 ID / 额度流水单号），弱引用
+  bizOrderId String? @map("biz_order_id")
+  storeId Int @map("store_id")
+  /// 发起支付的商家端用户（用于对账与审计）
+  operatorUserId Int @map("operator_user_id")
+  /// 应付金额（分）。金额计算权在后端，前端不传
+  amountFen Int @map("amount_fen")
+  /// 下单时的支付模式：测试单必须能与真实单区分开，否则会污染对账
+  payMode PlatformPayMode @map("pay_mode")
+  status PlatformPaymentStatus @default(pending)
+  /// 微信 Native 支付二维码链接（真实模式下单时返回）
+  codeUrl String? @map("code_url")
+  /// 微信支付流水号（回调带回）
+  transactionId String? @map("transaction_id")
+  /// 支付单过期时间（超时惰性置 closed）
+  expiresAt DateTime @map("expires_at")
+  paidAt DateTime? @map("paid_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([storeId, bizType, createdAt])
+  @@index([storeId, status])
+  @@index([payMode, createdAt])
+  @@map("platform_payment_orders")
+}

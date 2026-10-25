@@ -1,5 +1,4 @@
 import { ForbiddenException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { ClubOrderPaidObservationOptions } from '../orders/club-order-drafts.types';
 import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
 import { assertClubPaymentAmountMatches } from './club-payments.utils';
@@ -9,7 +8,8 @@ interface ClubPaymentConfirmationOrchestratorParams<
   TDraft,
   TResult,
 > {
-  configService: ConfigService;
+  /** 判定当前是否允许跳过微信回调、直接手动确认支付（由 ClubPaymentModeService 裁决）。 */
+  isManualConfirmPaidAllowed: () => Promise<boolean>;
   loadDraftForManualConfirm: (
     input: TConfirmInput,
     orderNo: string,
@@ -39,13 +39,13 @@ export class ClubPaymentConfirmationOrchestrator<
     input: TConfirmInput,
     orderNo: string,
   ): Promise<TResult> {
-    // 开发态兜底开关：手动 confirm-paid 只能用于本地/联调。
-    // 生产环境该开关必须为 false（bootstrap 生产配置校验已强制），
+    // 资金安全闸门：手动 confirm-paid 只能用于本地/联调的测试模式。
+    // 生产环境强制不可用（bootstrap 生产配置校验同步强制），
     // 否则任意持单号的人都能把订单标记成已支付并真实落账。
-    const manualConfirmPaidEnabled =
-      this.params.configService.get<boolean>('club.manualConfirmPaidEnabled') ??
-      false;
-    if (!manualConfirmPaidEnabled) {
+    // 判定权交给 ClubPaymentModeService：配置文件开关 && 运行期模式 双重生效。
+    const manualConfirmPaidAllowed =
+      await this.params.isManualConfirmPaidAllowed();
+    if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
         '当前环境未开启手动确认支付，请通过支付回调驱动落账',
       );

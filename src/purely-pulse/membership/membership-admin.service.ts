@@ -9,9 +9,11 @@ import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
 import type {
   AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaLogsQueryDto,
   GetPulseAdminNewCustomerQuotaStoresQueryDto,
 } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import type {
+  PulseAdminNewCustomerQuotaLogsResponseDto,
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
 } from './dto/pulse-membership-admin-new-customer-quota.response.dto';
@@ -26,6 +28,7 @@ import { PulseMembershipAdminMutationService } from './membership-admin-mutation
 import { PulseMembershipAdminNewCustomerQuotaService } from './membership-admin-new-customer-quota.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminPricingPreviewService } from './membership-admin-pricing-preview.service';
+import { PulseMembershipAdminQuotaLogsService } from './membership-admin-quota-logs.service';
 import { PulseMembershipAdminRenewalPriceService } from './membership-admin-renewal-price.service';
 import type {
   PulseAdminMemberLevel,
@@ -49,6 +52,7 @@ export class PulseMembershipAdminService {
     private readonly renewalPriceService: PulseMembershipAdminRenewalPriceService,
     private readonly memberRecordsService: PulseMembershipAdminMemberRecordsService,
     private readonly newCustomerQuotaService: PulseMembershipAdminNewCustomerQuotaService,
+    private readonly quotaLogsService: PulseMembershipAdminQuotaLogsService,
   ) {}
 
   /** 新客额度：可访问门店的额度一览（搜索 / 筛选 / 分页） */
@@ -66,6 +70,15 @@ export class PulseMembershipAdminService {
     dto: AdjustPulseAdminNewCustomerQuotaDto,
   ): Promise<PulseAdminNewCustomerQuotaStoreDto> {
     return this.newCustomerQuotaService.adjustAdminQuota(user, storeId, dto);
+  }
+
+  /** 新客额度：单门店变动记录（page / pageSize 真分页 + Tab 过滤） */
+  listAdminNewCustomerQuotaLogs(
+    user: AuthenticatedUser,
+    storeId: number,
+    query: GetPulseAdminNewCustomerQuotaLogsQueryDto,
+  ): Promise<PulseAdminNewCustomerQuotaLogsResponseDto> {
+    return this.quotaLogsService.listAdminQuotaLogs(user, storeId, query);
   }
 
   listAdminPointsLogs(

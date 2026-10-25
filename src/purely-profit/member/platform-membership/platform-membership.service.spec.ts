@@ -14,6 +14,14 @@ import { PlatformMembershipPromoBeanReconciliationService } from './platform-mem
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
+import type { PurchaseMembershipResult } from './platform-membership-order.service';
+import { PlatformMembershipActivationService } from './platform-membership-activation.service';
+import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
+import { PlatformPaymentOrderService } from '../../payments/platform-payment-order.service';
+import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
+import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
+import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
+import type { PurchasePlatformMembershipOrderDto } from './dto/platform-membership-query.dto';
 import { buildMembershipCapabilities } from './platform-membership-access.shared';
 import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
@@ -205,7 +213,7 @@ describe('PlatformMembershipService', () => {
       },
     ]);
 
-    const result = await service.purchaseOrder(user, { planId });
+    const result = await purchaseOrder(user, { planId });
 
     expect(prismaService.storeMembershipProfile.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -213,8 +221,9 @@ describe('PlatformMembershipService', () => {
           currentPlanId: 'yearly',
           startsAt: nextAgesStartAt,
           expiresAt: null,
-          totalPoints: bonusPoints,
-          availablePoints: bonusPoints,
+          // 积分按相对增量写入，避免并发生效互相覆盖
+          totalPoints: { increment: bonusPoints },
+          availablePoints: { increment: bonusPoints },
         }),
       }),
     );
@@ -237,6 +246,10 @@ describe('PlatformMembershipService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认没有被待支付订单占用的积分
+    prismaService.storeMembershipOrder.aggregate.mockResolvedValue({
+      _sum: { pointsUsed: 0 },
+    });
     // 默认档案：未开通子账号功能 → 续费按配置价，不命中首购锁定价
     prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
       currentPlanId: null,
@@ -324,6 +337,8 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipLedgerService,
         PlatformMembershipPartnerService,
         PlatformMembershipOrderService,
+        PlatformMembershipActivationService,
+        PlatformMembershipPaymentService,
         PlatformMembershipPromoService,
         PlatformMembershipPromoBeanReconciliationService,
         PlatformMembershipAccessService,
@@ -331,6 +346,46 @@ describe('PlatformMembershipService', () => {
         MembershipRenewalService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
+        {
+          // 支付模式固定为「测试模式」：本文件的用例都验证「下单即生效」的历史行为
+          provide: ProfitPaymentModeService,
+          useValue: {
+            isSkipPaymentAllowed: jest.fn(() => Promise.resolve(true)),
+          },
+        },
+        {
+          // 支付单只做记账，不牵扯微信下单：用桩隔离，保持用例聚焦会员权益
+          provide: PlatformPaymentOrderService,
+          useValue: {
+            createOrder: jest.fn(() =>
+              Promise.resolve({
+                orderNo: 'PM20260101000000ABCD',
+                bizType: 'membership',
+                bizOrderId: null,
+                storeId: 7,
+                amountFen: 0,
+                payMode: 'test',
+                status: 'pending',
+                codeUrl: null,
+                expiresAt: new Date('2026-01-01T00:15:00.000Z'),
+              }),
+            ),
+            markPaid: jest.fn(() => Promise.resolve(true)),
+            markFailed: jest.fn(() => Promise.resolve(undefined)),
+          },
+        },
+        {
+          provide: PlatformWechatNativeService,
+          useValue: { createNativeOrder: jest.fn() },
+        },
+        {
+          provide: PlatformPaymentQrCodeService,
+          useValue: {
+            renderPaymentQrCode: jest.fn(() =>
+              Promise.resolve('data:image/png;base64,MOCK'),
+            ),
+          },
+        },
         { provide: RefreshableCacheService, useValue: refreshableCache },
         {
           provide: CacheInvalidatorService,
@@ -360,6 +415,22 @@ describe('PlatformMembershipService', () => {
       PlatformMembershipPromoService,
     );
   });
+
+  /**
+   * 收窄到「测试模式」的购买结果。
+   *
+   * 购买接口现在按支付模式返回判别联合：真实模式只回支付信息（无 order / profile）。
+   * 本文件里的用例都跑在测试模式（权益当场生效），统一在这里收窄，
+   * 避免每个用例都写一遍类型断言。
+   */
+  const purchaseOrder = async (
+    user: AuthenticatedUser,
+    dto: PurchasePlatformMembershipOrderDto,
+  ): Promise<Extract<PurchaseMembershipResult, { mode: 'test' }>> =>
+    (await service.purchaseOrder(user, dto)) as Extract<
+      PurchaseMembershipResult,
+      { mode: 'test' }
+    >;
 
   it.each([
     'getCenter',
@@ -400,7 +471,7 @@ describe('PlatformMembershipService', () => {
         getProfile: () => service.getProfile(subAccountUser),
         listOrders: () => service.listOrders(subAccountUser),
         purchaseOrder: () =>
-          service.purchaseOrder(subAccountUser, { planId: 'monthly' }),
+          purchaseOrder(subAccountUser, { planId: 'monthly' }),
         listPointsLogs: () => service.listPointsLogs(subAccountUser),
         listBeanLogs: () => service.listBeanLogs(subAccountUser),
         getPromoCenter: () => service.getPromoCenter(subAccountUser),
@@ -1935,7 +2006,7 @@ describe('PlatformMembershipService', () => {
     prismaService.store.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.purchaseOrder(user, {
+      purchaseOrder(user, {
         planId: 'monthly',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -2024,7 +2095,7 @@ describe('PlatformMembershipService', () => {
       },
     ]);
 
-    const result = await service.purchaseOrder(user, {
+    const result = await purchaseOrder(user, {
       planId: 'quarterly',
       usePoints: 2000,
       useBeans: 20,
@@ -2079,6 +2150,8 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(result).toEqual({
+      // 测试模式：权益当场生效，响应带 mode 供前端判定无需轮询
+      mode: 'test',
       order: {
         id: '31',
         planId: 'quarterly',
@@ -2184,7 +2257,7 @@ describe('PlatformMembershipService', () => {
         },
       ]);
 
-      const result = await service.purchaseOrder(user, {
+      const result = await purchaseOrder(user, {
         planId: 'lifetime',
       });
 
@@ -2266,7 +2339,7 @@ describe('PlatformMembershipService', () => {
         },
       ]);
 
-      const result = await service.purchaseOrder(user, {
+      const result = await purchaseOrder(user, {
         planId: 'monthly',
       });
 
@@ -2339,7 +2412,7 @@ describe('PlatformMembershipService', () => {
       },
     ]);
 
-    const result = await service.purchaseOrder(user, {
+    const result = await purchaseOrder(user, {
       planId: 'monthly',
     });
 
@@ -2405,7 +2478,7 @@ describe('PlatformMembershipService', () => {
     prismaService.storePartner.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.purchaseOrder(user, {
+      purchaseOrder(user, {
         planId: 'monthly',
         useBeans: 10,
       }),
@@ -2499,12 +2572,12 @@ describe('PlatformMembershipService', () => {
     stubPurchasableStore();
     stubActiveSubAccountYearlyProfile();
 
-    await expect(
-      service.purchaseOrder(user, { planId: 'monthly' }),
-    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
-    await expect(
-      service.purchaseOrder(user, { planId: 'quarterly' }),
-    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+    await expect(purchaseOrder(user, { planId: 'monthly' })).rejects.toThrow(
+      SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE,
+    );
+    await expect(purchaseOrder(user, { planId: 'quarterly' })).rejects.toThrow(
+      SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE,
+    );
 
     expect(prismaService.storeMembershipOrder.create).not.toHaveBeenCalled();
   });
@@ -2521,7 +2594,7 @@ describe('PlatformMembershipService', () => {
       },
     ]);
 
-    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+    const result = await purchaseOrder(user, { planId: 'yearly' });
 
     expect(prismaService.storeMembershipOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2564,7 +2637,7 @@ describe('PlatformMembershipService', () => {
       count: 0,
     });
 
-    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+    const result = await purchaseOrder(user, { planId: 'yearly' });
 
     expect(result.order.planId).toBe('yearly');
     expect(prismaService.storeMembershipOrder.create).toHaveBeenCalledWith(
@@ -2595,7 +2668,7 @@ describe('PlatformMembershipService', () => {
         trace.push('reward:end');
       });
 
-    await service.purchaseOrder(user, { planId: 'yearly' });
+    await purchaseOrder(user, { planId: 'yearly' });
     trace.push('order:return');
 
     expect(trace).toEqual(['reward:start', 'reward:end', 'order:return']);
@@ -2610,7 +2683,7 @@ describe('PlatformMembershipService', () => {
       .spyOn(promoService, 'tryAwardPromoReward')
       .mockRejectedValue(new Error('promo db down'));
 
-    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+    const result = await purchaseOrder(user, { planId: 'yearly' });
 
     expect(result.order.planId).toBe('yearly');
     expect(result.order.status).toBe('paid');

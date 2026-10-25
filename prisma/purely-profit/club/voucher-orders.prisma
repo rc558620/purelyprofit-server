@@ -39,6 +39,8 @@ model ClubVoucherOrder {
   guestType            String                    @default("member") @map("guest_type")
   /// 业务订单号（微信 out_trade_no）
   orderNo              String                    @unique @map("order_no")
+  /// 客户端幂等键（同一用户同一键只允许一单；可空，历史数据与未传键的请求不受影响）
+  idempotencyKey       String?                   @map("idempotency_key") @db.VarChar(128)
   /// 应付金额（分，原价口径）
   originalAmountFen    Int                       @map("original_amount_fen")
   /// 优惠金额（分，后端计算）
@@ -95,6 +97,8 @@ model ClubVoucherOrder {
   @@index([storeId, status, createdAt(sort: Desc)])
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([usedSessionId])
+  /// 幂等最终兜底：并发重复提交时由数据库保证同用户同键只有一单
+  @@unique([userId, idempotencyKey])
   @@map("club_voucher_orders")
 }
 

@@ -97,8 +97,13 @@ export class ClubVoucherOrdersService {
   createVoucherOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubVoucherOrderDto,
+    idempotencyKey?: string,
   ): Promise<ClubVoucherOrderResponseDto> {
-    return this.paymentService.createVoucherOrder(currentContext, dto);
+    return this.paymentService.createVoucherOrder(
+      currentContext,
+      dto,
+      idempotencyKey,
+    );
   }
 
   /** 确认支付成功（开发态兜底） */

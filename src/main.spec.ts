@@ -144,12 +144,19 @@ describe('main bootstrap', () => {
           'wechat.appId': 'wx_prod_demo_app_id',
           'wechat.appSecret': 'prod-demo-app-secret',
           'wechat.mchSerialNo': 'prod-demo-mch-serial-no',
+          // 平台收款商户号与 APIv3 密钥：商家付费链路的 Native 下单与回调解密依赖，
+          // 生产启动校验会强制要求这两项已配置
+          'wechat.payMchId': '1900000001',
+          'wechat.payApiV3Key': 'prod-demo-api-v3-key',
           'wechat.privateKeyContent':
             '-----BEGIN PRIVATE KEY-----demo-----END PRIVATE KEY-----',
           'wechat.platformPublicKeyContent':
             '-----BEGIN PUBLIC KEY-----demo-----END PUBLIC KEY-----',
           'wechat.payNotifyUrl':
             'https://api.purelyprofit.com/api/club/payments/wechat/callback',
+          // 平台收款统一回调：会员真实支付 / 额度充值下单强依赖
+          'profit.wechatPayNotifyUrl':
+            'https://api.purelyprofit.com/api/profit/payments/wechat/callback',
           port: 3000,
         };
         return configMap[key];
@@ -231,12 +238,36 @@ describe('main bootstrap', () => {
     expect(
       filterSwaggerDocumentForEnvironment(document, {
         manualConfirmPaidEnabled: false,
+        paymentModeDebugVisible: false,
       }),
     ).toEqual({
       tags: [{ name: 'Club / Orders' }],
       paths: {
         '/club/orders/{id}': { get: { summary: 'query' } },
       },
+    });
+  });
+
+  it('filterSwaggerDocumentForEnvironment 在生产环境隐藏 dev-only 支付模式开关接口', () => {
+    const document = {
+      tags: [{ name: 'Club / Payments · 调试' }],
+      paths: {
+        '/club/dev/payment-mode': {
+          get: { summary: '查询当前支付模式' },
+          post: { summary: '切换支付模式' },
+        },
+        '/club/orders/{id}': { get: { summary: 'query' } },
+      },
+    };
+
+    // 生产环境：即便保留了手动确认支付能力，调试开关也必须从文档消失
+    expect(
+      filterSwaggerDocumentForEnvironment(document, {
+        manualConfirmPaidEnabled: true,
+        paymentModeDebugVisible: false,
+      }).paths,
+    ).toEqual({
+      '/club/orders/{id}': { get: { summary: 'query' } },
     });
   });
 
@@ -256,6 +287,7 @@ describe('main bootstrap', () => {
     expect(
       filterSwaggerDocumentForEnvironment(document, {
         manualConfirmPaidEnabled: true,
+        paymentModeDebugVisible: true,
       }),
     ).toEqual({
       tags: [

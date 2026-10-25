@@ -20,9 +20,11 @@ import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guar
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
   AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaLogsQueryDto,
   GetPulseAdminNewCustomerQuotaStoresQueryDto,
 } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import {
+  PulseAdminNewCustomerQuotaLogsResponseDto,
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
 } from './dto/pulse-membership-admin-new-customer-quota.response.dto';
@@ -51,6 +53,26 @@ export class PulseMembershipAdminNewCustomerQuotaController {
   ): Promise<PulseAdminNewCustomerQuotaStoresResponseDto> {
     return this.pulseMembershipService.listAdminNewCustomerQuotaStores(
       user,
+      query,
+    );
+  }
+
+  @Get('new-customer-quota/stores/:storeId/logs')
+  @ApiOperation({ summary: '获取 Pulse 门店新客额度变动记录' })
+  @ApiOkResponse({
+    description:
+      '按 Tab（全部 / 管理员调整 / 充值 / 消耗）返回单门店额度变动记录，' +
+      'page / pageSize 真分页；stats 为门店全量流水聚合，不随 Tab 变化。',
+    type: PulseAdminNewCustomerQuotaLogsResponseDto,
+  })
+  listAdminNewCustomerQuotaLogs(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Query() query: GetPulseAdminNewCustomerQuotaLogsQueryDto,
+  ): Promise<PulseAdminNewCustomerQuotaLogsResponseDto> {
+    return this.pulseMembershipService.listAdminNewCustomerQuotaLogs(
+      user,
+      storeId,
       query,
     );
   }

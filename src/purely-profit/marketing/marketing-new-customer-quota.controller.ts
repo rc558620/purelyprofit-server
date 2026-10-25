@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   ParseIntPipe,
   Post,
   Query,
@@ -25,13 +26,16 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../commerce/commerce-access.service';
+import { NewCustomerQuotaRechargeService } from '../member/new-customer-quota/new-customer-quota-recharge.service';
 import { NewCustomerQuotaService } from '../member/new-customer-quota/new-customer-quota.service';
 import {
   NewCustomerQuotaLogsDto,
   NewCustomerQuotaLogsQueryDto,
   NewCustomerQuotaOverviewDto,
   NewCustomerQuotaTiersDto,
+  PlatformPaymentStatusDto,
   RechargeNewCustomerQuotaDto,
+  RechargeNewCustomerQuotaResultDto,
 } from './dto/marketing-new-customer-quota.dto';
 
 @ApiTags('营销中心')
@@ -42,6 +46,7 @@ import {
 export class MarketingNewCustomerQuotaController {
   constructor(
     private readonly quotaService: NewCustomerQuotaService,
+    private readonly quotaRechargeService: NewCustomerQuotaRechargeService,
     private readonly commerceAccessService: CommerceAccessService,
   ) {}
 
@@ -98,14 +103,51 @@ export class MarketingNewCustomerQuotaController {
   @Post('new-customer-quota/recharge')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('marketing:manage')
-  @ApiOperation({ summary: '新用户额度充值（微信支付）' })
-  @ApiOkResponse({ type: NewCustomerQuotaOverviewDto })
+  @ApiOperation({
+    summary: '新用户额度充值下单',
+    description:
+      '测试模式直接到账并返回最新概览；真实模式返回微信支付二维码，需按 orderNo 轮询支付状态。',
+  })
+  @ApiOkResponse({ type: RechargeNewCustomerQuotaResultDto })
   async recharge(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RechargeNewCustomerQuotaDto,
     @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
-  ): Promise<NewCustomerQuotaOverviewDto> {
+  ): Promise<RechargeNewCustomerQuotaResultDto> {
     const resolvedStoreId = await this.resolveStoreId(user, storeId);
-    return this.quotaService.recharge(resolvedStoreId, dto.amountFen);
+
+    const result = await this.quotaRechargeService.createRechargeOrder({
+      storeId: resolvedStoreId,
+      operatorUserId: user.id,
+      amountFen: dto.amountFen,
+    });
+
+    return {
+      mode: result.mode,
+      orderNo: result.orderNo,
+      codeUrl: result.codeUrl,
+      qrCodeImageUrl: result.qrCodeImageUrl,
+      amountFen: result.amountFen,
+      expiresAt: result.expiresAt?.toISOString(),
+      overview: result.overview,
+    };
+  }
+
+  @Get('new-customer-quota/recharge-orders/:orderNo')
+  @RequirePermissions('marketing:view')
+  @ApiOperation({
+    summary: '查询额度充值支付单状态',
+    description:
+      '真实模式扫码支付后前端轮询该接口；超时未付会被惰性置为 closed。',
+  })
+  @ApiOkResponse({ type: PlatformPaymentStatusDto })
+  async getRechargeStatus(
+    @Param('orderNo') orderNo: string,
+  ): Promise<PlatformPaymentStatusDto> {
+    const status = await this.quotaRechargeService.getRechargeStatus(orderNo);
+    return {
+      status: status.status,
+      paidAt: status.paidAt?.toISOString() ?? null,
+    };
   }
 }

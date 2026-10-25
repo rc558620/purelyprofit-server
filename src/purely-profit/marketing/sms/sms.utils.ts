@@ -115,8 +115,14 @@ export function resolveSmsRechargeTiersFen(
  *
  * 只认显式 `true`，其它一切取值（含 `'1'` / `1` / 未配置）都按 false 处理：
  * 这个开关一旦被误开就是白送钱，宁可保守。
+ *
+ * 生产环境**强制 false**：启动校验会先拦一道，这里再兜一道，
+ * 避免「校验被跳过 / 配置热更新」时出现免费无限充值。
  */
 export function resolveSmsDirectCredit(configService: ConfigService): boolean {
+  if (configService.get<string>('nodeEnv') === 'production') {
+    return false;
+  }
   return configService.get<boolean>('sms.directCredit') === true;
 }
 

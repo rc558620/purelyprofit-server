@@ -21,9 +21,11 @@ import type { GetPulseAdminMemberRecordsQueryDto } from './dto/pulse-membership-
 import type { PulseAdminMemberRecordsResponseDto } from './dto/pulse-membership-admin-member-records.response.dto';
 import type {
   AdjustPulseAdminNewCustomerQuotaDto,
+  GetPulseAdminNewCustomerQuotaLogsQueryDto,
   GetPulseAdminNewCustomerQuotaStoresQueryDto,
 } from './dto/pulse-membership-admin-new-customer-quota.request.dto';
 import type {
+  PulseAdminNewCustomerQuotaLogsResponseDto,
   PulseAdminNewCustomerQuotaStoreDto,
   PulseAdminNewCustomerQuotaStoresResponseDto,
 } from './dto/pulse-membership-admin-new-customer-quota.response.dto';
@@ -134,6 +136,19 @@ export class PulseMembershipService {
     dto: AdjustPulseAdminNewCustomerQuotaDto,
   ): Promise<PulseAdminNewCustomerQuotaStoreDto> {
     return this.adminService.adjustAdminNewCustomerQuota(user, storeId, dto);
+  }
+
+  /** 新客额度：单门店变动记录（真分页 + Tab 过滤），供变动记录视图使用 */
+  listAdminNewCustomerQuotaLogs(
+    user: AuthenticatedUser,
+    storeId: number,
+    query: GetPulseAdminNewCustomerQuotaLogsQueryDto,
+  ): Promise<PulseAdminNewCustomerQuotaLogsResponseDto> {
+    return this.adminService.listAdminNewCustomerQuotaLogs(
+      user,
+      storeId,
+      query,
+    );
   }
 
   listAdminBeanLogs(

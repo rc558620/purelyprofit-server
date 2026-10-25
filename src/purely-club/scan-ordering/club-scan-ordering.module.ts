@@ -7,6 +7,7 @@ import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-
 import { SalesRecordModule } from '../../purely-profit/operations/sales-record/sales-record.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubServiceCallModule } from '../service-call/club-service-call.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
@@ -49,6 +50,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     PrismaModule,
     RedisModule,
     ClubWechatPayModule,
+    // 扫码点餐开发态确认支付的闸门由支付模式服务裁决
+    ClubPaymentModeModule,
     ClubServiceCallModule,
     ClubOrdersModule,
     ClubStoresModule,
