@@ -47,6 +47,12 @@ export function validateProductionConfiguration(
     configService,
     'wechat.payApiV3Key',
   );
+  // 门店 APIv3 密钥的落库加密主密钥：缺失时商家后台保存收款配置直接 400，
+  // 且已存密文无法解密、回调解不开，属于「上线后才发现」的典型漏配，必须前移
+  const wechatPayKeyEncryptionSecret = getTrimmedConfigValue(
+    configService,
+    'WECHAT_PAY_KEY_ENCRYPTION_SECRET',
+  );
   const wechatPlatformPublicKey = getTrimmedConfigValue(
     configService,
     'wechat.platformPublicKeyContent',
@@ -143,6 +149,12 @@ export function validateProductionConfiguration(
 
   if (wechatPrivateKeyPath && !existsSync(wechatPrivateKeyPath)) {
     errors.push('wechat.privateKeyPath 指向的文件不存在');
+  }
+
+  if (!wechatPayKeyEncryptionSecret) {
+    errors.push(
+      'WECHAT_PAY_KEY_ENCRYPTION_SECRET 未配置，门店微信收款配置无法加密落库且回调无法解密',
+    );
   }
 
   if (!wechatPlatformPublicKey) {

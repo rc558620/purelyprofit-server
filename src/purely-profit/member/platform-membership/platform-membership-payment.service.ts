@@ -14,7 +14,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+} from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { PlatformPaymentOrderService } from '../../payments/platform-payment-order.service';
 import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
@@ -339,16 +342,15 @@ export class PlatformMembershipPaymentService {
     transactionId: string;
     amountFen: number;
   }): Promise<void> {
-    const activated =
-      await this.paymentOrderService.settleWithBusinessWrite(
-        params.paymentOrderNo,
-        params.transactionId,
-        async (tx) =>
-          this.applyActivationInTx(tx, {
-            paymentOrderNo: params.paymentOrderNo,
-            amountFen: params.amountFen,
-          }),
-      );
+    const activated = await this.paymentOrderService.settleWithBusinessWrite(
+      params.paymentOrderNo,
+      params.transactionId,
+      async (tx) =>
+        this.applyActivationInTx(tx, {
+          paymentOrderNo: params.paymentOrderNo,
+          amountFen: params.amountFen,
+        }),
+    );
 
     // 已处理过（重复回调）或金额校验失败都不会走到这里
     if (!activated) {
@@ -541,6 +543,18 @@ export class PlatformMembershipPaymentService {
     }
 
     return status;
+  }
+
+  /**
+   * 用户主动放弃支付：关闭微信侧支付单，防止二维码在有效期内被事后扫码付款。
+   *
+   * 归属校验由支付单服务内部完成（只认本门店的 pending 单）。
+   */
+  async closeMembershipPaymentOrder(params: {
+    orderNo: string;
+    storeId: number;
+  }): Promise<{ status: string; paidAt: Date | null }> {
+    return this.paymentOrderService.closeOrder(params.orderNo, params.storeId);
   }
 
   /**

@@ -12,6 +12,7 @@ import { ClubOrderServiceContextService } from './club-order-service-context.ser
 import { ClubOrderServiceCreationService } from './club-order-service-creation.service';
 import { ClubOrderServicePaymentService } from './club-order-service-payment.service';
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
+import { ClubOrderWechatVerifyService } from './club-order-wechat-verify.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrdersController } from './club-orders.controller';
@@ -47,6 +48,7 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
     ClubOrderServiceCreationService,
     ClubOrderServiceQueryService,
     ClubOrderServicePaymentService,
+    ClubOrderWechatVerifyService,
     ClubOrderSettlementService,
     ClubPaymentLockService,
     ClubOrderPreviewService,

@@ -1,6 +1,6 @@
 // 纯利宝团购券订单：请求/响应 DTO
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -11,11 +11,26 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { transformOptionalBoolean } from '../../../purely-profit/stores/dto/store-response.dto';
 import {
   CLUB_VOUCHER_MAX_PERSON_COUNT,
   CLUB_VOUCHER_MAX_QUANTITY,
 } from '../club-voucher-orders.constants';
 import { type ClubVoucherOrderStatusValue } from '../club-voucher-orders.types';
+
+/** 团购券订单详情查询入参 */
+export class ClubVoucherOrderStatusQueryDto {
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否回微信侧核对真实支付结果；拉起支付后结果未知（unknown）时传 true，' +
+      '用于判断用户是否已扣款，避免按失败引导重复支付',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: 'verify 必须是布尔值' })
+  verify?: boolean;
+}
 
 /** 创建团购券订单入参 */
 export class CreateClubVoucherOrderDto {

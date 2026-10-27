@@ -11,6 +11,7 @@ import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
 
 /**
  * 自助下单建单测试：
@@ -173,6 +174,11 @@ describe('ClubSelfOrderingOrderService', () => {
         // 默认「未过期」，不拦截自助下单；需要验证拦截的用例自行覆盖
         { provide: MembershipDowngradeService, useValue: downgradeService },
         { provide: ClubNewCustomerQuotaService, useValue: newCustomerQuota },
+        // 微信侧核对服务在本 spec 中不参与断言，只满足 DI 装配
+        {
+          provide: ClubSelfOrderingWechatVerifyService,
+          useValue: { verifyAndSettle: jest.fn().mockResolvedValue(false) },
+        },
       ],
     }).compile();
     service = module.get<ClubSelfOrderingOrderService>(

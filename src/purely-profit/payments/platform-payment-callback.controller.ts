@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PlatformPaymentCallbackService } from './platform-payment-callback.service';
 
 @ApiTags('Profit / Payments')
@@ -24,6 +25,10 @@ export class PlatformPaymentCallbackController {
 
   @Post('wechat/callback')
   @HttpCode(HttpStatus.OK)
+  // 回调来自微信支付服务器，出口 IP 高度集中，促销期间同一 IP 的并发远高于普通用户流量。
+  // 一旦被全局限流打成 429，微信会判定通知失败并按策略重投，极端情况下会员已付款却迟迟不开通。
+  // 真正的防伪造由验签承担，这里只兜住异常流量，因此单独放宽窗口。
+  @Throttle({ default: { ttl: 60_000, limit: 600 } })
   @ApiOperation({
     summary: '平台收款微信支付回调',
     description:

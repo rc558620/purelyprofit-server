@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlatformWechatNativeService } from './platform-wechat-native.service';
 import { PlatformPaymentOrderService } from './platform-payment-order.service';
+import { PlatformPaymentRealtimeService } from './platform-payment-realtime.service';
 
 /**
  * 平台支付单状态机测试：覆盖资金安全最关键的几条分支。
@@ -52,6 +53,11 @@ let prismaMock: {
 };
 let txMock: TxMock;
 let wechatMock: { closeNativeOrder: jest.Mock };
+let realtimeMock: {
+  publishPaid: jest.Mock;
+  publishFailed: jest.Mock;
+  publishClosed: jest.Mock;
+};
 let service: PlatformPaymentOrderService;
 
 beforeEach(async () => {
@@ -66,12 +72,18 @@ beforeEach(async () => {
     }),
   };
   wechatMock = { closeNativeOrder: jest.fn() };
+  realtimeMock = {
+    publishPaid: jest.fn(),
+    publishFailed: jest.fn(),
+    publishClosed: jest.fn(),
+  };
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       PlatformPaymentOrderService,
       { provide: PrismaService, useValue: prismaMock },
       { provide: PlatformWechatNativeService, useValue: wechatMock },
+      { provide: PlatformPaymentRealtimeService, useValue: realtimeMock },
     ],
   }).compile();
 
@@ -217,6 +229,36 @@ describe('getStatus 归属校验与惰性关单', () => {
     expect(result.status).toBe('paid');
     expect(prismaMock.platformPaymentOrder.updateMany).not.toHaveBeenCalled();
     expect(wechatMock.closeNativeOrder).not.toHaveBeenCalled();
+  });
+
+  it('主动关单：未过期的 pending 单也会先关微信侧，再置 closed 并推送', async () => {
+    prismaMock.platformPaymentOrder.findUnique.mockResolvedValue(baseOrder());
+    wechatMock.closeNativeOrder.mockResolvedValue('closed');
+    prismaMock.platformPaymentOrder.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.closeOrder(ORDER_NO, STORE_ID)).resolves.toEqual({
+      status: 'closed',
+      paidAt: null,
+    });
+    // 微信侧必须先关：否则二维码在有效期内仍可被扫付款（误扣）
+    expect(wechatMock.closeNativeOrder).toHaveBeenCalled();
+    expect(realtimeMock.publishClosed).toHaveBeenCalledWith(ORDER_NO);
+  });
+
+  it('主动关单时微信侧已支付：不关本地单，回真实状态且不推 closed', async () => {
+    prismaMock.platformPaymentOrder.findUnique
+      .mockResolvedValueOnce(baseOrder())
+      .mockResolvedValueOnce({
+        status: 'paid',
+        paidAt: new Date('2026-10-26T12:03:00Z'),
+      });
+    wechatMock.closeNativeOrder.mockResolvedValue('paid');
+
+    const result = await service.closeOrder(ORDER_NO, STORE_ID);
+
+    expect(result.status).toBe('paid');
+    expect(prismaMock.platformPaymentOrder.updateMany).not.toHaveBeenCalled();
+    expect(realtimeMock.publishClosed).not.toHaveBeenCalled();
   });
 
   it('测试单过期不询问微信，直接置 closed', async () => {

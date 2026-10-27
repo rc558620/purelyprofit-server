@@ -8,11 +8,15 @@ import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubRechargeController } from './club-recharge.controller';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
+import { ClubRechargeExpirationService } from './club-recharge-expiration.service';
+import { ClubRechargeOrderStoreService } from './club-recharge-order-store.service';
 import { ClubRechargePackagesService } from './club-recharge-packages.service';
 import { ClubRechargePaymentService } from './club-recharge-payment.service';
 import { ClubRechargeQueryService } from './club-recharge-query.service';
+import { ClubRechargeReconciliationService } from './club-recharge-reconciliation.service';
 import { ClubRechargeService } from './club-recharge.service';
 import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
+import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 
 @Module({
@@ -29,13 +33,24 @@ import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
   providers: [
     ClubRechargeContextService,
     ClubRechargeCreationService,
+    ClubRechargeOrderStoreService,
     ClubRechargePackagesService,
     ClubRechargePaymentService,
     ClubRechargeQueryService,
     ClubRechargeSettlementService,
     ClubPaymentLockService,
+    // 超时订单定时关单（含微信侧关单），随本模块生命周期启停
+    ClubRechargeExpirationService,
+    // 跨天未决订单对账：以微信查单结果为准补落账，兜住回调丢失 / 死信遗漏
+    ClubRechargeReconciliationService,
+    // 微信侧主动核对 + 补落账，导出给管理端人工补单入口复用
+    ClubRechargeWechatVerifyService,
     ClubRechargeService,
   ],
-  exports: [ClubRechargePaymentService, ClubRechargeService],
+  exports: [
+    ClubRechargePaymentService,
+    ClubRechargeService,
+    ClubRechargeWechatVerifyService,
+  ],
 })
 export class ClubRechargeModule {}

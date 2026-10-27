@@ -9,6 +9,7 @@ import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import type {
   ClubOrderDraftPayload,
+  ClubOrderPaidObservationOptions,
   ClubRechargeOrderMetadata,
 } from '../orders/club-order-drafts.types';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
@@ -22,6 +23,7 @@ import {
 } from './club-recharge.constants';
 import Decimal from 'decimal.js';
 import { Money } from '../../shared/money.utils';
+import { ClubRechargeOrderStoreService } from './club-recharge-order-store.service';
 
 @Injectable()
 export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate<
@@ -36,6 +38,7 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     clubOrderDraftsService: ClubOrderDraftsService,
     cacheInvalidatorService: CacheInvalidatorService,
     paymentLockService: ClubPaymentLockService,
+    private readonly clubRechargeOrderStoreService: ClubRechargeOrderStoreService,
   ) {
     super(
       prisma,
@@ -43,6 +46,48 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
       cacheInvalidatorService,
       paymentLockService,
     );
+  }
+
+  /**
+   * 落账入口：在交给基类前先完成两件事。
+   *
+   * 1. 迟到回调补偿：订单超时被标记为 expired 后，用户仍可能在微信侧完成支付
+   *    （微信支付有效期与本地订单有效期不一致）。真实回调到达时必须继续落账，
+   *    否则会出现「钱已扣、余额不到账」。手动确认（开发态）不享受该豁免。
+   * 2. 把支付观测信息（流水号 / 回调时间 / 确认来源）合并进草稿，
+   *    使事务内的落账逻辑能读到权威的支付事实，不必依赖 Redis 后续回写。
+   */
+  async completePaidDraft(
+    draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
+    paymentMeta?: ClubOrderPaidObservationOptions,
+  ): Promise<ClubRechargeOrderResponseDto> {
+    return super.completePaidDraft(
+      this.withPaymentObservation(draft, paymentMeta),
+      paymentMeta,
+    );
+  }
+
+  private withPaymentObservation(
+    draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
+    paymentMeta?: ClubOrderPaidObservationOptions,
+  ): ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'> {
+    const confirmationSource =
+      paymentMeta?.paymentConfirmationSource ?? draft.paymentConfirmationSource;
+
+    const isLateWechatCallback =
+      confirmationSource === 'wechat_callback' && draft.status === 'expired';
+
+    return {
+      ...draft,
+      status: isLateWechatCallback ? 'pending' : draft.status,
+      failureReason: isLateWechatCallback ? null : draft.failureReason,
+      paidAtMs: draft.paidAtMs ?? paymentMeta?.paidAtMs ?? null,
+      paymentTransactionId:
+        draft.paymentTransactionId ?? paymentMeta?.paymentTransactionId ?? null,
+      callbackReceivedAtMs:
+        draft.callbackReceivedAtMs ?? paymentMeta?.callbackReceivedAtMs ?? null,
+      paymentConfirmationSource: confirmationSource,
+    };
   }
 
   protected assertDraftPayable(
@@ -57,6 +102,24 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
   ): Promise<void> {
+    // 幂等闸门：订单表是充值落账的事实源。抢占失败说明该订单此前已落账，
+    // 必须整体跳过余额与流水写入，否则重复回调会重复加余额。
+    const claimed = await this.clubRechargeOrderStoreService.claimPaid(
+      tx,
+      draft,
+      {
+        paidAtMs: draft.paidAtMs ?? undefined,
+        paymentTransactionId: draft.paymentTransactionId,
+        callbackReceivedAtMs: draft.callbackReceivedAtMs,
+        paymentConfirmationSource: draft.paymentConfirmationSource,
+      },
+    );
+
+    if (!claimed) {
+      this.logger.warn(`充值订单 ${draft.orderNo} 已落账，跳过本次重复落账`);
+      return;
+    }
+
     const customer = await this.findCustomer(tx, draft);
     await this.createRechargeRecord(tx, draft, customer.id);
     await this.updateCustomerAfterRecharge(tx, draft, customer);
@@ -123,6 +186,9 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
           .toDbCents(),
         type: 'recharge',
         promotionId: draft.metadata.promotionId,
+        // 订单号与微信流水号落库：既是重复落账的数据库兜底键，也是对账依据
+        orderNo: draft.orderNo,
+        transactionId: draft.paymentTransactionId,
         note: `club充值订单 ${draft.orderNo}`,
       },
     });

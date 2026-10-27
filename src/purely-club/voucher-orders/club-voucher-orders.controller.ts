@@ -29,6 +29,7 @@ import {
   ClubVoucherOrderListResponseDto,
   ClubVoucherOrderPreviewResponseDto,
   ClubVoucherOrderResponseDto,
+  ClubVoucherOrderStatusQueryDto,
   CreateClubVoucherOrderDto,
   PreviewClubVoucherOrderDto,
 } from './dto/club-voucher-order.dto';
@@ -95,12 +96,14 @@ export class ClubVoucherOrdersController {
   createVoucherOrder(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Body() dto: CreateClubVoucherOrderDto,
-    // 可选幂等键：带上则重复提交返回 409，不带则保持旧行为
+    // 可选幂等键：带上则重复提交返回同一笔订单，不带则保持旧行为。
+    // 服务层与支付层都支持该参数，之前漏传会让前端的幂等键彻底失效。
     @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ClubVoucherOrderResponseDto> {
     return this.clubVoucherOrdersService.createVoucherOrder(
       currentContext,
       dto,
+      idempotencyKey,
     );
   }
 
@@ -132,10 +135,12 @@ export class ClubVoucherOrdersController {
   getVoucherOrderDetail(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('orderNo') orderNo: string,
+    @Query() query: ClubVoucherOrderStatusQueryDto,
   ): Promise<ClubVoucherOrderDetailDto> {
     return this.clubVoucherOrdersService.getVoucherOrderDetail(
       currentContext,
       orderNo,
+      query,
     );
   }
 

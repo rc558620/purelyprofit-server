@@ -17,6 +17,7 @@ import { ClubSelfOrderingService } from './club-self-ordering.service';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
+import { ClubSelfOrderStatusQueryDto } from './dto/club-self-order-status-query.dto';
 import { CreateSelfOrderDto } from './dto/create-self-order.dto';
 import { CreateSelfOrderWechatPaymentDto } from './dto/create-self-order-payment.dto';
 import { ResolveSpaceDto } from './dto/resolve-space.dto';
@@ -71,8 +72,9 @@ export class ClubSelfOrderingController {
   getOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId', ParseIntPipe) orderId: number,
+    @Query() query: ClubSelfOrderStatusQueryDto,
   ) {
-    return this.orderService.findOwnedOrder(user, orderId);
+    return this.orderService.findOwnedOrder(user, orderId, query);
   }
 
   @Post('orders/:orderId/payments/balance')

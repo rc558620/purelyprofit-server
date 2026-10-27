@@ -4,7 +4,9 @@ import { ClubOrderPreviewService } from './club-order-preview.service';
 import { ClubOrderServiceCreationService } from './club-order-service-creation.service';
 import { ClubOrderServicePaymentService } from './club-order-service-payment.service';
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
+import { ClubOrderWechatVerifyService } from './club-order-wechat-verify.service';
 import type {
+  ClubOrderStatusQueryDto,
   ClubOrderStatusResponseDto,
   ClubServiceOrderPreviewResponseDto,
   ClubServiceOrderResponseDto,
@@ -19,6 +21,7 @@ export class ClubOrdersService {
     private readonly clubOrderServiceCreationService: ClubOrderServiceCreationService,
     private readonly clubOrderServiceQueryService: ClubOrderServiceQueryService,
     private readonly clubOrderServicePaymentService: ClubOrderServicePaymentService,
+    private readonly clubOrderWechatVerifyService: ClubOrderWechatVerifyService,
   ) {}
 
   previewServiceOrder(
@@ -43,10 +46,24 @@ export class ClubOrdersService {
     );
   }
 
-  getOrderStatus(
+  /**
+   * 查询服务订单状态。
+   *
+   * verify=true 时先回微信侧核对并补落账，再读本地状态：
+   * 前端在拉起支付后结果未知（unknown）时用这个入口确认用户是否已扣款。
+   */
+  async getOrderStatus(
     currentContext: ClubCurrentContext,
     orderId: string,
+    query?: ClubOrderStatusQueryDto,
   ): Promise<ClubOrderStatusResponseDto> {
+    if (query?.verify === true) {
+      await this.clubOrderWechatVerifyService.verifyAndSettle(
+        currentContext,
+        orderId,
+      );
+    }
+
     return this.clubOrderServiceQueryService.getOrderStatus(
       currentContext,
       orderId,

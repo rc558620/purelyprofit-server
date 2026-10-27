@@ -148,6 +148,8 @@ describe('main bootstrap', () => {
           // 生产启动校验会强制要求这两项已配置
           'wechat.payMchId': '1900000001',
           'wechat.payApiV3Key': 'prod-demo-api-v3-key',
+          // 门店收款配置落库加密主密钥：生产启动校验会强制要求已配置
+          WECHAT_PAY_KEY_ENCRYPTION_SECRET: 'prod-demo-encryption-secret',
           'wechat.privateKeyContent':
             '-----BEGIN PRIVATE KEY-----demo-----END PRIVATE KEY-----',
           'wechat.platformPublicKeyContent':

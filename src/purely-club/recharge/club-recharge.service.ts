@@ -3,6 +3,7 @@ import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
 import type {
   ClubRechargeOrderResponseDto,
+  ClubRechargeOrderStatusQueryDto,
   ClubRechargePackagesResponseDto,
   CreateClubRechargeOrderDto,
   ListClubRechargePackagesQueryDto,
@@ -10,6 +11,7 @@ import type {
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
 import { ClubRechargePaymentService } from './club-recharge-payment.service';
 import { ClubRechargeQueryService } from './club-recharge-query.service';
+import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 
 @Injectable()
 export class ClubRechargeService {
@@ -17,6 +19,7 @@ export class ClubRechargeService {
     private readonly clubRechargeCreationService: ClubRechargeCreationService,
     private readonly clubRechargeQueryService: ClubRechargeQueryService,
     private readonly clubRechargePaymentService: ClubRechargePaymentService,
+    private readonly clubRechargeWechatVerifyService: ClubRechargeWechatVerifyService,
   ) {}
 
   listPackages(
@@ -33,14 +36,32 @@ export class ClubRechargeService {
     return this.clubRechargeCreationService.createOrder(currentContext, dto);
   }
 
-  getOrderStatus(
+  /**
+   * 查询充值订单状态。
+   *
+   * `verify=1` 时回微信侧核对真实支付结果（D2）：
+   * `wx.requestPayment` 结果未知时，用户可能已扣款，前端不能按失败引导重试。
+   *
+   * ⚠️ 核对前必须先按当前用户维度取到订单：微信查单只认订单号，
+   * 若直接把前端传来的 id 交给核对服务，等于开放了按订单号探测他人订单的接口。
+   */
+  async getOrderStatus(
     currentContext: ClubCurrentContext,
     orderId: string,
+    query: ClubRechargeOrderStatusQueryDto,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubRechargeQueryService.getOrderStatus(
+    const draft = await this.clubRechargeQueryService.getRechargeDraft(
       currentContext,
       orderId,
     );
+
+    if (query.verify) {
+      return this.clubRechargeWechatVerifyService.verifyAndSettle({
+        orderNo: draft.orderNo,
+      });
+    }
+
+    return this.clubRechargeQueryService.toRechargeOrderResponse(draft);
   }
 
   confirmOrderPaid(

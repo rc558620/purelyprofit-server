@@ -167,6 +167,10 @@ export class MarketingProductDto {
 
 /**
  * 营销产品列表响应
+ *
+ * 分页字段与营销域其余列表（顾客 / 充值 / 消费 / 活动）保持一致口径：
+ * `totalPages` 由 `buildMarketingPaginationMeta` 统一产出，前端据此推算 hasMore，
+ * 避免各端各自 `Math.ceil` 造成边界口径漂移。
  */
 export class MarketingProductsResponseDto {
   @ApiProperty({ type: () => MarketingProductDto })
@@ -180,4 +184,7 @@ export class MarketingProductsResponseDto {
 
   @ApiProperty({ example: 20, description: '每页数量' })
   pageSize: number;
+
+  @ApiProperty({ example: 1, description: '总页数，至少为 1' })
+  totalPages: number;
 }

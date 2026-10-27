@@ -35,7 +35,10 @@ import {
   buildProductUpdateData,
   toProductRow,
 } from './marketing-products.mapper';
-import { resolveMarketingPagination } from './marketing.utils';
+import {
+  buildMarketingPaginationMeta,
+  resolveMarketingPagination,
+} from './marketing.utils';
 
 /**
  * 营销产品：编排层。
@@ -54,6 +57,10 @@ export class MarketingProductsService {
     user: AuthenticatedUser,
     query: ListMarketingProductsQueryDto,
   ): Promise<MarketingProductsResponseDto> {
+    const { page, skip, take } = resolveMarketingPagination(
+      query.page,
+      query.pageSize,
+    );
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(
         user,
@@ -62,16 +69,10 @@ export class MarketingProductsService {
     if (!resolvedStoreId) {
       return {
         items: [],
-        total: 0,
-        page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        ...buildMarketingPaginationMeta(0, page, take),
       };
     }
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
     const where = buildMarketingProductWhere({
       storeId: resolvedStoreId,
       categoryId: query.categoryId ?? undefined,
@@ -90,9 +91,7 @@ export class MarketingProductsService {
 
     return {
       items: rows.map((row) => mapProductRow(toProductRow(row))),
-      total,
-      page,
-      pageSize: take,
+      ...buildMarketingPaginationMeta(total, page, take),
     };
   }
 

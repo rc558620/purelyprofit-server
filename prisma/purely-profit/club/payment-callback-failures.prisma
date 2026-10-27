@@ -1,0 +1,44 @@
+// purelyClub 支付回调落账死信表。
+// 回调队列重试耗尽后，此前只在日志里留痕 —— 无人告警、无人工补单入口，
+// 会出现「用户已扣款、余额长期不到账」且没人知道。本表把这类订单固化成
+// 可查询、可认领、可闭环的记录：
+//   - 队列最终失败时 upsert 一条 pending 记录并触发告警；
+//   - 管理端按订单号补单 / 查单，处理完标记为 resolved；
+//   - order_no 唯一：同一订单反复失败只更新同一条，避免刷出重复待办。
+
+model ClubPaymentCallbackFailure {
+  id Int @id @default(autoincrement())
+  /// 业务订单号（微信 out_trade_no）
+  orderNo String @unique @map("order_no")
+  /// 订单类型：recharge/service/scan_ordering/voucher/self_ordering
+  orderType String @map("order_type")
+  /// 所属门店；解析不出订单时为 null
+  storeId Int? @map("store_id")
+  /// 微信支付订单号，对账主键
+  transactionId String? @map("transaction_id")
+  /// 订单金额（分），用于人工补单时核对
+  amountFen Int? @map("amount_fen")
+  /// 失败阶段：queue_retry_exhausted=队列重试耗尽 dispatch=路由失败 settle=落账失败
+  stage String @default("queue_retry_exhausted") @map("stage")
+  /// 失败原因摘要（不落堆栈，避免把内部路径写进数据库）
+  reason String @map("reason")
+  /// 队列实际已尝试次数
+  attempts Int @default(0) @map("attempts")
+  /// 回调原始入参快照，人工补单时用于重建落账参数
+  payloadSnapshot Json? @map("payload_snapshot")
+  /// 处理状态：pending=待人工处理 resolved=已补单/已确认 ignore=确认无需处理
+  status String @default("pending") @map("status")
+  /// 处理结果备注（人工补单成功 / 已退款等）
+  resolutionNote String? @map("resolution_note")
+  resolvedAt DateTime? @map("resolved_at")
+  /// 处理人 User.id（管理端操作人）
+  resolvedBy Int? @map("resolved_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// 待处理列表按时间倒序取
+  @@index([status, createdAt(sort: Desc)])
+  /// 门店维度排查：某门店集中失败通常是收款配置问题
+  @@index([storeId, createdAt(sort: Desc)])
+  @@map("club_payment_callback_failures")
+}

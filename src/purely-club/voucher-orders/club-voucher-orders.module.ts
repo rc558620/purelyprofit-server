@@ -21,6 +21,7 @@ import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.ser
 import { ClubVoucherOrderQueryService } from './club-voucher-order-query.service';
 import { ClubVoucherOrderRefundService } from './club-voucher-order-refund.service';
 import { ClubVoucherOrderVerifyService } from './club-voucher-order-verify.service';
+import { ClubVoucherOrderWechatVerifyService } from './club-voucher-order-wechat-verify.service';
 import { ClubVoucherOrdersController } from './club-voucher-orders.controller';
 import { ClubVoucherOrdersService } from './club-voucher-orders.service';
 
@@ -45,6 +46,7 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubVoucherOrderQueryService,
     ClubVoucherOrderRefundService,
     ClubVoucherOrderVerifyService,
+    ClubVoucherOrderWechatVerifyService,
     ClubVoucherOrdersService,
     ClubWechatRefundService,
     // 订单促销服务与会员等级依赖（与 club-orders 模块共享同一实例来源）

@@ -72,10 +72,12 @@ import { ClubScanOrderingModule } from './purely-club/scan-ordering/club-scan-or
 import { ClubServiceCallModule } from './purely-club/service-call/club-service-call.module';
 import { ClubSelfOrderingModule } from './purely-club/self-ordering/club-self-ordering.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
+import { PulseClubPaymentAdminModule } from './purely-pulse/payments/pulse-club-payment-admin.module';
 import { QueueModule } from './queue/queue.module';
 import { CacheControlInterceptor } from './shared/cache-control.interceptor';
 import { ResponseSanitizerInterceptor } from './shared/response-sanitizer.interceptor';
 import { AuditLogModule } from './shared/audit-log.module';
+import { AlertModule } from './shared/alert/alert.module';
 import { UploadModule } from './shared/upload.module';
 
 @Module({
@@ -114,6 +116,8 @@ import { UploadModule } from './shared/upload.module';
     }),
     PrismaModule,
     AuditLogModule,
+    // 资金链路告警（@Global）：支付回调重试耗尽、落账失败等事故的人工触达通道
+    AlertModule,
     UploadModule,
     RedisModule,
     QueueModule,
@@ -179,6 +183,8 @@ import { UploadModule } from './shared/upload.module';
     ClubServiceCallModule,
     ClubSelfOrderingModule,
     PulseDevModeModule,
+    // 平台运营：支付回调落账死信处理与人工补单入口
+    PulseClubPaymentAdminModule,
   ],
   controllers: [AppController],
   providers: [

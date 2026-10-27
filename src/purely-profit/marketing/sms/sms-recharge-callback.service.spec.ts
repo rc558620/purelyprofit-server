@@ -6,6 +6,7 @@ import { SmsAccountService } from './sms-account.service';
 import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
 import { SmsRechargeService } from './sms-recharge.service';
 import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
+import { PlatformPaymentRealtimeService } from '../../payments/platform-payment-realtime.service';
 import { buildSmsOrderNo } from './sms.utils';
 
 const STORE_ID = 18;
@@ -38,6 +39,11 @@ describe('SmsRechargeCallbackService', () => {
   };
   let signatureService: { assertWechatCallbackSignature: jest.Mock };
   let decryptorService: { decryptCallback: jest.Mock };
+  let realtimeService: {
+    publishPaid: jest.Mock;
+    publishFailed: jest.Mock;
+    publishClosed: jest.Mock;
+  };
 
   const headers = {
     timestamp: String(Math.floor(Date.now() / 1000)),
@@ -83,6 +89,11 @@ describe('SmsRechargeCallbackService', () => {
     decryptorService = {
       decryptCallback: jest.fn().mockReturnValue(SUCCESS_TX),
     };
+    realtimeService = {
+      publishPaid: jest.fn(),
+      publishFailed: jest.fn(),
+      publishClosed: jest.fn(),
+    };
 
     // 入账仍走真实 SmsRechargeService：这里要验的正是「回调 → 入账」的联动
     const rechargeService = new SmsRechargeService(
@@ -98,6 +109,7 @@ describe('SmsRechargeCallbackService', () => {
           (): Promise<boolean> => Promise.resolve(false),
         ),
       } as never,
+      realtimeService as unknown as PlatformPaymentRealtimeService,
     );
 
     service = new SmsRechargeCallbackService(
@@ -105,6 +117,7 @@ describe('SmsRechargeCallbackService', () => {
       rechargeService,
       signatureService as unknown as ClubPaymentCallbackSignatureService,
       decryptorService as unknown as SmsWechatCallbackDecryptorService,
+      realtimeService as unknown as PlatformPaymentRealtimeService,
     );
   });
 
@@ -191,6 +204,62 @@ describe('SmsRechargeCallbackService', () => {
       expect.objectContaining({ data: { status: 'failed' } }),
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('入账成功后推送 payment.paid：前端据此走成功分支，不再轮询', async () => {
+    await service.handleWechatCallback(callbackPayload, headers, '{}');
+
+    expect(realtimeService.publishPaid).toHaveBeenCalledWith(
+      SMS_ORDER_NO,
+      expect.any(String),
+    );
+    expect(realtimeService.publishFailed).not.toHaveBeenCalled();
+  });
+
+  it('微信重复投递（creditRecharge 返回 false）不重复推 paid：避免重复弹成功提示', async () => {
+    const first = await service.handleWechatCallback(
+      callbackPayload,
+      headers,
+      '{}',
+    );
+    const second = await service.handleWechatCallback(
+      callbackPayload,
+      headers,
+      '{}',
+    );
+
+    expect(first.message).toBe('充值已入账');
+    expect(second.message).toBe('重复回调，已忽略');
+    // 只有第一次真正入账，推一次即可
+    expect(realtimeService.publishPaid).toHaveBeenCalledTimes(1);
+  });
+
+  it('非 SUCCESS 且订单确实是 pending：推送 payment.failed', async () => {
+    decryptorService.decryptCallback.mockReturnValue({
+      ...SUCCESS_TX,
+      trade_state: 'CLOSED',
+    });
+    // updateMany 命中 1 行 → markOrderFailed 返回 true
+    prisma.smsRechargeOrder.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.handleWechatCallback(callbackPayload, headers, '{}');
+
+    expect(realtimeService.publishFailed).toHaveBeenCalledWith(SMS_ORDER_NO);
+    expect(realtimeService.publishPaid).not.toHaveBeenCalled();
+  });
+
+  it('非 SUCCESS 但订单已 paid：不推 failed，避免与已推送的 paid 冲突', async () => {
+    decryptorService.decryptCallback.mockReturnValue({
+      ...SUCCESS_TX,
+      trade_state: 'PAYERROR',
+    });
+    // updateMany 未命中（订单已 paid，不再是 pending）→ markOrderFailed 返回 false
+    prisma.smsRechargeOrder.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.handleWechatCallback(callbackPayload, headers, '{}');
+
+    expect(realtimeService.publishFailed).not.toHaveBeenCalled();
+    expect(realtimeService.publishPaid).not.toHaveBeenCalled();
   });
 
   it('订单不存在时不入账，返回 failed 而非抛异常（避免微信无限重试）', async () => {

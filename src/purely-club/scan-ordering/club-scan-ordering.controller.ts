@@ -25,6 +25,7 @@ import {
   CancelClubScanOrderDto,
   ClubScanSessionQueryDto,
   CreateClubScanOrderDto,
+  ClubScanOrderStatusQueryDto,
   CreateClubScanBalancePaymentDto,
   CreateClubScanPaymentDto,
   CreateClubScanServiceCallDto,
@@ -235,8 +236,9 @@ export class ClubScanOrderingController {
   getOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId', ParseIntPipe) orderId: number,
+    @Query() query: ClubScanOrderStatusQueryDto,
   ): Promise<unknown> {
-    return this.orderService.getOrder(user, orderId);
+    return this.orderService.getOrder(user, orderId, query);
   }
 
   @UseGuards(ClubJwtAuthGuard)

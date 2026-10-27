@@ -48,6 +48,34 @@ if (PATTERN_PREFIXES.length > 0 && MAP_PREFIXES.length > 0) {
   }
 }
 
+export type ClubOrderTypeByOrderNo =
+  | 'recharge'
+  | 'service'
+  | 'scan_ordering'
+  | 'voucher'
+  | 'self_ordering';
+
+/**
+ * 按订单号前缀解析订单类型。
+ *
+ * 前缀映射在本文件只有一份事实来源（ORDER_NO_TYPE_MAP），
+ * 死信记录等旁路链路必须复用本函数，禁止各自再写一份前缀判断。
+ */
+export function resolveClubOrderTypeByOrderNo(
+  orderNo: string,
+): ClubOrderTypeByOrderNo {
+  const prefix = orderNo.slice(0, 2).toUpperCase();
+  const orderType = ORDER_NO_TYPE_MAP[prefix];
+
+  if (!orderType) {
+    throw new BadRequestException(
+      `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC）`,
+    );
+  }
+
+  return orderType;
+}
+
 @Injectable()
 export class ClubPaymentCallbackDispatchService {
   constructor(
@@ -77,7 +105,7 @@ export class ClubPaymentCallbackDispatchService {
       );
     }
 
-    const orderType = this.resolveOrderTypeByOrderNo(orderNo);
+    const orderType = resolveClubOrderTypeByOrderNo(orderNo);
 
     if (orderType === 'recharge') {
       return this.clubRechargePaymentService.confirmOrderPaidByCallback(
@@ -107,20 +135,5 @@ export class ClubPaymentCallbackDispatchService {
       orderNo,
       settlementParams,
     );
-  }
-
-  private resolveOrderTypeByOrderNo(
-    orderNo: string,
-  ): 'recharge' | 'service' | 'scan_ordering' | 'voucher' | 'self_ordering' {
-    const prefix = orderNo.slice(0, 2).toUpperCase();
-    const orderType = ORDER_NO_TYPE_MAP[prefix];
-
-    if (!orderType) {
-      throw new BadRequestException(
-        `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC）`,
-      );
-    }
-
-    return orderType;
   }
 }

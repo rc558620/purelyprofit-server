@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -24,15 +25,21 @@ import {
 import { Money } from './club-recharge.utils';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { ClubRechargeOrderStoreService } from './club-recharge-order-store.service';
 
 @Injectable()
 export class ClubRechargeCreationService {
+  private readonly logger = new Logger(ClubRechargeCreationService.name);
+
   constructor(
     private readonly clubRechargeContextService: ClubRechargeContextService,
     private readonly clubRechargePackagesService: ClubRechargePackagesService,
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly clubWechatOpenidService: ClubWechatOpenidService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
+    private readonly clubRechargeOrderStoreService: ClubRechargeOrderStoreService,
   ) {}
 
   async createOrder(
@@ -40,6 +47,14 @@ export class ClubRechargeCreationService {
     dto: CreateClubRechargeOrderDto,
   ): Promise<ClubRechargeOrderResponseDto> {
     this.assertSameCurrentStore(currentContext, dto.storeId);
+
+    // A1：下单前显式校验门店已配置微信收款。
+    // 不校验的话门店没配收款时用户一路走到支付，最后只看到通用「支付失败」，
+    // 既不知道是门店侧问题，也不知道该联系谁。
+    await this.clubWechatJsapiService.assertStorePayConfigured(
+      currentContext.store.id,
+    );
+
     const packages =
       await this.clubRechargePackagesService.loadPackagesForStore(
         currentContext.store.id,
@@ -69,6 +84,8 @@ export class ClubRechargeCreationService {
       currentContext.user.id,
       dto.openid,
     );
+    // 断言在建草稿之前：缺 openid 时不应产生任何订单数据
+    this.assertOpenidAvailable(openid, currentContext.store.id);
 
     // 先创建草稿（含 mock 支付参数），再调用微信下单
     // 这样微信下单失败时可以删除草稿回滚，避免产生无法支付的孤立草稿
@@ -109,9 +126,37 @@ export class ClubRechargeCreationService {
       }
     }
 
+    // Redis 草稿只是加速层，订单必须同时落库：
+    // 只存 Redis 时一旦重启 / 淘汰 / 过期，微信回调取不到订单，
+    // 会出现「用户已付款、余额不到账且无法补单」的资金事故。
+    await this.clubRechargeOrderStoreService.createPendingRecord(draft);
+
     return toClubRechargeOrderResponse(
       this.clubOrderDraftsService.toOrderStatusResponse(draft),
       draft,
+    );
+  }
+
+  /**
+   * openid 是 JSAPI 下单的必填项。
+   *
+   * 缺 openid 时草稿会带着开发态 mock 支付参数落库，前端拉起必然失败，
+   * 表现为「下单成功但永远支付失败」。生产环境必须直接拒绝，
+   * 宁可让用户重新进入小程序，也不要发出注定无效的订单。
+   */
+  private assertOpenidAvailable(openid: string | null, storeId: number): void {
+    if (openid) {
+      return;
+    }
+
+    if (this.clubPaymentModeService.isProduction()) {
+      throw new BadRequestException(
+        '未获取到微信支付身份，请重新进入小程序后重试',
+      );
+    }
+
+    this.logger.warn(
+      `开发态下单未拿到 openid（storeId=${storeId}），将使用 mock 支付参数`,
     );
   }
 

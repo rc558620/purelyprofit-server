@@ -20,10 +20,12 @@ import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.s
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import type {
+  ClubScanOrderStatusQueryDto,
   CreateClubScanOrderDto,
   ListClubScanOrdersQueryDto,
   PreviewClubScanOrderDto,
 } from './dto/club-scan-ordering.dto';
+import { ClubScanOrderingWechatVerifyService } from './club-scan-ordering-wechat-verify.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import {
   createScanOrderNo,
@@ -55,6 +57,7 @@ export class ClubScanOrderingOrderService {
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
     private readonly menuQueryService: ClubScanOrderingMenuQueryService,
+    private readonly wechatVerifyService: ClubScanOrderingWechatVerifyService,
   ) {}
 
   preview(
@@ -322,7 +325,21 @@ export class ClubScanOrderingOrderService {
     return this.orderHistoryService.listOrderHistory(user, query);
   }
 
-  async getOrder(user: AuthenticatedUser, orderId: number): Promise<unknown> {
+  /**
+   * 查询订单详情。
+   *
+   * verify=true 时先回微信侧核对并补落账，再读本地状态：
+   * 前端在拉起支付后结果未知（unknown）时用这个入口确认用户是否已扣款。
+   */
+  async getOrder(
+    user: AuthenticatedUser,
+    orderId: number,
+    query?: ClubScanOrderStatusQueryDto,
+  ): Promise<unknown> {
+    if (query?.verify === true) {
+      await this.wechatVerifyService.verifyAndSettle(user.id, orderId);
+    }
+
     const order = await this.prisma.scanOrders.findFirst({
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       include: {

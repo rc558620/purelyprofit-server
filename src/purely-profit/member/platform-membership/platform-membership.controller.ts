@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -10,6 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -157,6 +160,10 @@ export class PlatformMembershipController {
   }
 
   @Post('orders')
+  // 每次下单都会真实调用微信 Native 接口，必须限频：
+  // 否则重复点击或脚本会把微信下单接口刷穿，并留下一堆永不关闭的 pending 单。
+  // 口径与新客额度充值下单一致（20 次 / 分钟）。
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({
     summary: '开通或续费会员',
     description:
@@ -174,6 +181,9 @@ export class PlatformMembershipController {
   }
 
   @Get('payment-orders/:orderNo')
+  // 前端每 2 秒轮询一次，单店单笔就有约 30 次/分钟；全局默认按 IP 只给 100 次/分钟，
+  // 连锁门店共用出口 IP 时会被正常轮询打成 429，这里单独放宽（与额度充值轮询同口径）
+  @Throttle({ default: { ttl: 60_000, limit: 600 } })
   @ApiOperation({
     summary: '查询会员支付单状态',
     description:
@@ -184,10 +194,36 @@ export class PlatformMembershipController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderNo') orderNo: string,
   ): Promise<PlatformPaymentStatusDto> {
-    const status = await this.platformMembershipService.getMembershipPaymentStatus(
-      user,
-      orderNo,
-    );
+    const status =
+      await this.platformMembershipService.getMembershipPaymentStatus(
+        user,
+        orderNo,
+      );
+    return {
+      status: status.status,
+      paidAt: status.paidAt?.toISOString() ?? null,
+    };
+  }
+
+  @Post('payment-orders/:orderNo/close')
+  // 用户关闭支付弹窗时调用：主动关微信单，避免二维码在有效期内被事后扫码付款（误扣）
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @ApiOperation({
+    summary: '关闭会员支付单',
+    description:
+      '用户放弃支付时调用：先关微信侧订单，再关本地单；微信侧已支付则保持原状态并返回 paid。',
+  })
+  @ApiOkResponse({ type: PlatformPaymentStatusDto })
+  async closePaymentOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderNo') orderNo: string,
+  ): Promise<PlatformPaymentStatusDto> {
+    const status =
+      await this.platformMembershipService.closeMembershipPaymentOrder(
+        user,
+        orderNo,
+      );
     return {
       status: status.status,
       paidAt: status.paidAt?.toISOString() ?? null,

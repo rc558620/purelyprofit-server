@@ -130,19 +130,21 @@ export class ClubWechatPaymentCallbackAckDto {
       'scan_ordering',
       'voucher',
       'self_ordering',
+      'unknown',
     ],
-    description: '订单类型',
+    description: '订单类型；非 TRANSACTION.SUCCESS 事件未解密时为 unknown',
   })
   orderType:
     | 'recharge'
     | 'service'
     | 'scan_ordering'
     | 'voucher'
-    | 'self_ordering';
+    | 'self_ordering'
+    | 'unknown';
 
   @ApiProperty({
-    enum: [...CLUB_ORDER_STATUS_VALUES, 'pending_acceptance'],
-    description: '当前订单状态',
+    enum: [...CLUB_ORDER_STATUS_VALUES, 'pending_acceptance', 'ignored'],
+    description: '当前订单状态；ignored 表示事件已接收但未落账',
   })
   status:
     | 'pending'
@@ -153,7 +155,8 @@ export class ClubWechatPaymentCallbackAckDto {
     | 'pending_acceptance'
     | 'unpaid'
     | 'used'
-    | 'refunded';
+    | 'refunded'
+    | 'ignored';
 }
 
 // ─── 解密后的微信交易资源（内部使用，不对外暴露） ─────────────────────────────

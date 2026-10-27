@@ -8,11 +8,13 @@ import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.ser
 import { ClubVoucherOrderQueryService } from './club-voucher-order-query.service';
 import { ClubVoucherOrderRefundService } from './club-voucher-order-refund.service';
 import { ClubVoucherOrderVerifyService } from './club-voucher-order-verify.service';
+import { ClubVoucherOrderWechatVerifyService } from './club-voucher-order-wechat-verify.service';
 import type {
   ClubVoucherOrderDetailDto,
   ClubVoucherOrderListResponseDto,
   ClubVoucherOrderPreviewResponseDto,
   ClubVoucherOrderResponseDto,
+  ClubVoucherOrderStatusQueryDto,
   CreateClubVoucherOrderDto,
   PreviewClubVoucherOrderDto,
 } from './dto/club-voucher-order.dto';
@@ -30,6 +32,7 @@ export class ClubVoucherOrdersService {
     private readonly paymentService: ClubVoucherOrderPaymentService,
     private readonly queryService: ClubVoucherOrderQueryService,
     private readonly verifyService: ClubVoucherOrderVerifyService,
+    private readonly wechatVerifyService: ClubVoucherOrderWechatVerifyService,
     private readonly refundService: ClubVoucherOrderRefundService,
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
   ) {}
@@ -151,11 +154,24 @@ export class ClubVoucherOrdersService {
     return this.queryService.listVoucherOrders(currentContext, query);
   }
 
-  /** 团购券订单详情 */
-  getVoucherOrderDetail(
+  /**
+   * 团购券订单详情。
+   *
+   * verify=true 时先回微信侧核对并补落账，再读本地详情：
+   * 前端在拉起支付后结果未知（unknown）时用这个入口确认用户是否已扣款。
+   */
+  async getVoucherOrderDetail(
     currentContext: ClubCurrentContext,
     orderNo: string,
+    query?: ClubVoucherOrderStatusQueryDto,
   ): Promise<ClubVoucherOrderDetailDto> {
+    if (query?.verify === true) {
+      await this.wechatVerifyService.verifyAndSettle(
+        currentContext.user.id,
+        orderNo,
+      );
+    }
+
     return this.queryService.getVoucherOrderDetail(currentContext, orderNo);
   }
 

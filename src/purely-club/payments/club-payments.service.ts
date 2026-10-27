@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
@@ -48,12 +48,17 @@ export class ClubPaymentsService {
       headers,
     );
 
-    // 2. 仅处理支付成功事件，其他事件返回 200 但不落账
+    // 2. 仅处理支付成功事件。
+    // 按微信回调协议必须回 200：返回 4xx/5xx 会被判定为通知失败并持续重投，
+    // 而这类事件（REFUND.CLOSED 等）重投多少次也不会变成可处理事件。
     if (payload.event_type !== 'TRANSACTION.SUCCESS') {
       this.logger.log(`忽略非支付成功回调事件: ${payload.event_type}`);
-      throw new BadRequestException(
-        `不支持的回调事件类型: ${payload.event_type}，仅处理 TRANSACTION.SUCCESS`,
-      );
+      return {
+        success: true,
+        orderNo: '',
+        orderType: 'unknown',
+        status: 'ignored',
+      };
     }
 
     // 3. 解密密文

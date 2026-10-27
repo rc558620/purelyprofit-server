@@ -1,16 +1,16 @@
 {
-    "folders": [
-        {
-            "path": ".."
-        },
-        {
-            "path": "../../purelyProfit"
-        },
-        {
-            "path": "../../purelyClub"
-        },
-        {
-            "path": "../../purelyPulse"
-        }
-    ]
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../purelyProfit"
+		},
+		{
+			"path": "../../purelyClub"
+		},
+		{
+			"path": "../../purelyPulse"
+		}
+	]
 }

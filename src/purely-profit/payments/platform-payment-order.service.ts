@@ -6,6 +6,7 @@ import {
   PlatformWechatNativeService,
   type WechatCloseOrderResult,
 } from './platform-wechat-native.service';
+import { PlatformPaymentRealtimeService } from './platform-payment-realtime.service';
 
 /** 支付单有效期（秒）：与短信充值订单同口径，超时后由轮询惰性置 closed */
 const PLATFORM_PAYMENT_ORDER_TTL_SECONDS = 15 * 60;
@@ -76,6 +77,7 @@ export class PlatformPaymentOrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wechatNativeService: PlatformWechatNativeService,
+    private readonly realtimeService: PlatformPaymentRealtimeService,
   ) {}
 
   /** 创建支付单（pending）。真实模式下随后由调用方拿单号去换 codeUrl */
@@ -206,6 +208,42 @@ export class PlatformPaymentOrderService {
   }
 
   /**
+   * 用户主动关单（关闭支付弹窗 / 放弃支付时调用）。
+   *
+   * 必须与超时惰性关单同一套判定：先关微信侧，微信已支付则不关本地单。
+   * 否则二维码在微信侧最长 2 小时有效，用户关掉页面后仍可能扫码付款，
+   * 出现「以为已经取消、实际被扣款」的误扣。
+   */
+  async closeOrder(
+    orderNo: string,
+    storeId: number,
+  ): Promise<{ status: string; paidAt: Date | null }> {
+    const order = await this.prisma.platformPaymentOrder.findUnique({
+      where: { orderNo },
+      select: {
+        storeId: true,
+        status: true,
+        paidAt: true,
+        codeUrl: true,
+        payMode: true,
+        bizType: true,
+      },
+    });
+
+    // 归属校验收进服务内部，与 getStatus 同口径：不存在与越权统一按「不存在」答复
+    if (!order || order.storeId !== storeId) {
+      throw new NotFoundException('支付单不存在');
+    }
+
+    // 已到终态（paid / closed / failed）：无可关，回真实状态让调用方决定提示
+    if (order.status !== 'pending') {
+      return { status: order.status, paidAt: order.paidAt };
+    }
+
+    return this.closeExpiredOrder(orderNo, order);
+  }
+
+  /**
    * 超时惰性关单。
    *
    * 关本地单之前必须先问微信侧：二维码真实有效期是 2 小时，本地 15 分钟到期那会儿
@@ -235,6 +273,8 @@ export class PlatformPaymentOrderService {
       return this.readCurrentStatus(orderNo, 'closed');
     }
 
+    // 已确认关单：推给订阅该单的页面，避免前端在没有轮询的情况下一直干等
+    this.realtimeService.publishClosed(orderNo);
     return { status: 'closed', paidAt: null };
   }
 

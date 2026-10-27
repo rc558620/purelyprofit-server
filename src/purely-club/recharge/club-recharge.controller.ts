@@ -15,6 +15,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
@@ -23,6 +24,7 @@ import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubRechargeService } from './club-recharge.service';
 import {
   ClubRechargeOrderResponseDto,
+  ClubRechargeOrderStatusQueryDto,
   ClubRechargePackagesResponseDto,
   CreateClubRechargeOrderDto,
   ListClubRechargePackagesQueryDto,
@@ -51,6 +53,8 @@ export class ClubRechargeController {
   }
 
   @Post('orders')
+  // 下单会调用微信 JSAPI 预支付，无限制时会被刷单打爆商户接口
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({
     summary: '创建 purely-club 充值订单',
     description:
@@ -68,14 +72,20 @@ export class ClubRechargeController {
   @ApiOperation({
     summary: '查询 purely-club 充值订单状态',
     description:
-      '返回当前 purely-club 用户指定充值订单的状态，并补充支付流水号、回调接收时间、确认来源与状态说明，供前端仅靠查单完成支付联调收口。',
+      '返回当前 purely-club 用户指定充值订单的状态，并补充支付流水号、回调接收时间、确认来源与状态说明，供前端仅靠查单完成支付联调收口。' +
+      '传 verify=true 时会额外回微信侧核对真实支付结果，用于拉起支付后结果未知的场景。',
   })
   @ApiOkResponse({ type: ClubRechargeOrderResponseDto })
   getOrderStatus(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
+    @Query() query: ClubRechargeOrderStatusQueryDto,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubRechargeService.getOrderStatus(currentContext, orderId);
+    return this.clubRechargeService.getOrderStatus(
+      currentContext,
+      orderId,
+      query,
+    );
   }
 
   @Post('orders/:id/confirm-paid')

@@ -68,6 +68,10 @@ model MarketingRecharge {
   type        MarketingRechargeType @default(recharge)
   /// 关联活动 ID（字符串，对应 MarketingPromotion.id）
   promotionId Int?                  @map("promotion_id")
+  /// 关联 club 充值订单号（club 充值落账时写入，用于幂等与对账；商家端手动充值为空）
+  orderNo     String?               @map("order_no")
+  /// 微信支付交易单号（对账用；非微信支付为空）
+  transactionId String?             @map("transaction_id")
   /// 备注
   note        String?
   createdAt   DateTime              @default(now()) @map("created_at")
@@ -75,10 +79,14 @@ model MarketingRecharge {
   promotion   MarketingPromotion?   @relation(fields: [promotionId], references: [id])
   store       Store                 @relation(fields: [storeId], references: [id])
 
+  /// 幂等最终兜底：同一笔 club 充值订单只允许落一条充值流水，
+  /// 防止 Redis 锁过期后并发回调重复加余额。历史数据 order_no 为空，不受影响。
+  @@unique([orderNo], map: "uq_marketing_recharges_order_no", where: raw("(order_no IS NOT NULL)"))
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
   @@index([storeId, type, createdAt])
   @@index([promotionId])
+  @@index([transactionId], where: raw("(transaction_id IS NOT NULL)"))
   @@map("marketing_recharges")
 }
 

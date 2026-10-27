@@ -7,14 +7,12 @@
  *   签名消息串 = {timestamp}\n{nonce}\n{body}\n
  *   签名算法：RSA-SHA256（微信使用其平台公钥签名，实际验签需下载平台证书）
  *
- * 当前实现策略：
- *   - 生产环境：应下载微信平台证书，用平台公钥做 RSA 验签。
- *     证书下载：GET /v3/certificates
- *   - 当前实现：仅校验时间戳时效性（防重放）+ 必填头存在性。
- *     RSA 验签依赖平台证书，证书管理较重（需定期轮换），
- *     在首次上线阶段由 IP 白名单 + HTTPS 保障安全，后续可按需补充完整验签。
+ * 当前实现策略（fail-closed）：
+ *   - 配置了 WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 时执行 RSA-SHA256 验签；
+ *   - 未配置公钥且非调试环境时**直接拒绝回调**，不再依赖 IP 白名单兜底。
  *
- * 如需完整 RSA 验签，可在 assertWechatCallbackSignature 中调用 verifyWithPublicKey。
+ * 历史说明（已废弃，保留仅供追溯）：早期仅校验时间戳时效性 + 必填头存在性，
+ * 靠 IP 白名单 + HTTPS 兜底安全。该策略已废止，注释同步更新避免误导。
  */
 import { createVerify } from 'node:crypto';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';

@@ -26,6 +26,19 @@ export class ListClubRechargePackagesQueryDto {
   preview?: boolean;
 }
 
+export class ClubRechargeOrderStatusQueryDto {
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否回微信侧核对真实支付结果；拉起支付后结果未知（unknown）时传 true，' +
+      '用于判断用户是否已扣款，避免按失败引导重复支付',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: 'verify 必须是布尔值' })
+  verify?: boolean;
+}
+
 export class CreateClubRechargeOrderDto {
   @ApiProperty({ example: 11, description: '当前选中的门店 ID' })
   @Type(() => Number)
@@ -105,9 +118,10 @@ export class ClubRechargeOrderResponseDto extends ClubOrderStatusResponseDto {
   @IsString({ message: 'packageId 必须是字符串' })
   packageId: string | null;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     type: ClubWechatPaymentParamsDto,
-    description: '发起微信支付所需参数',
+    description:
+      '发起微信支付所需参数；订单已支付 / 已关闭时为空，前端不应再发起支付',
   })
   paymentParams: ClubWechatPaymentParamsDto;
 }

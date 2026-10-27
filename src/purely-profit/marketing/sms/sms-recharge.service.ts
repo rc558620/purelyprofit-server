@@ -10,6 +10,7 @@ import { SmsAccountService } from './sms-account.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
 import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
 import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
+import { PlatformPaymentRealtimeService } from '../../payments/platform-payment-realtime.service';
 import type { ProfitPaymentMode } from '../../payments/profit-payment-mode.constants';
 import { SMS_RECHARGE_ORDER_TTL_SECONDS } from './sms.constants';
 import type {
@@ -42,6 +43,7 @@ export class SmsRechargeService {
     private readonly nativeService: SmsWechatNativeService,
     private readonly qrCodeService: PlatformPaymentQrCodeService,
     private readonly paymentModeService: ProfitPaymentModeService,
+    private readonly realtimeService: PlatformPaymentRealtimeService,
   ) {}
 
   /**
@@ -207,13 +209,18 @@ export class SmsRechargeService {
       });
 
       if (closed.count === 0) {
-        // 关单失败说明状态已变（多半是已支付），按最新状态返回，不能再写 closed
+        // 关单失败说明状态已变（多半是已支付），按最新状态返回，不能再写 closed。
+        // 这里也**不能**推 closed：与真实终态冲突，会让用户刚看到「支付成功」又收到「已关闭」。
         const latest = await this.prisma.smsRechargeOrder.findUnique({
           where: { orderNo },
           select: { status: true },
         });
         return { orderNo, status: latest?.status ?? 'pending' };
       }
+
+      // 全仓 purely-profit 只有 operations 下有定时任务，支付侧没有定时关单；
+      // 前端不再轮询后，这次查单就是 closed 推送的唯一触发源，必须推。
+      this.realtimeService.publishClosed(orderNo);
 
       return { orderNo, status: 'closed' };
     }
@@ -309,19 +316,27 @@ export class SmsRechargeService {
     return payMode === 'test' ? '测试充值' : '微信充值';
   }
 
-  /** 把订单标记为失败；订单不存在时只告警，不影响调用方流程 */
-  async markOrderFailed(orderNo: string): Promise<void> {
+  /**
+   * 把订单标记为失败；更新异常时只告警，不影响调用方流程。
+   *
+   * @returns true 表示本次真的把 pending 改成了 failed；false 表示订单已不是 pending
+   * （多半已被支付回调置 paid），调用方据此决定是否推送 failed——
+   * 底层是 `updateMany where status='pending'`，订单已 paid 时不会改动任何行但仍会返回，
+   * 无条件推 failed 会让用户刚收到「支付成功」就又收到「支付失败」。
+   */
+  async markOrderFailed(orderNo: string): Promise<boolean> {
     try {
-      await this.prisma.smsRechargeOrder.updateMany({
+      const updated = await this.prisma.smsRechargeOrder.updateMany({
         where: { orderNo, status: 'pending' },
         data: { status: 'failed' },
       });
+      return updated.count > 0;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         this.logger.warn(
           `标记充值订单失败状态异常：orderNo=${orderNo}，${error.message}`,
         );
-        return;
+        return false;
       }
       throw error;
     }

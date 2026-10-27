@@ -221,6 +221,17 @@ export class PlatformMembershipService {
     });
   }
 
+  /** 关闭会员支付单（用户放弃支付时调用，防止二维码事后被扫付款） */
+  async closeMembershipPaymentOrder(
+    user: AuthenticatedUser,
+    orderNo: string,
+  ): Promise<{ status: string; paidAt: Date | null }> {
+    return this.membershipPaymentService.closeMembershipPaymentOrder({
+      orderNo,
+      storeId: this.getCurrentStoreIdOrThrow(user),
+    });
+  }
+
   async listPointsLogs(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {

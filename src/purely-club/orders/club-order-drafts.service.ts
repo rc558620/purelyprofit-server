@@ -124,6 +124,19 @@ export class ClubOrderDraftsService {
   }
 
   /**
+   * 把从 DB 订单表还原出来的草稿写回 Redis。
+   *
+   * 用于 Redis 草稿丢失（重启 / 淘汰 / 过期）后的兜底：还原出的快照写回后，
+   * 后续查单与支付回调可以复用同一份数据，不必每次都回源数据库。
+   */
+  async restoreDraft<
+    TMetadata extends object,
+    TOrderType extends ClubOrderTypeValue,
+  >(draft: ClubOrderDraftPayload<TMetadata, TOrderType>): Promise<void> {
+    await this.persistDraft(draft);
+  }
+
+  /**
    * 删除指定订单草稿（用于外部调用失败时回滚清理）
    */
   async deleteDraft(orderId: string): Promise<void> {

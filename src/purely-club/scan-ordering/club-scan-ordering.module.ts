@@ -23,9 +23,13 @@ import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
+import { ClubScanOrderingWechatVerifyService } from './club-scan-ordering-wechat-verify.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
+import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
+// 支付落账锁仅依赖 RedisService，本地提供实例，避免引入整个 ClubPaymentsModule 造成循环依赖
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
@@ -67,10 +71,14 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubScanOrderingServiceCallService,
     ClubScanOrderingOrderService,
     ClubScanOrderingOrderQueryService,
+    ClubScanOrderingWechatVerifyService,
     ClubScanOrderingOrderHistoryService,
     ClubScanOrderingOrderPreviewService,
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
+    // 支付回调落账与微信侧主动核对共用同一落账入口，provider 归属扫码点餐模块
+    ClubScanOrderingPaymentService,
+    ClubPaymentLockService,
     ClubScanOrderingInventoryReservationService,
     ClubScanOrderingMarketingCustomerService,
     ScanOrderingSaleOrderBridgeService,
@@ -86,6 +94,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
   ],
   exports: [
     ClubScanOrderingService,
+    // 支付回调分发（ClubPaymentsModule）通过导入本模块消费同一实例
+    ClubScanOrderingPaymentService,
     ClubScanOrderingOrderService,
     ClubScanOrderingMarketingCustomerService,
     ScanOrderingRealtimeService,

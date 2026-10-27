@@ -14,6 +14,7 @@ import { PlatformMembershipPaymentService } from '../member/platform-membership/
 import { NewCustomerQuotaRechargeService } from '../member/new-customer-quota/new-customer-quota-recharge.service';
 import { PlatformWechatCallbackDecryptorService } from './platform-wechat-callback-decryptor.service';
 import { PlatformPaymentOrderService } from './platform-payment-order.service';
+import { PlatformPaymentRealtimeService } from './platform-payment-realtime.service';
 
 /** 微信回调期望的应答体：非 SUCCESS 会触发微信重试 */
 export interface WechatCallbackReply {
@@ -32,6 +33,7 @@ export class PlatformPaymentCallbackService {
     private readonly quotaRechargeService: NewCustomerQuotaRechargeService,
     private readonly membershipPaymentService: PlatformMembershipPaymentService,
     private readonly configService: ConfigService,
+    private readonly realtimeService: PlatformPaymentRealtimeService,
   ) {}
 
   /** 处理一次微信支付回调；任何业务失败都返回 SUCCESS 之外的码以触发重试 */
@@ -137,6 +139,7 @@ export class PlatformPaymentCallbackService {
         transactionId,
         amountFen: paidAmountFen,
       });
+      this.realtimeService.publishPaid(orderNo, new Date().toISOString());
       return { code: 'SUCCESS' };
     }
 
@@ -146,6 +149,7 @@ export class PlatformPaymentCallbackService {
         transactionId,
         amountFen: paidAmountFen,
       });
+      this.realtimeService.publishPaid(orderNo, new Date().toISOString());
       return { code: 'SUCCESS' };
     }
 
@@ -154,6 +158,7 @@ export class PlatformPaymentCallbackService {
       // 真走到这里说明数据串了：置 failed 让它在对账里可见，并回 SUCCESS ——
       // 重投再多次也不会凭空长出一个入账处理器，只会刷屏并拖慢后续回调。
       await this.paymentOrderService.markFailed(orderNo);
+      this.realtimeService.publishFailed(orderNo);
       this.logger.error(
         `[平台收款回调] ${orderNo} 属于短信充值链路，不应出现在平台支付单中，已置 failed`,
       );

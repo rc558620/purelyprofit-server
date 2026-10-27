@@ -20,6 +20,7 @@ import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import { ClubOrderServiceCreationService } from './club-order-service-creation.service';
 import { ClubOrderServicePaymentService } from './club-order-service-payment.service';
+import { ClubOrderWechatVerifyService } from './club-order-wechat-verify.service';
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
@@ -279,6 +280,11 @@ describe('ClubOrdersService', () => {
         ClubOrderServicePaymentService,
         ClubOrderSettlementService,
         ClubOrdersService,
+        // 微信侧核对服务在本 spec 中不参与断言，只满足 DI 装配
+        {
+          provide: ClubOrderWechatVerifyService,
+          useValue: { verifyAndSettle: jest.fn() },
+        },
         { provide: PrismaService, useValue: prismaService },
         { provide: ClubOrderPreviewService, useValue: clubOrderPreviewService },
         { provide: ConfigService, useValue: configService },

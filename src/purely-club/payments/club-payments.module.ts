@@ -3,7 +3,6 @@ import { RedisModule } from '../../redis/redis.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.module';
-import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
 import { ClubSelfOrderingModule } from '../self-ordering/club-self-ordering.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubVoucherOrdersModule } from '../voucher-orders/club-voucher-orders.module';
@@ -35,7 +34,7 @@ import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.mo
     ClubPaymentCallbackDispatchService,
     ClubPaymentLockService,
     ClubWechatCallbackDecryptorService,
-    ClubScanOrderingPaymentService,
+    // 扫码点餐落账服务由 ClubScanOrderingModule 提供并导出，此处不重复注册，避免双实例
     ClubPaymentsService,
   ],
   exports: [ClubPaymentLockService, ClubPaymentCallbackDispatchService],

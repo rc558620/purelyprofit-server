@@ -16,11 +16,13 @@ import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
+import { ClubRechargeOrderStoreService } from './club-recharge-order-store.service';
 import { ClubRechargePackagesService } from './club-recharge-packages.service';
 import { ClubRechargePaymentService } from './club-recharge-payment.service';
 import { ClubRechargeQueryService } from './club-recharge-query.service';
 import { ClubRechargeService } from './club-recharge.service';
 import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
+import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 
 describe('ClubRechargeService', () => {
   let service: ClubRechargeService;
@@ -40,6 +42,14 @@ describe('ClubRechargeService', () => {
     marketingRecharge: {
       create: jest.fn(),
     },
+    // 充值订单表：默认「表里没有记录」，走补建分支，保持落账可用
+    clubRechargeOrder: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    store: { findUnique: jest.fn().mockResolvedValue(null) },
+    user: { findUnique: jest.fn().mockResolvedValue(null) },
   };
 
   const configService = {
@@ -56,10 +66,19 @@ describe('ClubRechargeService', () => {
     isManualConfirmPaidAllowed: jest.fn(
       (): Promise<boolean> => Promise.resolve(true),
     ),
+    // 默认非生产：允许开发态 mock 支付参数
+    isProduction: jest.fn((): boolean => false),
   };
 
   const clubWechatJsapiService = {
     createJsapiPaymentParams: jest.fn(),
+    // 默认门店已配置收款
+    assertStorePayConfigured: jest.fn(() => Promise.resolve(undefined)),
+  };
+
+  /** 微信侧主动核对 + 补落账桩 */
+  const clubRechargeWechatVerifyService = {
+    verifyAndSettle: jest.fn(),
   };
 
   const clubWechatOpenidService = {
@@ -73,6 +92,7 @@ describe('ClubRechargeService', () => {
     getDraftByOrderId: jest.fn(),
     markPaid: jest.fn(),
     deleteDraft: jest.fn(),
+    restoreDraft: jest.fn(),
     updateDraftPaymentParams: jest.fn(),
     toOrderStatusResponse: jest.fn(),
   };
@@ -147,6 +167,10 @@ describe('ClubRechargeService', () => {
       return configMap[key];
     });
     clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
+    clubPaymentModeService.isProduction.mockReturnValue(false);
+    clubWechatJsapiService.assertStorePayConfigured.mockResolvedValue(
+      undefined,
+    );
     // 默认行为：显式传入优先；未传则视为查不到 openid
     clubWechatOpenidService.resolveOpenid.mockImplementation(
       (_userId: number, explicitOpenid?: string | null) =>
@@ -157,6 +181,10 @@ describe('ClubRechargeService', () => {
         callback(prismaService),
     );
     prismaService.marketingPromotion.findFirst.mockResolvedValue(null);
+    // 订单表默认「查不到记录」：走补建分支，保证落账不被幂等闸门误吞
+    prismaService.clubRechargeOrder.findUnique.mockResolvedValue(null);
+    prismaService.clubRechargeOrder.create.mockResolvedValue({ id: 1 });
+    prismaService.clubRechargeOrder.updateMany.mockResolvedValue({ count: 1 });
     clubOrderDraftsService.toOrderStatusResponse.mockImplementation(
       (draft) => ({
         id: draft.id,
@@ -188,6 +216,7 @@ describe('ClubRechargeService', () => {
         ClubRechargePackagesService,
         ClubRechargeContextService,
         ClubRechargeCreationService,
+        ClubRechargeOrderStoreService,
         ClubRechargeQueryService,
         ClubRechargeSettlementService,
         ClubRechargePaymentService,
@@ -204,6 +233,10 @@ describe('ClubRechargeService', () => {
         {
           provide: ClubWechatOpenidService,
           useValue: clubWechatOpenidService,
+        },
+        {
+          provide: ClubRechargeWechatVerifyService,
+          useValue: clubRechargeWechatVerifyService,
         },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
       ],
@@ -668,7 +701,7 @@ describe('ClubRechargeService', () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(createRechargeDraft());
 
     await expect(
-      service.getOrderStatus(currentContext, 'RC123'),
+      service.getOrderStatus(currentContext, 'RC123', {}),
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
@@ -706,7 +739,7 @@ describe('ClubRechargeService', () => {
       }),
     );
     expect(prismaService.marketingRecharge.create).toHaveBeenCalledWith({
-      data: {
+      data: expect.objectContaining({
         storeId: 11,
         customerId: 36,
         amount: 50000,
@@ -714,8 +747,10 @@ describe('ClubRechargeService', () => {
         totalAmount: 60000,
         type: 'recharge',
         promotionId: 18,
+        // 订单号与微信流水号随流水落库，作为对账与幂等兜底键
+        orderNo: 'RC123',
         note: 'club充值订单 RC123',
-      },
+      }),
     });
     // 充值落账：仅更新余额，不计入 totalSpent（累计消费）
     // rechargeAmountFen(50000) + bonusAmountFen(10000) = 60000 分
@@ -736,9 +771,14 @@ describe('ClubRechargeService', () => {
     expect(
       cacheInvalidatorService.invalidateMarketingCustomerDerived,
     ).toHaveBeenCalledWith(11);
-    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
-      paymentConfirmationSource: 'manual_confirm_paid',
-    });
+    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'RC123',
+        status: 'pending',
+        paymentConfirmationSource: 'manual_confirm_paid',
+      }),
+      { paymentConfirmationSource: 'manual_confirm_paid' },
+    );
   });
 
   it('confirmOrderPaidByCallback 校验金额后驱动回调落账', async () => {
@@ -823,12 +863,22 @@ describe('ClubRechargeService', () => {
         balance: { increment: 60000 },
       },
     });
-    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
-      paymentConfirmationSource: 'wechat_callback',
-      paymentTransactionId: 'wx_txn_wechat_002',
-      paidAtMs: 1773558660000,
-      callbackReceivedAtMs: 1773558663000,
-    });
+    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'RCWX123',
+        status: 'pending',
+        paidAtMs: 1773558660000,
+        paymentTransactionId: 'wx_txn_wechat_002',
+        callbackReceivedAtMs: 1773558663000,
+        paymentConfirmationSource: 'wechat_callback',
+      }),
+      {
+        paymentConfirmationSource: 'wechat_callback',
+        paymentTransactionId: 'wx_txn_wechat_002',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      },
+    );
   });
 
   it('confirmOrderPaidByCallback 在金额不一致时抛出 BadRequestException', async () => {
@@ -873,6 +923,152 @@ describe('ClubRechargeService', () => {
     );
     expect(prismaService.$transaction).not.toHaveBeenCalled();
     expect(clubOrderDraftsService.markPaid).not.toHaveBeenCalled();
+  });
+
+  it('重复回调落账由订单表幂等拦截，不重复加余额', async () => {
+    const draft = createRechargeDraft();
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    // 订单表已是 paid：抢占失败，必须整体跳过余额与流水写入
+    prismaService.clubRechargeOrder.findUnique.mockResolvedValue({
+      status: 'paid',
+    });
+    clubOrderDraftsService.markPaid.mockResolvedValue({
+      ...draft,
+      status: 'paid',
+    });
+
+    await service.confirmOrderPaidByCallback('RC123', {
+      amountFen: 50000,
+      transactionId: 'wx_txn_001',
+      paidAtMs: 1773558660000,
+      callbackReceivedAtMs: 1773558663000,
+    });
+
+    expect(prismaService.marketingRecharge.create).not.toHaveBeenCalled();
+    expect(prismaService.marketingCustomer.update).not.toHaveBeenCalled();
+    expect(prismaService.clubRechargeOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('订单超时关闭后收到真实微信回调仍完成落账（迟到回调补偿）', async () => {
+    const draft = {
+      ...createRechargeDraft(),
+      status: 'expired' as const,
+      failureReason: '订单超时未支付，已自动关闭',
+    };
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    prismaService.clubRechargeOrder.findUnique.mockResolvedValue({
+      status: 'expired',
+    });
+    clubOrderDraftsService.markPaid.mockResolvedValue({
+      ...draft,
+      status: 'paid',
+    });
+
+    await expect(
+      service.confirmOrderPaidByCallback('RC123', {
+        amountFen: 50000,
+        transactionId: 'wx_txn_001',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'RC123' }));
+
+    expect(prismaService.marketingRecharge.create).toHaveBeenCalled();
+    expect(prismaService.clubRechargeOrder.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orderNo: 'RC123', status: { not: 'paid' } },
+      }),
+    );
+  });
+
+  it('Redis 草稿丢失时按订单表还原订单状态，用户仍可查单', async () => {
+    clubOrderDraftsService.getDraft.mockRejectedValue(
+      new NotFoundException('订单不存在'),
+    );
+    prismaService.clubRechargeOrder.findUnique.mockResolvedValue(
+      createRechargeOrderRecord(),
+    );
+    prismaService.store.findUnique.mockResolvedValue({ name: '望京旗舰店' });
+    prismaService.user.findUnique.mockResolvedValue({
+      wechatPhone: '13800138000',
+    });
+
+    await expect(
+      service.getOrderStatus(currentContext, 'RC123', {}),
+    ).resolves.toEqual(
+      expect.objectContaining({ id: 'RC123', status: 'paid' }),
+    );
+    expect(clubOrderDraftsService.restoreDraft).toHaveBeenCalled();
+  });
+
+  it('从订单表还原时校验归属，他人订单仍按不存在处理', async () => {
+    clubOrderDraftsService.getDraft.mockRejectedValue(
+      new NotFoundException('订单不存在'),
+    );
+    prismaService.clubRechargeOrder.findUnique.mockResolvedValue({
+      ...createRechargeOrderRecord(),
+      userId: 999,
+    });
+    prismaService.store.findUnique.mockResolvedValue({ name: '望京旗舰店' });
+    prismaService.user.findUnique.mockResolvedValue({
+      wechatPhone: '13800138000',
+    });
+
+    await expect(
+      service.getOrderStatus(currentContext, 'RC123', {}),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  // D2：拉起支付后结果未知时，前端带 verify=true 查单，后端回微信侧核对真实结果
+  it('getOrderStatus 传 verify=true 时回微信侧核对支付结果', async () => {
+    clubOrderDraftsService.getDraft.mockResolvedValue(createRechargeDraft());
+    clubRechargeWechatVerifyService.verifyAndSettle.mockResolvedValue({
+      id: 'RC123',
+      status: 'paid',
+    });
+
+    await expect(
+      service.getOrderStatus(currentContext, 'RC123', { verify: true }),
+    ).resolves.toEqual(expect.objectContaining({ status: 'paid' }));
+
+    expect(
+      clubRechargeWechatVerifyService.verifyAndSettle,
+    ).toHaveBeenCalledWith({ orderNo: 'RC123' });
+  });
+
+  // A1：门店没配微信收款时必须在下单阶段就失败，不能等微信返回错误再翻译成「支付失败」
+  it('createOrder 在门店未配置微信收款时直接失败，不下单也不建草稿', async () => {
+    clubWechatJsapiService.assertStorePayConfigured.mockRejectedValue(
+      new BadRequestException({
+        code: 'STORE_PAY_CONFIG_MISSING',
+        message: '该门店暂不支持在线充值，请联系门店',
+      }),
+    );
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+
+    await expect(
+      service.createOrder(currentContext, { storeId: 11, packageId: '18' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).not.toHaveBeenCalled();
+  });
+
+  // 生产环境缺 openid 会生成注定无法支付的参数，必须直接拒绝下单
+  it('createOrder 在生产环境拿不到 openid 时拒绝下单', async () => {
+    clubPaymentModeService.isProduction.mockReturnValue(true);
+    clubWechatOpenidService.resolveOpenid.mockResolvedValue(null);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+
+    await expect(
+      service.createOrder(currentContext, { storeId: 11, customAmount: 100 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
   });
 });
 
@@ -936,5 +1132,31 @@ function createRechargeDraft() {
       bonusAmountFen: 10000,
       customAmountFen: null,
     },
+  };
+}
+
+/** 充值订单表记录样例：已支付并落账的充值订单 */
+function createRechargeOrderRecord() {
+  return {
+    id: 1,
+    orderNo: 'RC123',
+    storeId: 11,
+    userId: 201,
+    customerId: 36,
+    packageId: '18',
+    promotionId: 18,
+    amountFen: 50000,
+    customAmountFen: null,
+    bonusAmountFen: 10000,
+    paymentChannel: 'wechat',
+    transactionId: 'wx_txn_001',
+    status: 'paid',
+    paymentConfirmationSource: 'wechat_callback',
+    expiresAt: new Date('2026-06-10T12:45:00.000Z'),
+    paidAt: new Date('2026-06-10T12:31:00.000Z'),
+    callbackReceivedAt: new Date('2026-06-10T12:31:03.000Z'),
+    deletedAt: null,
+    createdAt: new Date('2026-06-10T12:30:00.000Z'),
+    updatedAt: new Date('2026-06-10T12:31:03.000Z'),
   };
 }

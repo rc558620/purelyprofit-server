@@ -8,6 +8,7 @@ import { ClubPaymentCallbackSignatureService } from '../../../purely-club/paymen
 import type { WechatDecryptedTransaction } from '../../../purely-club/payments/dto/club-wechat-callback.dto';
 import { SmsRechargeService } from './sms-recharge.service';
 import { SmsWechatCallbackDecryptorService } from './sms-wechat-callback-decryptor.service';
+import { PlatformPaymentRealtimeService } from '../../payments/platform-payment-realtime.service';
 import type {
   SmsWechatCallbackAckDto,
   SmsWechatCallbackDto,
@@ -37,6 +38,7 @@ export class SmsRechargeCallbackService {
     private readonly rechargeService: SmsRechargeService,
     private readonly signatureService: ClubPaymentCallbackSignatureService,
     private readonly decryptorService: SmsWechatCallbackDecryptorService,
+    private readonly realtimeService: PlatformPaymentRealtimeService,
   ) {}
 
   async handleWechatCallback(
@@ -64,7 +66,12 @@ export class SmsRechargeCallbackService {
     }
 
     if (transaction.trade_state !== 'SUCCESS') {
-      await this.rechargeService.markOrderFailed(orderNo);
+      const markedFailed = await this.rechargeService.markOrderFailed(orderNo);
+      // 只在确实把 pending 改成 failed 时推送：订单已 paid 时 markOrderFailed 不改动任何行，
+      // 无条件推会让用户刚收到「支付成功」就又收到「支付失败」。
+      if (markedFailed) {
+        this.realtimeService.publishFailed(orderNo);
+      }
       return {
         success: false,
         orderNo,
@@ -102,6 +109,12 @@ export class SmsRechargeCallbackService {
       payMode: 'live',
       transactionId: transaction.transaction_id,
     });
+
+    // 只在本次真的入账时推送：creditRecharge 返回 false 表示微信重复投递已忽略，
+    // 无条件推会让用户重复收到「充值成功」提示。
+    if (credited) {
+      this.realtimeService.publishPaid(orderNo, new Date().toISOString());
+    }
 
     return {
       success: true,

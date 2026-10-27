@@ -1,5 +1,6 @@
 import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ClubPaymentsService } from './club-payments.service';
 import {
   ClubWechatPaymentCallbackAckDto,
@@ -17,6 +18,10 @@ interface RawBodyRequest {
 export class ClubPaymentsController {
   constructor(private readonly clubPaymentsService: ClubPaymentsService) {}
 
+  // 同 profit 侧回调：一旦被全局限流（默认 100 次/60s/IP）打成 429，
+  // 微信会判定通知失败并按策略重投，极端情况下用户已付款却迟迟不开通会员/不落账。
+  // 真正的防伪造由验签承担，这里只兜住异常流量，因此单独放宽窗口。
+  @Throttle({ default: { ttl: 60_000, limit: 600 } })
   @Post('wechat/callback')
   @ApiOperation({
     summary: '接收 purely-club 微信支付回调（v3 加密格式）',

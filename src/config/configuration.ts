@@ -896,4 +896,19 @@ export default () => ({
     /** 上传文件路径前缀（如 'uploads/'，末尾需带 /） */
     pathPrefix: process.env.TENCENT_COS_PATH_PREFIX ?? 'uploads/',
   },
+
+  /**
+   * 资金链路告警配置。
+   *
+   * 只服务需要人工立刻介入的资金事故（回调重试耗尽、落账失败、验签失败突增）：
+   * 这类事件之前只进日志，等到用户投诉「钱扣了没到账」才被发现。
+   *
+   * 未配置 webhookUrl 时退化为结构化日志（见 AlertService），
+   * 本地与未接入告警通道的环境不会因为告警而报错。
+   * 对应环境变量：ALERT_WEBHOOK_URL
+   * 示例：https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+   */
+  alert: {
+    webhookUrl: process.env.ALERT_WEBHOOK_URL ?? '',
+  },
 });

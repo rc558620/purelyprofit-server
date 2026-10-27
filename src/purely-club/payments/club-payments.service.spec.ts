@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
@@ -156,7 +155,7 @@ describe('ClubPaymentsService', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('handleWechatCallback 在非 TRANSACTION.SUCCESS 事件时拒绝处理', async () => {
+  it('handleWechatCallback 在非 TRANSACTION.SUCCESS 事件时回 200 忽略，不落账', async () => {
     // 让验签 mock 通过，测试事件类型过滤逻辑
     clubPaymentCallbackSignatureService.assertWechatCallbackSignature.mockImplementation(
       () => undefined,
@@ -171,11 +170,20 @@ describe('ClubPaymentsService', () => {
       serial: 'CERT_SERIAL_001',
     };
 
-    await expect(
-      service.handleWechatCallback(payload, headers, '{}'),
-    ).rejects.toThrow(BadRequestException);
+    // 按微信回调协议必须回 200：返回 4xx 会被判定为通知失败并无限重投，
+    // 而 REFUND.* 这类事件重投多少次也不会变成可处理事件
+    const ack = await service.handleWechatCallback(payload, headers, '{}');
+    expect(ack).toEqual({
+      success: true,
+      orderNo: '',
+      orderType: 'unknown',
+      status: 'ignored',
+    });
     expect(
       clubWechatCallbackDecryptorService.decryptCallback,
+    ).not.toHaveBeenCalled();
+    expect(
+      clubPaymentCallbackDispatchService.dispatchByOrderNo,
     ).not.toHaveBeenCalled();
   });
 });

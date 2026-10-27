@@ -6,6 +6,7 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
+import { ClubScanOrderingWechatVerifyService } from './club-scan-ordering-wechat-verify.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
@@ -70,6 +71,11 @@ describe('ClubScanOrderingOrderService', () => {
           useValue: {
             invalidateMenuVersion: jest.fn().mockResolvedValue(undefined),
           },
+        },
+        // 微信侧核对服务在本 spec 中不参与断言，只满足 DI 装配
+        {
+          provide: ClubScanOrderingWechatVerifyService,
+          useValue: { verifyAndSettle: jest.fn().mockResolvedValue(false) },
         },
       ],
     }).compile();

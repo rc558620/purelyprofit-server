@@ -21,6 +21,8 @@ import { ProductSpecPricingService } from '../../purely-profit/goods/products/pr
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { SELF_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
+import type { ClubSelfOrderStatusQueryDto } from './dto/club-self-order-status-query.dto';
 
 /** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */
 const buildSelfOrderLineKey = (
@@ -75,6 +77,7 @@ export class ClubSelfOrderingOrderService {
     private readonly specPricing: ProductSpecPricingService,
     private readonly downgradeService: MembershipDowngradeService,
     private readonly quotaService: ClubNewCustomerQuotaService,
+    private readonly wechatVerifyService: ClubSelfOrderingWechatVerifyService,
   ) {}
 
   async create(
@@ -262,11 +265,21 @@ export class ClubSelfOrderingOrderService {
     }
   }
 
-  /** 查询订单详情（带归属校验） */
+  /**
+   * 查询订单详情（带归属校验）。
+   *
+   * verify=true 时先回微信侧核对并补落账，再读本地状态：
+   * 前端在拉起支付后结果未知（unknown）时用这个入口确认用户是否已扣款。
+   */
   async findOwnedOrder(
     user: AuthenticatedUser,
     orderId: number,
+    query?: ClubSelfOrderStatusQueryDto,
   ): Promise<Record<string, unknown>> {
+    if (query?.verify === true) {
+      await this.wechatVerifyService.verifyAndSettle(user.id, orderId);
+    }
+
     const order = await this.prisma.selfOrder.findFirst({
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       include: { items: true },

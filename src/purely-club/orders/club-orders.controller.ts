@@ -5,6 +5,7 @@ import {
   Headers,
   Param,
   Post,
+  Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -21,6 +22,7 @@ import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubOrdersService } from './club-orders.service';
 import {
+  ClubOrderStatusQueryDto,
   ClubOrderStatusResponseDto,
   ClubServiceOrderPreviewResponseDto,
   ClubServiceOrderResponseDto,
@@ -80,8 +82,13 @@ export class ClubOrdersController {
   getOrderStatus(
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
+    @Query() query: ClubOrderStatusQueryDto,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubOrdersService.getOrderStatus(currentContext, orderId);
+    return this.clubOrdersService.getOrderStatus(
+      currentContext,
+      orderId,
+      query,
+    );
   }
 
   @Post(':id/confirm-paid')

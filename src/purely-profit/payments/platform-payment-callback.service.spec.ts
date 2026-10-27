@@ -7,6 +7,7 @@ import type { PlatformMembershipPaymentService } from '../member/platform-member
 import { PlatformPaymentCallbackService } from './platform-payment-callback.service';
 import type { PlatformPaymentOrderService } from './platform-payment-order.service';
 import type { PlatformWechatCallbackDecryptorService } from './platform-wechat-callback-decryptor.service';
+import type { PlatformPaymentRealtimeService } from './platform-payment-realtime.service';
 
 describe('PlatformPaymentCallbackService', () => {
   const signatureService = {
@@ -27,6 +28,11 @@ describe('PlatformPaymentCallbackService', () => {
   const configService = {
     // 未配置平台商户号时跳过商户号校验，避免影响本地 / 测试环境
     get: jest.fn(() => undefined),
+  };
+  const realtimeService = {
+    publishPaid: jest.fn(),
+    publishFailed: jest.fn(),
+    publishClosed: jest.fn(),
   };
 
   let service: PlatformPaymentCallbackService;
@@ -71,6 +77,7 @@ describe('PlatformPaymentCallbackService', () => {
       quotaRechargeService as unknown as NewCustomerQuotaRechargeService,
       membershipPaymentService as unknown as PlatformMembershipPaymentService,
       configService as unknown as ConfigService,
+      realtimeService as unknown as PlatformPaymentRealtimeService,
     );
   });
 
@@ -83,6 +90,17 @@ describe('PlatformPaymentCallbackService', () => {
 
     expect(reply.code).toBe('FAIL');
     expect(decryptorService.decryptCallback).not.toHaveBeenCalled();
+  });
+
+  it('入账成功后推送支付结果，前端无需轮询', async () => {
+    const reply = await handle(buildDecrypted());
+
+    expect(reply.code).toBe('SUCCESS');
+    expect(realtimeService.publishPaid).toHaveBeenCalledTimes(1);
+    expect(realtimeService.publishPaid).toHaveBeenCalledWith(
+      'PP20261025000001',
+      expect.any(String),
+    );
   });
 
   it('回调金额与支付单不一致时拒绝入账', async () => {
