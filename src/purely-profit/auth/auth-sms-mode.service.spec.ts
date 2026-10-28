@@ -125,4 +125,29 @@ describe('AuthSmsModeService', () => {
 
     await expect(service.getMode()).resolves.toBe('mock');
   });
+
+  it('未开启明文回传开关时启动期校验静默通过', async () => {
+    const service = await buildService();
+
+    expect(() => service.assertExposeCodeConfig()).not.toThrow();
+  });
+
+  it('生产环境开启明文回传时启动即失败', async () => {
+    configMap.nodeEnv = 'production';
+    configMap['auth.exposeCodeInResponse'] = true;
+    const service = await buildService();
+
+    // 必须 fail-fast：启动即失败，而不是带着危险配置运行
+    expect(() => service.assertExposeCodeConfig()).toThrow(
+      /AUTH_EXPOSE_CODE_IN_RESPONSE/,
+    );
+  });
+
+  it('非生产环境开启明文回传时仅告警不阻断', async () => {
+    configMap.nodeEnv = 'development';
+    configMap['auth.exposeCodeInResponse'] = true;
+    const service = await buildService();
+
+    expect(() => service.assertExposeCodeConfig()).not.toThrow();
+  });
 });

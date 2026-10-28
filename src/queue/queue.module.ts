@@ -15,9 +15,11 @@ import { SaleOrderItemsArchiveProcessor } from './sale-order-items-archive.proce
 import { SaleOrderItemsArchiveService } from './sale-order-items-archive.service';
 import { SmsBroadcastRecoveryProcessor } from './sms-broadcast-recovery.processor';
 import { SmsDeliveryReconcileProcessor } from './sms-delivery-reconcile.processor';
+import { ProfitPaymentReconcileProcessor } from './profit-payment-reconcile.processor';
 import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
+import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platform-payment-reconcile.module';
 
 /**
  * 消息队列模块
@@ -36,6 +38,7 @@ import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
  * - `club-payment-callback`：异步处理微信支付成功回调
  * - `sms-broadcast-recovery`：定时补发卡在 sending 的群发短信任务（每 60s）
  * - `sms-delivery-reconcile`：定时补拉丢失的送达回执并退费（每 24h）
+ * - `profit-payment-reconcile`：定时主动查单补入账平台收款丢失的支付回调（每 30min）
  */
 @Global()
 @Module({
@@ -88,6 +91,9 @@ import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
       {
         name: 'sms-delivery-reconcile',
       },
+      {
+        name: 'profit-payment-reconcile',
+      },
     ),
     ClubPaymentCallbackQueueModule,
     RedisModule, // 提供 CachePrewarmCycleService
@@ -95,6 +101,7 @@ import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
     ScanOrderingModule,
     PrismaModule, // 提供 PrismaService（RetentionCleanupService / SaleOrderItemsArchiveService 依赖）
     SmsModule, // 提供 SmsBroadcastRecoveryService（群发派发补偿）
+    PlatformPaymentReconcileModule, // 提供 PlatformPaymentReconcileService（平台收款对账）
   ],
   providers: [
     CachePrewarmProcessor,
@@ -106,6 +113,7 @@ import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
     SaleOrderItemsArchiveService,
     SmsBroadcastRecoveryProcessor,
     SmsDeliveryReconcileProcessor,
+    ProfitPaymentReconcileProcessor,
     QueueSchedulerService,
   ],
   exports: [],

@@ -6,6 +6,21 @@ function parseStringList(raw: string | undefined): string[] {
 }
 
 /**
+ * 解析正整数配置，失败时用兜底值。
+ *
+ * 定时任务 / 兜底扫描类配置写错不应该让进程起不来或任务崩掉：
+ * 缺失、空白、负数、0、非数字一律回落到安全默认值。
+ */
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  if (raw === undefined || raw.trim() === '' || !Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const floored = Math.floor(parsed);
+  return floored > 0 ? floored : fallback;
+}
+
+/**
  * 归一化运行环境名：忽略首尾空白与大小写，空值兜底为 development。
  *
  * `NODE_ENV=Production` / `NODE_ENV="production "` 这类写法此前会被判成非生产，
@@ -213,6 +228,40 @@ export default () => ({
     archiveSaleOrderItemsBatchSize: parseInt(
       process.env.APP_ARCHIVE_SALE_ORDER_ITEMS_BATCH_SIZE ?? '5000',
       10,
+    ),
+
+    /**
+     * 平台收款对账开关（主动查单补入账，兜住丢失的支付回调）。
+     * 对应环境变量：PROFIT_PAYMENT_RECONCILE_ENABLED
+     */
+    platformPaymentReconcileEnabled:
+      (process.env.PROFIT_PAYMENT_RECONCILE_ENABLED ?? 'true') === 'true',
+    /**
+     * 平台收款对账执行间隔（毫秒），默认 30 分钟。
+     * 对应环境变量：PROFIT_PAYMENT_RECONCILE_INTERVAL_MS
+     */
+    platformPaymentReconcileIntervalMs: parsePositiveInt(
+      process.env.PROFIT_PAYMENT_RECONCILE_INTERVAL_MS,
+      1_800_000,
+    ),
+    /**
+     * 平台收款对账单轮最多核对的订单数，默认 200。
+     * 对应环境变量：PROFIT_PAYMENT_RECONCILE_BATCH_SIZE
+     */
+    platformPaymentReconcileBatchSize: parsePositiveInt(
+      process.env.PROFIT_PAYMENT_RECONCILE_BATCH_SIZE,
+      200,
+    ),
+    /**
+     * 挂起多少分钟后才纳入对账，默认 5 分钟。
+     *
+     * 太短会与正常支付窗口抢单：用户扫码付款到回调到达之间本来就有延迟，
+     * 提前查单既没有收益又白耗商户接口额度。
+     * 对应环境变量：PROFIT_PAYMENT_RECONCILE_MIN_PENDING_MINUTES
+     */
+    platformPaymentReconcileMinPendingMinutes: parsePositiveInt(
+      process.env.PROFIT_PAYMENT_RECONCILE_MIN_PENDING_MINUTES,
+      5,
     ),
   },
 
@@ -780,8 +829,26 @@ export default () => ({
     signName: process.env.TENCENT_SMS_SIGN_NAME ?? '',
     /** 注册验证码模板 ID */
     registerTemplateId: process.env.TENCENT_SMS_REGISTER_TEMPLATE_ID ?? '',
-    /** 登录验证码模板 ID */
+    /**
+     * 登录验证码模板 ID。
+     *
+     * ⚠️ 命名与真实用途已脱节：该模板同时服务注册后登录、purely-club 登录即注册，
+     * 以及绑定 / 换绑手机号（后者在 `bindPhoneTemplateId` 未配置时回落到这里）。
+     * 清理配置时不可仅凭「登录不要验证码」就删除，否则会打断 club 的手机号绑定。
+     */
     loginTemplateId: process.env.TENCENT_SMS_LOGIN_TEMPLATE_ID ?? '',
+    /**
+     * 绑定 / 换绑手机号验证码模板 ID。
+     *
+     * 该场景历史上复用登录模板，导致用户执行「绑定手机号」时收到
+     * 「您正在登录账号」的文案，语义错配且易被运营商判定为业务不符。
+     *
+     * 腾讯云模板需单独申请审核，因此设计为「提前接线 + 按需启用」：
+     * 未配置时 AuthSmsService 自动回落 loginTemplateId，
+     * 保证未申请该模板前线上行为完全不变，不会被空模板 ID 阻断。
+     * 对应环境变量：TENCENT_SMS_BIND_PHONE_TEMPLATE_ID
+     */
+    bindPhoneTemplateId: process.env.TENCENT_SMS_BIND_PHONE_TEMPLATE_ID ?? '',
     /** 找回密码验证码模板 ID */
     passwordResetTemplateId:
       process.env.TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID ?? '',

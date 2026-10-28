@@ -32,8 +32,13 @@ export const PLAN_QUOTA_GRANT_LABEL: Record<MembershipPlanGrantKey, string> = {
   free: '免费会员',
 };
 
-/** 可选充值档位（分）：10 / 50 / 100 元 */
-export const RECHARGE_TIER_AMOUNT_FEN = [1000, 5000, 10000] as const;
+/**
+ * 可选充值档位（分）：0.1 / 0.2 / 0.3 元
+ *
+ * 【临时改动 · 测完必须还原】为联调微信支付临时降级，还原时改回 `[1000, 5000, 10000]`
+ * 并同步还原 `formatAmountFenToYuanDisplay` 的整数截断实现。
+ */
+export const RECHARGE_TIER_AMOUNT_FEN = [10, 20, 30] as const;
 
 /** 额度不足业务码：C 端据此提示「联系商家」，前端需同步 */
 export const NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE = 'NEW_CUSTOMER_QUOTA_EXHAUSTED';

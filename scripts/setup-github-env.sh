@@ -184,6 +184,9 @@ gh variable set AUTH_ADMIN_LOGIN_ALIAS --env "$ENV" --body '<YOUR_ADMIN_ALIAS_HE
 # # 示例: 纯利宝
 # gh variable set TENCENT_SMS_REGISTER_TEMPLATE_ID       --env "$ENV" --body '<YOUR_SMS_REGISTER_TEMPLATE_ID_HERE>'
 # gh variable set TENCENT_SMS_LOGIN_TEMPLATE_ID          --env "$ENV" --body '<YOUR_SMS_LOGIN_TEMPLATE_ID_HERE>'
+# # 绑定 / 换绑手机号模板（可选）：未配置时自动回落登录模板，不阻断发送
+# # 建议申请专用模板，避免用户绑定手机号时收到「您正在登录账号」的错配文案
+# # gh variable set TENCENT_SMS_BIND_PHONE_TEMPLATE_ID     --env "$ENV" --body '<YOUR_SMS_BIND_PHONE_TEMPLATE_ID_HERE>'
 # gh variable set TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID --env "$ENV" --body '<YOUR_SMS_PASSWORD_RESET_TEMPLATE_ID_HERE>'
 
 # ─── 腾讯云 COS ──────────────────────────────────────────────────────────────

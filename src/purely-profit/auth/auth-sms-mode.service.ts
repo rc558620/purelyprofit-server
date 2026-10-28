@@ -141,6 +141,38 @@ export class AuthSmsModeService {
     return allowedPhones.includes(phone);
   }
 
+  /**
+   * 启动期校验「响应中回传验证码明文」开关，避免危险配置被静默带上线。
+   *
+   * `AuthCodeService.isExposeCodeEnabled` 只在**运行期**用「本次是否真实发送」
+   * 做了兜底，但兜底挡不住配置组合事故：生产一旦误配 `AUTH_SMS_MODE=mock`，
+   * `shouldSendLive` 恒为 false，明文回传会被永久激活，
+   * 任何人都能凭接口返回的验证码完成登录与手机号绑定。
+   *
+   * 因此生产环境直接 fail-fast（启动即失败，而不是带病运行），
+   * 非生产环境仅打出醒目告警：mock 模式下验证码依然写入 Redis 且校验有效，
+   * 该环境必须保证不公网可达。
+   */
+  assertExposeCodeConfig(): void {
+    if (this.configService.get<boolean>('auth.exposeCodeInResponse') !== true) {
+      return;
+    }
+
+    if (this.isProduction()) {
+      throw new Error(
+        '生产环境禁止启用 AUTH_EXPOSE_CODE_IN_RESPONSE：' +
+          '验证码明文会随响应返回，等同于绕过短信校验。请移除该配置后重启。',
+      );
+    }
+
+    this.logger.warn(
+      '[验证码明文回传已开启] AUTH_EXPOSE_CODE_IN_RESPONSE=true，' +
+        '验证码将随接口响应返回。该环境严禁公网可达——' +
+        'mock 模式下验证码同样写入 Redis 且校验有效，' +
+        '泄露后任何人可凭返回验证码完成登录与手机号绑定。',
+    );
+  }
+
   /** 读取配置文件中的默认短信通道模式。 */
   private getConfiguredMode(): SmsMode {
     return normalizeSmsMode(this.configService.get<string>('auth.smsMode'));

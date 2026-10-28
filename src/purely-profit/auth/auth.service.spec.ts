@@ -132,10 +132,15 @@ describe('AuthService', () => {
     sendPasswordResetCode: jest.fn(),
     sendRegisterCode: jest.fn(),
     sendLoginCode: jest.fn(),
+    // 绑定 / 换绑手机号走独立通道，未配置专用模板时由短信服务内部回落登录模板
+    sendBindPhoneCode: jest.fn(),
   };
   /** 短信通道模式：本套用例固定为测试模式，不触发真实发送。 */
   const authSmsModeService = {
     shouldSendLive: jest.fn().mockResolvedValue(false),
+    isProduction: jest.fn().mockReturnValue(false),
+    // AuthCodeService 构造期会调用，校验短信通道配置组合是否安全
+    assertExposeCodeConfig: jest.fn(),
   };
   const platformMembershipAccessService = {
     getSubAccountQuota: jest.fn().mockResolvedValue(0),

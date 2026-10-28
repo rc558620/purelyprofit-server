@@ -1,0 +1,34 @@
+---
+description: purelyprofit-server 后端核心规范（可关闭：IDE 规则设置 enabled 开关）
+alwaysApply: true
+enabled: true
+---
+
+# 后端核心规范 · purelyprofit-server
+
+> 本规则默认生效（alwaysApply）。若要临时不加载，在 IDE 规则设置中将 `enabled` 置为 false 即可，届时仅保留项目根 `CODEBUDDY.md` 的极简身份说明。
+
+## 项目身份与产品线
+
+- 后端仓库：`purelyprofit-server`，含三条产品线语义：`purely-profit`、`purely-pulse`、`purely-club`。
+- 视角默认：处理联调/接口任务前先判断属于哪条产品线（商家老板端 / 平台运营端 / C 端会员），禁止串视角、越权读取他人数据。
+- `purely-profit`（商家/老板端）：商家充值、开通会员、续费、购买平台能力等，默认进入开发者/平台侧账户与账单体系。
+- `purely-pulse`（平台/运营端）：开发者/平台运营查看商家经营与状态，关注目标商家、门店、区域、入驻、会员、推广、收益、分析；**禁止误写成商家自己的老板端或个人端接口**。设计 controller / DTO / service 前，必须先确认当前接口服务的是哪个目标商家、目标门店、目标区域，不能默认绑定当前商家自己。
+- `purely-club`（C 端会员端）：用户充值/储值，默认进入目标商家名下的个人会员/顾客储值账户。
+- 涉及充值、储值、续费、退款、赠送金额时，必须同时考虑账户归属、余额变更与账务一致性。
+
+## 规范查阅协议（First-Step Protocol）
+
+每次任务开始，**第一步**必须读取全局后端规范：
+`/Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md`
+- 禁止依赖记忆或直觉编码，必须实际读取。
+- 读取后在回答开头标注当前模式，例如：【模式：main】。
+- 代码生成后、交付前运行 `node scripts/check-f0rest-rules.mjs [文件]`，Exit Code 必须为 0。
+
+## 按需模式（不要一次性全读）
+
+进入 `strict` / `refactor` / `bug` / `auth` / `data` / `arch` / `page-check` 等模式时，按基础规范文件中的路由表读取：
+`/Users/f0rest/Documents/AgentMode/backend-modes/mode-<模式名>.md`
+
+- 未声明 mode 时按 `main` 执行，**不读任何附加文件**。
+- 一个任务组合多个模式时，读取对应多个文件。

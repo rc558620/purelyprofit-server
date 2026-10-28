@@ -102,8 +102,8 @@ export class ClubSelfOrderingPaymentSettlementService {
       })),
     });
 
-    // TODO(实时通知)：落账后广播 self_order.status_changed，驱动 purelyProfit 右下角弹窗。
-    // 需先在 scan-ordering-realtime.service 增加 self_order 事件与房间，
-    // 广播必须放在事务提交之后（与扫码点餐 publishOrderStatusChanged 的位置一致）。
+    // 广播不在事务内发：由 ClubSelfOrderingPaymentNotifierService 在事务提交之后
+    // 统一发 self_order.created + self_order.status_changed（与扫码点餐同一时延约定），
+    // 避免「通知到了、事务却回滚」产生幽灵订单。
   }
 }

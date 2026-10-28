@@ -1,6 +1,7 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createVerify, generateKeyPairSync, type KeyObject } from 'node:crypto';
 import * as fsPromises from 'node:fs/promises';
 import { InternalServerErrorException } from '@nestjs/common';
+import { PlatformWechatPayHttpService } from './platform-wechat-pay-http.service';
 import { PlatformWechatNativeService } from './platform-wechat-native.service';
 
 // node:fs/promises 的导出是只读属性，jest.spyOn 会报「Cannot redefine property」，
@@ -21,8 +22,13 @@ function makeConfig(overrides: Record<string, string> = {}) {
   return { get: jest.fn((key: string) => values[key]) };
 }
 
-const makeService = (overrides: Record<string, string> = {}) =>
-  new PlatformWechatNativeService(makeConfig(overrides) as never);
+const makeService = (overrides: Record<string, string> = {}) => {
+  const config = makeConfig(overrides);
+  return new PlatformWechatNativeService(
+    config as never,
+    new PlatformWechatPayHttpService(config as never),
+  );
+};
 
 interface FetchCall {
   url: string;
@@ -79,7 +85,10 @@ describe('PlatformWechatNativeService 关单', () => {
   });
 
   it('微信报 ORDER_NOT_EXIST 时按「不可支付」返回 closed', async () => {
-    mockFetch({ code: 'ORDER_NOT_EXIST', message: '订单不存在' }, { status: 404 });
+    mockFetch(
+      { code: 'ORDER_NOT_EXIST', message: '订单不存在' },
+      { status: 404 },
+    );
 
     await expect(makeService().closeNativeOrder('PM1')).resolves.toBe('closed');
   });
@@ -162,5 +171,136 @@ describe('PlatformWechatNativeService 私钥加载', () => {
     });
 
     expect(calls[0].headers.Authorization).toContain('DEV_MODE_NO_RSA_KEY');
+  });
+});
+
+/** 从 Authorization 头里取出各字段，便于校验签名与时间戳 */
+function parseAuthorization(header: string): {
+  mchid: string;
+  nonce: string;
+  signature: string;
+  timestamp: string;
+  serial: string;
+} {
+  const read = (key: string): string => {
+    const matched = new RegExp(`${key}="([^"]*)"`).exec(header);
+    return matched?.[1] ?? '';
+  };
+
+  return {
+    mchid: read('mchid'),
+    nonce: read('nonce_str'),
+    signature: read('signature'),
+    timestamp: read('timestamp'),
+    serial: read('serial_no'),
+  };
+}
+
+/**
+ * 查单是对账的事实来源。
+ *
+ * 这里重点验证 GET 的签名串：没有请求体时末尾必须是**两个** `\n`，
+ * 照抄 POST 的拼法会签名失败，而且失败信息只有「签名错误」，很难定位。
+ */
+describe('PlatformWechatNativeService 查单', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+  });
+  const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /** 生成一个已配置私钥的服务实例，并接管 fetch */
+  const prepare = (
+    responseBody: unknown,
+    options: { status?: number } = {},
+  ): FetchCall[] => {
+    const readFileMock = fsPromises.readFile as unknown as jest.Mock;
+    readFileMock.mockClear();
+    readFileMock.mockResolvedValue(privateKeyPem);
+    return mockFetch(responseBody, options);
+  };
+
+  const makeQueryService = (): PlatformWechatNativeService =>
+    makeService({ 'wechat.privateKeyPath': '/tmp/key.pem' });
+
+  it('查单成功时返回微信侧交易快照', async () => {
+    prepare({
+      trade_state: 'SUCCESS',
+      transaction_id: '4200000000000000000000000000',
+      success_time: '2026-10-28T10:59:00+08:00',
+      amount: { total: 1 },
+    });
+
+    const result = await makeQueryService().queryNativeOrder('PM1');
+
+    expect(result).toEqual({
+      tradeState: 'SUCCESS',
+      transactionId: '4200000000000000000000000000',
+      amountFen: 1,
+      paidAt: new Date('2026-10-28T02:59:00.000Z'),
+    });
+  });
+
+  it('请求 URL 用编码单号，签名串用未编码单号 + mchid query', async () => {
+    const calls = prepare({ trade_state: 'NOTPAY', amount: { total: 1 } });
+
+    await makeQueryService().queryNativeOrder('PM/1', 'membership');
+
+    // 请求：单号编码，商户号同样编码
+    expect(calls[0].url).toBe(
+      `https://api.mch.weixin.qq.com/v3/pay/transactions/out-trade-no/PM%2F1?mchid=${PLATFORM_MCH_ID}`,
+    );
+
+    // 签名：未编码单号；GET 无请求体，末尾两个 \n
+    const authorization = parseAuthorization(
+      calls[0].headers.Authorization as string,
+    );
+    const expectedMessage =
+      'GET\n' +
+      `/v3/pay/transactions/out-trade-no/PM/1?mchid=${PLATFORM_MCH_ID}\n` +
+      `${authorization.timestamp}\n` +
+      `${authorization.nonce}\n` +
+      '\n';
+
+    const verify = createVerify('RSA-SHA256');
+    verify.update(expectedMessage, 'utf8');
+    expect(
+      verify.verify(publicKey as KeyObject, authorization.signature, 'base64'),
+    ).toBe(true);
+  });
+
+  it('查不到订单时返回 null，而不是当成未支付', async () => {
+    prepare(
+      { code: 'ORDER_NOT_EXIST', message: '订单不存在' },
+      { status: 404 },
+    );
+
+    await expect(
+      makeQueryService().queryNativeOrder('PM1'),
+    ).resolves.toBeNull();
+  });
+
+  it('微信返回系统错误时抛错，由调用方保持 pending 等下轮', async () => {
+    prepare({ code: 'SYSTEM_ERROR', message: '系统错误' }, { status: 500 });
+
+    await expect(makeQueryService().queryNativeOrder('PM1')).rejects.toThrow(
+      InternalServerErrorException,
+    );
+  });
+
+  it('网络异常统一包装为「服务暂时不可用」', async () => {
+    const readFileMock = fsPromises.readFile as unknown as jest.Mock;
+    readFileMock.mockClear();
+    readFileMock.mockResolvedValue(privateKeyPem);
+    global.fetch = jest.fn(() =>
+      Promise.reject(new Error('ECONNRESET')),
+    ) as unknown as typeof fetch;
+
+    await expect(makeQueryService().queryNativeOrder('PM1')).rejects.toThrow(
+      /暂时不可用/,
+    );
   });
 });

@@ -337,3 +337,25 @@ describe('getStatus 归属校验与惰性关单', () => {
     );
   });
 });
+
+describe('markClosed 幂等关单', () => {
+  it('命中 pending 行时置 closed 并推送 payment.closed', async () => {
+    prismaMock.platformPaymentOrder.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.markClosed(ORDER_NO)).resolves.toBe(true);
+
+    expect(prismaMock.platformPaymentOrder.updateMany).toHaveBeenCalledWith({
+      where: { orderNo: ORDER_NO, status: 'pending' },
+      data: { status: 'closed' },
+    });
+    expect(realtimeMock.publishClosed).toHaveBeenCalledWith(ORDER_NO);
+  });
+
+  it('已被回调置 paid 时返回 false，不推送关闭事件', async () => {
+    prismaMock.platformPaymentOrder.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.markClosed(ORDER_NO)).resolves.toBe(false);
+
+    expect(realtimeMock.publishClosed).not.toHaveBeenCalled();
+  });
+});

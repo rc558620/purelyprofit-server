@@ -5,6 +5,7 @@ import type { Queue } from 'bullmq';
 import type { CachePrewarmJobData } from './cache-prewarm.processor';
 import type { RetentionCleanupJobData } from './retention-cleanup.processor';
 import type { SaleOrderItemsArchiveJobData } from './sale-order-items-archive.processor';
+import { PROFIT_PAYMENT_RECONCILE_QUEUE } from './profit-payment-reconcile.processor';
 
 /**
  * 队列调度服务
@@ -38,6 +39,8 @@ export class QueueSchedulerService implements OnModuleInit {
     private readonly smsBroadcastRecoveryQueue: Queue<void>,
     @InjectQueue('sms-delivery-reconcile')
     private readonly smsDeliveryReconcileQueue: Queue<void>,
+    @InjectQueue(PROFIT_PAYMENT_RECONCILE_QUEUE)
+    private readonly profitPaymentReconcileQueue: Queue<void>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -48,6 +51,7 @@ export class QueueSchedulerService implements OnModuleInit {
     await this.registerSaleOrderItemsArchiveJob();
     await this.registerSmsBroadcastRecoveryJob();
     await this.registerSmsDeliveryReconcileJob();
+    await this.registerProfitPaymentReconcileJob();
   }
 
   /**
@@ -264,6 +268,53 @@ export class QueueSchedulerService implements OnModuleInit {
 
     this.logger.log(
       `[queue-scheduler] sms-delivery-reconcile registered intervalMs=${intervalMs}`,
+    );
+  }
+
+  /**
+   * 注册平台收款对账定时任务（默认 30 分钟）
+   *
+   * 平台收款此前只靠微信回调入账：回调一丢（隧道地址变更 / 进程重启 /
+   * 网络抖动）订单就永久停在 pending，表现为「用户已付款、会员没开通」。
+   * 这个任务逐笔向微信主动查单，确认已支付就走回调同款入口补入账。
+   *
+   * 周期取 30 分钟：远大于支付单 15 分钟有效期，保证「确认未支付 → 关单」
+   * 只在订单真正过期后执行，同时把丢失回调的自愈延迟控制在半小时内。
+   *
+   * 除周期任务外额外投一个**启动即跑**的一次性任务：进程重启后
+   * 不必等满一个周期，积压的挂起单能在启动后立刻自愈。
+   *
+   * 出问题可通过 `PROFIT_PAYMENT_RECONCILE_ENABLED=false` 单独关停，
+   * 不影响支付主链路与回调入账。
+   */
+  private async registerProfitPaymentReconcileJob(): Promise<void> {
+    const enabled =
+      this.configService.get<boolean>('app.platformPaymentReconcileEnabled') ??
+      true;
+
+    if (!enabled) {
+      this.logger.log('[queue-scheduler] profit-payment-reconcile disabled');
+      return;
+    }
+
+    const intervalMs =
+      this.configService.get<number>(
+        'app.platformPaymentReconcileIntervalMs',
+      ) ?? 1_800_000;
+
+    await this.profitPaymentReconcileQueue.add('reconcile', undefined, {
+      repeat: { every: intervalMs },
+      jobId: 'profit-payment-reconcile-cycle', // 固定 jobId，防止重复注册
+    });
+
+    // 启动即跑一轮：与周期任务用不同 jobId，避免互相覆盖
+    await this.profitPaymentReconcileQueue.add('reconcile', undefined, {
+      jobId: 'profit-payment-reconcile-startup',
+      removeOnComplete: true,
+    });
+
+    this.logger.log(
+      `[queue-scheduler] profit-payment-reconcile registered intervalMs=${intervalMs}`,
     );
   }
 }

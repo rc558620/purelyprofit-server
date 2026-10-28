@@ -33,9 +33,14 @@ export const resolvePlanGrantLabel = (
   return PLAN_QUOTA_GRANT_LABEL[planId];
 };
 
-/** 金额（分）→ 展示文案（如 ¥10、¥100），仅格式化不做业务计算 */
+/**
+ * 金额（分）→ 展示文案（如 ¥10、¥100），仅格式化不做业务计算
+ *
+ * 【临时改动 · 测完必须还原】档位临时降到角级后，截断会让三档都显示 ¥0，
+ * 这里临时保留两位小数；还原档位时改回 `Math.trunc(amountFen / 100)`。
+ */
 export const formatAmountFenToYuanDisplay = (amountFen: number): string =>
-  `¥${Math.trunc(amountFen / 100)}`;
+  `¥${(amountFen / 100).toFixed(2)}`;
 
 /** 充值金额必须是后端下发的档位之一，避免客户端按任意金额换算额度 */
 export const isAllowedRechargeTier = (amountFen: number): boolean =>

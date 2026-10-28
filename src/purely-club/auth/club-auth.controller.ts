@@ -22,6 +22,7 @@ import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { NewCustomerQuotaCheckResult } from '../../purely-profit/member/new-customer-quota/new-customer-quota.types';
 import { ClubAuthService } from './club-auth.service';
+import { ClubDevLoginGuard } from './guards/club-dev-login.guard';
 import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { CaptchaTokenService } from '../../purely-profit/auth/captcha-token.service';
@@ -64,12 +65,11 @@ export class ClubAuthController {
       '后续发送短信验证码时需携带该 token，后端校验通过后才允许发送。' +
       'token 有效期 5 分钟，一次性消费。',
   })
-  registerCaptchaToken(
+  async registerCaptchaToken(
     @Body() dto: RegisterCaptchaTokenDto,
   ): Promise<{ success: boolean }> {
-    return this.captchaTokenService.issue(dto.captchaToken).then(() => ({
-      success: true,
-    }));
+    await this.captchaTokenService.issue(dto.captchaToken);
+    return { success: true };
   }
 
   @Get('public-key')
@@ -91,9 +91,12 @@ export class ClubAuthController {
   @Post('login/send-code')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60, limit: 3 } })
+  @UseGuards(ClubDevLoginGuard)
   @ApiOperation({
-    summary: '发送 purely-club 登录验证码',
+    summary: '发送 purely-club 登录验证码（仅供开发调试）',
     description:
+      '⚠️ 仅供本地 / 测试环境调试：生产环境由 ClubDevLoginGuard 统一伪装为 404。' +
+      'C 端生产登录身份完全由微信静默登录决定，登录页在生产构建下不可达。' +
       '无论手机号是否已注册均发送验证码。' +
       '同一手机号 60 秒内不可重复发送。' +
       '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
@@ -113,9 +116,12 @@ export class ClubAuthController {
   @Post('login/code')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60, limit: 10 } })
+  @UseGuards(ClubDevLoginGuard)
   @ApiOperation({
-    summary: '手机号验证码登录（登录即注册）',
+    summary: '手机号验证码登录（登录即注册，仅供开发调试）',
     description:
+      '⚠️ 仅供本地 / 测试环境调试：生产环境由 ClubDevLoginGuard 统一伪装为 404。' +
+      'C 端生产登录身份完全由微信静默登录决定，登录页在生产构建下不可达。' +
       '使用手机号 + 验证码完成登录。' +
       '若该手机号在 purely-club 尚无账号，将自动创建账号后签发 JWT token。' +
       '验证码来自 POST /club/auth/login/send-code，一次性消费。',

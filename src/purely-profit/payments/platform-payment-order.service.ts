@@ -161,6 +161,30 @@ export class PlatformPaymentOrderService {
     return handled;
   }
 
+  /**
+   * 置为已关闭（幂等）。
+   *
+   * 只在当前仍为 `pending` 时翻转，靠「带状态条件的 updateMany」避免并发抢占：
+   * 回调可能在关单的同几毫秒内把支付单置为 paid，此时必须让关单失败，
+   * 否则会出现「本地显示超时未付、钱已扣」。
+   *
+   * @returns 是否由本次调用完成关单；false 表示已被回调抢占（不可再推关闭事件）
+   */
+  async markClosed(orderNo: string): Promise<boolean> {
+    const closed = await this.prisma.platformPaymentOrder.updateMany({
+      where: { orderNo, status: 'pending' },
+      data: { status: 'closed' },
+    });
+
+    if (closed.count === 0) {
+      return false;
+    }
+
+    // 已确认关单：推给订阅该单的页面，避免前端在没有轮询的情况下一直干等
+    this.realtimeService.publishClosed(orderNo);
+    return true;
+  }
+
   /** 置为失败（下单异常时用，保留单号便于排查） */
   async markFailed(orderNo: string): Promise<void> {
     await this.prisma.platformPaymentOrder.updateMany({
@@ -262,19 +286,14 @@ export class PlatformPaymentOrderService {
       return this.readCurrentStatus(orderNo, 'pending');
     }
 
-    const closed = await this.prisma.platformPaymentOrder.updateMany({
-      where: { orderNo, status: 'pending' },
-      data: { status: 'closed' },
-    });
+    const closed = await this.markClosed(orderNo);
 
     // 关单瞬间回调可能已经把支付单置为 paid：此时必须回真实状态，
     // 否则前端拿到 closed 会提示「超时未支付」，而用户其实已经付过钱
-    if (closed.count === 0) {
+    if (!closed) {
       return this.readCurrentStatus(orderNo, 'closed');
     }
 
-    // 已确认关单：推给订阅该单的页面，避免前端在没有轮询的情况下一直干等
-    this.realtimeService.publishClosed(orderNo);
     return { status: 'closed', paidAt: null };
   }
 

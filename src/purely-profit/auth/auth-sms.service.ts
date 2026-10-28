@@ -72,6 +72,7 @@ export class AuthSmsService {
   private readonly signName: string;
   private readonly registerTemplateId: string;
   private readonly loginTemplateId: string;
+  private readonly bindPhoneTemplateId: string;
   private readonly passwordResetTemplateId: string;
 
   constructor(
@@ -86,6 +87,8 @@ export class AuthSmsService {
       configService.get<string>('tencentSms.registerTemplateId') ?? '';
     this.loginTemplateId =
       configService.get<string>('tencentSms.loginTemplateId') ?? '';
+    this.bindPhoneTemplateId =
+      configService.get<string>('tencentSms.bindPhoneTemplateId') ?? '';
     this.passwordResetTemplateId =
       configService.get<string>('tencentSms.passwordResetTemplateId') ?? '';
 
@@ -141,6 +144,38 @@ export class AuthSmsService {
       [params.code, String(toExpireMinutes(params.expiresInSeconds))],
       '登录',
     );
+  }
+
+  /**
+   * 发送绑定 / 换绑手机号验证码。
+   *
+   * 独立成方法而非复用 sendLoginCode，是为了让「绑定手机号」拥有自己的模板：
+   * 复用登录模板会让用户执行绑定操作时收到「您正在登录账号」的文案，
+   * 与实际操作不符，既影响体验也易被运营商判定为业务不符。
+   */
+  async sendBindPhoneCode(params: SendSmsCodeParams): Promise<void> {
+    if (!this.resolveSendLive(params, '绑定手机号')) {
+      return;
+    }
+
+    await this.sendSms(
+      params.phone,
+      this.resolveBindPhoneTemplateId(),
+      [params.code, String(toExpireMinutes(params.expiresInSeconds))],
+      '绑定手机号',
+    );
+  }
+
+  /**
+   * 解析绑定手机号场景使用的模板 ID。
+   *
+   * 未单独配置 TENCENT_SMS_BIND_PHONE_TEMPLATE_ID 时回落登录模板：
+   * 腾讯云模板需单独申请审核，「提前接线 + 按需启用」可避免模板尚未
+   * 申请时绑定功能被空模板 ID 阻断，申请通过后再配置即可生效，无需改代码。
+   * @returns 绑定手机号场景使用的模板 ID
+   */
+  private resolveBindPhoneTemplateId(): string {
+    return this.bindPhoneTemplateId || this.loginTemplateId;
   }
 
   /**

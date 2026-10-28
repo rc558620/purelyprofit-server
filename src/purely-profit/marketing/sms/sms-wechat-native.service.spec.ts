@@ -1,5 +1,6 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
+import { PlatformWechatPayHttpService } from '../../payments/platform-wechat-pay-http.service';
 import { SmsWechatNativeService } from './sms-wechat-native.service';
 
 const PLATFORM_MCH_ID = '1900000001';
@@ -20,11 +21,16 @@ function makeConfig(overrides: Record<string, string> = {}) {
 // 保证「短信侧薄适配 + 平台侧真实下单」这条链路被端到端覆盖而不是只测桩
 const makeService = (
   overrides: Record<string, string> = {},
-): SmsWechatNativeService =>
-  new SmsWechatNativeService(
-    makeConfig(overrides) as never,
-    new PlatformWechatNativeService(makeConfig(overrides) as never),
+): SmsWechatNativeService => {
+  const config = makeConfig(overrides);
+  return new SmsWechatNativeService(
+    config as never,
+    new PlatformWechatNativeService(
+      config as never,
+      new PlatformWechatPayHttpService(config as never),
+    ),
   );
+};
 
 /** 捕获 fetch 调用 */
 function mockFetch(responseBody: unknown, ok = true) {
@@ -172,9 +178,7 @@ describe('SmsWechatNativeService', () => {
   it('关单委托给平台服务，短信侧不再自己实现一套关单', async () => {
     const calls = mockFetch({});
 
-    await expect(makeService().closeNativeOrder('SM1')).resolves.toBe(
-      'closed',
-    );
+    await expect(makeService().closeNativeOrder('SM1')).resolves.toBe('closed');
 
     expect(calls[0].url).toContain('/v3/pay/transactions/out-trade-no/SM1');
   });

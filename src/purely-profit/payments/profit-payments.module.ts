@@ -16,6 +16,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 // CommerceModule 导出 CommerceAccessService：网关订阅短信充值单时按门店校验归属
 import { CommerceModule } from '../commerce/commerce.module';
+import { PlatformWechatPayHttpService } from './platform-wechat-pay-http.service';
 import { PlatformWechatNativeService } from './platform-wechat-native.service';
 import { PlatformWechatCallbackDecryptorService } from './platform-wechat-callback-decryptor.service';
 import { PlatformPaymentOrderService } from './platform-payment-order.service';
@@ -30,6 +31,8 @@ import { PlatformPaymentGateway } from './platform-payment.gateway';
   imports: [PrismaModule, AuthModule, CommerceModule],
   controllers: [ProfitPaymentModeController],
   providers: [
+    // 微信 API v3 传输层（签名 / 私钥 / 超时 / 错误解析），供下单、查单、关单共用
+    PlatformWechatPayHttpService,
     PlatformWechatNativeService,
     PlatformWechatCallbackDecryptorService,
     PlatformPaymentOrderService,

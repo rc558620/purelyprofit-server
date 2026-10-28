@@ -38,7 +38,10 @@ export class AuthCodeService {
     private readonly authSmsService: AuthSmsService,
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly captchaTokenService: CaptchaTokenService,
-  ) {}
+  ) {
+    // 启动期校验短信通道配置组合，避免危险配置被静默带上线
+    this.authSmsModeService.assertExposeCodeConfig();
+  }
 
   async sendRegisterCode(
     phone: string,
@@ -230,7 +233,9 @@ export class AuthCodeService {
     await this.redisService.set(codeKey, code, expiresInSeconds);
 
     try {
-      await this.authSmsService.sendLoginCode({
+      // 走绑定手机号专用通道：登录模板的「您正在登录账号」文案与绑定操作不符，
+      // 未配置 TENCENT_SMS_BIND_PHONE_TEMPLATE_ID 时由短信服务自动回落登录模板。
+      await this.authSmsService.sendBindPhoneCode({
         phone,
         code,
         expiresInSeconds,
@@ -367,6 +372,10 @@ export class AuthCodeService {
    * 1. 显式配置开关 `auth.exposeCodeInResponse` 为 true（默认关闭，生产禁止启用）；
    * 2. 本次未真实发送短信 —— 真实发送时必须禁止暴露明文验证码，
    *    否则前端可直接拿到验证码，等同于绕过短信校验直接改密。
+   *
+   * ⚠️ 条件 2 只是运行期兜底：生产若误配 `AUTH_SMS_MODE=mock`，
+   * `shouldSendLive` 恒为 false，明文回传会被永久激活。
+   * 硬拦截由 `AuthSmsModeService.assertExposeCodeConfig()` 在启动期完成。
    * @param shouldSendLive 本次发码的真实发送裁决结果
    */
   private isExposeCodeEnabled(shouldSendLive: boolean): boolean {

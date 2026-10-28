@@ -18,6 +18,11 @@ export class ClubSelfOrderingPaymentNotifierService {
   /**
    * 支付成功广播（必须在事务提交后调用）
    * 以订单当前状态为准：只有 paid 才广播，天然规避幂等重放时的重复通知
+   *
+   * 同时发 created 与 status_changed 两条事件，二者消费方不同：
+   * - created → 商家端右下角新订单弹窗 + 语音；
+   * - status_changed → 商家端列表 / 角标刷新，以及 C 端订单状态同步。
+   * 只发 created 时，商家端列表里那笔订单会一直停在「待支付」直到手动刷新。
    */
   async broadcastOrderPaid(orderId: number): Promise<void> {
     const order = await this.prisma.selfOrder.findFirst({
@@ -53,6 +58,17 @@ export class ClubSelfOrderingPaymentNotifierService {
       amountFen: order.payableAmount,
       remark: order.remark,
       paidAt: (order.paidAt ?? new Date()).toISOString(),
+    });
+
+    this.realtimeService.publishSelfOrderStatusChanged({
+      storeId: order.storeId,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      sessionId: order.sessionId,
+      spaceId: order.spaceId,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      version: order.version,
     });
   }
 }
