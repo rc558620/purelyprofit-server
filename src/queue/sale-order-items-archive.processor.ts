@@ -37,8 +37,10 @@ export class SaleOrderItemsArchiveProcessor extends WorkerHost {
     const startedAt = Date.now();
 
     if (taskType !== 'archive') {
+      // 联合类型已收窄为 never，显式转 string 便于记录脏任务数据
+      const unknownTaskType: string = taskType;
       this.logger.warn(
-        `[sale-order-items-archive-processor] unknown taskType=${taskType}`,
+        `[sale-order-items-archive-processor] unknown taskType=${unknownTaskType}`,
       );
       return 0;
     }

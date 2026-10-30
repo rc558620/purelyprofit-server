@@ -35,7 +35,7 @@ describe('微信静默注册 (e2e, real database + mocked WeChat API)', () => {
     ({
       ok: true,
       status: 200,
-      json: async () => body,
+      json: () => Promise.resolve(body),
     }) as unknown as Response;
 
   beforeAll(async () => {
@@ -48,7 +48,7 @@ describe('微信静默注册 (e2e, real database + mocked WeChat API)', () => {
       // 该网关的 bootstrap 钩子会直接抛错；本用例只调 service、不涉及实时推送
       .overrideProvider(ScanOrderingGateway)
       .useValue({
-        onApplicationBootstrap: async () => undefined,
+        onApplicationBootstrap: () => Promise.resolve(),
         afterInit: () => undefined,
         server: undefined,
       })
@@ -64,8 +64,14 @@ describe('微信静默注册 (e2e, real database + mocked WeChat API)', () => {
 
   beforeEach(() => {
     // 拦截微信开放接口，其余外部请求一律失败（暴露意外的真实外呼）
-    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      // RequestInfo 可能是字符串、URL 或 Request 对象，统一取出可比较的 URL 字符串
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
 
       if (url.includes('/sns/jscode2session')) {
         const code = new URL(url).searchParams.get('js_code') ?? '';
@@ -116,7 +122,9 @@ describe('微信静默注册 (e2e, real database + mocked WeChat API)', () => {
 
   /** 解出 JWT payload（不验签），用于断言服务端签发的 phone 声明 */
   const decodeJwtPayload = (token: string): Record<string, unknown> =>
-    JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+    JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'),
+    );
 
   it('全新 openid 首次调用：自动注册并签发 token，标记需要绑定手机号', async () => {
     const code = 'brand-new-user';
@@ -195,17 +203,17 @@ describe('微信静默注册 (e2e, real database + mocked WeChat API)', () => {
   });
 
   it('code 无效时透传微信错误语义，不产生脏账号', async () => {
-    global.fetch = jest.fn(async () =>
-      jsonResponse({ errcode: 40029, errmsg: 'invalid code' }),
+    global.fetch = jest.fn(() =>
+      Promise.resolve(jsonResponse({ errcode: 40029, errmsg: 'invalid code' })),
     ) as unknown as typeof fetch;
 
     const countBefore = await prisma.user.count({
       where: { wechatOpenid: { startsWith: openidPrefix } },
     });
 
-    await expect(
-      service.wechatLogin({ code: 'invalid-code' }),
-    ).rejects.toThrow(/微信登录凭证无效/);
+    await expect(service.wechatLogin({ code: 'invalid-code' })).rejects.toThrow(
+      /微信登录凭证无效/,
+    );
 
     // 失败路径不得落库：账号数与失败前一致
     const countAfter = await prisma.user.count({

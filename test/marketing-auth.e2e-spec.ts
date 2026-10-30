@@ -26,8 +26,12 @@ import { MarketingService } from '../src/purely-profit/marketing/marketing.servi
 import { MarketingTransactionsFacadeService } from '../src/purely-profit/marketing/marketing-transactions.facade.service';
 import { MarketingOverviewFacadeService } from '../src/purely-profit/marketing/marketing-overview.facade.service';
 import { MarketingAccessService } from '../src/purely-profit/marketing/marketing-access.service';
+import { StoreBusinessCapabilityService } from '../src/purely-profit/stores/store-business-capability.service';
 import { PlatformMembershipAccessService } from '../src/purely-profit/member/platform-membership/platform-membership-access.service';
+import { ClubMemberLevelsService } from '../src/purely-club/member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../src/purely-club/member/member-profile/club-member-profile.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { RedisService } from '../src/redis/redis.service';
 
 const TEST_JWT_SECRET = 'test-secret';
 const jwtService = new JwtService({ secret: TEST_JWT_SECRET });
@@ -60,8 +64,32 @@ describe('Marketing auth chain (e2e)', () => {
     getTokenVersion: jest.fn(),
   };
 
+  // JwtStrategy 会用 Redis 缓存 user 最小字段集，这里固定缓存未命中，
+  // 让鉴权链路回落到 prisma mock
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
+
   const platformMembershipAccessService = {
     ensureMarketingFeatureEnabled: jest.fn(),
+  };
+
+  // MarketingSharedService 解析 clubLevel 时依赖这两个服务；鉴权链路不涉及，
+  // 这里返回“无快照”让附加字段解析直接返回空对象
+  const clubMemberProfileService = {
+    getSnapshotByStoreAndPhone: jest.fn().mockResolvedValue(null),
+  };
+  const clubMemberLevelsService = {
+    resolveCurrentLevelConfig: jest.fn(),
+  };
+
+  // 本用例验证的是鉴权链（401/403），业态闸门不做限制，统一放行
+  const storeBusinessCapabilityService = {
+    getCapabilities: jest.fn().mockResolvedValue({
+      isCateringStore: true,
+      isGeneralStore: true,
+    }),
   };
 
   const unusedOverviewFacade = {
@@ -164,8 +192,24 @@ describe('Marketing auth chain (e2e)', () => {
           useValue: authSessionService,
         },
         {
+          provide: RedisService,
+          useValue: redisService,
+        },
+        {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
+        },
+        {
+          provide: ClubMemberProfileService,
+          useValue: clubMemberProfileService,
+        },
+        {
+          provide: ClubMemberLevelsService,
+          useValue: clubMemberLevelsService,
+        },
+        {
+          provide: StoreBusinessCapabilityService,
+          useValue: storeBusinessCapabilityService,
         },
         {
           provide: ConfigService,
@@ -279,6 +323,13 @@ describe('Marketing auth chain (e2e)', () => {
       prismaService.marketingProductCategory.findMany,
     ).toHaveBeenCalledWith({
       where: { storeId: 18 },
+      select: {
+        id: true,
+        name: true,
+        icon: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
   });

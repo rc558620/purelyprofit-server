@@ -35,9 +35,7 @@ describe('ScanOrderingRealtimeService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     redisService.publish.mockResolvedValue(1);
-    redisService.subscribe.mockImplementation(
-      async () => async () => undefined,
-    );
+    redisService.subscribe.mockImplementation(() => () => Promise.resolve());
     redisService.checkReadiness.mockResolvedValue(undefined);
     (namespace.to as jest.Mock).mockReturnValue({ local: { emit } });
 

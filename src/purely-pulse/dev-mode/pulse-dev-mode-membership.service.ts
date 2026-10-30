@@ -9,7 +9,6 @@ import type {
   PlatformMembershipPromoCenterResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
-import { POINTS_RATE } from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import { buildMembershipCapabilities } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
 import {
   DEV_EXPIRES_AT,

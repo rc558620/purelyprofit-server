@@ -10,6 +10,11 @@ import { AuthCodeVerifyService } from '../src/purely-profit/auth/auth-code-verif
 import { AuthAccountLookupService } from '../src/purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
 import { ClubStoreAccessService } from '../src/purely-club/stores/club-store-access.service';
+import { ClubPhoneBindService } from '../src/purely-club/auth/club-phone-bind.service';
+import { ClubPhoneRebindService } from '../src/purely-club/auth/club-phone-rebind.service';
+import { ClubAccountMergeService } from '../src/purely-club/auth/club-account-merge.service';
+import { NewCustomerQuotaService } from '../src/purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../src/purely-club/stores/club-current-store-context.service';
 
 /**
  * 真实数据库 E2E：**先绑手机号、后触发合并** 时会员档案必须跟着走。
@@ -105,6 +110,33 @@ describe('先绑号后合并：会员档案迁移 (e2e, real database)', () => {
         {
           provide: ClubStoreAccessService,
           useValue: clubStoreAccessService,
+        },
+        // bindPhone 已拆分到 ClubPhoneBindService（合并再下沉到 ClubAccountMergeService），
+        // 本用例需要真实实现才能在真实数据库上验证档案迁移
+        ClubPhoneBindService,
+        ClubPhoneRebindService,
+        ClubAccountMergeService,
+        // 以下依赖仅用于满足 ClubAuthService 构造器注入：用例未传 currentUser，
+        // 新客额度闸门不会生效
+        {
+          provide: NewCustomerQuotaService,
+          useValue: {
+            hasRemaining: jest.fn().mockResolvedValue(true),
+            isNewCustomer: jest.fn().mockResolvedValue(false),
+            ensureAvailableForNewCustomer: jest
+              .fn()
+              .mockResolvedValue(undefined),
+            consumeForNewCustomer: jest
+              .fn()
+              .mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest
+              .fn()
+              .mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+          },
+        },
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: { getCurrentStore: jest.fn().mockResolvedValue({ id: 1 }) },
         },
       ],
     }).compile();

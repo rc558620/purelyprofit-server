@@ -108,7 +108,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    prismaService.membershipPlanSetting.findMany.mockResolvedValue(PLAN_SETTINGS);
+    prismaService.membershipPlanSetting.findMany.mockResolvedValue(
+      PLAN_SETTINGS,
+    );
     prismaService.$transaction.mockImplementation(
       async (callback: (client: typeof tx) => Promise<void>) => callback(tx),
     );
@@ -148,7 +150,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         '598',
       ]);
       // 未议定覆盖价：下发 null，前端据此展示「按配置价」
-      expect(items.every((item) => item.overridePriceDisplay === null)).toBe(true);
+      expect(items.every((item) => item.overridePriceDisplay === null)).toBe(
+        true,
+      );
     });
 
     it('含子账号：月 / 季不可编辑并给出原因，年 / 永久仍可编辑', async () => {
@@ -218,7 +222,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         ]),
       ).rejects.toBeInstanceOf(BadRequestException);
 
-      expect(lockedPriceService.upsertRenewalPriceOverride).not.toHaveBeenCalled();
+      expect(
+        lockedPriceService.upsertRenewalPriceOverride,
+      ).not.toHaveBeenCalled();
     });
 
     it('含子账号的门店改月 / 季档位直接拒绝', async () => {
@@ -242,7 +248,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         { planId: 'yearly', priceDisplay: '298' },
       ]);
 
-      expect(lockedPriceService.upsertRenewalPriceOverride).toHaveBeenCalledWith({
+      expect(
+        lockedPriceService.upsertRenewalPriceOverride,
+      ).toHaveBeenCalledWith({
         storeId: 18,
         planId: 'yearly',
         // 298 元 → 29800 分
@@ -252,7 +260,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         executor: tx,
       });
 
-      expect(tx.storeMembershipPriceOverrideAudit.createMany).toHaveBeenCalledWith({
+      expect(
+        tx.storeMembershipPriceOverrideAudit.createMany,
+      ).toHaveBeenCalledWith({
         data: [
           {
             storeId: 18,
@@ -264,7 +274,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
           },
         ],
       });
-      expect(mutationStateService.invalidatePulseDashboardHome).toHaveBeenCalledTimes(1);
+      expect(
+        mutationStateService.invalidatePulseDashboardHome,
+      ).toHaveBeenCalledTimes(1);
     });
 
     it('0 元是合法入参，不与「清除覆盖」混淆（取高者后按配置价收）', async () => {
@@ -272,7 +284,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         { planId: 'yearly', priceDisplay: '0' },
       ]);
 
-      expect(lockedPriceService.upsertRenewalPriceOverride).toHaveBeenCalledWith(
+      expect(
+        lockedPriceService.upsertRenewalPriceOverride,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({ planId: 'yearly', overridePrice: 0 }),
       );
     });
@@ -282,7 +296,9 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         { planId: 'yearly', priceDisplay: '' },
       ]);
 
-      expect(lockedPriceService.upsertRenewalPriceOverride).toHaveBeenCalledWith(
+      expect(
+        lockedPriceService.upsertRenewalPriceOverride,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({ planId: 'yearly', overridePrice: null }),
       );
     });
@@ -296,8 +312,12 @@ describe('PulseMembershipAdminRenewalPriceService', () => {
         { planId: 'yearly', priceDisplay: '298' },
       ]);
 
-      expect(tx.storeMembershipPriceOverrideAudit.createMany).not.toHaveBeenCalled();
-      expect(mutationStateService.invalidatePulseDashboardHome).not.toHaveBeenCalled();
+      expect(
+        tx.storeMembershipPriceOverrideAudit.createMany,
+      ).not.toHaveBeenCalled();
+      expect(
+        mutationStateService.invalidatePulseDashboardHome,
+      ).not.toHaveBeenCalled();
     });
   });
 });

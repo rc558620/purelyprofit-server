@@ -18,6 +18,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   AllowSubAccount,
   BlockSubAccount,
@@ -160,5 +161,26 @@ export class StoresController {
     @Body() dto: UpdateWechatPayConfigDto,
   ): Promise<WechatPayConfigResponseDto> {
     return this.storesWechatPayService.updateWechatPayConfig(user, dto);
+  }
+
+  @Post('current/wechat-pay-config/verify')
+  @RequirePermissions('store:update')
+  // 每次校验都会真实调用微信查单接口，必须限频：
+  // 不限频会被刷成接口攻击，且微信侧对查单有频率约束（10 次 / 5 分钟）。
+  @Throttle({ default: { ttl: 300_000, limit: 10 } })
+  @ApiOperation({
+    summary: '校验门店子商户号与平台服务商的绑定关系',
+    description:
+      '服务商模式下保存子商户号后必须校验通过才能真正收款；' +
+      '仅校验当前登录商家自己绑定的门店，不接受门店 ID 入参',
+  })
+  @ApiOkResponse({
+    description: '校验结论（bindStatus / bindCheckedAt / bindFailReason）',
+    type: WechatPayConfigResponseDto,
+  })
+  verifyWechatPayBind(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<WechatPayConfigResponseDto> {
+    return this.storesWechatPayService.verifyWechatPayBind(user);
   }
 }

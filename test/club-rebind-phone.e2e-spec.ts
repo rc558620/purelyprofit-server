@@ -10,6 +10,10 @@ import { AuthProductAuthService } from '../src/shared/auth/auth-product-auth.ser
 import { AuthCodeVerifyService } from '../src/purely-profit/auth/auth-code-verify.service';
 import { AuthAccountLookupService } from '../src/purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
+import { ClubPhoneBindService } from '../src/purely-club/auth/club-phone-bind.service';
+import { ClubPhoneRebindService } from '../src/purely-club/auth/club-phone-rebind.service';
+import { NewCustomerQuotaService } from '../src/purely-profit/member/new-customer-quota/new-customer-quota.service';
+import { ClubCurrentStoreContextService } from '../src/purely-club/stores/club-current-store-context.service';
 
 /**
  * 真实数据库 E2E：换绑手机号后的档案同步。
@@ -78,7 +82,10 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
     ensureRegisterCodeValid: jest.fn(),
     clearRegisterCode: jest.fn(),
   };
-  const authAccountLookupService = { findUserByPhone: jest.fn() };
+  const authAccountLookupService = {
+    findUserByPhone: jest.fn(),
+    assertPhoneNotRegisteredInOtherScope: jest.fn(),
+  };
   const authSessionService = {
     signToken: jest.fn(),
     bumpTokenVersion: jest.fn(),
@@ -108,6 +115,34 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
           provide: ClubStoreAccessService,
           useValue: clubStoreAccessService,
         },
+        // 换绑逻辑已抽到 ClubPhoneRebindService，本用例需要真实实现才能在
+        // 真实数据库上验证 Member / MarketingCustomer 档案同步
+        ClubPhoneRebindService,
+        // 以下依赖仅用于满足 ClubAuthService 构造器注入，rebindPhone 链路不会调用
+        {
+          provide: ClubPhoneBindService,
+          useValue: { bindVerifiedPhone: jest.fn() },
+        },
+        {
+          provide: NewCustomerQuotaService,
+          useValue: {
+            hasRemaining: jest.fn().mockResolvedValue(true),
+            isNewCustomer: jest.fn().mockResolvedValue(false),
+            ensureAvailableForNewCustomer: jest
+              .fn()
+              .mockResolvedValue(undefined),
+            consumeForNewCustomer: jest
+              .fn()
+              .mockResolvedValue({ consumed: false, remaining: 0 }),
+            getOverview: jest
+              .fn()
+              .mockResolvedValue({ remaining: 0, warningThreshold: 100 }),
+          },
+        },
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: { getCurrentStore: jest.fn().mockResolvedValue({ id: 1 }) },
+        },
       ],
     }).compile();
 
@@ -125,6 +160,9 @@ describe('rebindPhone 档案同步 (e2e, real database)', () => {
     authCodeVerifyService.clearRegisterCode.mockResolvedValue(undefined);
     // 新号不属于任何账号 → 走「直接改号」分支
     authAccountLookupService.findUserByPhone.mockResolvedValue(null);
+    authAccountLookupService.assertPhoneNotRegisteredInOtherScope.mockResolvedValue(
+      undefined,
+    );
   });
 
   afterAll(async () => {

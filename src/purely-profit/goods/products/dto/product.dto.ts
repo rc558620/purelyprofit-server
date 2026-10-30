@@ -3,10 +3,7 @@ export {
   ListProductOptionsQueryDto,
   ListProductsQueryDto,
 } from './product-query.dto';
-export {
-  ProductSpecGroupDto,
-  ProductSpecOptionDto,
-} from './product-spec.dto';
+export { ProductSpecGroupDto, ProductSpecOptionDto } from './product-spec.dto';
 export {
   CreateProductDto,
   ToggleScanOrderingStatusDto,

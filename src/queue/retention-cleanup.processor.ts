@@ -48,8 +48,10 @@ export class RetentionCleanupProcessor extends WorkerHost {
       } else if (taskType === 'audit_logs') {
         deletedCount = await this.retentionCleanupService.cleanupAuditLogs();
       } else {
+        // 联合类型已穷尽，此处仅兜底脏任务数据；never 显式转 string 便于日志输出
+        const unknownTaskType: string = taskType;
         this.logger.warn(
-          `[retention-cleanup-processor] unknown taskType=${taskType}`,
+          `[retention-cleanup-processor] unknown taskType=${unknownTaskType}`,
         );
         return 0;
       }

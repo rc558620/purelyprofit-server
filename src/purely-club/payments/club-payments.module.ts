@@ -13,6 +13,7 @@ import { ClubPaymentLockService } from './club-payment-lock.service';
 import { ClubPaymentsController } from './club-payments.controller';
 import { ClubPaymentsService } from './club-payments.service';
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
+import { ClubWechatPayModule } from './club-wechat-pay.module';
 import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.module';
 
 @Module({
@@ -24,6 +25,11 @@ import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.mo
     RedisModule,
     StoresModule,
     PrismaModule,
+    /*
+     * 支付身份与订单记录服务由 ClubWechatPayModule 统一提供：
+     * 本模块不再重复注册，避免同一服务出现两个实例（该模块不反向依赖本模块，无循环）。
+     */
+    ClubWechatPayModule,
     ClubScanOrderingModule,
     // 自助下单回调落账（SF 前缀）；该模块不反向依赖 ClubPaymentsModule，无循环依赖
     ClubSelfOrderingModule,

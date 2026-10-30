@@ -281,7 +281,9 @@ export class EscPosTicketBuilder {
       for (const item of ticket.items) {
         // 自助下单商品：商品名后拼「 (自助)」，与云打印格式一致
         const name =
-          item.sourceType === 'member_self_order' ? `${item.name} (自助)` : item.name;
+          item.sourceType === 'member_self_order'
+            ? `${item.name} (自助)`
+            : item.name;
         this.line(
           out,
           `${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}`,

@@ -126,9 +126,7 @@ describe('FinanceCashFlowService', () => {
       compareLastPeriod: 100,
     });
     // 统计查询不应包含 direction 筛选
-    expect(
-      prismaService.financeCashFlowRecord.groupBy,
-    ).toHaveBeenNthCalledWith(
+    expect(prismaService.financeCashFlowRecord.groupBy).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         where: expect.not.objectContaining({

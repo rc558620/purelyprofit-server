@@ -111,11 +111,7 @@ export class PrismaService
     const existingOptions = poolUrl.searchParams.get('options') ?? '';
     const timeoutOption = `-c statement_timeout=${statementTimeoutMs}`;
     const timezoneOption = '-c timezone=UTC';
-    const injectedOptions = [
-      existingOptions,
-      timezoneOption,
-      timeoutOption,
-    ]
+    const injectedOptions = [existingOptions, timezoneOption, timeoutOption]
       .filter((part) => part.length > 0)
       .join(' ');
     poolUrl.searchParams.set('options', injectedOptions);

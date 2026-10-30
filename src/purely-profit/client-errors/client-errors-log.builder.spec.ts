@@ -268,7 +268,8 @@ describe('buildClientErrorLog', () => {
     const result = buildClientErrorLog(
       createPayload({
         source: 'window-error',
-        stack: 'Error: injected\n    at chrome-extension://abcdef/content.js:12:3',
+        stack:
+          'Error: injected\n    at chrome-extension://abcdef/content.js:12:3',
       }),
       {},
       defaultConfig,
@@ -297,7 +298,8 @@ describe('buildClientErrorLog', () => {
   it('堆栈命中 bundle 独立域名时仍判为本站代码', () => {
     const result = buildClientErrorLog(
       createPayload({
-        stack: 'Error: boom\n    at https://static.example.com/assets/index.js:1:1',
+        stack:
+          'Error: boom\n    at https://static.example.com/assets/index.js:1:1',
       }),
       {},
       { ...defaultConfig, appHosts: ['static.example.com'] },

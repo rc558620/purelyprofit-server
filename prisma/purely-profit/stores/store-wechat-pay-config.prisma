@@ -1,14 +1,52 @@
+// 门店微信收款配置：一条门店记录对应一套收款凭据。
+//
+// ⚠️ 服务商（Partner）模式改造说明：
+// 1) 服务商模式下，付款主体是「服务商商户号 + 子商户号」，签名证书与 APIv3 密钥
+//    全部由平台（服务商）持有，**子商户在微信侧不存在也不支持设置 APIv3 密钥与证书**。
+// 2) 因此本表未来只需要承载「子商户号 + 子商户主体名称 + 绑定状态」，
+//    mchId / apiV3KeyEnc 仅为旧直连链路（partner.enabled=false）保留，灰度结束后删除。
+// 3) 灰度期取值口径：服务商模式读 subMchId，缺失时回落 mchId（迁移回填保证两者一致）。
+
 model StoreWechatPayConfig {
-  id           Int      @id @default(autoincrement())
-  storeId      Int      @unique @map("store_id")
-  mchId        String   @map("mch_id")
-  mchName      String   @map("mch_name")
-  apiV3KeyEnc  String   @map("api_v3_key_enc")
-  configuredAt DateTime @map("configured_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id             Int                      @id @default(autoincrement())
+  storeId        Int                      @unique @map("store_id")
+  /// 直连模式下的门店商户号。服务商模式下其语义等同子商户号。
+  /// @deprecated 新逻辑以 subMchId 为准，仅在灰度回滚窗口保留。
+  mchId          String                   @map("mch_id")
+  /// 商户/子商户主体名称，用于页面展示与核对
+  mchName        String                   @map("mch_name")
+  /// 门店 APIv3 密钥密文。
+  /// @deprecated 子商户不存在自己的 APIv3 密钥，服务商模式回调统一由服务商密钥解密；
+  /// 该字段仅服务 partner.enabled=false 的旧直连链路，随旧链路一并废弃。
+  apiV3KeyEnc    String                   @map("api_v3_key_enc")
+  /// 服务商模式下的子商户号（sub_mchid）：决定这笔钱的结算去向
+  subMchId       String?                  @map("sub_mch_id")
+  /// 子商户 AppID（sub_appid）。
+  /// 决策：本平台统一以 purelyClub 小程序 AppID 作为 sp_appid，本字段预留给未来
+  /// 多小程序 / 商家自有小程序场景，当前不写入也不读取。
+  subAppid       String?                  @map("sub_appid")
+  /// 子商户与服务商的绑定/授权校验状态
+  bindStatus     StoreWechatPayBindStatus @default(pending) @map("bind_status")
+  /// 最近一次绑定校验时间（无论成功失败）
+  bindCheckedAt  DateTime?                @map("bind_checked_at")
+  /// 最近一次校验失败原因（中文，可直接展示给商家）
+  bindFailReason String?                  @map("bind_fail_reason")
+  configuredAt   DateTime                 @map("configured_at")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([mchId])
+  /// 回调解密后的 sub_mchid 反查门店（资金归属校验）
+  @@index([subMchId])
+  /// 运营兜底：筛出长期未校验 / 校验失败的门店
+  @@index([bindStatus])
   @@map("store_wechat_pay_configs")
+}
+
+// 子商户绑定状态机：pending（未校验）→ verified（可收款）/ failed（未绑定或已解绑）
+enum StoreWechatPayBindStatus {
+  pending
+  verified
+  failed
 }

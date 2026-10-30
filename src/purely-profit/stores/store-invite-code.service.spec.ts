@@ -33,7 +33,9 @@ describe('StoreInviteCodeService', () => {
       },
       $transaction: jest
         .fn()
-        .mockImplementation(async (tx: (tx: unknown) => unknown) => tx(prisma)),
+        .mockImplementation((tx: (client: unknown) => unknown) =>
+          Promise.resolve(tx(prisma)),
+        ),
     };
     cacheInvalidator = {
       invalidateMarketingOverview: jest.fn().mockResolvedValue(undefined),

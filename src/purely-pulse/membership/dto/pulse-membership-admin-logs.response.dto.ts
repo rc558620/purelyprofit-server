@@ -83,7 +83,10 @@ export class PulseAdminMemberPointsLogDto {
 }
 
 export class PulseAdminMemberPointsLogsStatsDto {
-  @ApiProperty({ example: 128, description: '当前筛选下的流水总条数（与分页无关）' })
+  @ApiProperty({
+    example: 128,
+    description: '当前筛选下的流水总条数（与分页无关）',
+  })
   @IsInt()
   @Min(0)
   totalRecords: number;
@@ -195,7 +198,10 @@ export class PulseAdminMemberBeanLogDto {
 }
 
 export class PulseAdminMemberBeanLogsStatsDto {
-  @ApiProperty({ example: 128, description: '当前筛选下的流水总条数（与分页无关）' })
+  @ApiProperty({
+    example: 128,
+    description: '当前筛选下的流水总条数（与分页无关）',
+  })
   @IsInt()
   @Min(0)
   totalRecords: number;

@@ -6,7 +6,6 @@ import { Money } from '../../../shared/money.utils';
  * 这里保留 re-export，使既有 import 路径不受影响。
  */
 export { toTimestamp } from '../../../shared/date-coerce.utils';
-import { toTimestamp } from '../../../shared/date-coerce.utils';
 
 export function formatMoneyText(value: number): string {
   return Money.fromInputYuan(value)

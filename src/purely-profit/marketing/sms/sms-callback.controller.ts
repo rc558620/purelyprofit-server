@@ -29,9 +29,7 @@ interface RawBodyRequest {
 @ApiTags('营销中心')
 @Controller('marketing/sms')
 export class SmsCallbackController {
-  constructor(
-    private readonly callbackService: SmsRechargeCallbackService,
-  ) {}
+  constructor(private readonly callbackService: SmsRechargeCallbackService) {}
 
   @Post('wechat/callback')
   // 微信支付只认 200 / 204 为应答成功，POST 默认返回 201 会被当成失败并反复重投

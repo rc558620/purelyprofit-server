@@ -86,13 +86,19 @@ export class BusinessEventReportDto {
   @IsObject({ message: 'properties 必须是对象' })
   properties?: Record<string, unknown>;
 
-  @ApiPropertyOptional({ type: BusinessEventAppDto, description: '前端应用上下文' })
+  @ApiPropertyOptional({
+    type: BusinessEventAppDto,
+    description: '前端应用上下文',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => BusinessEventAppDto)
   app?: BusinessEventAppDto;
 
-  @ApiPropertyOptional({ type: BusinessEventStoreDto, description: '当前门店上下文' })
+  @ApiPropertyOptional({
+    type: BusinessEventStoreDto,
+    description: '当前门店上下文',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => BusinessEventStoreDto)

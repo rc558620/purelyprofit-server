@@ -296,7 +296,9 @@ export class CommissionRecordsService {
       serviceText,
       `\t${Money.fromDbCents(row.commission).toFixedOutputYuan()}`,
       COMMISSION_STATUS_LABELS[row.status] ?? row.status,
-      row.settledAt ? `\t${formatShanghaiDateTime(row.settledAt.getTime())}` : '-',
+      row.settledAt
+        ? `\t${formatShanghaiDateTime(row.settledAt.getTime())}`
+        : '-',
     ];
   }
 

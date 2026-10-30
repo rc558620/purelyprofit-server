@@ -66,10 +66,7 @@ export class ScanOrderingOrderController {
   ): Promise<ScanOrderingOrderDetailPayload> {
     // 手工补录单以「manual-{id}」复合标识
     if (orderIdParam.startsWith('manual-')) {
-      const entryId = Number.parseInt(
-        orderIdParam.slice('manual-'.length),
-        10,
-      );
+      const entryId = Number.parseInt(orderIdParam.slice('manual-'.length), 10);
       if (!Number.isSafeInteger(entryId) || entryId <= 0) {
         throw new NotFoundException('录入订单不存在');
       }

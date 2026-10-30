@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { ConfigService } from '@nestjs/config';
+import { appendWechatPartnerErrors } from './wechat-partner-config.validator';
 
 function getTrimmedConfigValue(
   configService: ConfigService,
@@ -48,7 +49,9 @@ export function validateProductionConfiguration(
     'wechat.payApiV3Key',
   );
   // 门店 APIv3 密钥的落库加密主密钥：缺失时商家后台保存收款配置直接 400，
-  // 且已存密文无法解密、回调解不开，属于「上线后才发现」的典型漏配，必须前移
+  // 且已存密文无法解密、回调解不开，属于「上线后才发现」的典型漏配，必须前移。
+  // 注：服务商模式下商家不提供密钥（子商户没有 APIv3 密钥），该变量只在
+  // partner.enabled=false 的旧直连链路中使用，灰度结束后随旧链路一起废弃。
   const wechatPayKeyEncryptionSecret = getTrimmedConfigValue(
     configService,
     'WECHAT_PAY_KEY_ENCRYPTION_SECRET',
@@ -57,6 +60,10 @@ export function validateProductionConfiguration(
     configService,
     'wechat.platformPublicKeyContent',
   );
+  // 服务商（Partner）模式开关：仅 enabled=true 时才校验 wechat.partner.* 配置，
+  // 关闭状态下链路 a 仍走旧直连逻辑，不应把新增变量缺失判成线上故障
+  const wechatPartnerEnabled =
+    configService.get<boolean>('wechat.partner.enabled') ?? false;
   const manualConfirmPaidEnabled =
     configService.get<boolean>('club.manualConfirmPaidEnabled') ?? false;
   const paymentModeSwitchEnabled =
@@ -169,6 +176,11 @@ export function validateProductionConfiguration(
     wechatNotifyUrl.includes('yourdomain.com')
   ) {
     errors.push('wechat.payNotifyUrl 生产环境必须是可访问的 HTTPS 正式地址');
+  }
+
+  // 服务商模式：C 端门店收款（链路 a）专用配置校验，与上面 b/c 链路的校验互不影响
+  if (wechatPartnerEnabled) {
+    appendWechatPartnerErrors(configService, errors);
   }
 
   if (manualConfirmPaidEnabled) {

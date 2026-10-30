@@ -85,7 +85,9 @@ export class ScanOrderingMainController {
 
   @Get('table-qr-poster-config')
   @RequirePermissions('scan-ordering:view')
-  @ApiOperation({ summary: '获取门店扫码点餐桌码海报配置（主题色 / 标语 / 门店 Logo）' })
+  @ApiOperation({
+    summary: '获取门店扫码点餐桌码海报配置（主题色 / 标语 / 门店 Logo）',
+  })
   getTableQrPosterConfig(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<TableQrPosterConfig> {

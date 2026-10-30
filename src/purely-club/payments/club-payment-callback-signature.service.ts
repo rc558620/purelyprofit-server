@@ -8,8 +8,15 @@
  *   签名算法：RSA-SHA256（微信使用其平台公钥签名，实际验签需下载平台证书）
  *
  * 当前实现策略（fail-closed）：
- *   - 配置了 WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 时执行 RSA-SHA256 验签；
+ *   - 配置了对应链路的平台公钥时执行 RSA-SHA256 验签；
  *   - 未配置公钥且非调试环境时**直接拒绝回调**，不再依赖 IP 白名单兜底。
+ *
+ * 多链路说明（服务商模式改造，P0-0）：
+ *   本服务被三条资金链路共用验签：club（C 端门店收款）、短信钱包充值、
+ *   平台会员与新客额度。平台证书**按商户号维度下发**，因此按 scope 取公钥：
+ *   - scope='club' 且 wechat.partner.enabled=true → 服务商维度证书；
+ *   - 其余情况 → 全局那份平台收款商户号维度证书（与改造前完全一致）。
+ *   默认值是 'platform'，即未显式传 scope 的历史调用方行为零变化。
  *
  * 历史说明（已废弃，保留仅供追溯）：早期仅校验时间戳时效性 + 必填头存在性，
  * 靠 IP 白名单 + HTTPS 兜底安全。该策略已废止，注释同步更新避免误导。
@@ -17,7 +24,10 @@
 import { createVerify } from 'node:crypto';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ClubWechatCallbackHeaders } from './club-payments.types';
+import type {
+  ClubWechatCallbackHeaders,
+  WechatCallbackSignatureScope,
+} from './club-payments.types';
 
 @Injectable()
 export class ClubPaymentCallbackSignatureService {
@@ -35,11 +45,15 @@ export class ClubPaymentCallbackSignatureService {
    *  2. 时间戳时效性（默认 ±300 秒，防重放）
    *
    * 可选校验（生产推荐，需配置平台公钥）：
-   *  - 若 WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 已配置，则进行 RSA-SHA256 验签
+   *  - 配置了对应链路的平台公钥时，执行 RSA-SHA256 验签
+   *
+   * @param scope 资金链路，决定用哪份平台证书公钥验签，默认 `platform`
+   *   —— 保持 b（短信充值）/ c（会员与额度）链路行为与改造前完全一致
    */
   assertWechatCallbackSignature(
     rawBody: string,
     headers: ClubWechatCallbackHeaders,
+    scope: WechatCallbackSignatureScope = 'platform',
   ): void {
     const timestamp = headers.timestamp?.trim();
     const nonce = headers.nonce?.trim();
@@ -63,8 +77,8 @@ export class ClubPaymentCallbackSignatureService {
       throw new UnauthorizedException('微信支付回调已过期');
     }
 
-    // RSA-SHA256 验签（仅在平台公钥已配置时执行）
-    const platformPublicKey = this.loadPlatformPublicKey();
+    // RSA-SHA256 验签（仅在对应链路的平台公钥已配置时执行）
+    const platformPublicKey = this.loadPlatformPublicKey(scope);
     if (platformPublicKey) {
       this.verifyRsaSignature(
         rawBody,
@@ -81,7 +95,8 @@ export class ClubPaymentCallbackSignatureService {
     // 仅当环境显式声明是调试环境（development / test，或手工打开开关）时才降级放行。
     if (!this.isInsecureCallbackAllowed()) {
       this.logger.error(
-        'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，当前环境不允许跳过验签，已拒绝回调',
+        `[${scope}] 平台公钥未配置（${this.resolvePublicKeyConfigPath(scope)}），` +
+          '当前环境不允许跳过验签，已拒绝回调',
       );
       throw new UnauthorizedException(
         '未配置微信支付平台公钥，拒绝处理支付回调',
@@ -89,7 +104,7 @@ export class ClubPaymentCallbackSignatureService {
     }
 
     this.logger.warn(
-      'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，跳过 RSA 验签（仅靠时间戳防重放）。' +
+      `[${scope}] ${this.resolvePublicKeyConfigPath(scope)} 未配置，跳过 RSA 验签（仅靠时间戳防重放）。` +
         '仅限本地调试环境，请尽快配置微信平台公钥以启用完整签名校验。',
     );
   }
@@ -161,12 +176,33 @@ export class ClubPaymentCallbackSignatureService {
   }
 
   /**
+   * 解析当前链路应使用的平台公钥配置路径。
+   *
+   * 平台证书按商户号维度下发：链路 a 在服务商模式下必须取服务商维度的证书，
+   * 链路 b/c 始终取全局那份（平台收款商户号维度），两者互不干扰。
+   */
+  private resolvePublicKeyConfigPath(
+    scope: WechatCallbackSignatureScope,
+  ): string {
+    if (scope === 'club' && this.isPartnerModeEnabled()) {
+      return 'wechat.partner.platformPublicKeyContent';
+    }
+    return 'wechat.platformPublicKeyContent';
+  }
+
+  private isPartnerModeEnabled(): boolean {
+    return this.configService.get<boolean>('wechat.partner.enabled') === true;
+  }
+
+  /**
    * 加载微信平台公钥 PEM（用于验签回调签名）
    * 配置项：WECHAT_PLATFORM_PUBLIC_KEY_CONTENT（PEM 内联，支持 \n 转义）
    */
-  private loadPlatformPublicKey(): string | null {
+  private loadPlatformPublicKey(
+    scope: WechatCallbackSignatureScope,
+  ): string | null {
     const content = this.configService
-      .get<string>('wechat.platformPublicKeyContent')
+      .get<string>(this.resolvePublicKeyConfigPath(scope))
       ?.trim();
 
     if (!content) {

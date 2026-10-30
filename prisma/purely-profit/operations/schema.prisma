@@ -419,6 +419,10 @@ model ScanOrderPaymentAttempt {
   paymentChannel        String                        @map("payment_channel") @db.VarChar(32)
   merchantPaymentNo     String                        @unique @map("merchant_payment_no") @db.VarChar(64)
   providerTransactionId String?                       @unique(map: "uq_payment_attempt_provider_txn", where: raw("(provider_transaction_id IS NOT NULL)")) @map("provider_transaction_id") @db.VarChar(128)
+  /// 服务商商户号（sp_mchid）：退款必须拿原收款主体发起
+  spMchId               String?                       @map("sp_mch_id") @db.VarChar(32)
+  /// 子商户号（sub_mchid）：资金结算去向，退款与对账必需
+  subMchId              String?                       @map("sub_mch_id") @db.VarChar(32)
   amount                Int                           @map("amount")
   status                ScanOrderPaymentAttemptStatus @default(created) @map("status")
   requestPayloadHash    String?                       @map("request_payload_hash") @db.VarChar(64)
@@ -843,6 +847,10 @@ model SelfOrderPaymentAttempt {
   /// 状态：pending / succeeded / failed
   status            String   @default("pending") @map("status") @db.VarChar(32)
   transactionId     String?  @map("transaction_id") @db.VarChar(64)
+  /// 服务商商户号（sp_mchid）：退款必须拿原收款主体发起
+  spMchId           String?  @map("sp_mch_id") @db.VarChar(32)
+  /// 子商户号（sub_mchid）：资金结算去向，退款与对账必需
+  subMchId          String?  @map("sub_mch_id") @db.VarChar(32)
   failureReason     String?  @map("failure_reason")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")

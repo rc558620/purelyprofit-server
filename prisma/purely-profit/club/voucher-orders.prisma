@@ -57,6 +57,10 @@ model ClubVoucherOrder {
   pointsAwarded        Int                       @default(0) @map("points_awarded")
   /// 支付渠道：wechat=微信支付 balance=储值余额
   paymentChannel       String                    @default("wechat") @map("payment_channel")
+  /// 服务商商户号（sp_mchid）：退款必须拿原收款主体发起，不能用门店当前配置顶替
+  spMchId              String?                   @map("sp_mch_id")
+  /// 子商户号（sub_mchid）：这笔钱的结算去向，退款与按子商户对账必需
+  subMchId             String?                   @map("sub_mch_id")
   /// 微信支付交易单号
   transactionId        String?                   @map("transaction_id")
   /// 订单状态：unpaid=未支付 pending=待使用 used=已使用 refunded=已退款 expired=已过期

@@ -361,7 +361,8 @@ function appendCustodyExpiringDraft(
     now,
   );
   const expiredCount = params.expiringCustodies.filter(
-    (item) => item.expireAt != null && resolveTimestamp(item.expireAt, now) <= now,
+    (item) =>
+      item.expireAt != null && resolveTimestamp(item.expireAt, now) <= now,
   ).length;
   const title =
     expiredCount > 0

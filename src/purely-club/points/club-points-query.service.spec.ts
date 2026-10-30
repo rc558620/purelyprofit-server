@@ -90,7 +90,7 @@ describe('ClubPointsQueryService', () => {
     it('P1：未绑手机号用户按 clubUserId 认人，而非捞同门店任意 phone=null 的顾客', async () => {
       // 按查询条件返回，避免依赖调用顺序
       prismaService.marketingCustomer.findFirst.mockImplementation(
-        async (args: { where?: Record<string, unknown> }) => {
+        (args: { where?: Record<string, unknown> }) => {
           if ('clubUserId' in (args?.where ?? {})) {
             return { id: 42, points: 300 };
           }
@@ -111,7 +111,7 @@ describe('ClubPointsQueryService', () => {
     it('P1：绝不使用 phone=null 兜底（否则会把别人的积分当自己的）', async () => {
       // 同门店存在一条 phone=null 的顾客档案（属于别人）
       prismaService.marketingCustomer.findFirst.mockImplementation(
-        async (args: { where?: Record<string, unknown> }) => {
+        (args: { where?: Record<string, unknown> }) => {
           const where = args?.where ?? {};
           if ('clubUserId' in where) return null;
           if ('phone' in where && where.phone === null) {

@@ -1,4 +1,3 @@
-import { FinanceAccountStatus } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import type {
   FinanceAccountCategoryValue,

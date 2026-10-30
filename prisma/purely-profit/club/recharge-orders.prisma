@@ -5,48 +5,54 @@
 // transaction_id 作为微信对账主键。
 
 model ClubRechargeOrder {
-  id                Int                     @id @default(autoincrement())
+  id                        Int                     @id @default(autoincrement())
   /// 业务订单号（微信 out_trade_no，与 Redis 草稿 ID 同值）
-  orderNo           String                  @unique @map("order_no")
+  orderNo                   String                  @unique @map("order_no")
   /// 充值门店 ID
-  storeId           Int                     @map("store_id")
+  storeId                   Int                     @map("store_id")
   /// purely-club 用户 ID（User.id）
-  userId            Int                     @map("user_id")
+  userId                    Int                     @map("user_id")
   /// 门店营销顾客 ID（MarketingCustomer.id）
-  customerId        Int?                    @map("customer_id")
+  customerId                Int?                    @map("customer_id")
   /// 充值套餐 ID 快照（自定义充值为空）
-  packageId         String?                 @map("package_id")
+  packageId                 String?                 @map("package_id")
   /// 关联营销活动 ID（充赠活动）
-  promotionId       Int?                    @map("promotion_id")
+  promotionId               Int?                    @map("promotion_id")
   /// 实付金额（分，微信侧收款金额，不含赠送）
-  amountFen         Int                     @map("amount_fen")
+  amountFen                 Int                     @map("amount_fen")
   /// 自定义充值金额（分）；套餐充值为空
-  customAmountFen   Int?                    @map("custom_amount_fen")
+  customAmountFen           Int?                    @map("custom_amount_fen")
   /// 赠送金额（分，后端按活动计算）
-  bonusAmountFen    Int                     @default(0) @map("bonus_amount_fen")
+  bonusAmountFen            Int                     @default(0) @map("bonus_amount_fen")
+  /// 服务商商户号（sp_mchid）：下单时的请求/签名主体，退款需携带同一主体
+  spMchId                   String?                 @map("sp_mch_id")
+  /// 子商户号（sub_mchid）：该笔资金的结算去向，退款与按子商户对账必需
+  subMchId                  String?                 @map("sub_mch_id")
   /// 支付渠道：wechat=微信支付
-  paymentChannel    String                  @default("wechat") @map("payment_channel")
+  paymentChannel            String                  @default("wechat") @map("payment_channel")
   /// 微信支付交易单号（回调携带，对账主键）
-  transactionId     String?                 @map("transaction_id")
+  transactionId             String?                 @map("transaction_id")
   /// 订单状态：pending=待支付 paid=已支付并落账 failed=支付失败 cancelled=已取消 expired=超时关闭
-  status            ClubRechargeOrderStatus @default(pending)
+  status                    ClubRechargeOrderStatus @default(pending)
   /// 支付确认来源：wechat_callback=微信回调 manual_confirm_paid=开发态手动确认
-  paymentConfirmationSource String?         @map("payment_confirmation_source")
+  paymentConfirmationSource String?                 @map("payment_confirmation_source")
   /// 订单超时时间（超过该时间不再允许发起支付）
-  expiresAt         DateTime                @map("expires_at")
+  expiresAt                 DateTime                @map("expires_at")
   /// 落账时间
-  paidAt            DateTime?               @map("paid_at")
+  paidAt                    DateTime?               @map("paid_at")
   /// 首次收到微信支付回调的时间
-  callbackReceivedAt DateTime?              @map("callback_received_at")
+  callbackReceivedAt        DateTime?               @map("callback_received_at")
   /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt         DateTime?               @map("deleted_at")
-  createdAt         DateTime                @default(now()) @map("created_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
+  deletedAt                 DateTime?               @map("deleted_at")
+  createdAt                 DateTime                @default(now()) @map("created_at")
+  updatedAt                 DateTime                @updatedAt @map("updated_at")
 
   /// 幂等最终兜底：同一笔微信流水只允许绑定一个充值订单
   @@unique([transactionId], map: "uq_club_recharge_orders_transaction", where: raw("(transaction_id IS NOT NULL)"))
   /// 门店维度列表 / 对账查询
   @@index([storeId, status, createdAt(sort: Desc)])
+  /// 按子商户对账 / 导出（同一子商户可能跨多门店结算）
+  @@index([subMchId])
   /// 用户维度列表查询
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([promotionId])

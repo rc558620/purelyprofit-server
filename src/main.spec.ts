@@ -36,6 +36,14 @@ jest.mock('node:child_process', () => ({
   ),
 }));
 
+// 集群开关单独 mock：它读的是进程环境，而 .env 会在模块求值期被注入，
+// 导致端口相关用例随开发者本地配置而红绿不定（详见 beforeEach 注释）
+const mockIsClusterMode = jest.fn<boolean, []>(() => false);
+jest.mock('./config/cluster.configuration', () => ({
+  ...jest.requireActual('./config/cluster.configuration'),
+  isClusterMode: () => mockIsClusterMode(),
+}));
+
 describe('main bootstrap', () => {
   const createMock = NestFactory.create as jest.MockedFunction<
     typeof NestFactory.create
@@ -62,7 +70,17 @@ describe('main bootstrap', () => {
   };
 
   beforeEach(() => {
+    // 恢复上一个用例遗留的 spy（如 process.kill），避免实现泄漏到后续用例
+    jest.restoreAllMocks();
     jest.clearAllMocks();
+    /*
+     * 集群模式必须显式声明为 false：
+     * app.module.ts 在**求值** ConfigModule.forRoot({ envFilePath: '.env' }) 时就会把
+     * .env 注入进程环境（不需要真的实例化模块），本机 .env 里的 CLUSTER_WORKERS
+     * 会让 isClusterMode() 变 true；而集群模式按设计跳过端口清理，
+     * 端口相关用例就会随「开发者本地 .env 内容」而红绿不定。
+     */
+    mockIsClusterMode.mockReturnValue(false);
     fastifyInstance = fastify();
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -71,7 +89,10 @@ describe('main bootstrap', () => {
     app.setGlobalPrefix.mockClear();
     app.enableCors.mockClear();
     app.get.mockClear();
-    app.listen.mockClear();
+    // 用 mockReset 而非 mockClear：清掉上一用例未消费的 mockRejectedValueOnce，
+    // 否则一次失败会把队列错位带到下一个用例（表现为「端口没被占用」的假通过/假失败）
+    app.listen.mockReset();
+    app.listen.mockResolvedValue(undefined);
     createMock.mockResolvedValue(app as never);
     (childProcess.spawnSync as jest.Mock).mockReturnValue({
       stdout: '',
@@ -563,5 +584,47 @@ describe('main bootstrap', () => {
     expect(console.log).toHaveBeenCalledWith(
       'Server running on http://localhost:3001',
     );
+  });
+
+  it('集群模式下不做端口清理：监听句柄由主进程共享，杀进程会打崩其它 worker', async () => {
+    mockIsClusterMode.mockReturnValue(true);
+    const bootstrapConfig = {
+      get: jest.fn((key: string) => {
+        const configMap: Record<string, string | number | boolean> = {
+          nodeEnv: 'development',
+          'app.logEnabled': true,
+          'app.httpBodyLimitBytes': 1024,
+          'app.httpKeepAliveTimeoutMs': 70000,
+          'app.httpRequestTimeoutMs': 12000,
+          'app.corsOrigin': '*',
+          // 即便显式打开，集群模式下也必须被忽略
+          'app.portAutoTerminateEnabled': true,
+          'app.portAutoShiftEnabled': true,
+          'app.portAutoShiftMaxOffset': 2,
+          'app.slowRequestLogEnabled': false,
+          'app.slowRequestThresholdMs': 800,
+          'app.swaggerEnabled': false,
+          port: 3000,
+        };
+        return configMap[key];
+      }),
+    };
+    jest
+      .spyOn(ConfigService.prototype, 'get')
+      .mockImplementation(bootstrapConfig.get);
+    app.get.mockImplementation((token: unknown) =>
+      token === ConfigService ? bootstrapConfig : undefined,
+    );
+    (childProcess.spawnSync as jest.Mock).mockReturnValue({
+      stdout: 'node 5009 f0rest 18u IPv4 0x1 0t0 TCP *:3000 (LISTEN)\n',
+    } as never);
+    jest.spyOn(process, 'kill').mockImplementation((() => true) as never);
+
+    await bootstrap();
+
+    // 没有扫描端口、没有杀进程，直接监听
+    expect(childProcess.spawnSync).not.toHaveBeenCalled();
+    expect(process.kill).not.toHaveBeenCalled();
+    expect(app.listen).toHaveBeenCalledWith(3000, '0.0.0.0');
   });
 });

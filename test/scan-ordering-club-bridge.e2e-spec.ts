@@ -10,6 +10,7 @@ import { ScanOrderingRefundService } from '../src/purely-club/scan-ordering/scan
 import { ScanOrderingPickupNumberService } from '../src/purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingSaleOrderBridgeService } from '../src/purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { ClubScanOrderingPaymentService } from '../src/purely-club/scan-ordering/club-scan-ordering-payment.service';
+import { ClubScanOrderingMarketingCustomerService } from '../src/purely-club/scan-ordering/club-scan-ordering-marketing-customer.service';
 import { CommerceAccessService } from '../src/purely-profit/commerce/commerce-access.service';
 import { InventoryService } from '../src/purely-profit/goods/inventory/inventory.service';
 import { CacheInvalidatorService } from '../src/redis/invalidator';
@@ -23,6 +24,13 @@ import { SalesRecordRefundService } from '../src/purely-profit/operations/sales-
 import { ScanOrderingOrderRefundBalanceService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundHandlingService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-refund.service';
+import { ScanOrderingOrderRejectService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-reject.service';
+import { ScanOrderingOrderRefundWechatService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-wechat.service';
+import { ScanOrderingRefundTransitionService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-refund-transition.service';
+import { ScanOrderingRefundRealtimeService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-refund-realtime.service';
+import { ScanOrderingOrderTransitionEngineService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-transition.service';
+import { ScanOrderingOrderStockService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-stock.service';
+import { MembershipDowngradeService } from '../src/purely-profit/member/platform-membership/membership-downgrade.service';
 import type { AuthenticatedUser } from '../src/purely-profit/auth/strategies/jwt.strategy';
 
 /**
@@ -35,6 +43,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
   let prisma: PrismaService;
   let paymentService: ClubScanOrderingPaymentService;
   let refundHandlingService: ScanOrderingOrderRefundHandlingService;
+  let transitionService: ScanOrderingOrderTransitionEngineService;
   let moduleFixture: TestingModule;
 
   // completeRefund 内 resolveSingleStoreId 的返回门店，按用例切换
@@ -101,11 +110,20 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
   const inventoryService = {} as InventoryService;
   const cacheInvalidatorService = {
     invalidateSalesDerived: jest.fn(),
+    invalidateMarketingCustomerDerived: jest.fn(),
   } as unknown as CacheInvalidatorService;
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(() => Promise.resolve(activeStoreId)),
     findOperatorStaffIdForStore: jest.fn(() => Promise.resolve(null)),
   } as unknown as CommerceAccessService;
+
+  // 本用例的建单 source 不是 additional / manual_entry，不会进入降级闸门；
+  // 这里只满足 SalesRecordWriteService 构造器注入，避免引入真实 Redis 依赖
+  const membershipDowngradeService = {
+    assertAdditionalEnabled: jest.fn(),
+    assertManualEntryQuota: jest.fn(),
+    incrementManualEntryCount: jest.fn(),
+  };
 
   beforeAll(async () => {
     const moduleBuilder = Test.createTestingModule({
@@ -122,10 +140,21 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
         ScanOrderingRefundStockRestoreService,
         ScanOrderingSaleOrderBridgeService,
         ScanOrderingOrderRefundHandlingService,
+        ScanOrderingOrderRejectService,
+        ScanOrderingOrderRefundWechatService,
+        ScanOrderingRefundTransitionService,
+        ScanOrderingRefundRealtimeService,
+        ScanOrderingOrderTransitionEngineService,
+        ScanOrderingOrderStockService,
         ClubScanOrderingPaymentService,
+        ClubScanOrderingMarketingCustomerService,
         { provide: InventoryService, useValue: inventoryService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: MembershipDowngradeService,
+          useValue: membershipDowngradeService,
+        },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },
         { provide: ScanOrderingRefundService, useValue: refundService },
         {
@@ -155,6 +184,9 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     paymentService = moduleFixture.get(ClubScanOrderingPaymentService);
     refundHandlingService = moduleFixture.get(
       ScanOrderingOrderRefundHandlingService,
+    );
+    transitionService = moduleFixture.get(
+      ScanOrderingOrderTransitionEngineService,
     );
   });
 
@@ -393,6 +425,29 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
 
     expect(result.status).toBe('pending_acceptance');
 
+    const paidOrder = await prisma.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    expect(paidOrder.status).toBe('pending_acceptance');
+    expect(paidOrder.paymentStatus).toBe('paid');
+    expect(paidOrder.paidAmount).toBe(2500);
+    expect(paidOrder.version).toBe(version + 1);
+
+    // 业务契约：支付成功不建销售单，商家确认出餐时才创建
+    await transitionService.acceptOrder(
+      merchantUser,
+      orderId,
+      paidOrder.version,
+    );
+    const preparingOrder = await prisma.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    await transitionService.serveOrder(
+      merchantUser,
+      orderId,
+      preparingOrder.version,
+    );
+
     const saleOrder = await prisma.saleOrder.findUniqueOrThrow({
       where: { scanOrderId: orderId },
       include: { items: true, refund: true },
@@ -413,13 +468,6 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     expect(cashFlow.amount).toBe(2500);
     expect(cashFlow.payment).toBe('wechat');
 
-    const paidOrder = await prisma.scanOrders.findUniqueOrThrow({
-      where: { id: orderId },
-    });
-    expect(paidOrder.status).toBe('pending_acceptance');
-    expect(paidOrder.paymentStatus).toBe('paid');
-    expect(paidOrder.paidAmount).toBe(2500);
-    expect(paidOrder.version).toBe(version + 1);
     // 幂等回调不会创建第二条销售单
     await paymentService.confirmOrderPaidByCallback(merchantPaymentNo, {
       amountFen: 2500,
@@ -472,6 +520,24 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
       paidAtMs: Date.now(),
       callbackReceivedAtMs: Date.now(),
     });
+
+    // 支付成功不建销售单，出餐时才创建
+    const paidOrder = await prisma.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    await transitionService.acceptOrder(
+      merchantUser,
+      orderId,
+      paidOrder.version,
+    );
+    const preparingOrder = await prisma.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    await transitionService.serveOrder(
+      merchantUser,
+      orderId,
+      preparingOrder.version,
+    );
 
     const saleOrder = await prisma.saleOrder.findUniqueOrThrow({
       where: { scanOrderId: orderId },
@@ -617,7 +683,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     ).toBe(1);
   });
 
-  it('无销售单的退款：跳过销售单退款，不创建退款记录', async () => {
+  it('无销售单的退款：补建销售单并生成退款记录', async () => {
     const seed = await seedStoreAndMenu();
     activeStoreId = seed.storeId;
     // 订单已支付但桥接未执行（直接置为 paid），退款时无对应 saleOrder
@@ -646,9 +712,10 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     });
     expect(order.status).toBe('rejected');
     expect(order.paymentStatus).toBe('refunded');
+    // 出餐前退款：没有 SaleOrder 时先补建销售记录，保证交班/账务一致
     expect(
       await prisma.saleOrder.count({ where: { scanOrderId: orderId } }),
-    ).toBe(0);
+    ).toBe(1);
     expect(
       await prisma.financeCashFlowRecord.count({
         where: {
@@ -656,6 +723,6 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
           storeId: seed.storeId,
         },
       }),
-    ).toBe(0);
+    ).toBe(1);
   });
 });

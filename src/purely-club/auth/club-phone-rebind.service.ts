@@ -399,8 +399,10 @@ export class ClubPhoneRebindService {
       where: {
         storeId: { in: storeIds },
         phone: nextPhone,
-        // 排除本人名下（含 null）的档案，只拦截真正属于他人的记录
-        clubUserId: { not: userId },
+        // 仅放过本人名下的档案。clubUserId 为 null 的历史/手工建档在 SQL 中
+        // 不满足 `<> userId`（NULL 参与比较结果为 unknown），必须显式纳入拦截，
+        // 否则会误改他人档案
+        OR: [{ clubUserId: null }, { clubUserId: { not: userId } }],
         deletedAt: null,
       },
       select: { id: true, storeId: true },
@@ -418,7 +420,8 @@ export class ClubPhoneRebindService {
       where: {
         storeId: { in: storeIds },
         phone: nextPhone,
-        clubUserId: { not: userId },
+        // 同上：clubUserId 为 null 的会员档案同样视为他人占号
+        OR: [{ clubUserId: null }, { clubUserId: { not: userId } }],
         deletedAt: null,
       },
       select: { id: true, storeId: true },

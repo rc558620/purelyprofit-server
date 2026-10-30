@@ -29,6 +29,13 @@ describe('StoresWechatPayService', () => {
     }),
   };
 
+  const configState: Record<string, string | boolean> = {
+    'wechat.partner.enabled': false,
+  };
+  const configService = { get: jest.fn((key: string) => configState[key]) };
+
+  const bindService = { verifyAndPersist: jest.fn() };
+
   const user = { id: 7 } as never;
 
   const createService = (): StoresWechatPayService =>
@@ -36,10 +43,13 @@ describe('StoresWechatPayService', () => {
       prisma as never,
       storesReadService as never,
       encryption as never,
+      configService as never,
+      bindService as never,
     );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    configState['wechat.partner.enabled'] = false;
     encryption.isAvailable = true;
     encryption.encrypt.mockImplementation((plain: string) => `enc(${plain})`);
     encryption.decrypt.mockImplementation((enc: string) => {
@@ -53,6 +63,10 @@ describe('StoresWechatPayService', () => {
       mchId: '1234567890',
       mchName: '纯利小店',
       apiV3KeyEnc: 'enc(secret)',
+      subMchId: null,
+      bindStatus: 'pending',
+      bindCheckedAt: null,
+      bindFailReason: null,
       configuredAt: new Date('2026-06-13T12:00:00.000Z'),
     });
   });
@@ -65,6 +79,34 @@ describe('StoresWechatPayService', () => {
         createService().updateWechatPayConfig(user, { mchId: '1234567890' }),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.storeWechatPayConfig.upsert).not.toHaveBeenCalled();
+    });
+
+    it('服务商模式下只改子商户号：不要求密钥加密服务可用', async () => {
+      configState['wechat.partner.enabled'] = true;
+      encryption.isAvailable = false;
+
+      await expect(
+        createService().updateWechatPayConfig(user, {
+          mchId: '1234567890',
+          mchName: '纯利小店',
+        }),
+      ).resolves.toBeDefined();
+      expect(prisma.storeWechatPayConfig.upsert).toHaveBeenCalled();
+    });
+
+    it('服务商模式下携带密钥但加密服务不可用时返回 400，而不是 500', async () => {
+      configState['wechat.partner.enabled'] = true;
+      encryption.isAvailable = false;
+
+      await expect(
+        createService().updateWechatPayConfig(user, {
+          mchId: '1234567890',
+          mchName: '纯利小店',
+          apiV3Key: 'k'.repeat(32),
+        }),
+      ).rejects.toThrow(BadRequestException);
+      // encrypt 抛的是普通 Error，不做前置拦截会被 Nest 转成 500
+      expect(encryption.encrypt).not.toHaveBeenCalled();
     });
 
     it('首次配置缺参抛 400 BadRequest（而非 404 NotFound）', async () => {
@@ -121,6 +163,7 @@ describe('StoresWechatPayService', () => {
         configured: true,
         mchId: '1234567890',
         mchName: '纯利小店',
+        bindStatus: 'pending',
         configuredAt: '2026-06-13T12:00:00.000Z',
       });
       expect(JSON.stringify(result)).not.toContain('secret');
@@ -179,9 +222,9 @@ describe('StoresWechatPayService', () => {
         throw new Error('Invalid encrypted format');
       });
 
-      await expect(
-        createService().listAllApiV3Keys(true),
-      ).resolves.toEqual(['legacy-plain-key']);
+      await expect(createService().listAllApiV3Keys(true)).resolves.toEqual([
+        'legacy-plain-key',
+      ]);
     });
 
     it('去重相同密钥', async () => {
@@ -237,6 +280,116 @@ describe('StoresWechatPayService', () => {
       await expect(createService().getWechatPayConfig(user)).resolves.toEqual({
         configured: false,
       });
+    });
+  });
+
+  describe('服务商模式下的配置与绑定校验', () => {
+    beforeEach(() => {
+      configState['wechat.partner.enabled'] = true;
+    });
+
+    it('首次配置不要求 APIv3 密钥（子商户在微信侧没有密钥）', async () => {
+      prisma.storeWechatPayConfig.findUnique.mockResolvedValue(null);
+      prisma.storeWechatPayConfig.upsert.mockResolvedValue({
+        mchId: '1234567890',
+        mchName: '纯利小店',
+        apiV3KeyEnc: '',
+        subMchId: '1234567890',
+        bindStatus: 'pending',
+        bindCheckedAt: null,
+        bindFailReason: null,
+        configuredAt: new Date('2026-10-29T12:00:00.000Z'),
+      });
+
+      const result = await createService().updateWechatPayConfig(user, {
+        mchId: '1234567890',
+        mchName: '纯利小店',
+      });
+
+      // 保存成功但未校验 ⇒ 不能算「已配置」，否则会出现配了却收不到钱的静默故障
+      expect(result.configured).toBe(false);
+      expect(result.bindStatus).toBe('pending');
+    });
+
+    it('改动商户号会作废上一次的校验结论', async () => {
+      prisma.storeWechatPayConfig.findUnique.mockResolvedValue({
+        mchId: '1234567890',
+        mchName: '纯利小店',
+        apiV3KeyEnc: '',
+        subMchId: '1234567890',
+        bindStatus: 'verified',
+        bindCheckedAt: new Date(),
+        bindFailReason: null,
+        configuredAt: new Date(),
+      });
+
+      await createService().updateWechatPayConfig(user, {
+        mchId: '1234567891',
+      });
+
+      const [args] = prisma.storeWechatPayConfig.upsert.mock.calls[0];
+      expect(args.update).toMatchObject({
+        mchId: '1234567891',
+        subMchId: '1234567891',
+        bindStatus: 'pending',
+        bindCheckedAt: null,
+        bindFailReason: null,
+      });
+    });
+
+    it('校验通过：configured 变 true 且回传 bindStatus', async () => {
+      bindService.verifyAndPersist.mockResolvedValue({
+        outcome: 'verified',
+        record: {
+          mchId: '1234567890',
+          mchName: '纯利小店',
+          apiV3KeyEnc: '',
+          subMchId: '1234567890',
+          bindStatus: 'verified',
+          bindCheckedAt: new Date('2026-10-29T12:00:00.000Z'),
+          bindFailReason: null,
+          configuredAt: new Date(),
+        },
+      });
+
+      const result = await createService().verifyWechatPayBind(user);
+
+      expect(result.configured).toBe(true);
+      expect(result.bindStatus).toBe('verified');
+      // 校验目标由 JWT 上下文决定，不接受外部传入的门店 ID（越权边界在 bind 服务内）
+      expect(bindService.verifyAndPersist).toHaveBeenCalledWith(user);
+    });
+
+    it('校验失败：回传 failed 与失败原因，configured 仍为 false', async () => {
+      bindService.verifyAndPersist.mockResolvedValue({
+        outcome: 'failed',
+        record: {
+          mchId: '1234567890',
+          mchName: '纯利小店',
+          apiV3KeyEnc: '',
+          subMchId: '1234567890',
+          bindStatus: 'failed',
+          bindCheckedAt: new Date('2026-10-29T12:00:00.000Z'),
+          bindFailReason: '该子商户号尚未与本平台服务商绑定或未授权',
+          configuredAt: new Date(),
+        },
+      });
+
+      const result = await createService().verifyWechatPayBind(user);
+
+      expect(result.configured).toBe(false);
+      expect(result.bindStatus).toBe('failed');
+      expect(result.bindFailReason).toContain('未授权');
+    });
+
+    it('未保存子商户号就校验时由 bind 服务拒绝，不透出内部细节', async () => {
+      bindService.verifyAndPersist.mockRejectedValue(
+        new BadRequestException('请先保存子商户号，再发起绑定校验'),
+      );
+
+      await expect(createService().verifyWechatPayBind(user)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

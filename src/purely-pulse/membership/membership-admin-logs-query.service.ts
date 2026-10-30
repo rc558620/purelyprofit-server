@@ -57,7 +57,11 @@ export class PulseMembershipAdminLogsQueryService {
       query,
       async (storeIds, cursorPagination) =>
         this.prisma.storeMembershipPointsLog.findMany({
-          where: this.buildPointsLogsWhere(query, storeIds, cursorPagination.cursor),
+          where: this.buildPointsLogsWhere(
+            query,
+            storeIds,
+            cursorPagination.cursor,
+          ),
           select: {
             id: true,
             storeId: true,
@@ -89,7 +93,10 @@ export class PulseMembershipAdminLogsQueryService {
             : {}),
         }),
       // 与纯利豆同口径：统计吃「同筛选、不含游标」的完整结果集
-      async (storeIds) => this.countPointsLogsStats(this.buildPointsLogsWhere(query, storeIds, null)),
+      async (storeIds) =>
+        this.countPointsLogsStats(
+          this.buildPointsLogsWhere(query, storeIds, null),
+        ),
     );
 
     return {
@@ -109,7 +116,11 @@ export class PulseMembershipAdminLogsQueryService {
       query,
       async (storeIds, cursorPagination) =>
         this.prisma.storePartnerBeanLog.findMany({
-          where: this.buildBeanLogsWhere(query, storeIds, cursorPagination.cursor),
+          where: this.buildBeanLogsWhere(
+            query,
+            storeIds,
+            cursorPagination.cursor,
+          ),
           select: {
             id: true,
             storeId: true,
@@ -142,7 +153,8 @@ export class PulseMembershipAdminLogsQueryService {
         }),
       // 统计必须吃「同筛选、不含游标」的完整结果集：分页后前端只有一页数据，
       // 由前端自己 count 会让概览卡数字随加载量变化（member-list 的 stats 同口径）
-      async (storeIds) => this.countBeanLogsStats(this.buildBeanLogsWhere(query, storeIds, null)),
+      async (storeIds) =>
+        this.countBeanLogsStats(this.buildBeanLogsWhere(query, storeIds, null)),
     );
 
     return {
@@ -339,7 +351,9 @@ export class PulseMembershipAdminLogsQueryService {
 
 /** 游标条件的结构：积分与纯利豆两张流水表的 where 都能吃下这一段。 */
 interface AdminMemberLogsCursorWhere {
-  OR: Array<{ createdAt: { lt: Date } } | { createdAt: Date; id: { lt: number } }>;
+  OR: Array<
+    { createdAt: { lt: Date } } | { createdAt: Date; id: { lt: number } }
+  >;
 }
 
 /** 游标条件：同时间戳时按 id 二次排序，保证翻页不重不漏。 */

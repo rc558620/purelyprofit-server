@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ScanOrderFulfillmentStatus, ScanOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';

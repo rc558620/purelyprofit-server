@@ -1,11 +1,12 @@
 /**
  * 平台收款回调的 v3 报文解密（商家 / 门店付钱给平台的链路通用）。
  *
- * 与 club 解密器（`ClubWechatCallbackDecryptorService`）的本质区别：
- * club 收款是**每个门店各自的商户号**（apiV3Key 存在 `stores_wechat_pay` 表，
- * 解密时遍历所有门店密钥逐个试）；平台收款走**平台商户号**，
- * 其 APIv3Key 来自环境变量 `WECHAT_PAY_API_V3_KEY`——不在门店表里，
- * 套用 club 解密器会永远解不开（密钥列表里根本没有它）。
+ * 与 club 解密器（`ClubWechatCallbackDecryptorService`）的区别（服务商改造后已变化）：
+ *   - 平台收款（b/c）走**平台商户号**，APIv3Key 来自环境变量 `WECHAT_PAY_API_V3_KEY`；
+ *   - C 端门店收款（a）在**服务商模式**下回调由**服务商** APIv3 密钥加密
+ *     （`wechat.partner.apiV3Key`），子商户在微信侧没有自己的密钥；
+ *   - 只有 partner.enabled=false 的旧直连链路才是「每门店各自商户号、遍历门店密钥」。
+ * 因此两条链路的密钥都不在对方的候选集里，必须各用各的解密器，不能互换。
  *
  * 算法：AEAD_AES_256_GCM
  *   - 密钥：平台 APIv3Key（32 字节 ASCII）

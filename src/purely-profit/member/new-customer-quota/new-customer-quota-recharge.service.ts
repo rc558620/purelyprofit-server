@@ -247,11 +247,7 @@ export class NewCustomerQuotaRechargeService {
   ): Promise<{ status: string; paidAt: Date | null }> {
     const order = await this.paymentOrderService.findByOrderNo(orderNo);
 
-    if (
-      !order ||
-      order.storeId !== storeId ||
-      order.bizType !== BIZ_TYPE
-    ) {
+    if (!order || order.storeId !== storeId || order.bizType !== BIZ_TYPE) {
       // 统一按「不存在」处理，避免通过错误文案反向探测别人的单号
       throw new NotFoundException('支付单不存在');
     }

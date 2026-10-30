@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
-  FinanceCashFlowDirectionValue,
   FinanceCashFlowFilterRange,
   FinanceCashFlowRecordWithAmount,
 } from './finance.types';

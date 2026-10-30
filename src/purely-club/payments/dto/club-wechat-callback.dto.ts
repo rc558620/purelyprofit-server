@@ -175,8 +175,12 @@ export interface WechatDecryptedTransaction {
   trade_state: string;
   /** 支付完成时间（RFC3339） */
   success_time?: string;
-  /** 商户号 */
+  /** 商户号（直连模式）；服务商模式下该字段为服务商商户号 */
   mchid: string;
+  /** 服务商商户号（sp_mchid），仅服务商模式回调携带 */
+  sp_mchid?: string;
+  /** 子商户号（sub_mchid），仅服务商模式回调携带，代表真实收款方 */
+  sub_mchid?: string;
   /** 应用 ID */
   appid: string;
   /** 订单金额信息 */

@@ -108,7 +108,9 @@ export function aggregateSales(
     // 与经营分析的 EXCLUDE_VOUCHER_ITEM_SQL 同口径（后缀 + 系统分类双条件）：
     // 只踢出商品排行榜，上方金额汇总（营业额/利润/商品成本）与日趋势仍含券面，
     // 门店真实营收一分不少，券的毛利请到营销中心的团购券维度看。
-    if (isGrouponVoucherItemName(row.productName, row.categoryName ?? undefined)) {
+    if (
+      isGrouponVoucherItemName(row.productName, row.categoryName ?? undefined)
+    ) {
       continue;
     }
 

@@ -31,7 +31,8 @@ import { SmsController } from './sms.controller';
  *   商家充值是付钱给平台，与门店微信收款（stores_wechat_pay，C 端顾客付钱
  *   给商家）是两条资金流，因此本模块**不依赖 StoresModule**。
  * - 验签复用 purely-club 的现有实现（用平台公钥，无门店上下文）；
- *   解密用短信专用解密器（平台 APIv3Key，club 的解密器遍历门店密钥不适用）。
+ *   解密用短信专用解密器（平台 APIv3Key）：club 解密器在服务商模式下用
+ *   **服务商**密钥、仅在旧直连模式下才遍历门店密钥，两条链路都套不上本场景。
  */
 @Module({
   // ProfitPaymentsModule 提供平台级 Native 下单能力（该模块不反向依赖业务模块）

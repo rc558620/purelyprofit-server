@@ -68,9 +68,7 @@ describe('sumNetProfitCents', () => {
 
 describe('isGrouponVoucherItemName', () => {
   it('系统券面行（后缀 + 分类）→ true', () => {
-    expect(
-      isGrouponVoucherItemName('分手大师（团购券）', '团购券'),
-    ).toBe(true);
+    expect(isGrouponVoucherItemName('分手大师（团购券）', '团购券')).toBe(true);
   });
 
   it('商家自建商品恰以「（团购券）」结尾 → false，避免销量/排行榜漏统计', () => {
@@ -88,9 +86,9 @@ describe('isGrouponVoucherItemName', () => {
 
 describe('isNonQuantitySalesRecordRow', () => {
   it('券面行不计件数', () => {
-    expect(
-      isNonQuantitySalesRecordRow('分手大师（团购券）', '团购券'),
-    ).toBe(true);
+    expect(isNonQuantitySalesRecordRow('分手大师（团购券）', '团购券')).toBe(
+      true,
+    );
   });
 
   it('同名商家商品仍计入件数', () => {

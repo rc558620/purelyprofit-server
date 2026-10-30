@@ -167,7 +167,6 @@ export function buildCostReportRange(
 ): CostReportRange {
   const period = query.period ?? 'month';
   const now = Date.now();
-  const current = new Date(now);
 
   switch (period) {
     case 'today':

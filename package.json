@@ -46,8 +46,10 @@
     "store-business-mode:backfill": "node scripts/backfill-store-business-mode.mjs",
     "sub-account:revoke-orphaned": "node scripts/revoke-orphaned-sub-account-credentials.mjs",
     "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs",
-  "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs",
+    "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs",
     "marketing:backfill-consumption-refunds": "node scripts/backfill-marketing-consumption-refunds.mjs",
+    "wechat:partner:sub-mchid:backfill": "node scripts/backfill-store-wechat-sub-mch-id.mjs",
+    "wechat:partner:live-check": "node scripts/verify-wechat-partner-live.mjs",
     "db:verify-chain": "bash ./scripts/verify-fresh-migration-chain.sh",
     "db:verify-chain:baseline": "bash ./scripts/verify-fresh-migration-chain.sh --update-baseline"
   },

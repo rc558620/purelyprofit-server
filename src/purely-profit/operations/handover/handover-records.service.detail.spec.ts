@@ -526,25 +526,37 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const revenueService = new HandoverRecordsRevenueService(
         prismaService as unknown as PrismaService,
       );
-      const shiftRange = buildShiftDateRange('09:00', '17:00', new Date('2026-06-05'));
+      const shiftRange = buildShiftDateRange(
+        '09:00',
+        '17:00',
+        new Date('2026-06-05'),
+      );
 
       // 重新设置逐条 aggregate mock（与上方 $queryRaw 数据对应：additional=1005 分, space=0, scanOrdering=0）
       prismaService.saleOrder.aggregate.mockReset();
       prismaService.saleOrder.aggregate
-        .mockResolvedValueOnce({ _sum: { totalRevenue: new Prisma.Decimal('1005') } }) // additionalRevenue
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: new Prisma.Decimal('1005') },
+        }) // additionalRevenue
         .mockResolvedValueOnce({ _sum: { totalRevenue: null } }); // scanOrderingRevenue
       prismaService.spaceSession.aggregate.mockResolvedValue({
         _sum: { timeCost: null, itemsCost: null },
       });
 
-      const singleResult = await revenueService.countRecordRevenue(100, shiftRange, null);
+      const singleResult = await revenueService.countRecordRevenue(
+        100,
+        shiftRange,
+        null,
+      );
       // 批量 $queryRaw mock 已被消费，重新设置
       prismaService.$queryRaw.mockReset();
       prismaService.$queryRaw
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(1005) }])
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
-      const batchResult = await revenueService.countRecordRevenueBatch(100, [shiftRange]);
+      const batchResult = await revenueService.countRecordRevenueBatch(100, [
+        shiftRange,
+      ]);
 
       expect(batchResult).toEqual([singleResult]);
       expect(batchResult[0]).toBe(10.05);
@@ -624,25 +636,37 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const revenueService = new HandoverRecordsRevenueService(
         prismaService as unknown as PrismaService,
       );
-      const shiftRange = buildShiftDateRange('16:01', '17:03', new Date('2026-06-05'));
+      const shiftRange = buildShiftDateRange(
+        '16:01',
+        '17:03',
+        new Date('2026-06-05'),
+      );
 
       // 重新设置逐条 aggregate mock（与上方 $queryRaw 数据对应：additional=567 分, space=0, scanOrdering=0）
       prismaService.saleOrder.aggregate.mockReset();
       prismaService.saleOrder.aggregate
-        .mockResolvedValueOnce({ _sum: { totalRevenue: new Prisma.Decimal('567') } }) // additionalRevenue
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: new Prisma.Decimal('567') },
+        }) // additionalRevenue
         .mockResolvedValueOnce({ _sum: { totalRevenue: null } }); // scanOrderingRevenue
       prismaService.spaceSession.aggregate.mockResolvedValue({
         _sum: { timeCost: null, itemsCost: null },
       });
 
-      const singleResult = await revenueService.countRecordRevenue(100, shiftRange, null);
+      const singleResult = await revenueService.countRecordRevenue(
+        100,
+        shiftRange,
+        null,
+      );
       // 批量 $queryRaw mock 已被消费，重新设置
       prismaService.$queryRaw.mockReset();
       prismaService.$queryRaw
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(567) }])
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }])
         .mockResolvedValueOnce([{ idx: 0, total: BigInt(0) }]);
-      const batchResult = await revenueService.countRecordRevenueBatch(100, [shiftRange]);
+      const batchResult = await revenueService.countRecordRevenueBatch(100, [
+        shiftRange,
+      ]);
 
       expect(batchResult).toEqual([singleResult]);
       expect(batchResult[0]).toBe(5.67);

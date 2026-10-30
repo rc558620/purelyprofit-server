@@ -1,34 +1,27 @@
+import type { StoreWechatPayBindStatus } from '@prisma/client';
+import type { WechatPayConfigRecord } from './stores-wechat-pay.types';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { StoresWechatPayBindService } from './stores-wechat-pay-bind.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type { UpdateWechatPayConfigDto } from './dto/wechat-pay-config.dto';
 import type { WechatPayConfigResponseDto } from './dto/wechat-pay-config.dto';
+import { decryptApiV3KeySafely } from './stores-wechat-pay-key-codec';
 import { StoresReadService } from './stores-read.service';
 import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
-
-type WechatPayConfigRecord = {
-  mchId: string;
-  mchName: string;
-  apiV3KeyEnc: string;
-  configuredAt: Date;
-};
 
 /**
  * 全量 APIv3Key 列表的缓存时长。
  *
- * 每次支付回调都要拿到所有门店的密钥去尝试解密，若不缓存会退化为
+ * 仅 **partner.enabled=false 的旧直连链路**使用：那时回调由门店自己的密钥加密，
+ * 解密前拿不到 mchid，只能把所有门店密钥都拿去试，不缓存会退化成
  * 「一次回调 = 一次全表查询 + 全表解密」。缓存后由
  * {@link StoresWechatPayService.updateWechatPayConfig} 主动失效，
  * 且解密全失败时会强制刷新重试（见 ClubWechatCallbackDecryptorService），
  * 因此多实例部署下最坏只多一次重试，不会长期停留在旧密钥上。
  */
 const API_V3_KEY_CACHE_TTL_MS = 30_000;
-
-/** 密文格式 `iv:authTag:ciphertext` 的分段数。 */
-const ENCRYPTED_PAYLOAD_PART_COUNT = 3;
-
-/** base64（标准/URL 安全均可）片段判定，用于区分真密文与历史明文。 */
-const BASE64_SEGMENT_PATTERN = /^[A-Za-z0-9+/\-_]+={0,2}$/;
 
 @Injectable()
 export class StoresWechatPayService {
@@ -41,7 +34,14 @@ export class StoresWechatPayService {
     private readonly prisma: PrismaService,
     private readonly storesReadService: StoresReadService,
     private readonly encryptionService: WechatPayEncryptionService,
+    private readonly configService: ConfigService,
+    private readonly bindService: StoresWechatPayBindService,
   ) {}
+
+  /** 服务商模式是否开启：决定商家需要提供哪些凭据、以及「已配置」如何判定 */
+  private isPartnerMode(): boolean {
+    return this.configService.get<boolean>('wechat.partner.enabled') === true;
+  }
 
   async getWechatPayConfig(
     user: AuthenticatedUser,
@@ -62,9 +62,27 @@ export class StoresWechatPayService {
     user: AuthenticatedUser,
     dto: UpdateWechatPayConfigDto,
   ): Promise<WechatPayConfigResponseDto> {
-    if (!this.encryptionService.isAvailable) {
+    /*
+     * 加密服务只在「本次请求确实要存密钥」时才必需。
+     *
+     * ⚠️ 不能写成「非服务商模式才检查」：DTO 的 apiV3Key 仍保留（灰度回滚窗口内需要），
+     * 任何携带它的请求都会走 encrypt()，而 encrypt 抛的是**普通 Error**而非
+     * HttpException，Nest 会直接返回 500。
+     * 服务商模式下运维按文档不会配 WECHAT_PAY_KEY_ENCRYPTION_SECRET，
+     * 那种写法会让「旧端/脚本仍带 apiV3Key」的保存请求变成 500，
+     * 商家看到的是「保存失败」而不是「请先配置加密密钥」。
+     *
+     * 因此条件拆成两段：
+     *   1. 本次要写密钥（dto.apiV3Key 有值）→ 无论哪种模式都必须能用，否则 400；
+     *   2. 直连模式（!isPartnerMode）→ 维持改造前的严格口径，回调解密依赖该密钥。
+     * 服务商模式下「只改子商户号/名称、不带密钥」的请求不再被这个变量卡住。
+     */
+    if (
+      !this.encryptionService.isAvailable &&
+      (dto.apiV3Key !== undefined || !this.isPartnerMode())
+    ) {
       throw new BadRequestException(
-        '微信支付加密服务未配置（WECHAT_PAY_KEY_ENCRYPTION_SECRET），无法保存收款配置',
+        '微信支付加密服务未配置（WECHAT_PAY_KEY_ENCRYPTION_SECRET），无法保存收款配置密钥',
       );
     }
 
@@ -77,12 +95,7 @@ export class StoresWechatPayService {
     const existing = await this.findWechatPayConfigByStoreId(store.id);
 
     if (!existing) {
-      // 首次配置必须一次给全 mchId / mchName / apiV3Key，否则无法完成收款
-      const missingFields: string[] = [];
-      if (!dto.mchId) missingFields.push('mchId');
-      if (!dto.mchName) missingFields.push('mchName');
-      if (!dto.apiV3Key) missingFields.push('apiV3Key');
-
+      const missingFields = this.collectMissingRequiredFields(dto);
       if (missingFields.length > 0) {
         throw new BadRequestException(
           `门店微信收款配置不存在，初次配置需提供：${missingFields.join('、')}`,
@@ -95,10 +108,22 @@ export class StoresWechatPayService {
       mchId?: string;
       mchName?: string;
       apiV3KeyEnc?: string;
+      subMchId?: string;
+      bindStatus?: StoreWechatPayBindStatus;
+      bindCheckedAt?: Date | null;
+      bindFailReason?: string | null;
       configuredAt?: Date;
     } = {};
 
-    if (dto.mchId !== undefined) updateData.mchId = dto.mchId;
+    if (dto.mchId !== undefined) {
+      updateData.mchId = dto.mchId;
+      // 服务商模式下「商户号」即子商户号：两个字段同步写，保证灰度回滚与读取口径一致
+      updateData.subMchId = dto.mchId;
+      // 商户号一变，之前的绑定校验结论就作废，必须重新校验才能收款
+      updateData.bindStatus = 'pending';
+      updateData.bindCheckedAt = null;
+      updateData.bindFailReason = null;
+    }
     if (dto.mchName !== undefined) updateData.mchName = dto.mchName;
     if (dto.apiV3Key !== undefined) {
       updateData.apiV3KeyEnc = this.encryptionService.encrypt(dto.apiV3Key);
@@ -120,6 +145,8 @@ export class StoresWechatPayService {
         apiV3KeyEnc: dto.apiV3Key
           ? this.encryptionService.encrypt(dto.apiV3Key)
           : '',
+        subMchId: dto.mchId ?? null,
+        bindStatus: 'pending',
         configuredAt: configuredAt ?? new Date(),
       },
       update: updateData,
@@ -127,6 +154,10 @@ export class StoresWechatPayService {
         mchId: true,
         mchName: true,
         apiV3KeyEnc: true,
+        subMchId: true,
+        bindStatus: true,
+        bindCheckedAt: true,
+        bindFailReason: true,
         configuredAt: true,
       },
     });
@@ -144,29 +175,54 @@ export class StoresWechatPayService {
 
   /**
    * 供内部模块（如 purely-club 下单）读取门店微信收款配置。
+   *
    * ⚠️ 含敏感字段（apiV3Key），仅供内部模块使用，不得暴露给前端。
+   *
+   * 服务商改造后这里是**门店收款身份的唯一来源**：支付链路（下单 / 查单 / 关单 /
+   * 退款）一律经 {@link ClubWechatPayIdentityService} 读它，禁止各自去库里取值，
+   * 否则「子商户号回落旧字段」这类灰度口径会在四个调用点之间漂移。
    */
   async getWechatPayConfigForStore(storeId: number): Promise<{
     mchId: string | null;
     mchName: string | null;
     apiV3Key: string | null;
+    subMchId: string | null;
+    bindStatus: string | null;
     configuredAt: Date | null;
   }> {
     const record = await this.findWechatPayConfigByStoreId(storeId);
     if (!record) {
-      return { mchId: null, mchName: null, apiV3Key: null, configuredAt: null };
+      return {
+        mchId: null,
+        mchName: null,
+        apiV3Key: null,
+        subMchId: null,
+        bindStatus: null,
+        configuredAt: null,
+      };
     }
 
     return {
       mchId: record.mchId,
       mchName: record.mchName,
-      apiV3Key: this.safeDecrypt(record.apiV3KeyEnc, storeId),
+      apiV3Key: decryptApiV3KeySafely({
+        encryptionService: this.encryptionService,
+        apiV3KeyEnc: record.apiV3KeyEnc,
+        storeId,
+        logger: this.logger,
+      }),
+      subMchId: record.subMchId,
+      bindStatus: record.bindStatus,
       configuredAt: record.configuredAt,
     };
   }
 
   /**
    * 根据微信商户号（mchId）反查该门店的 APIv3Key，用于微信回调解密。
+   *
+   * @deprecated 服务商模式下不再需要：回调统一由**服务商** APIv3 密钥加密，
+   * 子商户没有自己的密钥。当前仅 partner.enabled=false 的旧直连链路可能用到，
+   * 灰度结束后随旧链路一起删除（不要在新代码中调用）。
    *
    * 解密后的回调报文里有 mchid 字段，可据此定位到门店的密钥。
    *
@@ -193,12 +249,21 @@ export class StoresWechatPayService {
       return null;
     }
 
-    return this.safeDecrypt(records[0].apiV3KeyEnc, records[0].storeId);
+    return decryptApiV3KeySafely({
+      encryptionService: this.encryptionService,
+      apiV3KeyEnc: records[0].apiV3KeyEnc,
+      storeId: records[0].storeId,
+      logger: this.logger,
+    });
   }
 
   /**
    * 返回系统中所有已配置微信收款的门店的 APIv3Key 列表（去重）。
    * 用于回调解密时逐个尝试，不需要提前知道本次回调属于哪个商户。
+   *
+   * @deprecated 服务商模式下**禁止使用**：回调由服务商密钥加密，遍历门店密钥必然失败，
+   * 且会把「服务商密钥配错」误报成「报文被篡改」。仅保留给 partner.enabled=false 的
+   * 旧直连链路，灰度结束后删除。
    *
    * 结果带 {@link API_V3_KEY_CACHE_TTL_MS} 短时缓存：回调报文在解密前拿不到 mchid，
    * 只能遍历候选密钥，若不缓存则每次回调都要全表扫描并解密全量记录。
@@ -222,7 +287,12 @@ export class StoresWechatPayService {
     const seen = new Set<string>();
     const keys: string[] = [];
     for (const record of records) {
-      const plainKey = this.safeDecrypt(record.apiV3KeyEnc, record.storeId);
+      const plainKey = decryptApiV3KeySafely({
+        encryptionService: this.encryptionService,
+        apiV3KeyEnc: record.apiV3KeyEnc,
+        storeId: record.storeId,
+        logger: this.logger,
+      });
       if (plainKey && !seen.has(plainKey)) {
         seen.add(plainKey);
         keys.push(plainKey);
@@ -250,66 +320,71 @@ export class StoresWechatPayService {
         mchId: true,
         mchName: true,
         apiV3KeyEnc: true,
+        subMchId: true,
+        bindStatus: true,
+        bindCheckedAt: true,
+        bindFailReason: true,
         configuredAt: true,
       },
     });
   }
 
   /**
-   * 安全解密 apiV3KeyEnc。
+   * 校验当前门店的子商户号与服务商的绑定关系，并回传最新配置。
    *
-   * 仅在确认是「历史明文数据」时才回退返回原始值：明文不含密文分隔符，
-   * WechatPayEncryptionService.decrypt 会抛 "Invalid encrypted format"。
-   *
-   * ⚠️ 若确认是密文却解密失败（主密钥未配置 / 轮换 / 配置错误），必须返回 null
-   * 而不是把 `iv:authTag:ciphertext` 当作 APIv3Key 返回 —— 那样会让支付回调
-   * 静默解密失败，且日志上表现为「密钥不匹配」，极难定位到真正的主密钥故障。
+   * 具体探测与落库在 {@link StoresWechatPayBindService}：门店取自 JWT 上下文，
+   * 不接受门店 ID 入参，天然杜绝越权校验他人的子商户号。
    */
-  private safeDecrypt(apiV3KeyEnc: string, storeId: number): string | null {
-    if (!apiV3KeyEnc) return null;
-    try {
-      return this.encryptionService.decrypt(apiV3KeyEnc);
-    } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error);
-
-      if (this.looksLikeEncryptedPayload(apiV3KeyEnc)) {
-        this.logger.error(
-          `门店 ${storeId} 的 apiV3KeyEnc 解密失败，疑似 WECHAT_PAY_KEY_ENCRYPTION_SECRET 配置错误：${reason}`,
-        );
-        return null;
-      }
-
-      // 兼容迁移期间明文存储的历史数据
-      this.logger.warn(
-        `门店 ${storeId} 的 apiV3KeyEnc 非密文格式，按历史明文数据直接返回原始值`,
-      );
-      return apiV3KeyEnc;
-    }
+  async verifyWechatPayBind(
+    user: AuthenticatedUser,
+  ): Promise<WechatPayConfigResponseDto> {
+    const { record } = await this.bindService.verifyAndPersist(user);
+    return this.toWechatPayConfigResponse(record);
   }
 
-  /** 判定是否为 `iv:authTag:ciphertext` 形态的密文。 */
-  private looksLikeEncryptedPayload(value: string): boolean {
-    const parts = value.split(':');
-    return (
-      parts.length === ENCRYPTED_PAYLOAD_PART_COUNT &&
-      parts.every(
-        (part) => part.length > 0 && BASE64_SEGMENT_PATTERN.test(part),
-      )
-    );
-  }
-
+  /**
+   * 「已配置」的判定随模式变化，这是最容易做错的一处：
+   *
+   * - 服务商模式：商家只需提供子商户号，且**必须**通过绑定校验才算可收款。
+   *   `configured` = 有子商户号 && bindStatus === 'verified'。
+   *   只保存了子商户号而没校验通过时返回 false，前端据此提示「去校验」，
+   *   避免出现「配了但一定收不到钱、界面却显示已配置」的静默故障。
+   * - 直连模式（旧链路）：维持原判定（有商户号且有 APIv3 密钥）。
+   */
   private toWechatPayConfigResponse(
     record: WechatPayConfigRecord,
   ): WechatPayConfigResponseDto {
-    const configured = !!(record.mchId && record.apiV3KeyEnc);
+    const configured = this.isPartnerMode()
+      ? !!record.subMchId && record.bindStatus === 'verified'
+      : !!(record.mchId && record.apiV3KeyEnc);
 
     return {
       configured,
       ...(record.mchId ? { mchId: record.mchId } : {}),
       ...(record.mchName ? { mchName: record.mchName } : {}),
+      bindStatus: record.bindStatus,
+      ...(record.bindCheckedAt
+        ? { bindCheckedAt: record.bindCheckedAt.toISOString() }
+        : {}),
+      ...(record.bindFailReason
+        ? { bindFailReason: record.bindFailReason }
+        : {}),
       ...(record.configuredAt
         ? { configuredAt: record.configuredAt.toISOString() }
         : {}),
     };
+  }
+
+  /** 初次配置缺哪些必填项：服务商模式下不要求 APIv3 密钥（子商户本就没有） */
+  private collectMissingRequiredFields(
+    dto: UpdateWechatPayConfigDto,
+  ): string[] {
+    const missingFields: string[] = [];
+    if (!dto.mchId) missingFields.push('mchId');
+    if (!dto.mchName) missingFields.push('mchName');
+    if (!this.isPartnerMode() && !dto.apiV3Key) {
+      missingFields.push('apiV3Key');
+    }
+    return missingFields;
   }
 }

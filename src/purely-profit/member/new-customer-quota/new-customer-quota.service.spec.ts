@@ -6,7 +6,12 @@ import {
   NEW_CUSTOMER_QUOTA_EXHAUSTED_CODE,
   NEW_CUSTOMER_QUOTA_EXHAUSTED_MESSAGE,
   NEW_CUSTOMER_QUOTA_WARNING_THRESHOLD,
+  RECHARGE_TIER_AMOUNT_FEN,
 } from './new-customer-quota.constants';
+import {
+  calcQuotaByAmountFen,
+  formatAmountFenToYuanDisplay,
+} from './new-customer-quota.domain';
 import { NewCustomerQuotaService } from './new-customer-quota.service';
 
 describe('NewCustomerQuotaService', () => {
@@ -95,11 +100,20 @@ describe('NewCustomerQuotaService', () => {
   });
 
   it('充值档位：金额与新客数都由后端计算（0.03 元/位新客）', () => {
-    expect(service.getTiers()).toEqual([
-      { amountFen: 1000, amountDisplay: '¥10', quotaCount: 333 },
-      { amountFen: 5000, amountDisplay: '¥50', quotaCount: 1666 },
-      { amountFen: 10000, amountDisplay: '¥100', quotaCount: 3333 },
-    ]);
+    // 期望值从常量推导：档位在联调期被临时降档，写死金额会让用例与配置互相打架
+    expect(service.getTiers()).toEqual(
+      RECHARGE_TIER_AMOUNT_FEN.map((amountFen) => ({
+        amountFen,
+        amountDisplay: formatAmountFenToYuanDisplay(amountFen),
+        quotaCount: calcQuotaByAmountFen(amountFen),
+      })),
+    );
+  });
+
+  it('充值档位换算口径：每 3 分钱折算 1 位新客，向下取整不多送', () => {
+    expect(calcQuotaByAmountFen(1000)).toBe(333);
+    expect(calcQuotaByAmountFen(5000)).toBe(1666);
+    expect(calcQuotaByAmountFen(1)).toBe(0);
   });
 
   it('会员赠送：月度 +50，永久同年度 +300', async () => {

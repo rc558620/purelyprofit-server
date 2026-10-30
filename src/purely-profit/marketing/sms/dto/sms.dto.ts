@@ -213,8 +213,7 @@ export class SmsRechargeOrderResponseDto {
   @ApiProperty({
     enum: SMS_RECHARGE_ORDER_STATUS_VALUES,
     example: 'pending',
-    description:
-      '下单结果状态：pending=待扫码支付 paid=已直接入账（测试模式）',
+    description: '下单结果状态：pending=待扫码支付 paid=已直接入账（测试模式）',
   })
   status!: SmsRechargeOrderStatusValue;
 

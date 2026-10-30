@@ -409,10 +409,11 @@ describe('Space care records routes (e2e)', () => {
       .get('/api/club/care-records')
       .expect(200);
 
-    // 非本店会员同样走完整响应契约：空 items + 空首尾 + 分页元信息
+    // 非本店会员同样走完整响应契约：空 items + 空首尾 + 技师称谓 + 分页元信息
     expect(response.body).toEqual({
       items: [],
       compareRange: { earliest: null, latest: null },
+      technicianLabel: '技师',
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
     });
     expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();

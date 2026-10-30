@@ -14,7 +14,7 @@ describe('ClubScanOrderingOrderQueryService', () => {
   const user = { id: 7 } as AuthenticatedUser;
 
   /** 取最后一次会话查询的 where（第一次是 activeDiningRoundIds 的轮次查询） */
-  const sessionQueryWhere = (): Record<string, any> =>
+  const sessionQueryWhere = (): Record<string, unknown> =>
     prisma.scanOrderingSession.findMany.mock.calls.at(-1)![0].where;
 
   beforeEach(async () => {
@@ -39,7 +39,7 @@ describe('ClubScanOrderingOrderQueryService', () => {
     await service.listOrders(user, {} as never);
 
     const where = sessionQueryWhere();
-    const activeBranch = (where.OR as any[])[0];
+    const activeBranch = (where.OR as Record<string, unknown>[])[0];
 
     expect(activeBranch.status).toBe('active');
     // 会话 TTL（4h）只限制 C 端继续点餐，不该让在途订单从订单追踪页消失：

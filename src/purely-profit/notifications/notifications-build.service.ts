@@ -278,17 +278,19 @@ export class NotificationsBuildService {
     }
 
     // 核销按天汇总成一条：24h 内的笔数与件数，便于门店对账而非逐笔打扰
-    const pickupSummary: CustodyPickupSummary = custodyPickups.reduce<CustodyPickupSummary>(
-      (acc, pickup) => ({
-        pickedCount: acc.pickedCount + 1,
-        pickedQty: acc.pickedQty + pickup.qty,
-        lastPickedAt:
-          acc.lastPickedAt === null || pickup.pickedAt.getTime() > acc.lastPickedAt.getTime()
-            ? pickup.pickedAt
-            : acc.lastPickedAt,
-      }),
-      { pickedCount: 0, pickedQty: 0, lastPickedAt: null },
-    );
+    const pickupSummary: CustodyPickupSummary =
+      custodyPickups.reduce<CustodyPickupSummary>(
+        (acc, pickup) => ({
+          pickedCount: acc.pickedCount + 1,
+          pickedQty: acc.pickedQty + pickup.qty,
+          lastPickedAt:
+            acc.lastPickedAt === null ||
+            pickup.pickedAt.getTime() > acc.lastPickedAt.getTime()
+              ? pickup.pickedAt
+              : acc.lastPickedAt,
+        }),
+        { pickedCount: 0, pickedQty: 0, lastPickedAt: null },
+      );
     if (pickupSummary.pickedCount > 0 && pickupSummary.lastPickedAt) {
       drafts.push({
         id: `custody:pickup:${formatMonthDay(now)}`,

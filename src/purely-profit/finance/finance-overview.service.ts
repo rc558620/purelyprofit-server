@@ -7,10 +7,7 @@ import {
   buildCacheRefreshTaskKey,
   buildFinanceReportCacheKey,
 } from '../../redis/keys';
-import {
-  buildFinanceOverviewCacheKey,
-  buildFinanceReportPattern,
-} from './finance.cache-keys';
+import { buildFinanceOverviewCacheKey } from './finance.cache-keys';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
 import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';

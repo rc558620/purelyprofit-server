@@ -1,8 +1,12 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
+import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
+import { ClubPaymentOrderRecordService } from './club-payment-order-record.service';
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
+import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
 import { ClubPaymentsService } from './club-payments.service';
 import type { ClubWechatPaymentCallbackDto } from './dto/club-wechat-callback.dto';
 
@@ -20,6 +24,23 @@ describe('ClubPaymentsService', () => {
   const clubWechatCallbackDecryptorService = {
     decryptCallback: jest.fn(),
     validateAndExtract: jest.fn(),
+    extractMerchantIdentity: jest.fn(),
+  };
+
+  const identityService = {
+    isPartnerMode: jest.fn(),
+    getPartnerSpMchId: jest.fn(),
+    resolveTarget: jest.fn(),
+  };
+
+  const paymentOrderRecordService = {
+    findByOrderNo: jest.fn(),
+    persistMerchantIdentity: jest.fn(),
+  };
+
+  /** 服务购买单（SV）草稿：无落库表，门店 ID 只能从这里取 */
+  const clubOrderDraftsService = {
+    getDraftByOrderId: jest.fn(),
   };
 
   const paymentCallbackQueue = {
@@ -43,6 +64,33 @@ describe('ClubPaymentsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
+    // 默认按直连模式 + 商户号一致配置，具体用例再覆写
+    identityService.isPartnerMode.mockReturnValue(false);
+    identityService.getPartnerSpMchId.mockReturnValue('SP0001');
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'store',
+      signMchId: 'mch123',
+      settleMchId: 'mch123',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'mch123',
+      settleMchId: 'mch123',
+    });
+    paymentOrderRecordService.findByOrderNo.mockResolvedValue({
+      kind: 'recharge',
+      storeId: 1,
+      spMchId: null,
+      subMchId: null,
+    });
+    paymentOrderRecordService.persistMerchantIdentity.mockResolvedValue(
+      'recharge',
+    );
+    clubOrderDraftsService.getDraftByOrderId.mockRejectedValue(
+      new Error('订单不存在'),
+    );
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubPaymentsService,
@@ -57,6 +105,18 @@ describe('ClubPaymentsService', () => {
         {
           provide: ClubWechatCallbackDecryptorService,
           useValue: clubWechatCallbackDecryptorService,
+        },
+        {
+          provide: ClubWechatPayIdentityService,
+          useValue: identityService,
+        },
+        {
+          provide: ClubPaymentOrderRecordService,
+          useValue: paymentOrderRecordService,
+        },
+        {
+          provide: ClubOrderDraftsService,
+          useValue: clubOrderDraftsService,
         },
         {
           provide: getQueueToken('club-payment-callback'),
@@ -105,9 +165,11 @@ describe('ClubPaymentsService', () => {
       status: 'pending',
     });
 
+    // 第三个参数 'club' 声明本回调归属 C 端门店收款链路：
+    // 服务商模式开启后该链路改用服务商维度的平台证书验签
     expect(
       clubPaymentCallbackSignatureService.assertWechatCallbackSignature,
-    ).toHaveBeenCalledWith(rawBody, headers);
+    ).toHaveBeenCalledWith(rawBody, headers, 'club');
     expect(
       clubWechatCallbackDecryptorService.decryptCallback,
     ).toHaveBeenCalledWith(payload);
@@ -128,6 +190,216 @@ describe('ClubPaymentsService', () => {
     expect(
       clubPaymentCallbackDispatchService.dispatchByOrderNo,
     ).not.toHaveBeenCalled();
+  });
+
+  it('回调商户号与门店配置一致时把权威商户号写回订单', async () => {
+    identityService.isPartnerMode.mockReturnValue(true);
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'partner',
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+    });
+
+    await service.handleWechatCallback(
+      makeCallbackPayload(),
+      {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      },
+      '{}',
+    );
+
+    expect(
+      paymentOrderRecordService.persistMerchantIdentity,
+    ).toHaveBeenCalledWith('RC202606101231000001A2B', 'SP0001', 'SUB0001');
+  });
+
+  it('服务商模式下 sp_mchid 与平台配置不一致时拒绝入账', async () => {
+    identityService.isPartnerMode.mockReturnValue(true);
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP_OTHER',
+      settleMchId: 'SUB0001',
+    });
+
+    await expect(
+      service.handleWechatCallback(
+        makeCallbackPayload(),
+        {
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          nonce: 'callback-nonce',
+          signature: 'SIGNATURE',
+          serial: 'CERT_SERIAL_001',
+        },
+        '{}',
+      ),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(paymentCallbackQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('回调 sub_mchid 与门店配置不一致时拒绝入账（防止换绑后资金错配）', async () => {
+    identityService.isPartnerMode.mockReturnValue(true);
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'partner',
+      signMchId: 'SP0001',
+      settleMchId: 'SUB_CURRENT',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP0001',
+      settleMchId: 'SUB_OLD',
+    });
+
+    await expect(
+      service.handleWechatCallback(
+        makeCallbackPayload(),
+        {
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          nonce: 'callback-nonce',
+          signature: 'SIGNATURE',
+          serial: 'CERT_SERIAL_001',
+        },
+        '{}',
+      ),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(paymentCallbackQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('自助下单（SF）：经 SelfOrder 关联拿到门店并完成比对与落库', async () => {
+    identityService.isPartnerMode.mockReturnValue(true);
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'partner',
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+    });
+    paymentOrderRecordService.findByOrderNo.mockResolvedValue({
+      kind: 'self_ordering',
+      storeId: 9,
+      spMchId: null,
+      subMchId: null,
+    });
+
+    await service.handleWechatCallback(
+      makeCallbackPayload(),
+      {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      },
+      '{}',
+    );
+
+    expect(
+      paymentOrderRecordService.persistMerchantIdentity,
+    ).toHaveBeenCalledWith('RC202606101231000001A2B', 'SP0001', 'SUB0001');
+  });
+
+  it('服务购买单（SV）：无落库表时从草稿取门店，校验通过但明确不假装落库', async () => {
+    identityService.isPartnerMode.mockReturnValue(true);
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'partner',
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP0001',
+      settleMchId: 'SUB0001',
+    });
+    paymentOrderRecordService.findByOrderNo.mockResolvedValue(null);
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue({ storeId: 9 });
+
+    await service.handleWechatCallback(
+      makeCallbackPayload(),
+      {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      },
+      '{}',
+    );
+
+    expect(clubOrderDraftsService.getDraftByOrderId).toHaveBeenCalledWith(
+      'RC202606101231000001A2B',
+      'service',
+    );
+    // 没有订单表可写，不能假装落库成功
+    expect(
+      paymentOrderRecordService.persistMerchantIdentity,
+    ).not.toHaveBeenCalled();
+    // 但入账不受影响：草稿型订单不能因为存不下商户号就被拒收
+    expect(paymentCallbackQueue.add).toHaveBeenCalled();
+  });
+
+  it('服务购买单且草稿也不存在时：跳过比对但放行入账', async () => {
+    paymentOrderRecordService.findByOrderNo.mockResolvedValue(null);
+    clubOrderDraftsService.getDraftByOrderId.mockRejectedValue(
+      new Error('订单不存在'),
+    );
+
+    await service.handleWechatCallback(
+      makeCallbackPayload(),
+      {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      },
+      '{}',
+    );
+
+    expect(paymentCallbackQueue.add).toHaveBeenCalled();
+    expect(
+      paymentOrderRecordService.persistMerchantIdentity,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('服务购买单商户号与门店配置不一致时同样拒绝入账', async () => {
+    paymentOrderRecordService.findByOrderNo.mockResolvedValue(null);
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue({ storeId: 9 });
+    identityService.resolveTarget.mockResolvedValue({
+      mode: 'partner',
+      signMchId: 'SP0001',
+      settleMchId: 'SUB_CURRENT',
+      appId: 'app123',
+      notifyUrl: 'https://api.example.com/callback',
+    });
+    clubWechatCallbackDecryptorService.extractMerchantIdentity.mockReturnValue({
+      signMchId: 'SP0001',
+      settleMchId: 'SUB_OTHER',
+    });
+
+    await expect(
+      service.handleWechatCallback(
+        makeCallbackPayload(),
+        {
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          nonce: 'callback-nonce',
+          signature: 'SIGNATURE',
+          serial: 'CERT_SERIAL_001',
+        },
+        '{}',
+      ),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(paymentCallbackQueue.add).not.toHaveBeenCalled();
   });
 
   it('handleWechatCallback 在验签失败时停止后续处理', async () => {

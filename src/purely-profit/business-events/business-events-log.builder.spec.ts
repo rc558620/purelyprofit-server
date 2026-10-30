@@ -55,12 +55,18 @@ describe('normalizeBusinessEventProperties', () => {
 
     const result = normalizeBusinessEventProperties({ reason: longValue });
 
-    expect(result.reason).toHaveLength(BUSINESS_EVENT_PROPERTY_VALUE_MAX_LENGTH);
+    expect(result.reason).toHaveLength(
+      BUSINESS_EVENT_PROPERTY_VALUE_MAX_LENGTH,
+    );
   });
 
   it('属性个数超过上限时只保留前 N 个', () => {
     const oversized: Record<string, number> = {};
-    for (let index = 0; index < BUSINESS_EVENT_MAX_PROPERTIES + 10; index += 1) {
+    for (
+      let index = 0;
+      index < BUSINESS_EVENT_MAX_PROPERTIES + 10;
+      index += 1
+    ) {
       oversized[`key${index}`] = index;
     }
 

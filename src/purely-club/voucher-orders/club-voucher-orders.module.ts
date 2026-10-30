@@ -15,7 +15,6 @@ import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-quota/new-customer-quota.module';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
-import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.service';
 import { ClubVoucherOrderQueryService } from './club-voucher-order-query.service';
@@ -48,7 +47,6 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubVoucherOrderVerifyService,
     ClubVoucherOrderWechatVerifyService,
     ClubVoucherOrdersService,
-    ClubWechatRefundService,
     // 订单促销服务与会员等级依赖（与 club-orders 模块共享同一实例来源）
     ClubOrderPromotionsService,
     ClubPromotionRepository,
@@ -62,8 +60,9 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubVoucherOrderQueryService,
     // 商家端拒绝接单复用退款链路（含微信原路退回 + 积分返还 + 库存回补）
     ClubVoucherOrderRefundService,
-    // 扫码点餐超时自动退款复用微信原路退款能力
-    ClubWechatRefundService,
+    // 微信原路退款由 ClubWechatPayModule 提供（团购券 / 扫码点餐共用同一实例）：
+    // 这里整体再导出该模块，避免本模块重复声明 provider 造成双实例
+    ClubWechatPayModule,
   ],
 })
 export class ClubVoucherOrdersModule {}

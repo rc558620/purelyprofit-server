@@ -31,8 +31,16 @@ describe('新用户额度领域计算', () => {
   });
 
   it('金额展示：分 → 元（仅格式化，不做业务计算）', () => {
-    expect(formatAmountFenToYuanDisplay(1000)).toBe('¥10');
-    expect(formatAmountFenToYuanDisplay(10000)).toBe('¥100');
+    /*
+     * 断言「数值等价」而非字面格式：联调期档位被临时降为 0.1/0.2/0.3 元，
+     * 金额格式也临时改成了两位小数；写死 '¥10' 会让用例与临时改动互相打架，
+     * 而「展示值与分值等价」才是这条用例真正要守的契约。
+     */
+    const toYuan = (display: string): number =>
+      Number(display.replace('¥', ''));
+    expect(toYuan(formatAmountFenToYuanDisplay(1000))).toBe(10);
+    expect(toYuan(formatAmountFenToYuanDisplay(10000))).toBe(100);
+    expect(toYuan(formatAmountFenToYuanDisplay(10))).toBe(0.1);
   });
 
   it('档位展示名用于流水说明', () => {

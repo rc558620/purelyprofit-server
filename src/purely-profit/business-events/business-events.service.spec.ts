@@ -39,7 +39,10 @@ describe('BusinessEventsService', () => {
     service.report(createPayload());
 
     expect(logSpy).toHaveBeenCalledTimes(1);
-    const logged = JSON.parse(String(logSpy.mock.calls[0][0])) as Record<string, unknown>;
+    const logged = JSON.parse(String(logSpy.mock.calls[0][0])) as Record<
+      string,
+      unknown
+    >;
 
     expect(logged.kind).toBe('business-event');
     expect(logged.name).toBe('membership_banner_view');

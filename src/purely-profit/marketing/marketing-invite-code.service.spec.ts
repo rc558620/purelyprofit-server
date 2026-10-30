@@ -15,7 +15,7 @@ import { MarketingInviteCodeService } from './marketing-invite-code.service';
 import { MarketingSharedService } from './marketing-shared.service';
 
 jest.mock('qrcode', () => ({
-  toDataURL: jest.fn(async () => 'data:image/png;base64,QR_IMAGE'),
+  toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,QR_IMAGE'),
 }));
 
 /** 取被 mock 的 qrcode.toDataURL，用于断言「空载荷时根本没出图」。 */

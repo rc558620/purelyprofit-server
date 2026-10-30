@@ -474,7 +474,10 @@ describe('PlatformMembershipPaymentService', () => {
     });
 
     await expect(
-      service.getMembershipPaymentStatus({ orderNo: ORDER_NO, storeId: STORE_ID }),
+      service.getMembershipPaymentStatus({
+        orderNo: ORDER_NO,
+        storeId: STORE_ID,
+      }),
     ).rejects.toThrow(NotFoundException);
 
     expect(paymentOrderService.getStatus).not.toHaveBeenCalled();

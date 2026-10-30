@@ -81,8 +81,7 @@ export function isGrouponVoucherItemName(
 ): boolean {
   if (!productName.endsWith(GROUPON_VOUCHER_ITEM_SUFFIX)) return false;
   return (
-    categoryName === undefined ||
-    categoryName === GROUPON_VOUCHER_CATEGORY_NAME
+    categoryName === undefined || categoryName === GROUPON_VOUCHER_CATEGORY_NAME
   );
 }
 

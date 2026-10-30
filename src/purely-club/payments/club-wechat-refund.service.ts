@@ -1,14 +1,13 @@
-// 微信支付退款服务：调用微信 v3 退款接口（POST /v3/refund/domestic/refunds），认证方式与 JSAPI 下单一致
-import { createPrivateKey, createSign, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+// 微信支付退款服务：调用 v3 退款接口（POST /v3/refund/domestic/refunds）
 import {
-  BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { StoresWechatPayService } from '../../purely-profit/stores/stores-wechat-pay.service';
+import { ClubPaymentOrderRecordService } from './club-payment-order-record.service';
+import { ClubWechatPayHttpService } from './club-wechat-pay-http.service';
+import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
 
 /** 微信退款请求入参 */
 export interface WechatRefundRequest {
@@ -27,32 +26,33 @@ export interface WechatRefundRequest {
 
 /** 微信退款响应（成功态） */
 interface WechatRefundResponse {
-  status?: string;
   refund_id?: string;
   message?: string;
   code?: string;
 }
 
-/** 私钥缓存有效期（与 JSAPI 下单服务一致） */
-const PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
+/** 本次退款实际使用的收款主体 */
+interface RefundTarget {
+  mode: 'store' | 'partner';
+  /** 签名主体：服务商模式下恒为服务商商户号 */
+  signMchId: string;
+  /** 原收款商户号：直连模式下必须等于 signMchId */
+  settleMchId: string;
+  /** 是否取自订单自身记录（false = 回落到门店当前配置，属兜底路径） */
+  fromRecord: boolean;
+}
+
+const REFUND_PATH = '/v3/refund/domestic/refunds';
 
 @Injectable()
 export class ClubWechatRefundService {
   private readonly logger = new Logger(ClubWechatRefundService.name);
 
-  /** 已加载私钥缓存 */
-  private cachedPrivateKeyPem: string | null | undefined = undefined;
-  private cachedPrivateKeyPemLoadedAt = 0;
-
-  /** 运行环境：生产环境禁用任何「未真实退款却标记成功」的降级路径 */
-  private readonly nodeEnv: string;
-
   constructor(
-    private readonly configService: ConfigService,
-    private readonly storesWechatPayService: StoresWechatPayService,
-  ) {
-    this.nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
-  }
+    private readonly httpService: ClubWechatPayHttpService,
+    private readonly identityService: ClubWechatPayIdentityService,
+    private readonly orderRecordService: ClubPaymentOrderRecordService,
+  ) {}
 
   /**
    * 发起微信退款（v3 真实接口）。
@@ -63,173 +63,161 @@ export class ClubWechatRefundService {
   async requestRefund(
     params: WechatRefundRequest,
   ): Promise<{ refundId: string }> {
-    const config = await this.storesWechatPayService.getWechatPayConfigForStore(
-      params.storeId,
-    );
-    const serialNo = this.configService
-      .get<string>('wechat.mchSerialNo')
-      ?.trim();
-    const privateKeyPem = await this.loadPrivateKeyPem();
-
-    // 资金安全闸门：配置不完整时**绝不能**标记退款成功。
-    // 早期实现的「DEV_REFUND_ 降级」会让系统显示已退款而钱根本没退，
-    // 且门店收款配置是数据库按门店维护的，启动校验拦不住 —— 只能在调用点 fail-closed。
-    if (!config.mchId || !config.apiV3Key || !serialNo || !privateKeyPem) {
-      const detail =
-        `mchId=${Boolean(config.mchId)}, apiV3Key=${Boolean(config.apiV3Key)}, ` +
-        `serialNo=${Boolean(serialNo)}, privateKey=${Boolean(privateKeyPem)}`;
-      this.logger.error(
-        `微信退款配置不完整（${detail}），退款单 ${params.refundNo} 未真实发起退款`,
-      );
-      // 非生产保留本地联调通道（退款流程要能跑通），生产一律真实失败并告警
-      if (this.nodeEnv === 'production') {
-        throw new InternalServerErrorException(
-          '微信退款配置不完整，退款未发起，请联系客服处理',
-        );
-      }
-      this.logger.warn(
-        `非生产环境降级：退款单 ${params.refundNo} 未真实调用微信退款接口`,
-      );
-      return { refundId: `DEV_REFUND_${params.refundNo}` };
+    const target = await this.resolveRefundTarget(params);
+    if (!target) {
+      return this.degradeToDevRefund(params, '门店未配置收款商户号');
     }
 
-    const url = 'https://api.mch.weixin.qq.com/v3/refund/domestic/refunds';
-    const body = JSON.stringify({
-      out_trade_no: params.orderNo,
-      out_refund_no: params.refundNo,
-      reason: params.reason ?? '用户主动退款',
-      amount: {
-        refund: params.refundFen,
-        total: params.totalFen,
-        currency: 'CNY',
-      },
-    });
+    const privateKeyPem = await this.httpService.loadPrivateKeyPem(target.mode);
+    if (!privateKeyPem && this.httpService.isProduction()) {
+      this.logger.error(
+        `退款签名私钥未配置，退款单 ${params.refundNo} 未真实发起（mode=${target.mode}）`,
+      );
+      throw new InternalServerErrorException(
+        '微信支付签名凭据未配置，退款未发起，请联系平台管理员',
+      );
+    }
 
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const nonce = randomBytes(16).toString('hex');
-    const authorization = this.buildAuthorization({
-      mchId: config.mchId,
-      serialNo,
-      privateKeyPem,
+    const result = await this.httpService.request<WechatRefundResponse>({
       method: 'POST',
-      url,
-      timestamp,
-      nonce,
-      body,
+      urlPath: REFUND_PATH,
+      mchId: target.signMchId,
+      credential: target.mode,
+      body: buildRefundBody(params, target),
     });
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: authorization,
-          'User-Agent': 'purelyprofit-server/1.0',
-        },
-        body,
-      });
-      const responseJson = (await response.json()) as WechatRefundResponse;
-
-      if (!response.ok) {
-        this.logger.error(
-          `微信退款失败: ${responseJson.code ?? 'UNKNOWN'} - ${responseJson.message ?? ''}`,
-        );
-        throw new InternalServerErrorException(
-          `微信退款失败：${responseJson.message ?? '请联系客服'}`,
-        );
-      }
-      if (!responseJson.refund_id) {
+    if (result.ok) {
+      const refundId = result.data?.refund_id;
+      if (!refundId) {
         throw new InternalServerErrorException('微信退款返回数据异常');
       }
-      return { refundId: responseJson.refund_id };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof InternalServerErrorException
-      ) {
-        throw error;
-      }
-      this.logger.error('微信退款网络请求异常', error);
-      throw new InternalServerErrorException(
-        '微信退款服务暂时不可用，请稍后重试',
+      return { refundId };
+    }
+
+    this.logger.error(
+      `微信退款失败 orderNo=${params.orderNo} refundNo=${params.refundNo} mode=${target.mode} ` +
+        `signMchId=${target.signMchId} settleMchId=${target.settleMchId} fromRecord=${target.fromRecord} ` +
+        `httpStatus=${result.status} wechatCode=${result.code ?? 'UNKNOWN'} message=${result.message ?? ''}`,
+    );
+    throw new InternalServerErrorException(
+      `微信退款失败：${result.message || '请联系客服'}`,
+    );
+  }
+
+  // ─── 私有方法 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 确定本次退款的收款主体。
+   *
+   * 【S0 资金口径】退款必须回到**原收款账户**。这里优先取订单自身记录的子商户号，
+   * 只有在历史单据没记录（改造前落库的订单）时才回落到门店当前配置，并且必须告警：
+   * 商家一旦换绑子商户，回落路径会把钱退到错误主体，是最难排查的一类资金事故。
+   */
+  private async resolveRefundTarget(
+    params: WechatRefundRequest,
+  ): Promise<RefundTarget | null> {
+    const current = await this.identityService.resolveTarget(params.storeId);
+    if (!current) {
+      return null;
+    }
+
+    const record = await this.orderRecordService.findByOrderNo(params.orderNo);
+
+    /*
+     * 越权闸门：订单记录必须属于本次请求的门店。
+     *
+     * 「优先用订单落库的原收款商户号」是为了修「换绑子商户后退错主体」的资金事故，
+     * 但它把「按门店取配置」换成了「按订单号取记录」——后者天然跨门店，
+     * 一旦漏掉归属校验，拿着别家的订单号就能把别家商户的钱退掉（IDOR）。
+     * 服务商模式下签名主体是同一个 sp_mchid，签名这一层拦不住，只能在这里拦。
+     */
+    if (record && record.storeId !== params.storeId) {
+      this.logger.error(
+        `退款归属校验失败：订单 ${params.orderNo} 属于门店 ${record.storeId}，` +
+          `与本次请求的门店 ${params.storeId} 不一致，拒绝退款`,
+      );
+      throw new ForbiddenException('订单与门店不匹配，拒绝退款');
+    }
+
+    const recorded = record?.subMchId ?? null;
+    if (!recorded) {
+      this.logger.warn(
+        `订单 ${params.orderNo} 未记录原收款子商户号，本次退款回落到门店 ${params.storeId} 当前配置 ` +
+          `settleMchId=${current.settleMchId}（历史单据或改造前落库，请核对商户号是否已变更）`,
+      );
+      return {
+        mode: current.mode,
+        signMchId: current.signMchId,
+        settleMchId: current.settleMchId,
+        fromRecord: false,
+      };
+    }
+
+    if (recorded !== current.settleMchId) {
+      this.logger.warn(
+        `订单 ${params.orderNo} 的原收款商户号 ${recorded} 与门店当前配置 ${current.settleMchId} 不一致，` +
+          '按原收款主体退款（门店可能已换绑子商户号）',
       );
     }
+
+    // 服务商模式下签名主体恒为服务商商户号；直连模式下收款方即签名主体
+    const signMchId = current.mode === 'partner' ? current.signMchId : recorded;
+    return {
+      mode: current.mode,
+      signMchId,
+      settleMchId: recorded,
+      fromRecord: true,
+    };
   }
 
-  /** 构造微信 v3 Authorization 头（WECHATPAY2-SHA256-RSA2048） */
-  private buildAuthorization(opts: {
-    mchId: string;
-    serialNo: string;
-    privateKeyPem: string;
-    method: string;
-    url: string;
-    timestamp: string;
-    nonce: string;
-    body: string;
-  }): string {
-    const urlObj = new URL(opts.url);
-    const canonicalUrl = urlObj.pathname + (urlObj.search || '');
-    const signMessage = [
-      opts.method,
-      canonicalUrl,
-      opts.timestamp,
-      opts.nonce,
-      opts.body,
-      '',
-    ].join('\n');
-
-    const privateKey = createPrivateKey(opts.privateKeyPem);
-    const sign = createSign('RSA-SHA256');
-    sign.update(signMessage, 'utf8');
-    const signature = sign.sign(privateKey, 'base64');
-
-    return [
-      `WECHATPAY2-SHA256-RSA2048 mchid="${opts.mchId}"`,
-      `nonce_str="${opts.nonce}"`,
-      `signature="${signature}"`,
-      `timestamp="${opts.timestamp}"`,
-      `serial_no="${opts.serialNo}"`,
-    ].join(',');
+  /**
+   * 非生产环境的本地联调通道。
+   *
+   * 早期实现的「DEV_REFUND_ 降级」会让系统显示已退款而钱根本没退，
+   * 因此这里保留降级但强制生产环境拦截，并留下可检索日志。
+   */
+  private degradeToDevRefund(
+    params: WechatRefundRequest,
+    reason: string,
+  ): { refundId: string } {
+    if (this.httpService.isProduction()) {
+      this.logger.error(
+        `退款单 ${params.refundNo} 未真实发起退款（${reason}），生产环境禁止降级为已退款`,
+      );
+      throw new InternalServerErrorException(
+        '微信退款配置不完整，退款未发起，请联系客服处理',
+      );
+    }
+    this.logger.warn(
+      `非生产环境降级：退款单 ${params.refundNo} 未真实调用微信退款接口（${reason}）`,
+    );
+    return { refundId: `DEV_REFUND_${params.refundNo}` };
   }
+}
 
-  /** 加载商户 RSA 私钥 PEM：文件路径 > 内联内容 > null（开发态） */
-  private async loadPrivateKeyPem(): Promise<string | null> {
-    if (
-      this.cachedPrivateKeyPem !== undefined &&
-      Date.now() - this.cachedPrivateKeyPemLoadedAt < PRIVATE_KEY_CACHE_TTL_MS
-    ) {
-      return this.cachedPrivateKeyPem;
-    }
-    this.cachedPrivateKeyPem = undefined;
-    this.cachedPrivateKeyPemLoadedAt = Date.now();
+/**
+ * 组装退款请求体。
+ *
+ * 服务商模式下钱子序列必须靠 body 里的 sub_mchid 指定原收款子商户，
+ * 只靠 Authorization 里的服务商商户号是不够的（那是请求主体，不是收款方）。
+ */
+function buildRefundBody(
+  params: WechatRefundRequest,
+  target: RefundTarget,
+): string {
+  const common = {
+    out_trade_no: params.orderNo,
+    out_refund_no: params.refundNo,
+    reason: params.reason ?? '用户主动退款',
+    amount: {
+      refund: params.refundFen,
+      total: params.totalFen,
+      currency: 'CNY',
+    },
+  };
 
-    const keyPath = this.configService
-      .get<string>('wechat.privateKeyPath')
-      ?.trim();
-    if (keyPath) {
-      try {
-        const pem = await readFile(keyPath, 'utf8');
-        this.cachedPrivateKeyPem = pem;
-        return pem;
-      } catch (error) {
-        this.logger.error(`读取微信私钥文件失败: ${keyPath}`, error);
-        throw new InternalServerErrorException(
-          '读取微信支付私钥文件失败，请检查 WECHAT_PRIVATE_KEY_PATH 配置',
-        );
-      }
-    }
-
-    const keyContent = this.configService
-      .get<string>('wechat.privateKeyContent')
-      ?.trim();
-    if (keyContent) {
-      const pem = keyContent.replace(/\\n/g, '\n');
-      this.cachedPrivateKeyPem = pem;
-      return pem;
-    }
-
-    this.cachedPrivateKeyPem = null;
-    return null;
+  if (target.mode === 'partner') {
+    return JSON.stringify({ ...common, sub_mchid: target.settleMchId });
   }
+  return JSON.stringify({ ...common, mchid: target.settleMchId });
 }

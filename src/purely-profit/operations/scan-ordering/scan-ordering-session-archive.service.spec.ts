@@ -15,7 +15,11 @@ describe('ScanOrderingSessionArchiveService', () => {
       updateMany: jest.fn(),
       count: jest.fn(),
     },
-    scanOrders: { findMany: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
+    scanOrders: {
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
+      count: jest.fn(),
+    },
     scanOrderStatusHistory: { createMany: jest.fn() },
     scanOrderingCartItem: { updateMany: jest.fn() },
     scanOrderingTable: { updateMany: jest.fn() },

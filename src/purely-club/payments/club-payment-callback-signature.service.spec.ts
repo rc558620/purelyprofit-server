@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { createSign, generateKeyPairSync } from 'node:crypto';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
 
 describe('ClubPaymentCallbackSignatureService', () => {
@@ -155,5 +156,82 @@ describe('ClubPaymentCallbackSignatureService', () => {
         serial: undefined,
       }),
     ).not.toThrow();
+  });
+
+  describe('服务商模式下的「按链路取平台证书」', () => {
+    const globalKeyPair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const partnerKeyPair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+    const globalPublicPem = globalKeyPair.publicKey
+      .export({ type: 'spki', format: 'pem' })
+      .toString();
+    const globalPrivatePem = globalKeyPair.privateKey
+      .export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+    const partnerPublicPem = partnerKeyPair.publicKey
+      .export({ type: 'spki', format: 'pem' })
+      .toString();
+    const partnerPrivatePem = partnerKeyPair.privateKey
+      .export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+
+    const rawBody = JSON.stringify({ id: 'partner-callback-id' });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = 'partner-nonce';
+
+    const buildSignature = (privatePem: string): string =>
+      createSign('RSA-SHA256')
+        .update(`${timestamp}\n${nonce}\n${rawBody}\n`)
+        .sign(privatePem, 'base64');
+
+    const headersWith = (signature: string) => ({
+      timestamp,
+      nonce,
+      signature,
+      serial: 'CERT_SERIAL_001',
+    });
+
+    beforeEach(() => {
+      configState['wechat.platformPublicKeyContent'] = globalPublicPem;
+      configState['wechat.partner.platformPublicKeyContent'] = partnerPublicPem;
+      configState['wechat.partner.enabled'] = true;
+    });
+
+    afterEach(() => {
+      configState['wechat.partner.enabled'] = false;
+      delete configState['wechat.partner.platformPublicKeyContent'];
+    });
+
+    it('club 链路在服务商模式下使用服务商维度的平台证书验签', () => {
+      expect(() =>
+        service.assertWechatCallbackSignature(
+          rawBody,
+          headersWith(buildSignature(partnerPrivatePem)),
+          'club',
+        ),
+      ).not.toThrow();
+    });
+
+    it('同一报文走 platform 链路时应使用另一份证书，验签必然失败', () => {
+      expect(() =>
+        service.assertWechatCallbackSignature(
+          rawBody,
+          headersWith(buildSignature(partnerPrivatePem)),
+          'platform',
+        ),
+      ).toThrow(UnauthorizedException);
+    });
+
+    it('服务商模式关闭时 club 链路回落全局平台证书，行为与改造前一致', () => {
+      configState['wechat.partner.enabled'] = false;
+
+      expect(() =>
+        service.assertWechatCallbackSignature(
+          rawBody,
+          headersWith(buildSignature(globalPrivatePem)),
+          'club',
+        ),
+      ).not.toThrow();
+    });
   });
 });

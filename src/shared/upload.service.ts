@@ -129,7 +129,7 @@ export class UploadService {
   async deleteObject(key: string): Promise<void> {
     if (!this.client) return;
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       this.client!.deleteObject(
         {
           Bucket: this.bucket,

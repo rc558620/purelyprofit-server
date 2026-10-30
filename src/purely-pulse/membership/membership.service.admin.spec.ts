@@ -327,7 +327,9 @@ describe('PulseMembershipService admin', () => {
     context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
       { storeId: 18 },
     ]);
-    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue([]);
+    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue(
+      [],
+    );
 
     await context.service.listAdminPointsLogs(context.user, {
       pointsTab: 'earn',
@@ -337,77 +339,93 @@ describe('PulseMembershipService admin', () => {
 
     expect(
       context.prismaService.storeMembershipPointsLog.findMany,
-    ).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { notIn: ['admin_adjust', 'expire'] },
-            changeType: 'increase',
-          },
-          {
-            OR: [
-              { description: { contains: '张三' } },
-              { store: { name: { contains: '张三' } } },
-              { store: { contactPhone: { contains: '张三' } } },
-              { store: { owner: { realName: { contains: '张三' } } } },
-              { store: { owner: { name: { contains: '张三' } } } },
-              { store: { owner: { wechatPhone: { contains: '张三' } } } },
-              { store: { owner: { email: { contains: '张三' } } } },
-            ],
-          },
-        ],
-      },
-      take: 21,
-    }));
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { notIn: ['admin_adjust', 'expire'] },
+              changeType: 'increase',
+            },
+            {
+              OR: [
+                { description: { contains: '张三' } },
+                { store: { name: { contains: '张三' } } },
+                { store: { contactPhone: { contains: '张三' } } },
+                { store: { owner: { realName: { contains: '张三' } } } },
+                { store: { owner: { name: { contains: '张三' } } } },
+                { store: { owner: { wechatPhone: { contains: '张三' } } } },
+                { store: { owner: { email: { contains: '张三' } } } },
+              ],
+            },
+          ],
+        },
+        take: 21,
+      }),
+    );
   });
 
   it('listAdminPointsLogs 的获得 / 消耗边界与 type 推导一致，过期记录不丢', async () => {
     context.prismaService.storeMembershipProfile.findMany.mockResolvedValue([
       { storeId: 18 },
     ]);
-    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue([]);
+    context.prismaService.storeMembershipPointsLog.findMany.mockResolvedValue(
+      [],
+    );
 
-    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'earn' });
+    await context.service.listAdminPointsLogs(context.user, {
+      pointsTab: 'earn',
+    });
     // type = source!=='expire' && increase 才算 earn，过期必须留在 spend 侧
     expect(
       context.prismaService.storeMembershipPointsLog.findMany,
-    ).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { notIn: ['admin_adjust', 'expire'] },
-            changeType: 'increase',
-          },
-        ],
-      },
-    }));
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { notIn: ['admin_adjust', 'expire'] },
+              changeType: 'increase',
+            },
+          ],
+        },
+      }),
+    );
 
-    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'spend' });
+    await context.service.listAdminPointsLogs(context.user, {
+      pointsTab: 'spend',
+    });
     expect(
       context.prismaService.storeMembershipPointsLog.findMany,
-    ).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { not: 'admin_adjust' },
-            OR: [{ source: 'expire' }, { changeType: 'decrease' }],
-          },
-        ],
-      },
-    }));
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { not: 'admin_adjust' },
+              OR: [{ source: 'expire' }, { changeType: 'decrease' }],
+            },
+          ],
+        },
+      }),
+    );
 
-    await context.service.listAdminPointsLogs(context.user, { pointsTab: 'admin' });
+    await context.service.listAdminPointsLogs(context.user, {
+      pointsTab: 'admin',
+    });
     expect(
       context.prismaService.storeMembershipPointsLog.findMany,
-    ).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [{ source: 'admin_adjust' }],
-      },
-    }));
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [{ source: 'admin_adjust' }],
+        },
+      }),
+    );
   });
 
   it('listAdminBeanLogs 将 cursor 下推到查询层并返回 nextCursor', async () => {
@@ -547,29 +565,31 @@ describe('PulseMembershipService admin', () => {
 
     expect(
       context.prismaService.storePartnerBeanLog.findMany,
-    ).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { notIn: ['admin_adjust', 'withdrawal'] },
-            changeAmount: { gt: 0 },
-          },
-          {
-            OR: [
-              { description: { contains: '张三' } },
-              { store: { name: { contains: '张三' } } },
-              { store: { contactPhone: { contains: '张三' } } },
-              { store: { owner: { realName: { contains: '张三' } } } },
-              { store: { owner: { name: { contains: '张三' } } } },
-              { store: { owner: { wechatPhone: { contains: '张三' } } } },
-              { store: { owner: { email: { contains: '张三' } } } },
-            ],
-          },
-        ],
-      },
-      take: 21,
-    }));
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { notIn: ['admin_adjust', 'withdrawal'] },
+              changeAmount: { gt: 0 },
+            },
+            {
+              OR: [
+                { description: { contains: '张三' } },
+                { store: { name: { contains: '张三' } } },
+                { store: { contactPhone: { contains: '张三' } } },
+                { store: { owner: { realName: { contains: '张三' } } } },
+                { store: { owner: { name: { contains: '张三' } } } },
+                { store: { owner: { wechatPhone: { contains: '张三' } } } },
+                { store: { owner: { email: { contains: '张三' } } } },
+              ],
+            },
+          ],
+        },
+        take: 21,
+      }),
+    );
   });
 
   it('listAdminBeanLogs 的获得 / 消耗提现边界与 type 推导一致，0 金额流水不丢', async () => {
@@ -583,32 +603,36 @@ describe('PulseMembershipService admin', () => {
     // type = amount > 0 才算 earn，0 必须留在 spend 侧
     expect(
       context.prismaService.storePartnerBeanLog.findMany,
-    ).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { notIn: ['admin_adjust', 'withdrawal'] },
-            changeAmount: { gt: 0 },
-          },
-        ],
-      },
-    }));
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { notIn: ['admin_adjust', 'withdrawal'] },
+              changeAmount: { gt: 0 },
+            },
+          ],
+        },
+      }),
+    );
 
     await context.service.listAdminBeanLogs(context.user, { beanTab: 'spend' });
     expect(
       context.prismaService.storePartnerBeanLog.findMany,
-    ).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { not: 'admin_adjust' },
-            OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
-          },
-        ],
-      },
-    }));
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { not: 'admin_adjust' },
+              OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
+            },
+          ],
+        },
+      }),
+    );
   });
 
   it('listAdminBeanLogs 的消耗/提现 Tab 与关键词条件都保留，不被 OR 互相覆盖', async () => {
@@ -626,28 +650,30 @@ describe('PulseMembershipService admin', () => {
 
     expect(
       context.prismaService.storePartnerBeanLog.findMany,
-    ).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        storeId: { in: [18] },
-        AND: [
-          {
-            source: { not: 'admin_adjust' },
-            OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
-          },
-          {
-            OR: [
-              { description: { contains: '提现' } },
-              { store: { name: { contains: '提现' } } },
-              { store: { contactPhone: { contains: '提现' } } },
-              { store: { owner: { realName: { contains: '提现' } } } },
-              { store: { owner: { name: { contains: '提现' } } } },
-              { store: { owner: { wechatPhone: { contains: '提现' } } } },
-              { store: { owner: { email: { contains: '提现' } } } },
-            ],
-          },
-        ],
-      },
-    }));
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: { in: [18] },
+          AND: [
+            {
+              source: { not: 'admin_adjust' },
+              OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
+            },
+            {
+              OR: [
+                { description: { contains: '提现' } },
+                { store: { name: { contains: '提现' } } },
+                { store: { contactPhone: { contains: '提现' } } },
+                { store: { owner: { realName: { contains: '提现' } } } },
+                { store: { owner: { name: { contains: '提现' } } } },
+                { store: { owner: { wechatPhone: { contains: '提现' } } } },
+                { store: { owner: { email: { contains: '提现' } } } },
+              ],
+            },
+          ],
+        },
+      }),
+    );
   });
 
   it('listAdminPointsLogs cursor 非法时抛错', async () => {
@@ -889,7 +915,11 @@ describe('PulseMembershipService admin', () => {
 
   it('listAdminMembers 按 page / pageSize 切片，total 与 hasMore 反映过滤后的全量结果', async () => {
     context.prismaService.storeMembershipProfile.findMany
-      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValueOnce([
+        { storeId: 18 },
+        { storeId: 19 },
+        { storeId: 20 },
+      ])
       .mockResolvedValue([]);
     context.prismaService.store.findMany.mockResolvedValue(
       [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),
@@ -914,7 +944,11 @@ describe('PulseMembershipService admin', () => {
 
   it('listAdminMembers 最后一页 hasMore 为 false', async () => {
     context.prismaService.storeMembershipProfile.findMany
-      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValueOnce([
+        { storeId: 18 },
+        { storeId: 19 },
+        { storeId: 20 },
+      ])
       .mockResolvedValue([]);
     context.prismaService.store.findMany.mockResolvedValue(
       [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),
@@ -937,7 +971,11 @@ describe('PulseMembershipService admin', () => {
 
   it('listAdminMembers 统计按过滤后全量计算，不随分页缩水', async () => {
     context.prismaService.storeMembershipProfile.findMany
-      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValueOnce([
+        { storeId: 18 },
+        { storeId: 19 },
+        { storeId: 20 },
+      ])
       .mockResolvedValue([]);
     context.prismaService.store.findMany.mockResolvedValue(
       [18, 19, 20].map((storeId) => buildAdminMemberListStore(storeId)),

@@ -658,7 +658,6 @@ describe('FinanceController (e2e)', () => {
       .send({
         title: '5月月度对账',
         type: 'monthly',
-        status: 'discrepancy',
         channel: 'wechat',
         counterpart: '微信商户号',
         periodStart: 1746057600000,
@@ -690,7 +689,6 @@ describe('FinanceController (e2e)', () => {
       {
         title: '5月月度对账',
         type: 'monthly',
-        status: 'discrepancy',
         channel: 'wechat',
         counterpart: '微信商户号',
         periodStart: 1746057600000,

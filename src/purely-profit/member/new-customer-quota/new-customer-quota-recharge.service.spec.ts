@@ -5,8 +5,17 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformPaymentOrderService } from '../../payments/platform-payment-order.service';
 import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
 import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
+import { PlatformPaymentRealtimeService } from '../../payments/platform-payment-realtime.service';
 import { ProfitPaymentModeService } from '../../payments/profit-payment-mode.service';
+import { RECHARGE_TIER_AMOUNT_FEN } from './new-customer-quota.constants';
 import { NewCustomerQuotaRechargeService } from './new-customer-quota-recharge.service';
+
+/**
+ * 下单用的档位金额：**从常量取**而不是写死 1000 分。
+ * 常量在联调微信支付期间被临时降档（0.1/0.2/0.3 元），写死会让用例集体失效；
+ * 断言「每一档都能下单」本就不该依赖具体金额。
+ */
+const TIER_FEN = RECHARGE_TIER_AMOUNT_FEN[0];
 
 /**
  * 额度充值支付测试：覆盖资金安全的关键分支。
@@ -132,6 +141,11 @@ describe('NewCustomerQuotaRechargeService', () => {
           useValue: wechatMock,
         },
         {
+          // 支付单关闭后的实时推送：与额度充值断言无关，用桩隔离
+          provide: PlatformPaymentRealtimeService,
+          useValue: { publishClosed: jest.fn(), publishPaid: jest.fn() },
+        },
+        {
           // 二维码出图与支付无关：用桩隔离，避免测试依赖图形库
           provide: PlatformPaymentQrCodeService,
           useValue: {
@@ -157,7 +171,7 @@ describe('NewCustomerQuotaRechargeService', () => {
     const result = await service.createRechargeOrder({
       storeId: 7,
       operatorUserId: 100,
-      amountFen: 1000,
+      amountFen: TIER_FEN,
     });
 
     expect(result.mode).toBe('test');
@@ -179,12 +193,12 @@ describe('NewCustomerQuotaRechargeService', () => {
     const result = await service.createRechargeOrder({
       storeId: 7,
       operatorUserId: 100,
-      amountFen: 1000,
+      amountFen: TIER_FEN,
     });
 
     expect(result.mode).toBe('live');
     expect(result.codeUrl).toBe('weixin://wxpay/x');
-    expect(result.amountFen).toBe(1000);
+    expect(result.amountFen).toBe(TIER_FEN);
     expect(result.expiresAt).toBeInstanceOf(Date);
     // 真实模式绝不能同步入账：额度只能由回调发放
     expect(
@@ -204,7 +218,7 @@ describe('NewCustomerQuotaRechargeService', () => {
       service.createRechargeOrder({
         storeId: 7,
         operatorUserId: 100,
-        amountFen: 1000,
+        amountFen: TIER_FEN,
       }),
     ).rejects.toThrow('出图失败');
 
@@ -232,7 +246,7 @@ describe('NewCustomerQuotaRechargeService', () => {
       service.createRechargeOrder({
         storeId: 7,
         operatorUserId: 100,
-        amountFen: 1000,
+        amountFen: TIER_FEN,
       }),
     ).rejects.toThrow(/PROFIT_WECHAT_PAY_NOTIFY_URL/);
 
@@ -389,7 +403,7 @@ describe('NewCustomerQuotaRechargeService', () => {
     await service.createRechargeOrder({
       storeId: 7,
       operatorUserId: 100,
-      amountFen: 1000,
+      amountFen: TIER_FEN,
     });
 
     const createLog = (

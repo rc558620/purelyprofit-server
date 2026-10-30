@@ -141,10 +141,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       this.prisma,
       profile.id,
     );
-    const usablePoints = Math.max(
-      0,
-      profile.availablePoints - occupied.points,
-    );
+    const usablePoints = Math.max(0, profile.availablePoints - occupied.points);
     const usableBeans = Math.max(
       0,
       (partner?.beanBalance ?? 0) - occupied.beans,

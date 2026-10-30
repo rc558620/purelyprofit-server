@@ -36,6 +36,33 @@ const PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
 /** 未配置私钥时的占位签名：请求会被微信拒绝，但不会让本地链路崩溃 */
 const DEV_PLACEHOLDER_SIGNATURE = 'DEV_MODE_NO_RSA_KEY';
 
+/**
+ * 凭据作用域：决定这次请求用哪一套「证书序列号 + 商户私钥」签名。
+ *
+ * - `store`：旧直连链路 + 平台侧历史用法，读全局的 `wechat.mchSerialNo` / `wechat.privateKey*`；
+ * - `partner`：服务商模式，读隔离新增的 `wechat.partner.serialNo` / `wechat.partner.privateKey*`。
+ *
+ * ⚠️ 两套配置**取值可能相同（同一商户号）但必须分开配置**：未来任意一边轮换证书，
+ * 都不应牵连另一条链路。默认值是 `store`，保证所有历史调用方行为零变化。
+ */
+export type WechatPayCredentialScope = 'store' | 'partner';
+
+const CREDENTIAL_CONFIG_PATHS: Record<
+  WechatPayCredentialScope,
+  { serialNo: string; privateKeyPath: string; privateKeyContent: string }
+> = {
+  store: {
+    serialNo: 'wechat.mchSerialNo',
+    privateKeyPath: 'wechat.privateKeyPath',
+    privateKeyContent: 'wechat.privateKeyContent',
+  },
+  partner: {
+    serialNo: 'wechat.partner.serialNo',
+    privateKeyPath: 'wechat.partner.privateKeyPath',
+    privateKeyContent: 'wechat.partner.privateKeyContent',
+  },
+};
+
 export interface WechatPayRequestParams {
   method: 'GET' | 'POST';
   /**
@@ -46,8 +73,10 @@ export interface WechatPayRequestParams {
    * 不存在「URL 能通、签名对不上」的风险。
    */
   urlPath: string;
-  /** 收款商户号（门店配置），参与鉴权头 */
+  /** 参与鉴权头 `mchid` 的商户号（签名主体），由 {@link ClubWechatPayIdentityService} 给出 */
   mchId: string;
+  /** 凭据作用域，默认 `store`（见类型注释） */
+  credential?: WechatPayCredentialScope;
   /** query 串，不含 `?`；同时参与签名 */
   query?: string;
   /** POST 请求体；GET 时为空串参与签名 */
@@ -68,10 +97,15 @@ export class ClubWechatPayHttpService {
   private readonly logger = new Logger(ClubWechatPayHttpService.name);
   private readonly nodeEnv: string;
 
-  private cachedPrivateKeyPem: string | null | undefined = undefined;
-  private cachedPrivateKeyPemLoadedAt = 0;
-  /** 正在进行的私钥加载：并发请求共用同一次 IO，避免缓存失效瞬间重复 readFile */
-  private privateKeyLoadInFlight: Promise<string | null> | null = null;
+  /** 私钥缓存与并发去重，按凭据作用域分别保存（两套证书互不影响） */
+  private privateKeyCache: Record<
+    WechatPayCredentialScope,
+    { pem: string | null; loadedAt: number } | null
+  > = { store: null, partner: null };
+  private privateKeyLoadInFlight: Record<
+    WechatPayCredentialScope,
+    Promise<string | null> | null
+  > = { store: null, partner: null };
 
   constructor(private readonly configService: ConfigService) {
     this.nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
@@ -92,8 +126,11 @@ export class ClubWechatPayHttpService {
   async request<T>(
     params: WechatPayRequestParams,
   ): Promise<WechatPayResponse<T>> {
-    const serialNo = this.getRequiredConfig('wechat.mchSerialNo');
-    const privateKeyPem = await this.loadPrivateKeyPem();
+    const scope = params.credential ?? 'store';
+    const serialNo = this.getRequiredConfig(
+      CREDENTIAL_CONFIG_PATHS[scope].serialNo,
+    );
+    const privateKeyPem = await this.loadPrivateKeyPem(scope);
     const canonicalUrl = params.query
       ? `${params.urlPath}?${params.query}`
       : params.urlPath;
@@ -163,23 +200,31 @@ export class ClubWechatPayHttpService {
    *
    * 生产环境未配置时**直接失败**：降级成占位签名会让请求看起来正常发出，
    * 实际必被微信拒绝，前端只看到「支付失败」，排查成本极高。
+   *
+   * @param scope 凭据作用域，两套作用域各自独立缓存互不影响
    */
-  async loadPrivateKeyPem(): Promise<string | null> {
+  async loadPrivateKeyPem(
+    scope: WechatPayCredentialScope = 'store',
+  ): Promise<string | null> {
+    const cache = this.privateKeyCache[scope];
     if (
-      this.cachedPrivateKeyPem !== undefined &&
-      Date.now() - this.cachedPrivateKeyPemLoadedAt < PRIVATE_KEY_CACHE_TTL_MS
+      cache?.pem !== undefined &&
+      Date.now() - cache.loadedAt < PRIVATE_KEY_CACHE_TTL_MS
     ) {
-      return this.cachedPrivateKeyPem;
+      return cache.pem;
     }
 
-    if (!this.privateKeyLoadInFlight) {
-      this.privateKeyLoadInFlight = this.loadPrivateKeyPemFromSource().finally(
-        () => {
-          this.privateKeyLoadInFlight = null;
-        },
-      );
+    const key = this.privateKeyLoadInFlight[scope];
+    if (key) {
+      return key;
     }
-    return this.privateKeyLoadInFlight;
+
+    this.privateKeyLoadInFlight[scope] = this.loadPrivateKeyPemFromSource(
+      scope,
+    ).finally(() => {
+      this.privateKeyLoadInFlight[scope] = null;
+    });
+    return this.privateKeyLoadInFlight[scope];
   }
 
   // ─── 请求发送与响应解析 ───────────────────────────────────────────────────
@@ -273,19 +318,21 @@ export class ClubWechatPayHttpService {
     ].join(',');
   }
 
-  /** 真正读取私钥（文件优先，其次内联），结果写入缓存 */
-  private async loadPrivateKeyPemFromSource(): Promise<string | null> {
+  /** 真正读取私钥（文件优先，其次内联），结果写入对应作用域的缓存 */
+  private async loadPrivateKeyPemFromSource(
+    scope: WechatPayCredentialScope,
+  ): Promise<string | null> {
+    const paths = CREDENTIAL_CONFIG_PATHS[scope];
     // 先清缓存再加载：读取失败时不会残留上一次的旧值
-    this.cachedPrivateKeyPem = undefined;
-    this.cachedPrivateKeyPemLoadedAt = Date.now();
+    this.privateKeyCache[scope] = { pem: null, loadedAt: Date.now() };
 
     const keyPath = this.configService
-      .get<string>('wechat.privateKeyPath')
+      .get<string>(paths.privateKeyPath)
       ?.trim();
     if (keyPath) {
       try {
         const pem = await readFile(keyPath, 'utf8');
-        this.cachedPrivateKeyPem = pem;
+        this.privateKeyCache[scope] = { pem, loadedAt: Date.now() };
         return pem;
       } catch (error) {
         this.logger.error(`读取微信支付私钥文件失败: ${keyPath}`, error);
@@ -296,18 +343,18 @@ export class ClubWechatPayHttpService {
     }
 
     const keyContent = this.configService
-      .get<string>('wechat.privateKeyContent')
+      .get<string>(paths.privateKeyContent)
       ?.trim();
     if (keyContent) {
       // 支持环境变量中以字面 \n 代替换行的写法
       const pem = keyContent.replace(/\\n/g, '\n');
-      this.cachedPrivateKeyPem = pem;
+      this.privateKeyCache[scope] = { pem, loadedAt: Date.now() };
       return pem;
     }
 
     if (this.isProduction()) {
       this.logger.error(
-        '生产环境未配置微信支付商户私钥（WECHAT_PRIVATE_KEY_PATH / WECHAT_PRIVATE_KEY_CONTENT），' +
+        '生产环境未配置微信支付商户私钥（privateKeyPath / privateKeyContent），' +
           '拒绝生成支付参数，避免下发注定被微信拒绝的签名',
       );
       throw new InternalServerErrorException(
@@ -316,7 +363,7 @@ export class ClubWechatPayHttpService {
     }
 
     this.logger.warn('微信支付私钥未配置，将使用开发态占位签名');
-    this.cachedPrivateKeyPem = null;
+    this.privateKeyCache[scope] = { pem: null, loadedAt: Date.now() };
     return null;
   }
 }

@@ -186,8 +186,13 @@ export const toOrderListItem = (input: {
     itemSummary: toItemSummaryText(itemSummaries),
     items: itemSummaries,
     remark: order.remark,
-    tableName: order.table?.name
-      ?? (diningMode === 'takeaway' ? '自取' : diningMode === 'platform' ? '外卖' : '-'),
+    tableName:
+      order.table?.name ??
+      (diningMode === 'takeaway'
+        ? '自取'
+        : diningMode === 'platform'
+          ? '外卖'
+          : '-'),
     status: order.status,
     createdAt: order.createdAt.toISOString(),
     amountSummary: toAmountSummary(order, calculateSummary),

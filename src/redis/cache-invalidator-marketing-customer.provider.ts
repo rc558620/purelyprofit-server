@@ -33,9 +33,7 @@ export const marketingCustomerDerivedCacheInvalidatorProvider: CacheInvalidatorP
         buildMarketingCustomerDetailPattern(storeId),
       ),
       // club 会员快照缓存（club:member-snapshot:store:{storeId}:user:*）
-      input.redisService.delByPattern(
-        buildClubMemberSnapshotPattern(storeId),
-      ),
+      input.redisService.delByPattern(buildClubMemberSnapshotPattern(storeId)),
     ]);
   },
 });

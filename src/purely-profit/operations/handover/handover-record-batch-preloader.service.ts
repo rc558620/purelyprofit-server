@@ -8,7 +8,6 @@ import {
 } from '../../../shared/shanghai-time.utils';
 import {
   endOfDay,
-  startOfDay,
   type HandoverRecordRow,
   type RecordShiftSnapshot,
 } from './handover.shared';

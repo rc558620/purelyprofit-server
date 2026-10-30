@@ -1,5 +1,3 @@
-import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
 import { StoresProfileService } from './stores-profile.service';
 
 describe('StoresProfileService', () => {

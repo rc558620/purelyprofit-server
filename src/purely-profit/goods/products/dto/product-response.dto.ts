@@ -1,7 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  PaginationMetaDto,
-} from '../../../stores/dto/store-response.dto';
+import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 import { ProductSpecGroupDto } from './product-spec.dto';
 
 export class ProductResponseDto {

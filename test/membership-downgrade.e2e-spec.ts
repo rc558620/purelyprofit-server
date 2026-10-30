@@ -46,16 +46,19 @@ describe('会员到期限制 (e2e, real database)', () => {
   const redisStore = new Map<string, unknown>();
 
   const redisService = {
-    getJson: jest.fn(async (key: string) => redisStore.get(key) ?? null),
-    setJson: jest.fn(async (key: string, value: unknown) => {
+    getJson: jest.fn((key: string) =>
+      Promise.resolve(redisStore.get(key) ?? null),
+    ),
+    setJson: jest.fn((key: string, value: unknown) => {
       redisStore.set(key, value);
+      return Promise.resolve();
     }),
     // 对齐 Redis INCR 语义：原子自增并返回新值，值与 getJson 互通
-    incr: jest.fn(async (key: string) => {
+    incr: jest.fn((key: string) => {
       const current = redisStore.get(key);
       const next = (typeof current === 'number' ? current : 0) + 1;
       redisStore.set(key, next);
-      return next;
+      return Promise.resolve(next);
     }),
   };
 

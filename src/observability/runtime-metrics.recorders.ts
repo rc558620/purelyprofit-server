@@ -1,8 +1,5 @@
 import type { CachePrewarmCycleMetrics } from '../redis/cache-prewarm.types';
-import type {
-  CachePrewarmDurationDistribution,
-  CachePrewarmSlowKeySample,
-} from './runtime-metrics.state';
+import type { CachePrewarmDurationDistribution } from './runtime-metrics.state';
 import {
   limitMapEntries,
   normalizeQueryWhitespace,

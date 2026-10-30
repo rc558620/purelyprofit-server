@@ -2,7 +2,9 @@ import { createDecipheriv } from 'node:crypto';
 import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
 
 describe('WechatPayEncryptionService', () => {
-  const createService = (secret: string | undefined): WechatPayEncryptionService => {
+  const createService = (
+    secret: string | undefined,
+  ): WechatPayEncryptionService => {
     const config = { get: jest.fn(() => secret) };
     return new WechatPayEncryptionService(config as never);
   };

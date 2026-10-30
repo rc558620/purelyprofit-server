@@ -73,7 +73,9 @@ describe('scan-qr-payload.utils', () => {
         }),
       ).toBe(TABLE_TOKEN);
       expect(
-        buildScanOrderingTableQrPayload(TABLE_TOKEN, { baseUrl: 'scan.purelyprofit.com' }),
+        buildScanOrderingTableQrPayload(TABLE_TOKEN, {
+          baseUrl: 'scan.purelyprofit.com',
+        }),
       ).toBe(TABLE_TOKEN);
     });
 

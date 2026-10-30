@@ -67,7 +67,8 @@ export class ManualEntryController {
   @Post('orders')
   @RequirePermissions('scan-ordering:order-process')
   @ApiOperation({
-    summary: '录入订单建单（幂等，事务内预留库存并创建 ScanOrders，走状态机/出餐时落销售记录）',
+    summary:
+      '录入订单建单（幂等，事务内预留库存并创建 ScanOrders，走状态机/出餐时落销售记录）',
   })
   createOrder(
     @CurrentUser() user: AuthenticatedUser,
