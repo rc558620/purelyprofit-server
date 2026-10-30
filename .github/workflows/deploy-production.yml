@@ -230,12 +230,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          # 版本统一由 .nvmrc 决定（与 package.json 的 engines.node 保持一致），
+          # 避免生产构建与 CI / 本地开发出现版本漂移。
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -258,7 +260,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f dist/main.js ] && [ -f dist/cluster-main.js ] && [ -f dist/config/cluster.configuration.js ]; then
+          if [ -f dist/src/main.js ] && [ -f dist/cluster-main.js ] && [ -f dist/config/cluster.configuration.js ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
             echo '复用 CI 构建产物，跳过本机构建'
           else

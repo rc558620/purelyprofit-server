@@ -5,13 +5,18 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.28.9",
+  "engines": {
+    "node": "^26.13.0",
+    "pnpm": ">=11.0.0"
+  },
   "scripts": {
     "build": "nest build && swc src/cluster-main.ts -o dist/cluster-main.js -C module.type=commonjs && swc src/config/cluster.configuration.ts -o dist/config/cluster.configuration.js -C module.type=commonjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node --max-old-space-size=512 dist/main",
+    "start:prod": "node --max-old-space-size=512 dist/src/main",
     "start:cluster": "node --max-old-space-size=512 dist/cluster-main",
     "prisma:migrate:status": "prisma migrate status",
     "prisma:migrate:deploy": "prisma migrate deploy",
@@ -110,7 +115,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",

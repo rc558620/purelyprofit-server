@@ -46,12 +46,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -90,12 +90,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -136,12 +136,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install PostgreSQL client
@@ -172,12 +172,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -276,12 +276,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -299,7 +299,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f dist/main.js || { echo '::error::dist/main.js 缺失'; exit 1; }
+          test -f dist/src/main.js || { echo '::error::dist/src/main.js 缺失'; exit 1; }
           test -f dist/cluster-main.js || { echo '::error::dist/cluster-main.js 缺失'; exit 1; }
           test -f dist/config/cluster.configuration.js || { echo '::error::dist/config/cluster.configuration.js 缺失'; exit 1; }
           echo '构建产物校验通过'
@@ -329,12 +329,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.28.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies

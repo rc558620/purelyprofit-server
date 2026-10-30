@@ -1,0 +1,17 @@
+# pnpm 11 起用 allowBuilds 显式声明依赖的安装/构建脚本是否放行。
+# 默认全部忽略，漏配会在「安装成功」后于运行期暴露：
+#   bcrypt            → 登录密码哈希加载失败
+#   @swc/core         → nest build 编译失败
+#   prisma / @prisma/engines → Client 生成与迁移引擎缺失
+#   msgpackr-extract  → BullMQ 消息打包原生模块缺失
+#   unrs-resolver     → ESLint import 解析器二进制缺失
+# 新增原生依赖时必须同步在此登记，否则 CI 的 --frozen-lockfile 与生产部署都会踩坑。
+allowBuilds:
+  '@nestjs/core': false
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  '@swc/core': true
+  bcrypt: true
+  msgpackr-extract: true
+  prisma: true
+  unrs-resolver: true
