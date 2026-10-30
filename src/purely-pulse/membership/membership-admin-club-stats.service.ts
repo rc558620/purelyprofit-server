@@ -50,15 +50,20 @@ export class PulseMembershipAdminClubStatsService {
     const storeId = memberId;
 
     // A. 会员主表聚合：总数 + 等级分布 + 余额合计
+    //
+    // deletedAt: null —— 已软删除的客户不计入会员数与待消费余额，
+    // 与商家端会员列表口径（marketing.domain.ts）保持一致，也与会员列表
+    // 「按会员数量」排序同源（membership-admin-member-sort.ts）
+    const customerWhere = { storeId, deletedAt: null };
     const [customerStats, tierBreakdown] = await Promise.all([
       this.prisma.marketingCustomer.aggregate({
-        where: { storeId },
+        where: customerWhere,
         _count: { id: true },
         _sum: { balance: true },
       }),
       this.prisma.marketingCustomer.groupBy({
         by: ['tier'],
-        where: { storeId },
+        where: customerWhere,
         _count: { id: true },
       }),
     ]);

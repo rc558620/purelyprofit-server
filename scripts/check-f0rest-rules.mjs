@@ -26,7 +26,14 @@ const warnings = [];
 
 const isControllerFile = normalizedFile.endsWith('.controller.ts');
 const isDtoFile = normalizedFile.endsWith('.dto.ts');
-const isConfigurationFile = normalizedFile.endsWith('src/config/configuration.ts');
+/**
+ * 配置层（`src/config/*`）是 process.env 的**唯一读取边界**。
+ * configuration.ts 按配置块拆分后，同目录的 `*.configuration.ts` / `env.utils.ts`
+ * 都属于配置入口的一部分，统一豁免 Rule 6；其余业务代码仍禁止直接读取。
+ */
+const isConfigLayerFile = normalizedFile.includes(
+  `${path.sep}src${path.sep}config${path.sep}`,
+);
 const isPrismaConfigFile = normalizedFile.endsWith('prisma.config.ts');
 const isRedisServiceFile = normalizedFile.endsWith('src/redis/redis.service.ts');
 const isRuleScriptFile = normalizedFile.endsWith('scripts/check-f0rest-rules.mjs');
@@ -55,7 +62,7 @@ if (
   isCodeFile &&
   !isRuleScriptFile &&
   content.includes('process.env') &&
-  !isConfigurationFile &&
+  !isConfigLayerFile &&
   !isPrismaConfigFile
 ) {
   errors.push('[Rule 6] 业务代码禁止直接读取 process.env。请统一在 configuration.ts 中映射后通过 ConfigService 获取。');

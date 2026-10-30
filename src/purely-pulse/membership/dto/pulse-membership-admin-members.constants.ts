@@ -117,6 +117,33 @@ export const PULSE_MEMBER_FILTER_EXPIRY_VALUES = [
 export type PulseMemberFilterExpiryValue =
   (typeof PULSE_MEMBER_FILTER_EXPIRY_VALUES)[number];
 
+/* ────────────────── 列表排序 ────────────────── */
+
+/**
+ * 会员列表排序字段（对齐前端 MemberSortBy）
+ *
+ * - default：不按指标排序，维持既有的「门店 id 升序」稳定顺序
+ * - revenue：按门店累计营业额排序（`sale_orders.total_revenue` 求和，单位分）
+ * - memberCount：按门店在 purelyClub 的 C 端会员数排序（`marketing_customers` 计数）
+ */
+export const PULSE_MEMBER_SORT_BY_VALUES = [
+  'default',
+  'revenue',
+  'memberCount',
+] as const;
+export type PulseMemberSortByValue =
+  (typeof PULSE_MEMBER_SORT_BY_VALUES)[number];
+
+/**
+ * 排序方向（对齐前端 MemberSortOrder）
+ *
+ * 默认 desc：运营用排序多半是「找头部商家」，升序场景（找零营业额 / 零会员）
+ * 由前端显式传值触发。
+ */
+export const PULSE_MEMBER_SORT_ORDER_VALUES = ['asc', 'desc'] as const;
+export type PulseMemberSortOrderValue =
+  (typeof PULSE_MEMBER_SORT_ORDER_VALUES)[number];
+
 /* ────────────────── 套餐档位与锁价 ────────────────── */
 
 /** 套餐档位标识（与 Prisma MembershipPlanCycle 对齐） */

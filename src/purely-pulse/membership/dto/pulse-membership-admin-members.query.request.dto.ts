@@ -17,6 +17,8 @@ import {
   PULSE_MEMBER_FILTER_EXPIRY_VALUES,
   PULSE_MEMBER_FILTER_LEVEL_VALUES,
   PULSE_MEMBER_FILTER_STATUS_VALUES,
+  PULSE_MEMBER_SORT_BY_VALUES,
+  PULSE_MEMBER_SORT_ORDER_VALUES,
 } from './pulse-membership-admin-members.constants';
 import {
   toNullableNumber,
@@ -26,6 +28,8 @@ import type {
   PulseMemberFilterExpiryValue,
   PulseMemberFilterLevelValue,
   PulseMemberFilterStatusValue,
+  PulseMemberSortByValue,
+  PulseMemberSortOrderValue,
 } from './pulse-membership-admin-members.constants';
 
 /**
@@ -80,6 +84,24 @@ export class GetPulseAdminMembersQueryDto {
     message: '会员到期时间筛选不合法',
   })
   expiry?: PulseMemberFilterExpiryValue;
+
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_SORT_BY_VALUES,
+    description:
+      '排序字段，不传（或传 default）保持默认顺序；revenue=按门店累计营业额，' +
+      'memberCount=按门店在 purelyClub 的 C 端会员数',
+  })
+  @IsOptional()
+  @IsIn(PULSE_MEMBER_SORT_BY_VALUES, { message: '排序字段不合法' })
+  sortBy?: PulseMemberSortByValue;
+
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_SORT_ORDER_VALUES,
+    description: '排序方向，默认 desc（指标大的在前）；不排序时忽略',
+  })
+  @IsOptional()
+  @IsIn(PULSE_MEMBER_SORT_ORDER_VALUES, { message: '排序方向不合法' })
+  sortOrder?: PulseMemberSortOrderValue;
 
   @ApiPropertyOptional({
     example: true,

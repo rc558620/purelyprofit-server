@@ -6,7 +6,22 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs'],
+    /**
+     * 仅对 TypeScript 源码做类型感知检测。
+     * 原生 JS / MJS 脚本（scripts、prisma、根目录脚本等）不在任何 tsconfig 的编译范围内
+     * （tsconfig 未开启 allowJs，tsconfig.build.json 仅 include src/**\/*.ts），
+     * 一旦纳入 projectService 就会报 "was not found by the project service"，
+     * 因此与 `pnpm lint` 的实际检测范围保持一致，直接忽略。
+     */
+    ignores: [
+      'eslint.config.mjs',
+      '**/*.js',
+      '**/*.cjs',
+      '**/*.mjs',
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
