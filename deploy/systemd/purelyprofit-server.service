@@ -1,5 +1,5 @@
 [Unit]
-Description=PurelyProfit Server
+Description=PurelyProfit Server (purelyprofit-server @ api.chunlibao.cn)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,11 @@ Wants=network-online.target
 Type=simple
 User=purelyprofit
 Group=purelyprofit
-WorkingDirectory=/opt/purelyprofit-server
+# 目录由 deploy/scripts/remote-release.sh 维护：
+#   /opt/purelyprofit-server/releases/<git-sha>/  每次发布的独立产物
+#   /opt/purelyprofit-server/current -> releases/<git-sha>
+# 用软链而非原地覆盖，切换瞬间完成，回滚只需把 current 指回上一个版本。
+WorkingDirectory=/opt/purelyprofit-server/current
 EnvironmentFile=/etc/purelyprofit-server/production.env
 # 多 Worker 前先按 PostgreSQL 最大连接数核算 DATABASE_POOL_MAX × CLUSTER_WORKERS。
 # 当前组合：CLUSTER_WORKERS=4 × poolMax=20 = 80 连接 < PG max_connections=100，余量 20 条给运维/备份/监控。
@@ -20,6 +24,8 @@ Environment=TZ=Asia/Shanghai
 # 配合 PG shared_buffers=3GB + Redis maxmemory=1GB + OS/Nginx ~2GB，总计 ~10GB < 16GB 物理内存。
 ExecStart=/usr/bin/node --max-old-space-size=1024 dist/cluster-main.js
 Restart=always
+# 冷启动要建 Prisma 连接池、Redis 连接与缓存预热；5s 内起不来属于正常，
+# 立即重启会与仍在监听的旧 worker 抢端口，因此给足间隔。
 RestartSec=5
 TimeoutStopSec=45
 KillSignal=SIGTERM

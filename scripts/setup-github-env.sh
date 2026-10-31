@@ -4,17 +4,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # 前置条件：
 #   1. 已安装 gh CLI 并完成登录（gh auth login）
-#   2. 已配置 self-hosted runner（标签含 production）
+#   2. 已有一台可 SSH 登录的生产服务器（Node 20+/26、pnpm 11、nginx、postgresql-client）
+#   3. 已生成部署密钥对（推荐专用密钥，不要复用个人 key）：
+#        ssh-keygen -t ed25519 -C 'github-actions@purelyprofit-server' -f ~/.ssh/chunlibao_deploy
+#        ssh-copy-id -i ~/.ssh/chunlibao_deploy.pub <user>@<host>
 #
 # 功能：
 #   1. 创建 production Environment
 #   2. main 分支保护规则（PR 合并 + CI status checks 必填）
-#   3. 批量注入 Secrets（敏感凭证）
-#   4. 批量注入 Variables（非敏感配置）
+#   3. 注入 SSH 部署 Secrets
+#   4. 注入域名/路径 Variables
 #
-# 使用方式：
-#   1. 填写下方所有 <YOUR_..._HERE> 占位符
-#   2. bash scripts/setup-github-env.sh
+# 使用方式（任选其一）：
+#   A. 直接改下方"连接参数"再执行：bash scripts/setup-github-env.sh
+#   B. 不改文件，用环境变量覆盖：
+#        SERVER_HOST=1.2.3.4 SERVER_USER=deploy \
+#        SSH_KEY_FILE=~/.ssh/chunlibao_deploy bash scripts/setup-github-env.sh
 #
 # 脚本幂等：重复执行会覆盖同名变量/密钥，不会重复创建。
 # ─────────────────────────────────────────────────────────────────────────────
@@ -22,69 +27,97 @@ set -euo pipefail
 
 ENV='production'
 
-# ─── 颜色输出 ────────────────────────────────────────────────────────────────
+# ─── 连接参数（必填，可用同名环境变量覆盖）────────────────────────────────────
+SERVER_HOST="${SERVER_HOST:-<YOUR_SERVER_HOST_HERE>}"
+SERVER_USER="${SERVER_USER:-<YOUR_SSH_USER_HERE>}"
+SERVER_PORT="${SERVER_PORT:-22}"
+SSH_KEY_FILE="${SSH_KEY_FILE:-}"
+REMOTE_TMP="${REMOTE_TMP:-/tmp}"
+
+# ─── 域名与部署路径（已按 chunlibao.cn 规划填好，按需调整）───────────────────
+APP_DOMAIN="${APP_DOMAIN:-chunlibao.cn}"
+API_DOMAIN="${API_DOMAIN:-api.chunlibao.cn}"
+APP_ROOT="${APP_ROOT:-/opt/purelyprofit-server}"
+APP_SERVICE="${APP_SERVICE:-purelyprofit-server}"
+APP_ENV_FILE="${APP_ENV_FILE:-/etc/purelyprofit-server/production.env}"
+APP_HEALTHCHECK_URL="${APP_HEALTHCHECK_URL:-http://127.0.0.1:3000/api/readyz}"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
-ok()   { echo -e "${GREEN}✓${NC} $1"; }
+ok() { echo -e "${GREEN}✓${NC} $1"; }
 info() { echo -e "${YELLOW}→${NC} $1"; }
+err() { echo -e "${RED}✗${NC} $1"; }
 
 # ─── 前置检查 ────────────────────────────────────────────────────────────────
 if ! command -v gh &>/dev/null; then
-  echo '❌ gh CLI 未安装，请先安装：https://cli.github.com/'
+  err 'gh CLI 未安装，请先安装：https://cli.github.com/'
   exit 1
 fi
 
 if ! gh auth status &>/dev/null 2>&1; then
-  echo '❌ gh 未登录，请先执行：gh auth login'
+  err 'gh 未登录，请先执行：gh auth login'
   exit 1
 fi
 
-# ─── 获取仓库信息 ───────────────────────────────────────────────────────────
-REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
+case "${SERVER_HOST}" in
+  '<YOUR_SERVER_HOST_HERE>' | '')
+    err '请先设置 SERVER_HOST（服务器公网 IP 或域名）'
+    exit 1
+    ;;
+esac
 
+case "${SERVER_USER}" in
+  '<YOUR_SSH_USER_HERE>' | '')
+    err '请先设置 SERVER_USER（SSH 登录用户）'
+    exit 1
+    ;;
+esac
+
+if [ -z "${SSH_KEY_FILE}" ] || [ ! -f "${SSH_KEY_FILE}" ]; then
+  err '请设置 SSH_KEY_FILE 指向部署私钥文件（如 ~/.ssh/chunlibao_deploy）'
+  exit 1
+fi
+
+REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 ok "目标仓库: ${REPO}"
+info "部署目标: ${SERVER_USER}@${SERVER_HOST}:${SERVER_PORT}"
+info "API 域名: ${API_DOMAIN}    站点域名: ${APP_DOMAIN}"
 echo ''
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  结构性配置：Environment + Branch Protection
 # ═══════════════════════════════════════════════════════════════════════════════
-
-# ─── 1. 创建 production Environment ─────────────────────────────────────────
 info '创建 production Environment...'
 
-if gh api \
-  --method PUT \
-  "repos/${REPO}/environments/${ENV}" \
-  --input - <<'ENVEOF'
+if gh api --method PUT "repos/${REPO}/environments/${ENV}" --input - <<'ENVEOF' >/dev/null
 {
   "wait_timer": 0
 }
 ENVEOF
 then
-  ok "production Environment 已创建"
+  ok 'production Environment 已就绪'
 else
-  info "production Environment 创建失败（可能已存在）"
+  err 'production Environment 创建失败，请检查仓库权限'
+  exit 1
 fi
 
 echo ''
-
-# ─── 2. main 分支保护规则 ───────────────────────────────────────────────────
-# Status check context 格式: "{workflow name} / {job name}"
-# 对应 ci.yml (name: CI) 的 3 个 job
 info '配置 main 分支保护规则...'
 
-if gh api \
-  --method PUT \
-  "repos/${REPO}/branches/main/protection" \
-  --input - <<'BPEOF'
+# Status check context 格式为 "{workflow name} / {job name}"。
+# 这里的 job name 必须与 .github/workflows/ci.yml 中的 name 字段逐字一致，
+# 否则保护规则会一直停在 Expected — 永远等不到一个不存在的检查。
+if gh api --method PUT "repos/${REPO}/branches/main/protection" --input - <<'BPEOF' >/dev/null
 {
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "CI / Lint Test Build",
+      "CI / Typecheck Lint Unit E2E",
       "CI / Release Script Regression",
-      "CI / Prisma DB Gate"
+      "CI / Prisma DB Gate",
+      "CI / Build Artifact"
     ]
   },
   "enforce_admins": true,
@@ -103,184 +136,89 @@ BPEOF
 then
   ok 'main 分支保护规则已配置'
   echo '    • 强制 PR 合并（禁止直接 push）'
-  echo '    • Status checks 必填：'
-  echo '        - CI / Lint Test Build'
-  echo '        - CI / Release Script Regression'
-  echo '        - CI / Prisma DB Gate'
+  echo '    • Status checks 必填：Typecheck Lint Unit E2E / Release Script Regression / Prisma DB Gate / Build Artifact'
   echo '    • 管理员同样受约束'
 else
-  info '分支保护规则配置失败（请手动检查）'
+  err '分支保护规则配置失败（免费版私有仓库不支持分支保护，可跳过此项）'
 fi
 
 echo ''
-
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Secrets（敏感凭证）
+#  Secrets：仅保留 SSH 连接所需（业务配置全部在服务器 production.env）
 # ═══════════════════════════════════════════════════════════════════════════════
-info '配置 Secrets...'
+info '配置 SSH 部署 Secrets...'
 
-# ─── Database ────────────────────────────────────────────────────────────────
-gh secret set DATABASE_URL          --env "$ENV" --body '<YOUR_DATABASE_URL_HERE>'
-# 示例: postgresql://user:pass@host:5432/purelyprofit?schema=public
+gh secret set SSH_HOST --env "$ENV" --body "${SERVER_HOST}"
+gh secret set SSH_USER --env "$ENV" --body "${SERVER_USER}"
+gh secret set SSH_PORT --env "$ENV" --body "${SERVER_PORT}"
+gh secret set SSH_REMOTE_TMP --env "$ENV" --body "${REMOTE_TMP}"
+# 私钥用文件重定向注入，避免私钥内容出现在 shell history / 进程参数里
+gh secret set SSH_KEY --env "$ENV" < "${SSH_KEY_FILE}"
 
-gh secret set SHADOW_DATABASE_URL   --env "$ENV" --body '<YOUR_SHADOW_DATABASE_URL_HERE>'
-# 示例: postgresql://user:pass@host:5432/purelyprofit_shadow?schema=public
-
-# ─── Redis ───────────────────────────────────────────────────────────────────
-gh secret set REDIS_HOST            --env "$ENV" --body '<YOUR_REDIS_HOST_HERE>'
-gh secret set REDIS_PASSWORD        --env "$ENV" --body '<YOUR_REDIS_PASSWORD_HERE>'
-
-# ─── JWT ─────────────────────────────────────────────────────────────────────
-gh secret set JWT_SECRET            --env "$ENV" --body '<YOUR_JWT_SECRET_HERE>'
-# 建议: openssl rand -base64 48
-
-# ─── Auth ────────────────────────────────────────────────────────────────────
-gh secret set AUTH_ADMIN_LOGIN_PHONE --env "$ENV" --body '<YOUR_ADMIN_PHONE_HERE>'
-# Admin 登录手机号，生产务必覆盖默认值
-
-# ─── 微信支付（TODO: 待营业执照办好后取消注释）────────────────────────
-# gh secret set WECHAT_APP_ID                    --env "$ENV" --body '<YOUR_WECHAT_APP_ID_HERE>'
-# gh secret set WECHAT_APP_SECRET                --env "$ENV" --body '<YOUR_WECHAT_APP_SECRET_HERE>'
-# gh secret set WECHAT_MCH_SERIAL_NO             --env "$ENV" --body '<YOUR_WECHAT_MCH_SERIAL_NO_HERE>'
-# gh secret set WECHAT_PRIVATE_KEY_PATH          --env "$ENV" --body '<YOUR_WECHAT_PRIVATE_KEY_PATH_HERE>'
-# gh secret set WECHAT_PRIVATE_KEY_CONTENT       --env "$ENV" --body '<YOUR_WECHAT_PRIVATE_KEY_CONTENT_HERE>'
-# # ↑ PRIVATE_KEY_PATH 和 CONTENT 二选一，另一个留空即可
-# gh secret set WECHAT_PLATFORM_PUBLIC_KEY_CONTENT --env "$ENV" --body '<YOUR_WECHAT_PLATFORM_PUBLIC_KEY_HERE>'
-
-# ─── 腾讯云短信（TODO: 待营业执照办好后取消注释）──────────────────────
-# gh secret set TENCENT_SMS_SECRET_ID   --env "$ENV" --body '<YOUR_TENCENT_SMS_SECRET_ID_HERE>'
-# gh secret set TENCENT_SMS_SECRET_KEY  --env "$ENV" --body '<YOUR_TENCENT_SMS_SECRET_KEY_HERE>'
-# gh secret set TENCENT_SMS_SDK_APP_ID  --env "$ENV" --body '<YOUR_TENCENT_SMS_SDK_APP_ID_HERE>'
-
-# ─── 腾讯云 COS ──────────────────────────────────────────────────────────────
-gh secret set TENCENT_COS_SECRET_ID   --env "$ENV" --body '<YOUR_TENCENT_COS_SECRET_ID_HERE>'
-gh secret set TENCENT_COS_SECRET_KEY  --env "$ENV" --body '<YOUR_TENCENT_COS_SECRET_KEY_HERE>'
-
-ok 'Secrets 配置完成（7 项，微信支付+短信待营业执照后启用）'
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Variables（非敏感配置 — 必填项，workflow 中无默认值）
-# ═══════════════════════════════════════════════════════════════════════════════
-info '配置 Variables（必填项）...'
-
-# ─── 应用 ────────────────────────────────────────────────────────────────────
-gh variable set APP_CORS_ORIGIN       --env "$ENV" --body '<YOUR_FRONTEND_ORIGIN_HERE>'
-# 示例: https://profit.example.com
-
-# ─── 集群 ────────────────────────────────────────────────────────────────────
-gh variable set CLUSTER_WORKERS       --env "$ENV" --body '<YOUR_CLUSTER_WORKERS_HERE>'
-# 建议: 设为服务器 CPU 核数，如 4
-
-# ─── Auth ────────────────────────────────────────────────────────────────────
-gh variable set AUTH_ADMIN_LOGIN_ALIAS --env "$ENV" --body '<YOUR_ADMIN_ALIAS_HERE>'
-# 示例: admin
-
-# ─── 微信支付回调（TODO: 待营业执照办好后取消注释）────────────────────────
-# gh variable set WECHAT_PAY_NOTIFY_URL  --env "$ENV" --body '<YOUR_WECHAT_PAY_NOTIFY_URL_HERE>'
-# # 示例: https://api.example.com/api/club/payments/wechat/callback
-
-# ─── 腾讯云短信（TODO: 待营业执照办好后取消注释）──────────────────────
-# gh variable set TENCENT_SMS_SIGN_NAME                  --env "$ENV" --body '<YOUR_SMS_SIGN_NAME_HERE>'
-# # 示例: 纯利宝
-# gh variable set TENCENT_SMS_REGISTER_TEMPLATE_ID       --env "$ENV" --body '<YOUR_SMS_REGISTER_TEMPLATE_ID_HERE>'
-# gh variable set TENCENT_SMS_LOGIN_TEMPLATE_ID          --env "$ENV" --body '<YOUR_SMS_LOGIN_TEMPLATE_ID_HERE>'
-# # 绑定 / 换绑手机号模板（可选）：未配置时自动回落登录模板，不阻断发送
-# # 建议申请专用模板，避免用户绑定手机号时收到「您正在登录账号」的错配文案
-# # gh variable set TENCENT_SMS_BIND_PHONE_TEMPLATE_ID     --env "$ENV" --body '<YOUR_SMS_BIND_PHONE_TEMPLATE_ID_HERE>'
-# gh variable set TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID --env "$ENV" --body '<YOUR_SMS_PASSWORD_RESET_TEMPLATE_ID_HERE>'
-
-# ─── 腾讯云 COS ──────────────────────────────────────────────────────────────
-gh variable set TENCENT_COS_REGION      --env "$ENV" --body '<YOUR_COS_REGION_HERE>'
-# 示例: ap-shanghai
-gh variable set TENCENT_COS_BUCKET      --env "$ENV" --body '<YOUR_COS_BUCKET_HERE>'
-# 示例: your-bucket-1234567890
-gh variable set TENCENT_COS_CDN_DOMAIN  --env "$ENV" --body '<YOUR_COS_CDN_DOMAIN_HERE>'
-# 示例: https://cdn.example.com
-
-# ─── Release 重启策略（三选一，其余留空） ────────────────────────────────────
-# 方式 A: 自定义命令
-gh variable set RELEASE_RESTART_CMD     --env "$ENV" --body '<YOUR_RESTART_CMD_HERE>'
-# 示例: pm2 restart purelyprofit-server
-
-# 方式 B: systemd（与 A 互斥，取消注释启用）
-# gh variable set RELEASE_SYSTEMD_SERVICE_NAME --env "$ENV" --body 'purelyprofit-server'
-
-# 方式 C: PM2（与 A 互斥，取消注释启用）
-# gh variable set RELEASE_PM2_APP_NAME         --env "$ENV" --body 'purelyprofit-server'
-
-# 方式 D: launchd（与 A 互斥，取消注释启用）
-# gh variable set RELEASE_LAUNCHD_SERVICE_NAME --env "$ENV" --body 'com.purelyprofit.server'
-
-# ─── Release 备份目录 ────────────────────────────────────────────────────────
-gh variable set RELEASE_BACKUP_DIR      --env "$ENV" --body '<YOUR_BACKUP_DIR_HERE>'
-# 示例: /opt/backups/purelyprofit-server
-
-ok 'Variables 必填项配置完成（6 项，微信支付+短信待营业执照后启用）'
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Variables（可选项 — 已有默认值，按需取消注释覆盖）
-# ═══════════════════════════════════════════════════════════════════════════════
-# info '配置 Variables（可选项，取消注释后生效）...'
-#
-# gh variable set PORT                          --env "$ENV" --body '3000'
-# gh variable set APP_BUSINESS_TIMEZONE         --env "$ENV" --body 'Asia/Shanghai'
-# gh variable set DATABASE_POOL_MAX             --env "$ENV" --body '20'
-# gh variable set DATABASE_POOL_MIN             --env "$ENV" --body '5'
-# gh variable set DATABASE_POOL_IDLE_TIMEOUT_MS --env "$ENV" --body '30000'
-# gh variable set DATABASE_POOL_CONNECTION_TIMEOUT_MS --env "$ENV" --body '5000'
-# gh variable set DATABASE_STATEMENT_TIMEOUT_MS --env "$ENV" --body '10000'
-# gh variable set DATABASE_PG_MAX_CONNECTIONS   --env "$ENV" --body '100'
-# gh variable set REDIS_PORT                    --env "$ENV" --body '6379'
-# gh variable set REDIS_DB                      --env "$ENV" --body '0'
-# gh variable set REDIS_CONNECT_TIMEOUT_MS      --env "$ENV" --body '5000'
-# gh variable set REDIS_COMMAND_TIMEOUT_MS      --env "$ENV" --body '3000'
-# gh variable set REDIS_MAX_RETRIES_PER_REQUEST --env "$ENV" --body '3'
-# gh variable set JWT_EXPIRES_IN                --env "$ENV" --body '7d'
-# gh variable set AUTH_PASSWORD_RESET_CODE_TTL_SECONDS --env "$ENV" --body '600'
-# gh variable set AUTH_REGISTER_CODE_TTL_SECONDS       --env "$ENV" --body '600'
-# gh variable set AUTH_SMS_SEND_COOLDOWN_SECONDS       --env "$ENV" --body '60'
-# gh variable set AUTH_REFRESH_TOKEN_TTL_SECONDS       --env "$ENV" --body '2592000'
-# gh variable set SMOKE_BASE_URL                --env "$ENV" --body 'http://localhost:3000/api'
-# gh variable set RELEASE_BACKUP_RETENTION_DAYS --env "$ENV" --body '14'
-# gh variable set RELEASE_BACKUP_FILE_PREFIX    --env "$ENV" --body 'purelyprofit-server'
-#
-# # HTTP 调优
-# gh variable set APP_HTTP_KEEP_ALIVE_TIMEOUT_MS --env "$ENV" --body '65000'
-# gh variable set APP_HTTP_REQUEST_TIMEOUT_MS    --env "$ENV" --body '15000'
-# gh variable set APP_HTTP_BODY_LIMIT_BYTES      --env "$ENV" --body '5242880'
-#
-# # 全局限流
-# gh variable set APP_THROTTLE_TTL_SECONDS       --env "$ENV" --body '60'
-# gh variable set APP_THROTTLE_LIMIT             --env "$ENV" --body '100'
-#
-# # 慢日志阈值
-# gh variable set APP_SLOW_REQUEST_LOG_ENABLED   --env "$ENV" --body 'true'
-# gh variable set APP_SLOW_REQUEST_THRESHOLD_MS  --env "$ENV" --body '800'
-# gh variable set APP_SLOW_QUERY_LOG_ENABLED     --env "$ENV" --body 'true'
-# gh variable set APP_SLOW_QUERY_THRESHOLD_MS    --env "$ENV" --body '80'
-# gh variable set APP_SLOW_REDIS_LOG_ENABLED     --env "$ENV" --body 'true'
-# gh variable set APP_SLOW_REDIS_THRESHOLD_MS    --env "$ENV" --body '20'
-# gh variable set APP_SQL_METRICS_ENABLED        --env "$ENV" --body 'true'
-# gh variable set APP_CLIENT_ERROR_LOG_ENABLED   --env "$ENV" --body 'true'
-#
-# # 缓存预热
-# gh variable set APP_CACHE_PREWARM_ENABLED          --env "$ENV" --body 'true'
-# gh variable set APP_CACHE_PREWARM_INTERVAL_MS      --env "$ENV" --body '15000'
-# gh variable set APP_CACHE_PREWARM_INITIAL_DELAY_MS --env "$ENV" --body '5000'
-# gh variable set APP_CACHE_PREWARM_BATCH_SIZE       --env "$ENV" --body '30'
-# gh variable set APP_CACHE_PREWARM_CONCURRENCY      --env "$ENV" --body '4'
-#
-# # 空间自动结账
-# gh variable set APP_SPACE_AUTO_CHECKOUT_ENABLED          --env "$ENV" --body 'true'
-# gh variable set APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS      --env "$ENV" --body '60000'
-# gh variable set APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS --env "$ENV" --body '10000'
+ok 'SSH Secrets 配置完成（SSH_HOST / SSH_USER / SSH_PORT / SSH_REMOTE_TMP / SSH_KEY）'
 
 echo ''
-echo '════════════════════════════════════════════════════════════════'
-echo '  配置完成！'
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Variables：域名与服务器路径
+# ═══════════════════════════════════════════════════════════════════════════════
+info '配置 Variables...'
+
+gh variable set APP_DOMAIN --env "$ENV" --body "${APP_DOMAIN}"
+gh variable set API_DOMAIN --env "$ENV" --body "${API_DOMAIN}"
+gh variable set APP_ROOT --env "$ENV" --body "${APP_ROOT}"
+gh variable set APP_SERVICE --env "$ENV" --body "${APP_SERVICE}"
+gh variable set APP_ENV_FILE --env "$ENV" --body "${APP_ENV_FILE}"
+gh variable set APP_HEALTHCHECK_URL --env "$ENV" --body "${APP_HEALTHCHECK_URL}"
+gh variable set APP_KEEP_RELEASES --env "$ENV" --body '5'
+gh variable set RELEASE_REQUIRE_BACKUP --env "$ENV" --body 'true'
+# 自动部署总开关：false 时 push main 只跑 CI，不再自动发布（降级为手动 Run workflow）
+gh variable set AUTO_DEPLOY_ENABLED --env "$ENV" --body 'true'
+
+ok 'Variables 配置完成'
+
 echo ''
-echo '  后续步骤：'
-echo '  1. 确认 self-hosted runner 已上线（标签: production）'
-echo '  2. 先用 dry_run 模式测试：'
-echo '     gh workflow run deploy-production.yml -f dry_run=true'
-echo '════════════════════════════════════════════════════════════════'
+echo '════════════════════════════════════════════════════════════════════════'
+echo '  配置完成，接下来按顺序做服务器侧准备：'
+echo ''
+echo '  1) 建服务用户与发布目录（目录归发布用户所有，服务用户 purelyprofit 只读）'
+echo '       sudo useradd -r -m -d /opt/purelyprofit-server -s /usr/sbin/nologin purelyprofit'
+echo "       sudo install -d -o ${SERVER_USER} -g purelyprofit -m 775 ${APP_ROOT}/{releases,backups}"
+echo "       sudo chown ${SERVER_USER}:purelyprofit ${APP_ROOT}"
+echo ''
+echo '  1.1) 允许发布用户重启服务（限定到单个 unit，不要给全量 sudo）'
+echo "       echo '${SERVER_USER} ALL=(root) NOPASSWD: $(command -v systemctl || echo /usr/bin/systemctl) restart ${APP_SERVICE}, $(command -v systemctl || echo /usr/bin/systemctl) is-active ${APP_SERVICE}' \\"
+echo '         | sudo tee /etc/sudoers.d/purelyprofit-release'
+echo '       sudo chmod 440 /etc/sudoers.d/purelyprofit-release'
+echo ''
+echo '  2) 安装运行时依赖（Node 版本见 .nvmrc，pnpm 11、postgresql-client、nginx、curl）'
+echo '       curl -fsSL https://get.pnpm.io/install.sh | sh -'
+echo "       sudo npm i -g pnpm@11.28.9"
+echo ''
+echo '  3) 生成生产环境文件（模板见 deploy/production.env.example）'
+echo '       sudo install -d -m 750 -o root -g purelyprofit /etc/purelyprofit-server'
+echo "       sudo install -m 640 -o root -g purelyprofit deploy/production.env.example ${APP_ENV_FILE}"
+echo "       sudo usermod -aG purelyprofit ${SERVER_USER}   # 发布用户需要读 DATABASE_URL 才能执行迁移"
+echo '       # 逐项替换 <...> 占位符，密钥生成：openssl rand -base64 48'
+echo ''
+echo '  4) 注册 systemd 服务'
+echo '       sudo cp deploy/systemd/purelyprofit-server.service /etc/systemd/system/'
+echo '       sudo systemctl daemon-reload && sudo systemctl enable purelyprofit-server'
+echo ''
+echo '  5) 部署 Nginx（conf.d 两份 + snippets 一份，缺 snippets 会 include 失败）'
+echo '       sudo install -d /etc/nginx/snippets'
+echo '       sudo cp deploy/nginx/purelyprofit.conf /etc/nginx/conf.d/api.chunlibao.cn.conf'
+echo '       sudo cp deploy/nginx/chunlibao-sites.conf /etc/nginx/conf.d/'
+echo '       sudo cp deploy/nginx/snippets/purelyprofit-api-proxy.inc /etc/nginx/snippets/'
+echo '       sudo nginx -t && sudo systemctl reload nginx'
+echo ''
+echo '  6) 首次发布'
+echo '       Actions → Deploy Production → Run workflow'
+echo '       首次建议 dry_run=true 预演（只打印计划），确认输出无误后再 dry_run=false'
+echo '       脚本会自动创建 releases/<git-sha> 与 current 软链，无需手工建目录'
+echo ''
+echo '  7) 小程序后台配置合法域名'
+echo "       request 合法域名: https://${API_DOMAIN}"
+echo "       socket  合法域名: wss://${API_DOMAIN}"
+echo ''
+echo '  详细上线顺序见 docs/launch-checklist.md 第六节。'
+echo '════════════════════════════════════════════════════════════════════════'

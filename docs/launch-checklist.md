@@ -163,18 +163,99 @@
 
 **目的**：正式环境 API、管理端、小程序 WebSocket 都需要真实已备案域名 + TLS 证书（localhost/IP/自签均不能用于正式小程序）。
 
-**步骤**：
-1. 注册一个域名（如 `api.yourdomain.com`、`admin.yourdomain.com`）。
-2. **ICP 备案**（工信部，需执照主体信息，个人/个体户均可备）。周期约 1–3 周。
-3. 申请 HTTPS/WSS 证书（Let's Encrypt 免费或云厂商证书，配置自动续期）。
+**域名规划（已定，生产）**：
 
-**小程序后台配置**（微信公众平台 → 开发 → 开发管理 → 开发设置 → 服务器域名 / 业务域名 / socket 合法域名）：
-- 将 `https://api.yourdomain.com` 加入 request 合法域名
-- 将 `wss://api.yourdomain.com` 加入 socket 合法域名
+| 域名 | 用途 | 部署位置 |
+|------|------|----------|
+| `chunlibao.cn` | purelyProfit 商家端（老板/店员） | Nginx 静态 ` /var/www/purelyprofit/current` |
+| `www.chunlibao.cn` | 301 到根域 | Nginx 跳转 |
+| `api.chunlibao.cn` | purelyprofit-server API + Socket.IO + 原生 WebSocket | Nginx 反代 `127.0.0.1:3000` |
+| `pulse.chunlibao.cn` | purelyPulse 平台运营端 | Nginx 静态 `/var/www/purelypulse/current` |
+| `club.chunlibao.cn` | purelyClub 邀请码落地 H5（`CLUB_PUBLIC_BASE_URL`） | Nginx 静态 `/var/www/club/current` |
+| `scan.chunlibao.cn` | 桌码 / 空间码入口（`SCAN_QR_BASE_URL`） | Nginx 占位页（微信客户端直接拦截） |
+
+> `club` 与 `scan` 必须分域：微信「扫普通链接二维码」按域名+路径前缀下发规则，共用会把邀请码一并唤起小程序。
+
+**步骤**：
+1. DNS：为以上 6 个主机名添加 A 记录，全部指向同一台服务器（`*.chunlibao.cn` 泛解析 + 根域可覆盖）。
+2. **ICP 备案**（个人/个体户均可，周期约 1–3 周），未备案域名会被微信与运营商拦截。
+3. 证书：推荐一张泛域名证书，避免逐个子域续期：
+   ```bash
+   certbot certonly --dns-<插件> -d chunlibao.cn -d '*.chunlibao.cn'
+   ```
+   若按子域分别签发，把 `deploy/nginx/*.conf` 里的证书路径逐个替换。
+4. Nginx 部署三份文件（缺 snippet 会 include 失败）：
+   ```bash
+   sudo install -d /etc/nginx/snippets
+   sudo cp deploy/nginx/purelyprofit.conf /etc/nginx/conf.d/api.chunlibao.cn.conf
+   sudo cp deploy/nginx/chunlibao-sites.conf /etc/nginx/conf.d/
+   sudo cp deploy/nginx/snippets/purelyprofit-api-proxy.inc /etc/nginx/snippets/
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+**小程序后台配置**（微信公众平台 → 开发 → 开发管理 → 开发设置）：
+- request 合法域名：`https://api.chunlibao.cn`
+- socket 合法域名：`wss://api.chunlibao.cn`
+- 「扫普通链接二维码」规则前缀：`https://scan.chunlibao.cn/t/`、`https://scan.chunlibao.cn/p/`
 
 **构建时环境变量**：
-- purelyClub：`TARO_APP_WS_BASE_URL=https://api.yourdomain.com`（运行期转 `wss://api.yourdomain.com/api/ws/scan-ordering`）
-- purelyProfit（若与 API 不同域）：`VITE_SOCKET_BASE_URL=https://api.yourdomain.com`
+- purelyClub：`TARO_APP_API_BASE_URL=https://api.chunlibao.cn`、`TARO_APP_WS_BASE_URL=https://api.chunlibao.cn`
+- purelyProfit / purelyPulse：**不设置** `VITE_API_BASE_URL` / `VITE_SOCKET_BASE_URL`，默认走同源 `/api` 与 `window.location.origin`，由 Nginx 在各自域反代后端（无跨域、无 CORS 维护成本）
+
+---
+
+## 六点五、[5.5] CI/CD 配置（purelyprofit-server）
+
+**链路**：`push main → CI(质量门/构建产物) → Deploy Production(SSH) → 服务器解包/迁移/切软链/重启/健康检查`。
+
+**GitHub Secrets（production Environment）**：
+
+| Secret | 说明 |
+|--------|------|
+| `SSH_HOST` | 服务器 IP 或域名 |
+| `SSH_USER` | SSH 用户（建议专用 `deploy`） |
+| `SSH_KEY` | 部署私钥全文（`ssh-keygen -t ed25519 -f ~/.ssh/chunlibao_deploy`） |
+| `SSH_PORT` | 可选，默认 22 |
+| `SSH_REMOTE_TMP` | 可选，默认 `/tmp` |
+
+**GitHub Variables（均有默认值，可覆盖）**：`APP_DOMAIN`、`API_DOMAIN`、`APP_ROOT`、`APP_SERVICE`、`APP_ENV_FILE`、`APP_HEALTHCHECK_URL`、`APP_KEEP_RELEASES`、`RELEASE_REQUIRE_BACKUP`、`AUTO_DEPLOY_ENABLED`。
+
+**一键注入**：
+```bash
+SERVER_HOST=<IP> SERVER_USER=deploy SSH_KEY_FILE=~/.ssh/chunlibao_deploy \
+  bash scripts/setup-github-env.sh
+```
+脚本同时创建 `production Environment`、配置 main 分支保护（CI 四项检查必填）并写入上述 Secrets/Variables。
+
+**服务器一次性准备**：
+
+```bash
+# 服务用户（跑进程）与发布用户（SSH 部署）分离：目录归发布用户，服务用户只读
+sudo useradd -r -m -d /opt/purelyprofit-server -s /usr/sbin/nologin purelyprofit
+sudo install -d -o <deploy_user> -g purelyprofit -m 775 /opt/purelyprofit-server/{releases,backups}
+sudo chown <deploy_user>:purelyprofit /opt/purelyprofit-server
+
+# 发布用户只被允许重启这一个 unit，不放开全量 sudo
+echo '<deploy_user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart purelyprofit-server, /usr/bin/systemctl is-active purelyprofit-server' \
+  | sudo tee /etc/sudoers.d/purelyprofit-release
+sudo chmod 440 /etc/sudoers.d/purelyprofit-release
+
+# 运行时环境文件：640 + 组 purelyprofit，systemd(root) 与发布用户都可读
+sudo install -d -m 750 -o root -g purelyprofit /etc/purelyprofit-server
+sudo install -m 640 -o root -g purelyprofit deploy/production.env.example /etc/purelyprofit-server/production.env
+sudo usermod -aG purelyprofit <deploy_user>
+# 逐项替换 <...>；JWT_SECRET 等用 openssl rand -base64 48 生成
+
+sudo cp deploy/systemd/purelyprofit-server.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable purelyprofit-server
+```
+
+**发布**：
+- 自动：合并到 `main` 且 CI 通过后自动发布；`AUTO_DEPLOY_ENABLED=false` 可一键降级为手动。
+- 手动：Actions → Deploy Production → Run workflow，`dry_run=true` 只打印计划，首次上线务必先预演。
+- 回滚：脚本在健康检查失败时自动把 `current` 切回上一版本；数据库已迁移则需先 `pg_restore` 备份（路径在失败摘要里）。
+
+**运行时配置唯一来源**：服务器 `/etc/purelyprofit-server/production.env`（模板 `deploy/production.env.example`）。业务变量不再从 GitHub 注入，避免两处漂移。
 
 ---
 

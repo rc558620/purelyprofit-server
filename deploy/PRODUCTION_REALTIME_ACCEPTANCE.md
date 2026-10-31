@@ -13,16 +13,27 @@
 2. 为每台 API 服务器安装 Node.js、pnpm，并部署相同版本的 `purelyprofit-server`。
 3. 配置每台实例的 `/etc/purelyprofit-server/production.env`，填入生产数据库、Redis、JWT、CORS 与支付密钥。
 4. 按 `deploy/systemd/purelyprofit-server.service` 注册服务；初始使用 `CLUSTER_WORKERS=2`。
-5. 部署 Nginx 或云负载均衡，将 `deploy/nginx/purelyprofit.conf` 的域名、证书路径和 upstream 私网地址替换为真实值。
+5. 部署 Nginx：`deploy/nginx/purelyprofit.conf` → `/etc/nginx/conf.d/api.chunlibao.cn.conf`、
+   `deploy/nginx/chunlibao-sites.conf` → `/etc/nginx/conf.d/`、
+   `deploy/nginx/snippets/purelyprofit-api-proxy.inc` → `/etc/nginx/snippets/`；
+   按实际证书路径替换 `ssl_certificate`。
 6. 配置 DNS、HTTPS 证书与防火墙，仅向公网开放 80/443；PostgreSQL、Redis 和后端 3000 端口只开放私网。
 7. 完成下方域名、Cluster 与多服务器验收；全部通过后才将流量切入生产。
 
 ## 域名与证书
 
-- 管理端同域部署时，purelyProfit 不设置 `VITE_SOCKET_BASE_URL`，连接当前页面域名的 `/socket.io/`。
-- 管理端与 API 不同域时，构建 purelyProfit 前设置 `VITE_SOCKET_BASE_URL=https://api.example.com`。
-- purelyClub 构建时设置 `TARO_APP_WS_BASE_URL=https://api.example.com`；运行时会转换为 `wss://api.example.com/api/ws/scan-ordering`。
-- 在微信公众平台的小程序后台，将 `wss://api.example.com` 加入合法 socket 域名；必须使用有效、未过期且域名匹配的 TLS 证书。
+生产域名为 `chunlibao.cn`（站点）、`api.chunlibao.cn`（API/WS）、`pulse.chunlibao.cn`（运营端）、
+`club.chunlibao.cn`（邀请入口）、`scan.chunlibao.cn`（桌码/空间码入口）。
+
+- 管理端同域部署时（当前默认），purelyProfit 不设置 `VITE_SOCKET_BASE_URL`，连接当前页面域名的 `/socket.io/`；
+  Nginx 已在 `chunlibao.cn` 等站点域通过 `purelyprofit-api-proxy.inc` 反代 `/api` 与 `/socket.io/`。
+- 管理端与 API 不同域时，构建 purelyProfit 前设置 `VITE_SOCKET_BASE_URL=https://api.chunlibao.cn`，并在
+  `APP_CORS_ORIGIN` 里加入管理端域名。
+- purelyClub 构建时设置 `TARO_APP_API_BASE_URL=https://api.chunlibao.cn`、
+  `TARO_APP_WS_BASE_URL=https://api.chunlibao.cn`；运行时转换为
+  `wss://api.chunlibao.cn/api/ws/scan-ordering`。
+- 在微信公众平台的小程序后台，把 `https://api.chunlibao.cn` 加入 request 合法域名、
+  `wss://api.chunlibao.cn` 加入 socket 合法域名；必须使用有效、未过期且域名匹配的 TLS 证书。
 
 ## 发布前检查
 

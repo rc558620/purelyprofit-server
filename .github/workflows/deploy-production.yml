@@ -1,19 +1,27 @@
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  部署流水线：CI 在 main 分支成功后自动发布，也支持手动触发。            │
 # │                                                                         │
-# │  自动链路：push main → CI(构建/测试/DB 门) 成功 → workflow_run → 本文件 │
+# │  自动链路：push main → CI(质量门/构建) 成功 → workflow_run → 本文件     │
 # │  手动链路：Actions 面板手动 Run workflow（默认 dry-run 预演）           │
 # │                                                                         │
-# │  上线前置条件（见文件头历史清单）：                                     │
-# │  - [ ] 购买服务器                                                       │
-# │  - [ ] 注册域名 + SSL 证书                                              │
-# │  - [ ] 办理营业执照                                                     │
-# │  - [ ] 开通微信支付（需营业执照）                                        │
-# │  - [ ] 开通腾讯云短信（需营业执照）                                      │
-# │  - [ ] 配置 self-hosted runner + production Environment                 │
-# │  - [ ] 填入 Secrets / Variables 并执行首次部署                           │
-# │  自动部署总开关：Variables.AUTO_DEPLOY_ENABLED（设为 false 可一键降级为 │
-# │  手动发布，无需改代码）。                                               │
+# │  执行方式：GitHub 托管 runner 通过 SSH 登录生产服务器，在服务器本地完成 │
+# │  「解包 → prisma migrate deploy → 切 current 软链 → 重启 systemd → 健康  │
+# │  检查 → 失败回滚」，脚本见 deploy/scripts/remote-release.sh。            │
+# │                                                                         │
+# │  域名规划（生产）：                                                      │
+# │    chunlibao.cn / www.chunlibao.cn  → purelyProfit 商家端静态站          │
+# │    api.chunlibao.cn                 → purelyprofit-server API + WS       │
+# │    pulse.chunlibao.cn               → purelyPulse 平台运营端             │
+# │    club.chunlibao.cn                → purelyClub 邀请入口 H5             │
+# │    scan.chunlibao.cn                → 桌码 / 空间码入口（勿与 club 混用）│
+# │                                                                         │
+# │  必需 Secrets：SSH_HOST / SSH_USER / SSH_KEY（可选 SSH_PORT）            │
+# │              SSH_REMOTE_TMP                                            │
+# │  必需 Variables：无（有默认值），可用 APP_ROOT / APP_SERVICE /           │
+# │              APP_ENV_FILE / APP_HEALTHCHECK_URL 覆盖默认路径             │
+# │  运行时配置：统一由服务器 ${APP_ENV_FILE} 承载，不再从 GitHub 注入，     │
+# │              避免 CI 变量与服务器环境文件两处漂移。                      │
+# │  自动部署总开关：Variables.AUTO_DEPLOY_ENABLED（设为 false 降级为手动）  │
 # └─────────────────────────────────────────────────────────────────────────┘
 name: Deploy Production
 
@@ -27,32 +35,17 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Run release in dry-run mode
+        description: Dry-run（只在服务器打印发布计划，不做任何变更）
         required: true
         default: true
-        type: boolean
-      skip_smoke:
-        description: Skip post-release smoke checks
-        required: true
-        default: false
-        type: boolean
-      skip_db_precheck:
-        description: Skip release precheck DB gate (CI 已验证，默认跳过)
-        required: true
-        default: true
-        type: boolean
-      skip_db_chain_verify:
-        description: Skip fresh-database migration chain verification
-        required: true
-        default: false
-        type: boolean
-      skip_build:
-        description: Skip build inside release script
-        required: true
-        default: false
         type: boolean
       skip_migrate_deploy:
-        description: Skip prisma migrate deploy
+        description: 跳过 prisma migrate deploy
+        required: true
+        default: false
+        type: boolean
+      skip_smoke:
+        description: 跳过发布后的公网健康检查
         required: true
         default: false
         type: boolean
@@ -64,138 +57,33 @@ permissions:
 
 concurrency:
   group: deploy-production
+  # 部署不可中断：半途取消会把服务器停在「新产物 + 旧软链」或半迁移状态
   cancel-in-progress: false
+
+# 时区与 deploy/systemd 保持一致：业务日/月/周边界按上海时区计算
+env:
+  CI: 'true'
+  NODE_ENV: production
+  TZ: Asia/Shanghai
+  APP_DOMAIN: ${{ vars.APP_DOMAIN || 'chunlibao.cn' }}
+  API_DOMAIN: ${{ vars.API_DOMAIN || 'api.chunlibao.cn' }}
 
 jobs:
   deploy:
     name: Deploy to Production
     # 手动触发始终执行；自动触发要求：CI 成功 + 来源分支 main + 自动部署开关未关闭。
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       vars.AUTO_DEPLOY_ENABLED != 'false')
-    runs-on:
-      - self-hosted
-      - production
-    timeout-minutes: 90
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && vars.AUTO_DEPLOY_ENABLED != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     environment:
       name: production
     env:
-      CI: 'true'
-      NODE_ENV: production
-      TZ: Asia/Shanghai
-      APP_BUSINESS_TIMEZONE: ${{ vars.APP_BUSINESS_TIMEZONE || 'Asia/Shanghai' }}
-      PORT: ${{ vars.PORT || '3000' }}
-      APP_CORS_ORIGIN: ${{ vars.APP_CORS_ORIGIN }}
-      APP_SWAGGER_ENABLED: 'false'
-      APP_PORT_AUTO_TERMINATE_ENABLED: 'false'
-      APP_PORT_AUTO_SHIFT_ENABLED: 'false'
-      APP_PORT_AUTO_SHIFT_MAX_OFFSET: ${{ vars.APP_PORT_AUTO_SHIFT_MAX_OFFSET || '20' }}
-      CLUB_MANUAL_CONFIRM_PAID_ENABLED: 'false'
-      CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS: ${{ vars.CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS || '300' }}
-      # ─── HTTP 调优 ──────────────────────────────────────────────────────
-      APP_HTTP_KEEP_ALIVE_TIMEOUT_MS: ${{ vars.APP_HTTP_KEEP_ALIVE_TIMEOUT_MS || '65000' }}
-      APP_HTTP_REQUEST_TIMEOUT_MS: ${{ vars.APP_HTTP_REQUEST_TIMEOUT_MS || '15000' }}
-      APP_HTTP_BODY_LIMIT_BYTES: ${{ vars.APP_HTTP_BODY_LIMIT_BYTES || '5242880' }}
-      APP_DEFAULT_PAGE_SIZE: ${{ vars.APP_DEFAULT_PAGE_SIZE || '20' }}
-      APP_MAX_PAGE_SIZE: ${{ vars.APP_MAX_PAGE_SIZE || '100' }}
-      # ─── 全局限流 ───────────────────────────────────────────────────────
-      APP_THROTTLE_TTL_SECONDS: ${{ vars.APP_THROTTLE_TTL_SECONDS || '60' }}
-      APP_THROTTLE_LIMIT: ${{ vars.APP_THROTTLE_LIMIT || '100' }}
-      # ─── 慢日志 & 观测 ──────────────────────────────────────────────────
-      APP_SLOW_REQUEST_LOG_ENABLED: ${{ vars.APP_SLOW_REQUEST_LOG_ENABLED || 'true' }}
-      APP_SLOW_REQUEST_THRESHOLD_MS: ${{ vars.APP_SLOW_REQUEST_THRESHOLD_MS || '800' }}
-      APP_SLOW_QUERY_LOG_ENABLED: ${{ vars.APP_SLOW_QUERY_LOG_ENABLED || 'true' }}
-      APP_SLOW_QUERY_THRESHOLD_MS: ${{ vars.APP_SLOW_QUERY_THRESHOLD_MS || '80' }}
-      APP_SLOW_REDIS_LOG_ENABLED: ${{ vars.APP_SLOW_REDIS_LOG_ENABLED || 'true' }}
-      APP_SLOW_REDIS_THRESHOLD_MS: ${{ vars.APP_SLOW_REDIS_THRESHOLD_MS || '20' }}
-      APP_SQL_METRICS_ENABLED: ${{ vars.APP_SQL_METRICS_ENABLED || 'true' }}
-      APP_CLIENT_ERROR_LOG_ENABLED: ${{ vars.APP_CLIENT_ERROR_LOG_ENABLED || 'true' }}
-      APP_CLIENT_ERROR_STACK_MAX_LENGTH: ${{ vars.APP_CLIENT_ERROR_STACK_MAX_LENGTH || '2000' }}
-      APP_CLIENT_ERROR_DETAILS_MAX_LENGTH: ${{ vars.APP_CLIENT_ERROR_DETAILS_MAX_LENGTH || '2000' }}
-      # ─── 缓存预热 ───────────────────────────────────────────────────────
-      APP_CACHE_PREWARM_ENABLED: ${{ vars.APP_CACHE_PREWARM_ENABLED || 'true' }}
-      APP_CACHE_PREWARM_INTERVAL_MS: ${{ vars.APP_CACHE_PREWARM_INTERVAL_MS || '15000' }}
-      APP_CACHE_PREWARM_INITIAL_DELAY_MS: ${{ vars.APP_CACHE_PREWARM_INITIAL_DELAY_MS || '5000' }}
-      APP_CACHE_PREWARM_BATCH_SIZE: ${{ vars.APP_CACHE_PREWARM_BATCH_SIZE || '30' }}
-      APP_CACHE_PREWARM_CONCURRENCY: ${{ vars.APP_CACHE_PREWARM_CONCURRENCY || '4' }}
-      APP_CACHE_PREWARM_LOG_ENABLED: ${{ vars.APP_CACHE_PREWARM_LOG_ENABLED || 'true' }}
-      APP_CACHE_PREWARM_LOG_SAMPLE_EVERY: ${{ vars.APP_CACHE_PREWARM_LOG_SAMPLE_EVERY || '20' }}
-      APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS: ${{ vars.APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS || '1500' }}
-      APP_CACHE_REFRESH_CONCURRENCY: ${{ vars.APP_CACHE_REFRESH_CONCURRENCY || '8' }}
-      # ─── 空间自动结账 ───────────────────────────────────────────────────
-      APP_SPACE_AUTO_CHECKOUT_ENABLED: ${{ vars.APP_SPACE_AUTO_CHECKOUT_ENABLED || 'true' }}
-      APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS: ${{ vars.APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS || '60000' }}
-      APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS: ${{ vars.APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS || '10000' }}
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SHADOW_DATABASE_URL: ${{ secrets.SHADOW_DATABASE_URL }}
-      DATABASE_POOL_MAX: ${{ vars.DATABASE_POOL_MAX || '20' }}
-      DATABASE_POOL_MIN: ${{ vars.DATABASE_POOL_MIN || '5' }}
-      DATABASE_POOL_IDLE_TIMEOUT_MS: ${{ vars.DATABASE_POOL_IDLE_TIMEOUT_MS || '30000' }}
-      DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${{ vars.DATABASE_POOL_CONNECTION_TIMEOUT_MS || '5000' }}
-      DATABASE_STATEMENT_TIMEOUT_MS: ${{ vars.DATABASE_STATEMENT_TIMEOUT_MS || '10000' }}
-      DATABASE_PG_MAX_CONNECTIONS: ${{ vars.DATABASE_PG_MAX_CONNECTIONS || '100' }}
-      REDIS_HOST: ${{ secrets.REDIS_HOST }}
-      REDIS_PORT: ${{ vars.REDIS_PORT || '6379' }}
-      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
-      REDIS_DB: ${{ vars.REDIS_DB || '0' }}
-      REDIS_CONNECT_TIMEOUT_MS: ${{ vars.REDIS_CONNECT_TIMEOUT_MS || '5000' }}
-      REDIS_COMMAND_TIMEOUT_MS: ${{ vars.REDIS_COMMAND_TIMEOUT_MS || '3000' }}
-      REDIS_MAX_RETRIES_PER_REQUEST: ${{ vars.REDIS_MAX_RETRIES_PER_REQUEST || '3' }}
-      # ─── 集群模式 ───────────────────────────────────────────────────────
-      CLUSTER_WORKERS: ${{ vars.CLUSTER_WORKERS }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '7d' }}
-      # ─── Auth ───────────────────────────────────────────────────────────
-      AUTH_ADMIN_LOGIN_ALIAS: ${{ vars.AUTH_ADMIN_LOGIN_ALIAS }}
-      AUTH_ADMIN_LOGIN_PHONE: ${{ secrets.AUTH_ADMIN_LOGIN_PHONE }}
-      AUTH_PASSWORD_RESET_CODE_TTL_SECONDS: ${{ vars.AUTH_PASSWORD_RESET_CODE_TTL_SECONDS || '600' }}
-      AUTH_REGISTER_CODE_TTL_SECONDS: ${{ vars.AUTH_REGISTER_CODE_TTL_SECONDS || '600' }}
-      AUTH_SMS_SEND_COOLDOWN_SECONDS: ${{ vars.AUTH_SMS_SEND_COOLDOWN_SECONDS || '60' }}
-      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${{ vars.AUTH_REFRESH_TOKEN_TTL_SECONDS || '2592000' }}
-      # ─── 微信支付（待营业执照后配置）────────────────────────────────
-      # TODO: 营业执照办好后，在 GitHub Secrets/Variables 中填入以下凭证
-      WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
-      WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
-      WECHAT_MCH_SERIAL_NO: ${{ secrets.WECHAT_MCH_SERIAL_NO }}
-      WECHAT_PRIVATE_KEY_PATH: ${{ secrets.WECHAT_PRIVATE_KEY_PATH }}
-      WECHAT_PRIVATE_KEY_CONTENT: ${{ secrets.WECHAT_PRIVATE_KEY_CONTENT }}
-      WECHAT_PAY_NOTIFY_URL: ${{ vars.WECHAT_PAY_NOTIFY_URL }}
-      WECHAT_PLATFORM_PUBLIC_KEY_CONTENT: ${{ secrets.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT }}
-      # ─── 腾讯云短信（待营业执照后配置）───────────────────────────────
-      # TODO: 营业执照办好后，在 GitHub Secrets/Variables 中填入以下凭证
-      TENCENT_SMS_SECRET_ID: ${{ secrets.TENCENT_SMS_SECRET_ID }}
-      TENCENT_SMS_SECRET_KEY: ${{ secrets.TENCENT_SMS_SECRET_KEY }}
-      TENCENT_SMS_SDK_APP_ID: ${{ secrets.TENCENT_SMS_SDK_APP_ID }}
-      TENCENT_SMS_SIGN_NAME: ${{ vars.TENCENT_SMS_SIGN_NAME }}
-      TENCENT_SMS_REGISTER_TEMPLATE_ID: ${{ vars.TENCENT_SMS_REGISTER_TEMPLATE_ID }}
-      TENCENT_SMS_LOGIN_TEMPLATE_ID: ${{ vars.TENCENT_SMS_LOGIN_TEMPLATE_ID }}
-      # 绑定 / 换绑手机号模板（可选）：未配置时自动回落登录模板，不阻断发送
-      TENCENT_SMS_BIND_PHONE_TEMPLATE_ID: ${{ vars.TENCENT_SMS_BIND_PHONE_TEMPLATE_ID }}
-      TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID: ${{ vars.TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID }}
-      # ─── 腾讯云 COS 对象存储（Tencent Cloud COS）─────────────────────
-      TENCENT_COS_SECRET_ID: ${{ secrets.TENCENT_COS_SECRET_ID }}
-      TENCENT_COS_SECRET_KEY: ${{ secrets.TENCENT_COS_SECRET_KEY }}
-      TENCENT_COS_REGION: ${{ vars.TENCENT_COS_REGION }}
-      TENCENT_COS_BUCKET: ${{ vars.TENCENT_COS_BUCKET }}
-      TENCENT_COS_CDN_DOMAIN: ${{ vars.TENCENT_COS_CDN_DOMAIN }}
-      TENCENT_COS_PATH_PREFIX: ${{ vars.TENCENT_COS_PATH_PREFIX || 'uploads/' }}
-      SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'http://localhost:3000/api' }}
-      SMOKE_TIMEOUT_SECONDS: ${{ vars.SMOKE_TIMEOUT_SECONDS || '10' }}
-      SMOKE_WAIT_SECONDS: ${{ vars.SMOKE_WAIT_SECONDS || '60' }}
-      RELEASE_LOAD_ENV_FILE: 'false'
-      RELEASE_VALIDATE_ENV: 'true'
+      APP_ROOT: ${{ vars.APP_ROOT || '/opt/purelyprofit-server' }}
+      APP_SERVICE: ${{ vars.APP_SERVICE || 'purelyprofit-server' }}
+      APP_ENV_FILE: ${{ vars.APP_ENV_FILE || '/etc/purelyprofit-server/production.env' }}
+      APP_HEALTHCHECK_URL: ${{ vars.APP_HEALTHCHECK_URL || 'http://127.0.0.1:3000/api/readyz' }}
+      APP_KEEP_RELEASES: ${{ vars.APP_KEEP_RELEASES || '5' }}
       RELEASE_REQUIRE_BACKUP: ${{ vars.RELEASE_REQUIRE_BACKUP || 'true' }}
-      RELEASE_REQUIRE_RESTART: ${{ vars.RELEASE_REQUIRE_RESTART || 'true' }}
-      RELEASE_USE_DEFAULT_BACKUP: ${{ vars.RELEASE_USE_DEFAULT_BACKUP || 'true' }}
-      RELEASE_BACKUP_DIR: ${{ vars.RELEASE_BACKUP_DIR }}
-      RELEASE_BACKUP_FILE_PREFIX: ${{ vars.RELEASE_BACKUP_FILE_PREFIX || 'purelyprofit-server' }}
-      RELEASE_BACKUP_RETENTION_DAYS: ${{ vars.RELEASE_BACKUP_RETENTION_DAYS || '14' }}
-      RELEASE_RESTART_CMD: ${{ vars.RELEASE_RESTART_CMD }}
-      RELEASE_SYSTEMD_SERVICE_NAME: ${{ vars.RELEASE_SYSTEMD_SERVICE_NAME }}
-      RELEASE_PM2_APP_NAME: ${{ vars.RELEASE_PM2_APP_NAME }}
-      RELEASE_LAUNCHD_SERVICE_NAME: ${{ vars.RELEASE_LAUNCHD_SERVICE_NAME }}
     steps:
       - name: Resolve deploy target
         id: target
@@ -235,16 +123,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # 版本统一由 .nvmrc 决定（与 package.json 的 engines.node 保持一致），
-          # 避免生产构建与 CI / 本地开发出现版本漂移。
+          # 版本统一由 .nvmrc 决定，避免与 CI / 本地开发出现版本漂移
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # 复用 CI 已构建的产物：保证「CI 验证过的那份代码」与「线上运行的那份产物」一致，
-      # 同时省去生产机上的编译开销。手动触发时若拿不到产物则回退为本机构建。
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      # 复用 CI 已构建的产物：保证「CI 验证过的那份代码」与「线上运行的那份产物」一致。
       - name: Download CI build artifact
         id: artifact
         if: ${{ github.event_name == 'workflow_run' }}
@@ -268,57 +157,131 @@ jobs:
             echo '未获取到 CI 构建产物，回退为在本机执行构建'
           fi
 
-      - name: Generate Prisma Client
-        run: pnpm exec prisma generate
+      - name: Build application
+        if: ${{ steps.build_strategy.outputs.skip != 'true' }}
+        run: pnpm run build
 
-      - name: Verify release prerequisites
+      - name: Verify build output
         shell: bash
         run: |
-          command -v bash >/dev/null || { echo 'Missing bash on self-hosted runner.'; exit 1; }
-          command -v psql >/dev/null || { echo 'Missing psql on self-hosted runner.'; exit 1; }
-          command -v pg_dump >/dev/null || { echo 'Missing pg_dump on self-hosted runner.'; exit 1; }
-          command -v curl >/dev/null || { echo 'Missing curl on self-hosted runner.'; exit 1; }
+          set -euo pipefail
+          test -f dist/src/main.js || { echo '::error::dist/src/main.js 缺失'; exit 1; }
+          test -f dist/cluster-main.js || { echo '::error::dist/cluster-main.js 缺失'; exit 1; }
+          test -f dist/config/cluster.configuration.js || { echo '::error::dist/config/cluster.configuration.js 缺失'; exit 1; }
+          echo '构建产物校验通过'
 
-      - name: Verify release strategy
+      # 产物自带 package.json / pnpm-lock.yaml / prisma，保证服务器侧依赖安装与迁移可复现；
+      # 同时带上服务器端发布脚本，只需传输一个文件，避免多文件路径漂移。
+      - name: Package release archive
         shell: bash
         run: |
-          if [ -z "${RELEASE_RESTART_CMD}" ] && [ -z "${RELEASE_SYSTEMD_SERVICE_NAME}" ] && [ -z "${RELEASE_PM2_APP_NAME}" ] && [ -z "${RELEASE_LAUNCHD_SERVICE_NAME}" ]; then
-            echo 'Missing release restart strategy. Configure RELEASE_RESTART_CMD or one of RELEASE_SYSTEMD_SERVICE_NAME / RELEASE_PM2_APP_NAME / RELEASE_LAUNCHD_SERVICE_NAME.'
-            exit 1
-          fi
+          set -euo pipefail
+          tar -czf "release-${{ steps.target.outputs.sha }}.tar.gz" \
+            dist prisma prisma.config.ts package.json pnpm-lock.yaml deploy/scripts/remote-release.sh
+          ls -lh "release-${{ steps.target.outputs.sha }}.tar.gz"
 
-      - name: Verify migration chain from scratch
-        shell: bash
-        if: ${{ !inputs.skip_db_chain_verify }}
-        env:
-          # 用生产数据库实例上的临时库做验证，因此需要 CREATE DATABASE 权限
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: pnpm run db:verify-chain
-
-      - name: Execute production release
+      - name: Verify SSH settings
         shell: bash
         env:
-          # 自动触发时 inputs 为空 → dry_run=false、force=true（真实发布）；
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          set -euo pipefail
+          # secrets 不能出现在 job 级 if 中（会被判空），因此在步骤内做前置校验
+          [ -n "${SSH_HOST}" ] || { echo '::error::缺少 Secrets.SSH_HOST'; exit 1; }
+          [ -n "${SSH_USER}" ] || { echo '::error::缺少 Secrets.SSH_USER'; exit 1; }
+          [ -n "${SSH_KEY}" ] || { echo '::error::缺少 Secrets.SSH_KEY'; exit 1; }
+
+      - name: Upload release archive
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: release-${{ steps.target.outputs.sha }}.tar.gz
+          target: ${{ secrets.SSH_REMOTE_TMP || '/tmp' }}
+          overwrite: true
+
+      - name: Execute remote release
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          RELEASE_ID: ${{ steps.target.outputs.sha }}
+          REMOTE_TMP: ${{ secrets.SSH_REMOTE_TMP || '/tmp' }}
+          APP_ROOT: ${{ env.APP_ROOT }}
+          APP_SERVICE: ${{ env.APP_SERVICE }}
+          APP_ENV_FILE: ${{ env.APP_ENV_FILE }}
+          APP_HEALTHCHECK_URL: ${{ env.APP_HEALTHCHECK_URL }}
+          APP_KEEP_RELEASES: ${{ env.APP_KEEP_RELEASES }}
+          RELEASE_REQUIRE_BACKUP: ${{ env.RELEASE_REQUIRE_BACKUP }}
+          # 自动触发时 inputs 为空 → dry_run=false（真实发布）；
           # 手动触发时沿用面板输入，默认仍是 dry-run 预演。
           RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
-          RELEASE_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'false' || 'true' }}
-          RELEASE_SKIP_SMOKE: ${{ inputs.skip_smoke && 'true' || 'false' }}
-          # CI 的 db job 已完成 validate / migrate status / drift 校验，
-          # 生产机上无需重复执行（release:precheck 还包含全量测试与构建，应留给 CI）。
-          # 仅手动触发且显式关闭该 input 时才在生产机补跑。
-          RELEASE_SKIP_DB_PRECHECK: ${{ inputs.skip_db_precheck == true && 'true' || (github.event_name == 'workflow_run' && 'true' || 'false') }}
-          RELEASE_SKIP_BUILD: ${{ inputs.skip_build && 'true' || steps.build_strategy.outputs.skip }}
           RELEASE_SKIP_MIGRATE_DEPLOY: ${{ inputs.skip_migrate_deploy && 'true' || 'false' }}
-        run: pnpm run release:execute
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          command_timeout: 30m
+          # 单行逗号分隔：多行折叠会在逗号后插入空格，导致变量名不匹配
+          envs: RELEASE_ID,REMOTE_TMP,APP_ROOT,APP_SERVICE,APP_ENV_FILE,APP_HEALTHCHECK_URL,APP_KEEP_RELEASES,RELEASE_REQUIRE_BACKUP,RELEASE_DRY_RUN,RELEASE_SKIP_MIGRATE_DEPLOY
+          script: |
+            set -euo pipefail
+            ARCHIVE="${REMOTE_TMP}/release-${RELEASE_ID}.tar.gz"
+            [ -f "${ARCHIVE}" ] || { echo "✗ 产物不存在: ${ARCHIVE}"; exit 1; }
 
-      - name: Post-deploy readiness check
-        if: ${{ success() && !inputs.skip_smoke && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+            # 先单独解出发布脚本再执行：脚本随产物一起传输，版本与代码强一致
+            WORK_DIR="${REMOTE_TMP}/purelyprofit-release-${RELEASE_ID}"
+            rm -rf "${WORK_DIR}" && mkdir -p "${WORK_DIR}"
+            tar -xzf "${ARCHIVE}" -C "${WORK_DIR}" deploy/scripts/remote-release.sh
+
+            bash "${WORK_DIR}/deploy/scripts/remote-release.sh"
+
+      - name: Verify public endpoint
+        if: >-
+          success() && !inputs.skip_smoke &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         shell: bash
-        run: pnpm run realtime:ready
+        run: |
+          set -euo pipefail
+          url="https://${API_DOMAIN}/api/readyz"
+          echo "检查公网就绪探针：${url}"
+          # 公网检查覆盖 DNS → 证书 → Nginx → 后端整条链路。
+          # 注意 /api/readyz 依赖异常时仍是 HTTP 200，只把 body.status 置为 error，
+          # 因此必须解析响应体，否则数据库/Redis 挂掉也会被判定为发布成功。
+          for attempt in $(seq 1 10); do
+            body="$(curl -fsS --max-time 10 "${url}" || true)"
+            # 用 node 解析而不是内联 python：python -c 对首行缩进敏感，
+            # 在 YAML block scalar 里极易触发 IndentationError；JS 不敏感缩进。
+            if [ -n "${body}" ] && printf '%s' "${body}" | node -e '
+            let raw = "";
+            process.stdin.on("data", (chunk) => (raw += chunk));
+            process.stdin.on("end", () => {
+              const payload = JSON.parse(raw);
+              const deps = payload.dependencies ?? [];
+              console.log("  " + deps.map((item) => item.name + "=" + item.status).join(", "));
+              const ok =
+                payload.status === "ok" &&
+                deps.length > 0 &&
+                deps.every((item) => item.status === "up");
+              process.exit(ok ? 0 : 1);
+            });
+            '; then
+              echo "公网就绪探针通过"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::公网就绪探针失败：${url}，最后响应：${body:-无}"
+          exit 1
 
       - name: Publish deploy summary
         if: always()
         shell: bash
+        env:
+          RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: |
           {
             echo '## Deploy Production'
@@ -326,27 +289,16 @@ jobs:
             echo "- Trigger: ${{ steps.target.outputs.trigger || github.event_name }}"
             echo "- Branch: ${{ steps.target.outputs.branch || github.ref_name }}"
             echo "- Commit: ${{ steps.target.outputs.sha || github.sha }}"
-            echo "- Dry run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}"
-            echo "- Skip smoke: ${{ inputs.skip_smoke || false }}"
-            echo "- Skip DB precheck: ${{ inputs.skip_db_precheck == true && 'true' || (github.event_name == 'workflow_run' && 'true' || 'false') }}"
-            echo "- Skip DB chain verify: ${{ inputs.skip_db_chain_verify || false }}"
+            echo "- Dry run: ${RELEASE_DRY_RUN}"
             echo "- Reuse CI artifact: ${{ steps.build_strategy.outputs.skip || 'unknown' }}"
             echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy || false }}"
-            echo "- Smoke base URL: ${SMOKE_BASE_URL}"
-            if [ -n "${RELEASE_RESTART_CMD}" ]; then
-              echo '- Restart strategy: custom command'
-            elif [ -n "${RELEASE_SYSTEMD_SERVICE_NAME}" ]; then
-              echo "- Restart strategy: systemd (${RELEASE_SYSTEMD_SERVICE_NAME})"
-            elif [ -n "${RELEASE_PM2_APP_NAME}" ]; then
-              echo "- Restart strategy: pm2 (${RELEASE_PM2_APP_NAME})"
-            elif [ -n "${RELEASE_LAUNCHD_SERVICE_NAME}" ]; then
-              echo "- Restart strategy: launchd (${RELEASE_LAUNCHD_SERVICE_NAME})"
-            else
-              echo '- Restart strategy: missing'
-            fi
+            echo "- Skip smoke: ${{ inputs.skip_smoke || false }}"
+            echo "- API domain: ${API_DOMAIN}"
+            echo "- App root: ${APP_ROOT}"
+            echo "- Service: ${APP_SERVICE}"
             if [ "${{ job.status }}" != 'success' ]; then
               echo ''
-              echo '> 发布失败：请核对上一步 release summary 中的失败阶段与备份产物路径，'
-              echo '> 通过 pg_restore 回滚数据库后重新发布修复版本，切勿在半迁移状态下反复重启服务。'
+              echo '> 发布失败：远程脚本已尝试回滚到上一个版本。请查看上方 SSH 输出中的失败阶段与备份路径；'
+              echo '> 若已执行迁移，需先用 pg_restore 回滚数据库，再重新发布修复版本。'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

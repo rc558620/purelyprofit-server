@@ -1,8 +1,8 @@
 # 项目身份：purelyprofit-server（后端）
 
 - 仓库：`purelyprofit-server`（NestJS + Prisma + TypeScript，pnpm）
-- 三条产品线：`purely-profit`（商家/老板端）、`purely-pulse`（平台/运营端）、`purely-club`（C 端会员）
-- 对应前端：`purelyProfit`（商家端）、`purelyPulse`（运营端）、`purelyClub`（会员端小程序）
+- 三条产品线：`purely-profit`（商家端 · 日常经营管理）、`purely-pulse`（经营分析端 · owner / 老板 / 开发者视角）、`purely-club`（C 端会员）
+- 对应前端：`purelyProfit`（商家端）、`purelyPulse`（经营分析端）、`purelyClub`（会员端小程序）
 - 处理联调/接口任务前，必须先判断需求属于哪条产品线，禁止串视角、越权读取他人数据
 
 ---

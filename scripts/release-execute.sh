@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+# 定位说明：本脚本用于「在目标机器上手动执行完整发布」（构建+备份+迁移+重启+冒烟）。
+# GitHub Actions 现在改为 SSH 方式，只把 CI 产物送到服务器后调用
+# deploy/scripts/remote-release.sh（解包+迁移+切软链+重启+健康检查+回滚），
+# 不再在 runner 内执行本脚本。两处逻辑若需变更，请同步确认职责没有重叠。
+
 # 项目根目录按脚本自身位置推导，避免不同机器/不同 clone 路径下写死失效
 # （历史上这里写死过 /Users/f0rest/Documents/project/react/purelyprofit-server，
 #   换目录或 CI runner 上都会 cd 失败）。
