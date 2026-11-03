@@ -67,18 +67,18 @@ model Space {
 /// ⚠️ 历史明文列 `token` 已于 `20260928093000_drop_space_qr_token_plaintext` 删除：
 /// 从此**轮换是唯一能改 token 的手段，且不可回滚**（旧物料立即作废）。
 model SpaceQrCode {
-  id              Int      @id @default(autoincrement())
-  spaceId         Int      @unique @map("space_id")
-  storeId         Int      @map("store_id")
-  tokenHash       String?  @map("token_hash") @db.VarChar(128)
-  tokenCiphertext String?  @map("token_ciphertext") @db.Text
-  tokenPrefix     String?  @map("token_prefix") @db.VarChar(16)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id              Int       @id @default(autoincrement())
+  spaceId         Int       @unique @map("space_id")
+  storeId         Int       @map("store_id")
+  tokenHash       String?   @map("token_hash") @db.VarChar(128)
+  tokenCiphertext String?   @map("token_ciphertext") @db.Text
+  tokenPrefix     String?   @map("token_prefix") @db.VarChar(16)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
   revokedAt       DateTime? @map("revoked_at")
   rotatedAt       DateTime? @map("rotated_at")
-  space           Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  store           Store    @relation(fields: [storeId], references: [id])
+  space           Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  store           Store     @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
   @@index([tokenHash])
@@ -119,6 +119,13 @@ model SpaceSession {
   guestName                    String?                   @map("guest_name")
   guestPhone                   String?                   @map("guest_phone")
   guestCount                   Int?                      @map("guest_count")
+  /// 开台识别到的营销顾客（MarketingCustomer.id）：开台弹窗按手机号识别会员后落库，
+  /// 结账据此取储值余额与可用卡。不声明反向关联——marketing/ 目录的 schema
+  /// 不属于本模块，跨模块读取由 service 显式查询。
+  customerId                   Int?                      @map("customer_id")
+  /// 本次开台使用的会员卡（MemberCard.id）：次数卡开台时原子预扣次数，
+  /// 结账确认（reserve→done）或取消（release）时按此列回查流水
+  activeCardId                 Int?                      @map("active_card_id")
   startTime                    DateTime                  @map("start_time")
   endTime                      DateTime?                 @map("end_time")
   billingMode                  SpaceBillingMode          @map("billing_mode")
@@ -151,6 +158,7 @@ model SpaceSession {
   sessionRenewRecords          SpaceSessionRenewRecord[]
   commissionRecords            CommissionRecord[]
   openOperatorStaff            Staff?                    @relation("SpaceSessionOpenOperator", fields: [openOperatorStaffId], references: [id])
+  activeCard                   MemberCard?               @relation("SpaceSessionActiveCard", fields: [activeCardId], references: [id])
   reservation                  SpaceReservation?         @relation(fields: [reservationId], references: [id])
   saleOrder                    SaleOrder?                @relation(fields: [saleOrderId], references: [id])
   space                        Space                     @relation(fields: [spaceId], references: [id])
@@ -164,6 +172,10 @@ model SpaceSession {
   @@index([storeId, status, startTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, status, endTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, guestPhone])
+  /// 开台识别会员后按门店 + 顾客回查在用场次（会员资产占用校验）
+  @@index([storeId, customerId])
+  /// 结账 / 取消时按卡回查在用场次
+  @@index([activeCardId])
   @@index([status, startTime])
   @@index([status, autoCheckout, billingMode, endTime])
   @@map("space_sessions")
@@ -172,37 +184,37 @@ model SpaceSession {
 /// Step 8.1: SpaceSession.items JSON 拆出的独立表
 /// 交易明细应可被 SQL 查询、聚合、审计
 model SpaceSessionItem {
-  id           Int          @id @default(autoincrement())
-  sessionId    Int          @map("session_id")
+  id                Int          @id @default(autoincrement())
+  sessionId         Int          @map("session_id")
   /// 商品 ID（系统内置: SYS_TIME_BILLING, SYS_RENEW_DEDUCTION, SYS_PREPAID_DEDUCTION）
-  productId    String       @map("product_id")
+  productId         String       @map("product_id")
   /// 商品名称
-  productName  String       @map("product_name")
+  productName       String       @map("product_name")
   /// 商品分类
-  categoryName String       @map("category_name")
+  categoryName      String       @map("category_name")
   /// 销售单价（分）
-  salePrice    Int          @map("sale_price")
+  salePrice         Int          @map("sale_price")
   /// 单件利润（分）
-  profit       Int
+  profit            Int
   /// 数量
-  quantity     Int
+  quantity          Int
   /// 排序序号（保证明细在会话中的顺序）
-  sortOrder    Int          @default(0) @map("sort_order")
+  sortOrder         Int          @default(0) @map("sort_order")
   /// 来源类型：member_self_order（会员自助下单，已在线支付）/ 空表示员工手工追加
-  sourceType   String?      @map("source_type") @db.VarChar(32)
+  sourceType        String?      @map("source_type") @db.VarChar(32)
   /// 来源支付渠道：balance（储值余额）/ wechat（微信支付）；仅自助下单行有值
-  sourceChannel String?     @map("source_channel") @db.VarChar(32)
+  sourceChannel     String?      @map("source_channel") @db.VarChar(32)
   /// 来源订单号（自助下单幂等键：重复回调据此短路，避免商品被重复累加）
-  sourceOrderNo String?     @map("source_order_no") @db.VarChar(64)
+  sourceOrderNo     String?      @map("source_order_no") @db.VarChar(64)
   /// 来源订单行 ID，用于精确追溯
-  sourceOrderItemId Int?    @map("source_order_item_id")
+  sourceOrderItemId Int?         @map("source_order_item_id")
   /// 规格签名（选项 ID 升序 sha256）；无规格时为 null
   /// 合并键的一部分：同商品不同规格必须分行，不允许被静默合并
-  specSignature    String?  @map("spec_signature") @db.Char(64)
+  specSignature     String?      @map("spec_signature") @db.Char(64)
   /// 规格名快照（如 ["大杯","热"]）；无规格时为 null
-  specNames        Json?    @map("spec_names")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  session      SpaceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  specNames         Json?        @map("spec_names")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  session           SpaceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, sortOrder])
   @@index([productId])

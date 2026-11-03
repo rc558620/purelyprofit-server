@@ -7,6 +7,7 @@ import { ClubSelfOrderingModule } from '../self-ordering/club-self-ordering.modu
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubVoucherOrdersModule } from '../voucher-orders/club-voucher-orders.module';
 import { ClubRechargeModule } from '../recharge/club-recharge.module';
+import { ClubCardsModule } from '../cards/club-cards.module';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
 import { ClubPaymentLockService } from './club-payment-lock.service';
@@ -33,6 +34,12 @@ import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.mo
     ClubScanOrderingModule,
     // 自助下单回调落账（SF 前缀）；该模块不反向依赖 ClubPaymentsModule，无循环依赖
     ClubSelfOrderingModule,
+    /*
+     * C 端购卡模块（MC 前缀）：除了给回调分发器提供落账服务，
+     * 它的控制器也随本模块一并挂载 —— ClubCardsModule 只依赖支付子模块，
+     * 不反向依赖本模块，因此不会形成循环。
+     */
+    ClubCardsModule,
   ],
   controllers: [ClubPaymentsController],
   providers: [

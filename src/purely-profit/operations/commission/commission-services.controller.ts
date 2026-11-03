@@ -28,6 +28,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommissionServicesService } from './commission-services.service';
 import {
+  CommissionOpenOptionsResponseDto,
   CommissionServiceResponseDto,
   UpsertCommissionServiceDto,
 } from './dto/commission-service.dto';
@@ -52,6 +53,18 @@ export class CommissionServicesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<CommissionServiceResponseDto[]> {
     return this.commissionServicesService.list(user);
+  }
+
+  // 开台弹窗选项：只读，不涉及提成金额，按 space:view 放行（收银员持该权限，
+  // 但不应获得 commission:view——那会连带放开提成明细与导出）。
+  @Get('open-options')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取开台可选服务项与在职服务人员（开台弹窗）' })
+  @ApiOkResponse({ type: CommissionOpenOptionsResponseDto })
+  listOpenOptions(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<CommissionOpenOptionsResponseDto> {
+    return this.commissionServicesService.listOpenOptions(user);
   }
 
   @Post()

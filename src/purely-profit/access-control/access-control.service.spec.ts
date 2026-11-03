@@ -45,6 +45,8 @@ describe('AccessControlService', () => {
       'operation-entry:create',
       'goods:view',
       'space:view',
+      // 会员卡：收银员可查看持卡与售卡订单（卡模板/调次归 member-card:manage）
+      'member-card:view',
       // 自助下单查看权限：非餐饮门店收银员需实时接收新订单弹窗，与空间查看对齐
       'self-ordering:view',
       'scan-ordering:view',
@@ -63,6 +65,8 @@ describe('AccessControlService', () => {
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');
     expect(permissions).not.toContain('scan-ordering:table-config');
+    expect(permissions).not.toContain('member-card:manage');
+    expect(permissions).not.toContain('marketing:view');
   });
 
   it('manager 子账号应拥有门店运营权限，但不包含财务、营销和门店设置权限', () => {
@@ -96,6 +100,9 @@ describe('AccessControlService', () => {
       'space:create',
       'space:update',
       'space:delete',
+      // 会员卡：店长可只读持卡/售卡订单，并维护卡模板与手动调次
+      'member-card:view',
+      'member-card:manage',
       'commission:view',
       'commission:manage',
       'service-call:view',
@@ -223,6 +230,7 @@ describe('AccessControlService', () => {
       'operation-entry:create',
       'goods:view',
       'space:view',
+      'member-card:view',
       'self-ordering:view',
       'scan-ordering:view',
       'scan-ordering:table-manage',

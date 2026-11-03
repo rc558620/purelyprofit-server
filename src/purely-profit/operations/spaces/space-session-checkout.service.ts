@@ -187,6 +187,11 @@ export class SpaceSessionCheckoutService {
       renewRecords,
       voucherProductName,
       voucherCost: voucherFacts ?? undefined,
+      // be-06：多资产抵扣明细与前端预期应付，交由结算层在事务内权威重算并比对
+      ...(payload.settlements ? { settlements: payload.settlements } : {}),
+      ...(payload.expectedPayable !== undefined
+        ? { expectedPayable: payload.expectedPayable }
+        : {}),
       // BUG-4 fix: 团购元数据回退链 = checkout payload → session.prepaid*（开台预付）→ 续费记录。
       // 三选一规则已收敛到 buildSettlementPrepaidMetadata（内含 voucherFaceAmount 的
       // skipPrepaidVoucherPersistence 不变量），与自动结账共用同一实现。

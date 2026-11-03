@@ -48,12 +48,20 @@ export class ClubRechargeCreationService {
   ): Promise<ClubRechargeOrderResponseDto> {
     this.assertSameCurrentStore(currentContext, dto.storeId);
 
+    // 测试模式不向微信预下单：订单照常落 unpaid，前端由 confirm-paid 完成入账。
+    // 门店收款校验随之跳过——它拦的是「真实收不到钱」，而测试模式本就不收钱，
+    // 门店未配收款时继续校验只会把可走通的联调流程拦死。
+    const skipWechatPrepay =
+      await this.clubPaymentModeService.isManualConfirmPaidAllowed();
+
     // A1：下单前显式校验门店已配置微信收款。
     // 不校验的话门店没配收款时用户一路走到支付，最后只看到通用「支付失败」，
     // 既不知道是门店侧问题，也不知道该联系谁。
-    await this.clubWechatJsapiService.assertStorePayConfigured(
-      currentContext.store.id,
-    );
+    if (!skipWechatPrepay) {
+      await this.clubWechatJsapiService.assertStorePayConfigured(
+        currentContext.store.id,
+      );
+    }
 
     const packages =
       await this.clubRechargePackagesService.loadPackagesForStore(
@@ -104,8 +112,9 @@ export class ClubRechargeCreationService {
       orderNo,
     });
 
-    // 微信 JSAPI 下单：成功后更新草稿中的支付参数
-    if (openid) {
+    // 微信 JSAPI 下单：成功后更新草稿中的支付参数。
+    // 测试模式跳过，草稿保持无支付参数，前端不拉起收银台。
+    if (openid && !skipWechatPrepay) {
       try {
         const paymentParams =
           await this.clubWechatJsapiService.createJsapiPaymentParams({

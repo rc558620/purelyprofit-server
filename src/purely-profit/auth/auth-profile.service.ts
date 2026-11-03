@@ -12,6 +12,10 @@ import {
 } from '../commerce/commerce.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
+import {
+  resolveLinkedPhones,
+  syncNameToCustomerProfiles,
+} from './auth-profile.sync';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -173,30 +177,21 @@ export class AuthProfileService {
     await this.invalidateUserCache(userId);
 
     // 同步头像到关联的营销顾客记录（best-effort）
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { wechatPhone: true, email: true },
-    });
+    const phoneConditions = await resolveLinkedPhones(this.prisma, userId);
 
-    const phoneConditions: string[] = [];
-    if (user?.wechatPhone) phoneConditions.push(user.wechatPhone);
+    if (phoneConditions.length === 0) return;
 
-    if (user?.email) {
-      const clubMatch = user.email.match(/^club_phone_(\d+)@/);
-      const legacyMatch = user.email.match(/^phone_(\d+)@/);
-      if (clubMatch?.[1]) phoneConditions.push(clubMatch[1]);
-      if (legacyMatch?.[1]) phoneConditions.push(legacyMatch[1]);
-    }
-
-    if (phoneConditions.length > 0) {
-      await this.prisma.marketingCustomer
-        .updateMany({
-          where: { phone: { in: phoneConditions } },
-          data: { avatar },
-        })
-        .catch(() => {
-          /* best-effort，不影响主流程 */
-        });
+    try {
+      await this.prisma.marketingCustomer.updateMany({
+        where: { phone: { in: phoneConditions } },
+        data: { avatar },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `同步顾客档案头像失败：userId=${userId}，${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
@@ -225,6 +220,13 @@ export class AuthProfileService {
         data: { name },
       });
     }
+
+    // 同步更新该用户在**各门店**的顾客档案 / 会员档案姓名（best-effort）
+    await syncNameToCustomerProfiles(
+      { prisma: this.prisma, logger: this.logger },
+      userId,
+      name,
+    );
   }
 
   private async writeRealName(

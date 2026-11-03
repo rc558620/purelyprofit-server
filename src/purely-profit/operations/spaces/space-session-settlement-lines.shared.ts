@@ -11,6 +11,8 @@ import {
   GROUPON_VOUCHER_FALLBACK_PRODUCT_NAME,
   GROUPON_VOUCHER_ITEM_SUFFIX,
   SELF_ORDER_ITEM_SOURCE_TYPE,
+  SYS_CARD_DEDUCTION_PRODUCT_ID,
+  SYS_CARD_DEDUCTION_PRODUCT_NAME,
   SYS_GROUPON_VOUCHER_PRODUCT_ID,
   SYS_PREPAID_DEDUCTION_PRODUCT_ID,
   SYS_RENEW_DEDUCTION_PRODUCT_ID,
@@ -104,6 +106,31 @@ export const resolveRenewDeductionOrderItem = (
       quantity: 1,
       lineTotal: -renewDeductionYuan,
     },
+  };
+};
+
+/**
+ * be-06：会员卡抵扣行（用持卡权益核销台位费）。
+ *
+ * 金额上限（仅限台位费、且不超过台位费）已在上层 checkout assets 规划阶段夹紧，
+ * 这里只负责生成负值明细行；零值/负值直接返回 null，保证不落空行。
+ * 该行在汇总时按卡抵扣口径加回营业额与利润（权益核销不是折价）。
+ */
+export const resolveCardDeductionOrderItem = (
+  cardDeductionMoney: Money,
+): SpaceSessionItemRecord | null => {
+  if (!cardDeductionMoney.isPositive()) {
+    return null;
+  }
+  const cardDeductionYuan = cardDeductionMoney.toOutputYuan();
+  return {
+    productId: SYS_CARD_DEDUCTION_PRODUCT_ID,
+    productName: SYS_CARD_DEDUCTION_PRODUCT_NAME,
+    categoryName: VENUE_ORDER_ITEM_CATEGORY_NAME,
+    salePrice: -cardDeductionYuan,
+    profit: -cardDeductionYuan,
+    quantity: 1,
+    lineTotal: -cardDeductionYuan,
   };
 };
 

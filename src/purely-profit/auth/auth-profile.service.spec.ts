@@ -31,6 +31,9 @@ describe('AuthProfileService', () => {
     marketingCustomer: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    member: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
   };
 
   const redisService = {
@@ -214,6 +217,61 @@ describe('AuthProfileService', () => {
     expect(
       authAccountLookupService.findProfileUserOrThrow,
     ).toHaveBeenCalledWith(1);
+  });
+
+  it('修改昵称后把新名字同步到各门店顾客档案与会员档案', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      wechatPhone: '15919654010',
+      email: 'club_phone_15919654011@purelyprofit.local',
+    });
+    prismaService.user.update.mockResolvedValue(undefined);
+
+    await service.updateNickname(user, 'America');
+
+    // 归属：clubUserId 精确命中 + clubUserId 为空的孤儿档案按关联手机号兜底
+    const ownership = [
+      { clubUserId: 1 },
+      { clubUserId: null, phone: { in: ['15919654010', '15919654011'] } },
+    ];
+
+    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
+      where: { OR: ownership, deletedAt: null },
+      data: { name: 'America' },
+    });
+    expect(prismaService.member.updateMany).toHaveBeenCalledWith({
+      where: { OR: ownership, deletedAt: null },
+      data: { name: 'America' },
+    });
+  });
+
+  it('无关联手机号时只按 clubUserId 同步，不用手机号兜底', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      wechatPhone: null,
+      email: 'boss@example.com',
+    });
+    prismaService.user.update.mockResolvedValue(undefined);
+
+    await service.updateNickname(user, 'America');
+
+    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
+      where: { OR: [{ clubUserId: 1 }], deletedAt: null },
+      data: { name: 'America' },
+    });
+  });
+
+  it('顾客档案同步失败不影响昵称更新结果', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      wechatPhone: null,
+      email: 'boss@example.com',
+    });
+    prismaService.user.update.mockResolvedValue(undefined);
+    prismaService.marketingCustomer.updateMany.mockRejectedValueOnce(
+      new Error('db down'),
+    );
+
+    await expect(
+      service.updateNickname(user, 'America'),
+    ).resolves.toMatchObject({ user: { id: 1 } });
   });
 
   it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {

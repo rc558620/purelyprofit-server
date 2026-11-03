@@ -6,6 +6,7 @@ import {
 } from './space-session-items.shared';
 import {
   buildSelfOrderDeductionOrderItems,
+  resolveCardDeductionOrderItem,
   resolveGrouponVoucherConsumptionItem,
   resolvePrepaidDeductionOrderItem,
   resolveRenewDeductionOrderItem,
@@ -41,8 +42,14 @@ export const buildSpaceSessionSettlement = (params: {
   voucherProductName?: string | null;
   /** 开台团购券商品的成本快照；用于把券面行利润改为「券面 - 成本」 */
   voucherCost?: GrouponVoucherCostSnapshot;
+  /**
+   * 会员卡抵扣台位费金额（元，正数）：由结账资产规划层（checkout assets）算出后回填。
+   * 缺省 = 无卡抵扣，行为与历史完全一致。
+   */
+  cardDeductionMoney?: Money;
 }): SpaceSessionSettlement => {
   const core = buildSpaceSessionSettlementCore(params);
+  const cardDeductionMoney = params.cardDeductionMoney ?? Money.zero();
   const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
   const totalProfitMoney = sumLineProfitMoney(core.orderItems);
   const totalQuantity = core.orderItems.reduce(
@@ -63,17 +70,23 @@ export const buildSpaceSessionSettlement = (params: {
     prepaidDeduction: core.prepaidDeductionMoney.toOutputYuan(),
     selfOrderDeduction: core.selfOrderDeductionMoney.toOutputYuan(),
     voucherConsumption: core.voucherConsumptionMoney.toOutputYuan(),
+    cardDeduction: cardDeductionMoney.toOutputYuan(),
     totalAmount: totalRevenueMoney.toOutputYuan(),
     orderItems: core.orderItems,
     totalRevenue: totalRevenueMoney.toOutputYuan(),
     totalProfit: totalProfitMoney.toOutputYuan(),
-    // 营业额 / 利润口径（= 列表口径）：券面是门店真实营收，不能被抵扣行抹掉。
-    // 非券单 voucherConsumption = 0，两值与 totalRevenue / totalProfit 完全相同。
+    // 营业额 / 利润口径（= 列表口径）：券面与卡抵扣都是门店真实营收，
+    // 不能被抵扣行抹掉；两者都为 0 时与 totalRevenue / totalProfit 完全相同。
     grossRevenue: totalRevenueMoney
       .add(core.voucherConsumptionMoney)
+      .add(cardDeductionMoney)
       .toOutputYuan(),
     grossProfit: totalProfitMoney
       .add(core.voucherConsumptionMoney)
+      .add(cardDeductionMoney)
+      .toOutputYuan(),
+    consumptionRevenue: totalRevenueMoney
+      .add(cardDeductionMoney)
       .toOutputYuan(),
     totalQuantity,
   };
@@ -127,6 +140,7 @@ const buildSpaceSessionSettlementCore = (params: {
   renewRecords: SpaceSessionRenewRecord[];
   voucherProductName?: string | null;
   voucherCost?: GrouponVoucherCostSnapshot;
+  cardDeductionMoney?: Money;
 }) => {
   const { session, checkoutAt, payload, items, renewRecords } = params;
   // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
@@ -179,6 +193,14 @@ const buildSpaceSessionSettlementCore = (params: {
 
   const selfOrderDeductionMoney = sumSelfOrderDeductionMoney(items);
   orderItems.push(...buildSelfOrderDeductionOrderItems(items));
+
+  // be-06：会员卡抵扣台位费行（权益核销，负向行 + 汇总加回，见 grossRevenue）。
+  const cardDeductionItem = resolveCardDeductionOrderItem(
+    params.cardDeductionMoney ?? Money.zero(),
+  );
+  if (cardDeductionItem) {
+    orderItems.push(cardDeductionItem);
+  }
 
   if (orderItems.length === 0) {
     orderItems.push(buildEmptySettlementOrderItem());

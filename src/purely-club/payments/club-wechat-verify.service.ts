@@ -9,8 +9,8 @@
  *   - 微信侧 NOTPAY / CLOSED → 确认未扣款，前端可以安全地引导重试；
  *   - 查不到 / 返回未知 → 仍是不确定，前端继续展示「等待到账确认」。
  *
- * 本服务只负责「核对」，不负责落账：四条链路（服务订单 / 团购券 / 自助点单 /
- * 扫码点餐）各有自己的落账入口与幂等实现，由调用方拿到快照后自行落账。
+ * 本服务只负责「核对」，不负责落账：五条链路（服务订单 / 团购券 / 自助点单 /
+ * 扫码点餐 / 购卡）各有自己的落账入口与幂等实现，由调用方拿到快照后自行落账。
  *
  * 节流：前端查单是 500ms 级轮询，若每次都打微信查单会把商户接口打爆，
  * 因此同一订单默认 {@link CLUB_WECHAT_VERIFY_INTERVAL_SECONDS} 内只核对一次。
@@ -29,6 +29,7 @@ export const CLUB_WECHAT_VERIFY_SCOPES = [
   'voucher',
   'self-ordering',
   'scan-ordering',
+  'card',
 ] as const;
 
 export type ClubWechatVerifyScope = (typeof CLUB_WECHAT_VERIFY_SCOPES)[number];

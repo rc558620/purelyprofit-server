@@ -9,6 +9,7 @@ import type {
   NormalizedCheckoutPayload,
 } from './space-sessions.types';
 import type { SpaceSettlementChannelValue } from './dto/space-session.constants';
+import { normalizeCheckoutSettlements } from './space-session-checkout-settlement.shared';
 
 export const MONEY_PRECISION_PATTERN = /^\d+(\.\d{1,2})?$/;
 
@@ -94,6 +95,10 @@ export const normalizeCheckoutPayload = (
   assertMoneyPrecision(dto.platformSettledAmount, '平台已结金额');
   assertMoneyPrecision(dto.platformFee, '平台手续费');
   assertMoneyPrecision(dto.voucherFaceAmount, '券面金额');
+  assertMoneyPrecision(dto.expectedPayable, '预期应付金额');
+
+  // be-06：多资产抵扣明细归一化（类型 ↔ 作用对象匹配、同类不重复、标识必填）
+  const settlements = normalizeCheckoutSettlements(dto.settlements);
 
   const effectiveVoucherCode = voucherCode || grouponCode;
   const effectiveVoucherPlatform = voucherPlatform || grouponPlatform;
@@ -173,6 +178,10 @@ export const normalizeCheckoutPayload = (
     ...(dto.platformFee !== undefined ? { platformFee: dto.platformFee } : {}),
     ...(timeFeeMode !== undefined ? { timeFeeMode } : {}),
     ...(countdownFeeMode !== undefined ? { countdownFeeMode } : {}),
+    ...(settlements.length > 0 ? { settlements } : {}),
+    ...(dto.expectedPayable !== undefined
+      ? { expectedPayable: dto.expectedPayable }
+      : {}),
     lockId,
     lockedAt: dto.lockedAt,
   };

@@ -133,11 +133,18 @@ export class ClubVoucherOrderPaymentService {
       );
     }
 
+    // 测试模式不向微信预下单：订单照常落 unpaid，前端改由 confirm-paid
+    // 生成券码并扣库存。预下单要求门店已配置收款，门店没配时会抛
+    // STORE_PAY_CONFIG_MISSING——测试模式用不到支付参数，不该被它拦死。
+    const skipWechatPrepay =
+      paymentMethod === 'wechat' &&
+      (await this.clubPaymentModeService.isManualConfirmPaidAllowed());
+
     // 微信 JSAPI 真实下单：openid 显式传入优先，未传则按 userId 回查。
     // 解析不到时不调起真实支付，保持既有降级口径。
     // 余额支付无需微信下单参数，直接落 unpaid 后在同一请求内完成结算。
     const wechatOpenid =
-      paymentMethod === 'wechat'
+      paymentMethod === 'wechat' && !skipWechatPrepay
         ? await this.clubWechatOpenidService.resolveOpenid(
             currentContext.user.id,
             dto.openid,

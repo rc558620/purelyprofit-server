@@ -1,0 +1,304 @@
+// 会员卡领域模型：卡模板（商家卖什么卡）/ 持卡实例（顾客手里那张卡）/
+// 核销流水（预扣 / 消费 / 释放 / 办卡 / 调整）/ 售卡订单（C 端下单与线下办卡的统一单据）
+//
+// 口径约定（与 purelyProfit / purelyClub 前端契约对齐）：
+// - 金额统一以「分」落库，元只在接口出入参层由 Money 工具转换；
+// - 次数卡的「剩余次数」冗余落库为 remainTimes，预扣 / 释放一律走带条件的
+//   updateMany 原子更新（where remainTimes >= n），禁止 read-modify-write；
+// - storeId / customerId 指向 Store 与 MarketingCustomer，本文件**不声明反向关联**：
+//   这两张表位于 stores/ 与 marketing/ 目录，跨模块反向字段会迫使其他模块 schema
+//   跟着本次改动一起变，跨表读取由 service 显式查询完成；
+// - 不冗余「累计售出张数」：soldCount 由 member_cards / member_card_orders 计数派生，
+//   落成计数器列会在退款、补单、数据修复时产生无法自动收敛的漂移。
+
+/// 卡模板：商家定义的一档可售卡（月/季/年三类时长卡 + 次数卡）。
+model MemberCardPlan {
+  id               Int                @id @default(autoincrement())
+  storeId          Int                @map("store_id")
+  /// 卡名称，如「年度畅练卡」；同一门店未删除的模板内唯一
+  name             String
+  /// 卡类型：monthly/quarterly/yearly 为时长卡（有效期内不限次），times 为次数卡
+  kind             MemberCardKind
+  /// 售价（分）
+  price            Int
+  /// 划线价（分，选填，仅用于展示优惠感）
+  originalPrice    Int?               @map("original_price")
+  /// 有效天数：时长卡为有效期内不限次；次数卡为次数未用完时的兜底期限
+  validDays        Int                @map("valid_days")
+  /// 总次数（仅次数卡有值；时长卡为 null）
+  totalTimes       Int?               @map("total_times")
+  /// 一次开台扣减次数，默认 1（为「按人头扣次」预留）
+  perUseTimes      Int                @default(1) @map("per_use_times")
+  /// 可用空间类型编码；空数组表示不限空间类型
+  usableSpaceTypes String[]           @default([]) @map("usable_space_types")
+  /// 可用星期（1-7）；空数组表示不限星期
+  usableWeekdays   Int[]              @default([]) @map("usable_weekdays")
+  /// 单次开台最多人数（null 表示不限）
+  maxGuestPerUse   Int?               @map("max_guest_per_use")
+  /// 每人限购张数（null 表示不限）
+  purchaseLimit    Int?               @map("purchase_limit")
+  /// 是否上架（false 表示下架，已售出的卡不受影响）
+  isActive         Boolean            @default(true) @map("is_active")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt        DateTime?          @map("deleted_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  /// 由本模板售出的持卡实例
+  cards            MemberCard[]
+  /// 售卡订单（下单时对模板做名称 / 类型 / 单价快照，模板改名不影响历史单据）
+  orders           MemberCardOrder[]
+  /// 反向引用：卡性质营销商品（nature != regular）
+  cardProducts     MarketingProduct[]
+
+  /// 同门店未删除模板名称唯一，避免列表出现两档同名卡
+  @@unique([storeId, name], map: "uq_member_card_plans_store_name", where: raw("(deleted_at IS NULL)"))
+  /// 卡模板列表：按门店 + 上架状态 + 卡类型筛选，稳定倒序分页
+  @@index([storeId, isActive, kind, createdAt(sort: Desc), id(sort: Desc)], where: raw("(deleted_at IS NULL)"))
+  /// 关键字检索（名称模糊匹配）
+  @@index([storeId, name], where: raw("(deleted_at IS NULL)"))
+  @@map("member_card_plans")
+}
+
+/// 持卡实例：顾客手里那张卡。
+///
+/// 不做软删除：卡的生命周期由 status 表达（expired=到期 exhausted=次数用尽
+/// frozen=冻结 refunded=已退款），物理删除会让核销流水失去归属。
+model MemberCard {
+  id                   Int                     @id @default(autoincrement())
+  storeId              Int                     @map("store_id")
+  /// 来源卡模板
+  planId               Int                     @map("plan_id")
+  /// 卡号（C 端展示 / 到店出示）；同门店内唯一
+  cardNo               String                  @map("card_no") @db.VarChar(64)
+  /// 卡类型快照
+  kind                 MemberCardKind
+  /// 卡名称快照（模板改名后历史卡仍显示购买时的名称）
+  nameSnapshot         String                  @map("name_snapshot")
+  /// 持卡顾客（MarketingCustomer.id）
+  customerId           Int                     @map("customer_id")
+  status               MemberCardStatus        @default(active)
+  /// 生效时间
+  startsAt             DateTime                @map("starts_at")
+  /// 到期时间；null 表示不设到期（仅特殊赠送场景）
+  expiresAt            DateTime?               @map("expires_at")
+  /// 总次数（仅次数卡有值）
+  totalTimes           Int?                    @map("total_times")
+  /// 已确认使用的次数（仅次数卡有值；结账确认时递增）
+  usedTimes            Int?                    @default(0) @map("used_times")
+  /// 可用剩余次数（仅次数卡有值）：开台预扣即扣减，取消释放时回加。
+  /// 恒等式：usedTimes + remainTimes + 预扣中的流水次数 = totalTimes
+  remainTimes          Int?                    @map("remain_times")
+  /// 实付金额（分，赠送卡为 0）
+  pricePaid            Int                     @default(0) @map("price_paid")
+  sourceType           MemberCardSourceType    @default(staff_issue) @map("source_type")
+  /// 售卡订单（线下赠送 / 历史迁移可能为 null）
+  orderId              Int?                    @map("order_id")
+  /// 办卡操作员工（赠送 / 迁移可能为 null）
+  operatorStaffId      Int?                    @map("operator_staff_id")
+  /// 办卡操作员姓名快照（防员工改名后历史记录变化）
+  operatorNameSnapshot String?                 @map("operator_name_snapshot") @db.VarChar(100)
+  remark               String?
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+  plan                 MemberCardPlan          @relation(fields: [planId], references: [id])
+  order                MemberCardOrder?        @relation(fields: [orderId], references: [id])
+  transactions         MemberCardTransaction[]
+  /// 以本卡开台的场次（同一时刻只有未结账场次持有该卡）
+  spaceSessions        SpaceSession[]          @relation("SpaceSessionActiveCard")
+
+  @@unique([storeId, cardNo], map: "uq_member_cards_store_card_no")
+  /// 持卡列表：门店 + 状态 + 类型筛选，稳定倒序分页
+  @@index([storeId, status, kind, createdAt(sort: Desc), id(sort: Desc)])
+  /// 顾客维度取卡包（商家端顾客详情 / C 端我的卡包）
+  @@index([customerId, status, createdAt(sort: Desc)])
+  /// 开台识别：按门店 + 顾客 + 状态取可用卡
+  @@index([storeId, customerId, status])
+  @@index([planId])
+  @@index([orderId])
+  /// 到期巡检任务扫描
+  @@index([expiresAt])
+  @@map("member_cards")
+}
+
+/// 会员卡核销流水：预扣 / 确认消费 / 取消释放 / 办卡 / 退款 / 到期 / 手动调整。
+///
+/// 只做追加（append-only），不允许更新金额类语义字段；reserve 流水的
+/// pending → done / cancelled 是本表唯一允许的状态流转。
+model MemberCardTransaction {
+  id                       Int                         @id @default(autoincrement())
+  storeId                  Int                         @map("store_id")
+  cardId                   Int                         @map("card_id")
+  changeType               MemberCardChangeType        @map("change_type")
+  /// 流水状态：reserve 落 pending，确认后 done，释放后 cancelled
+  status                   MemberCardTransactionStatus @default(done)
+  /// 次数变化：正数增加、负数减少；时长卡恒为 0
+  deltaTimes               Int                         @default(0) @map("delta_times")
+  /// 变更前可用次数（时长卡为 null）
+  beforeTimes              Int?                        @map("before_times")
+  /// 变更后可用次数（时长卡为 null）
+  afterTimes               Int?                        @map("after_times")
+  /// 关联开台场次
+  relatedSessionId         Int?                        @map("related_session_id")
+  /// 关联台位名称快照（如「A05」，防台位改名后历史流水语义变化）
+  relatedSpaceNameSnapshot String?                     @map("related_space_name_snapshot") @db.VarChar(100)
+  /// 关联销售单号（结账核销时写入）
+  relatedSaleOrderNo       String?                     @map("related_sale_order_no") @db.VarChar(64)
+  /// 关联售卡订单（办卡 / 退款流水）
+  relatedOrderId           Int?                        @map("related_order_id")
+  /// 操作来源：club=C 端自助 cashier=收银台 system=系统任务
+  operatorType             MemberCardOperatorType      @default(system) @map("operator_type")
+  operatorStaffId          Int?                        @map("operator_staff_id")
+  /// 操作人姓名快照（C 端自助时为空）
+  operatorName             String?                     @map("operator_name") @db.VarChar(100)
+  remark                   String?
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  card                     MemberCard                  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  relatedOrder             MemberCardOrder?            @relation(fields: [relatedOrderId], references: [id])
+
+  /// 卡详情流水列表
+  @@index([cardId, createdAt(sort: Desc), id(sort: Desc)])
+  /// 门店维度流水审计 / 导出
+  @@index([storeId, createdAt(sort: Desc)])
+  /// 开台 / 结账按场次回查预扣流水（确认或释放）
+  @@index([relatedSessionId, changeType, status], map: "idx_member_card_txn_session_change_status")
+  @@index([relatedOrderId])
+  @@map("member_card_transactions")
+}
+
+/// 售卡订单：C 端微信支付购卡与商家端线下办卡的统一单据。
+///
+/// orderNo 同时作为微信支付 out_trade_no，必须全局唯一；落账以
+/// 「status 非 paid 才允许更新」的条件更新作为幂等闸门，与 ClubRechargeOrder 同构。
+model MemberCardOrder {
+  id                 Int                     @id @default(autoincrement())
+  /// 业务订单号（微信 out_trade_no）
+  orderNo            String                  @unique @map("order_no") @db.VarChar(64)
+  storeId            Int                     @map("store_id")
+  /// 卡模板（软删除后仍保留历史单据归属）
+  planId             Int                     @map("plan_id")
+  /// 卡名称快照
+  planNameSnapshot   String                  @map("plan_name_snapshot")
+  /// 卡类型快照
+  kind               MemberCardKind
+  /// 单价快照（分）
+  unitAmount         Int                     @map("unit_amount")
+  /// 应付 / 实付金额（分）= unitAmount × quantity
+  amount             Int
+  /// 购买数量
+  quantity           Int                     @default(1)
+  source             MemberCardOrderSource
+  status             MemberCardOrderStatus   @default(unpaid)
+  /// 购买顾客（MarketingCustomer.id）
+  customerId         Int                     @map("customer_id")
+  /// 顾客姓名快照
+  customerName       String?                 @map("customer_name") @db.VarChar(100)
+  /// 顾客手机号明文快照（展示层脱敏，用于线下办卡对账）
+  customerPhone      String?                 @map("customer_phone") @db.VarChar(20)
+  /// C 端下单用户（purely-club User.id）；线下办卡为 null
+  clubUserId         Int?                    @map("club_user_id")
+  /// 线下办卡操作员
+  operatorStaffId    Int?                    @map("operator_staff_id")
+  operatorName       String?                 @map("operator_name") @db.VarChar(100)
+  /// 收款方式：wechat=微信支付 cash=线下现金 gift=赠送
+  paymentChannel     String?                 @map("payment_channel") @db.VarChar(32)
+  /// 微信支付交易单号（回调携带，对账主键）
+  transactionId      String?                 @map("transaction_id")
+  /// 服务商商户号（下单时的签名主体，退款需携带同一主体）
+  spMchId            String?                 @map("sp_mch_id")
+  /// 子商户号（该笔资金结算去向，退款与按子商户对账必需）
+  subMchId           String?                 @map("sub_mch_id")
+  /// 待支付超时时间（超过后关闭订单）
+  expiresAt          DateTime?               @map("expires_at")
+  /// 落账时间（建卡成功的时间点）
+  paidAt             DateTime?               @map("paid_at")
+  /// 首次收到微信支付回调的时间
+  callbackReceivedAt DateTime?               @map("callback_received_at")
+  remark             String?
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  plan               MemberCardPlan          @relation(fields: [planId], references: [id])
+  /// 本单生成的持卡实例（一单多张时数量 = quantity）
+  cards              MemberCard[]
+  transactions       MemberCardTransaction[]
+
+  /// 幂等最终兜底：同一笔微信流水只允许绑定一个售卡订单
+  @@unique([transactionId], map: "uq_member_card_orders_transaction", where: raw("(transaction_id IS NOT NULL)"))
+  /// 商家端售卡订单列表：门店 + 状态 + 来源筛选
+  @@index([storeId, status, source, createdAt(sort: Desc), id(sort: Desc)])
+  /// 顾客维度订单与限购校验
+  @@index([customerId, status, createdAt(sort: Desc)])
+  /// C 端「我的订单」与购卡幂等校验
+  @@index([clubUserId, createdAt(sort: Desc)])
+  @@index([planId])
+  @@map("member_card_orders")
+}
+
+/// 卡类型：月 / 季 / 年为时长卡（有效期内不限次），times 为次数卡（按次扣减）
+enum MemberCardKind {
+  monthly
+  quarterly
+  yearly
+  times
+}
+
+/// 持卡状态：生效中 / 已过期 / 次数用尽 / 已冻结 / 已退款
+enum MemberCardStatus {
+  active
+  expired
+  exhausted
+  frozen
+  refunded
+}
+
+/// 卡来源：C 端下单 / 员工线下办卡 / 赠送 / 历史迁移
+enum MemberCardSourceType {
+  club_order
+  staff_issue
+  gift
+  migration
+}
+
+/// 售卡订单来源渠道
+enum MemberCardOrderSource {
+  club_wechat
+  staff_cash
+  staff_wechat
+  gift
+}
+
+/// 售卡订单状态：待支付 / 支付确认中 / 已支付 / 已退款 / 已取消 / 已关闭
+enum MemberCardOrderStatus {
+  unpaid
+  pending
+  paid
+  refunded
+  cancelled
+  closed
+}
+
+/// 流水变更类型：reserve=开台预扣 consume=结账确认 release=取消释放
+/// purchase=购卡 refund=退款 expire=到期 adjust=手动调整 gift=赠送
+enum MemberCardChangeType {
+  reserve
+  consume
+  release
+  purchase
+  refund
+  expire
+  adjust
+  gift
+}
+
+/// 流水状态：仅 reserve 会停留在 pending
+enum MemberCardTransactionStatus {
+  pending
+  done
+  cancelled
+}
+
+/// 流水操作来源：C 端自助 / 收银台 / 系统任务
+enum MemberCardOperatorType {
+  club
+  cashier
+  system
+}

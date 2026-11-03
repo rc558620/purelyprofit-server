@@ -130,6 +130,7 @@ export class ClubWechatPaymentCallbackAckDto {
       'scan_ordering',
       'voucher',
       'self_ordering',
+      'card',
       'unknown',
     ],
     description: '订单类型；非 TRANSACTION.SUCCESS 事件未解密时为 unknown',
@@ -140,6 +141,7 @@ export class ClubWechatPaymentCallbackAckDto {
     | 'scan_ordering'
     | 'voucher'
     | 'self_ordering'
+    | 'card'
     | 'unknown';
 
   @ApiProperty({

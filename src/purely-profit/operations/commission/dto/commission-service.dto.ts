@@ -67,6 +67,42 @@ export class UpsertCommissionServiceDto {
   overrides?: CommissionOverrideDto[];
 }
 
+/** 开台服务项选项：只暴露选择所需字段，不含提成金额与覆盖表。 */
+export class CommissionOpenOptionServiceDto {
+  @ApiProperty({ example: 1, description: '服务项 ID' })
+  id: number;
+
+  @ApiProperty({ example: '足疗', description: '服务名' })
+  name: string;
+}
+
+/** 开台服务人员选项：只暴露选择所需字段，不含手机号、薪资等员工档案信息。 */
+export class CommissionOpenOptionTechnicianDto {
+  @ApiProperty({ example: 12, description: '员工 ID' })
+  id: number;
+
+  @ApiProperty({ example: '张先生', description: '员工姓名' })
+  name: string;
+
+  @ApiProperty({ example: '技师', description: '员工职位' })
+  position: string;
+}
+
+/** 开台选项响应：已启用服务项 + 在职服务人员。 */
+export class CommissionOpenOptionsResponseDto {
+  @ApiProperty({
+    type: [CommissionOpenOptionServiceDto],
+    description: '已启用的服务项（无可用配置时为空数组）',
+  })
+  services: CommissionOpenOptionServiceDto[];
+
+  @ApiProperty({
+    type: [CommissionOpenOptionTechnicianDto],
+    description: '在职服务人员（按门店服务人员称呼口径过滤）',
+  })
+  technicians: CommissionOpenOptionTechnicianDto[];
+}
+
 /** 服务人员覆盖项响应（金额为元）。 */
 export class CommissionOverrideResponseDto {
   @ApiProperty({ example: 1, description: '服务人员 ID' })

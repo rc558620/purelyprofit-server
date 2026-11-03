@@ -56,6 +56,9 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'goods:view',
   // 空间管理（非餐饮门店收银员专用：查看空间列表/看板、操作会话/预约）
   'space:view',
+  // 会员卡（空间管理设置面板入口：持卡与售卡订单只读）。
+  // 卡模板属定价与上架配置、手动调次属权益变更，均归 member-card:manage，收银员不持有。
+  'member-card:view',
   // 自助下单（查看权限：非餐饮门店收银员需实时接收新订单弹窗，与空间账单可见性对齐）
   'self-ordering:view',
   // 扫码点餐（餐饮门店收银员专用）
@@ -157,6 +160,9 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'space:create',
   'space:update',
   'space:delete',
+  // 会员卡（空间管理设置面板入口：持卡/售卡订单只读 + 卡模板维护与手动调次）
+  'member-card:view',
+  'member-card:manage',
   // 服务人员提成（配置与明细，非餐饮门店店长专用）
   'commission:view',
   'commission:manage',

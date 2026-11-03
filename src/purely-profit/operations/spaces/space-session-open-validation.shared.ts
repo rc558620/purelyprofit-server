@@ -20,6 +20,16 @@ export const ensureOpenSessionPayload = (
     }
   }
 
+  // 会员卡核销：卡必须挂在具体会员名下，且卡抵扣台位费时只能走纯消费计费
+  if (payload.activeCardId !== undefined) {
+    if (payload.customerId === undefined) {
+      throw new BadRequestException('会员卡核销缺少会员信息，请重新识别会员');
+    }
+    if (payload.billingMode !== 'items') {
+      throw new BadRequestException('使用会员卡时计费方式须为纯消费');
+    }
+  }
+
   if (payload.billingMode === 'timed' || payload.billingMode === 'mixed') {
     if (payload.hourlyRate === undefined || payload.hourlyRate <= 0) {
       throw new BadRequestException('请输入有效的计时单价');

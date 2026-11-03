@@ -7,6 +7,8 @@ import {
 import type { CommissionAssignmentInput } from '../commission/commission.types';
 
 import type {
+  SpaceCheckoutSettlementKindValue,
+  SpaceCheckoutSettlementTargetValue,
   SpaceCountdownFeeModeValue,
   SpaceCustomerPaymentMethodValue,
   SpaceSettlementChannelValue,
@@ -224,14 +226,39 @@ export interface NormalizedCheckoutPayload {
   platformFee?: number;
   timeFeeMode?: SpaceTimeFeeModeValue;
   countdownFeeMode?: SpaceCountdownFeeModeValue;
+  /** 多资产抵扣明细（已归一化：类型与作用对象一一匹配、同类不重复） */
+  settlements?: CheckoutSettlementInput[];
+  /** 抵扣后的前端预期应付（元）；仅用于与后端权威应收比对 */
+  expectedPayable?: number;
   lockId: string;
   lockedAt: number;
+}
+
+/**
+ * 结账多资产核销明细（归一化后的入参）。
+ *
+ * 金额统一用「元」承接前端入参，进入结算层后立刻转 Money（分）参与运算，
+ * 保证与后端权威结算金额同口径比对。
+ */
+export interface CheckoutSettlementInput {
+  kind: SpaceCheckoutSettlementKindValue;
+  target: SpaceCheckoutSettlementTargetValue;
+  /** 资产标识：会员卡=持卡实例 ID，团购券=券码，余额=会员 customerId */
+  assetId?: string;
+  /** 资产名称快照（仅展示/审计用） */
+  assetLabel?: string;
+  /** 抵扣金额（元，正数） */
+  amount: number;
 }
 
 export interface NormalizedOpenSessionPayload {
   guestName?: string;
   guestPhone?: string;
   guestCount?: number;
+  /** 开台识别的营销顾客 ID（会员卡核销归属主体） */
+  customerId?: number;
+  /** 本次开台核销的持卡实例 ID（次数卡开台即预扣次数） */
+  activeCardId?: number;
   billingMode: SpaceBillingModeValue;
   hourlyRate?: number;
   countdownMinutes?: number;
@@ -279,6 +306,14 @@ export interface SpaceSessionSettlement {
    * 本字段供账单展示「券面消费」行与护理档案核对使用，非 items 模式恒为 0。
    */
   voucherConsumption: number;
+  /**
+   * 会员卡抵扣台位费金额（元，正数），无卡抵扣时恒为 0。
+   *
+   * 语义是「权益核销」而非「折价」：明细里有一条等额负向行把应付压到现场实收，
+   * 汇总时再按本字段加回营业额/利润（卡部分仍是门店营收，只是非现金收入）。
+   * 与 SaleOrder.cardDeductAmount（分）同源，供账单与统计按列拆分。
+   */
+  cardDeduction: number;
   totalAmount: number;
   orderItems: SpaceSessionItemRecord[];
   /** 结算净额（元）：消费 - 抵扣，即客人本次现场应付，可能为负 */
@@ -286,15 +321,23 @@ export interface SpaceSessionSettlement {
   /** 结算净利（元） */
   totalProfit: number;
   /**
-   * 营业额口径（元）= 列表口径 = totalRevenue + voucherConsumption。
+   * 营业额口径（元）= 列表口径 = totalRevenue + voucherConsumption + cardDeduction。
    *
    * 券面是门店真实营收（券面 = 顾客买券实付 = 门店券结算收入），若按净额落库，
    * 券面会被负向抵扣行抹掉 → 看板 / 统计卡 / 护理档案显示为 0。
-   * 非券单与 totalRevenue 同值。
+   * 会员卡抵扣同理：台位费已经发生，不能因为用卡核销就从营收里消失。
+   * 非券非卡单与 totalRevenue 同值。
    */
   grossRevenue: number;
-  /** 利润口径（元）= totalProfit + voucherConsumption，同上 */
+  /** 利润口径（元）= totalProfit + voucherConsumption + cardDeduction，同上 */
   grossProfit: number;
+  /**
+   * 会员消费流水口径（元）= totalRevenue + cardDeduction。
+   *
+   * 卡抵扣是权益核销而不是折价，不能从会员消费额里抹掉；
+   * 券面口径保持历史行为（不加回 voucherConsumption），避免存量口径跳变。
+   */
+  consumptionRevenue: number;
   totalQuantity: number;
 }
 

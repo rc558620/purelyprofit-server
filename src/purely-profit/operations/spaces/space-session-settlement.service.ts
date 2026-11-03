@@ -7,6 +7,10 @@ import {
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
+import {
+  applyCheckoutAssets,
+  resolveCheckoutAssets,
+} from './space-session-checkout-assets.shared';
 import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
 import { isSpaceSessionDeductionProductId } from './space-session-settlement-system-item.shared';
 import { Money } from '../../../shared/money.utils';
@@ -93,6 +97,9 @@ export class SpaceSessionSettlementService {
               guestPhone: true,
               startTime: true,
               spaceId: true,
+              // be-06：多资产核销必须在事务内读最新会员/绑卡关系，避免用事务外快照扣错账户
+              customerId: true,
+              activeCardId: true,
             },
           });
 
@@ -134,7 +141,7 @@ export class SpaceSessionSettlementService {
               where: { sessionId: params.session.id },
               orderBy: { id: 'asc' },
             });
-          const freshSettlement = buildSpaceSessionSettlement({
+          const settlementInput = {
             session: params.session,
             checkoutAt: params.checkoutAt,
             payload: {
@@ -145,7 +152,29 @@ export class SpaceSessionSettlementService {
             renewRecords: mapRenewRecordRows(txRenewRecords),
             voucherProductName: params.voucherProductName,
             voucherCost: params.voucherCost,
+          };
+          // 第一遍：不含卡抵扣行，得到「抵扣前应收」——它是卡/券/余额各自额度上限的基准
+          const baseSettlement = buildSpaceSessionSettlement(settlementInput);
+          // be-06：多资产核销额度在事务内按权威结算重算（不采信前端金额），
+          // 并与前端 expectedPayable 比对；任何不一致都会在此抛错并回滚整笔结账。
+          const checkoutAssets = await resolveCheckoutAssets(transaction, {
+            baseSettlement,
+            settlements: params.settlements ?? [],
+            expectedPayable: params.expectedPayable,
+            session: {
+              id: params.session.id,
+              storeId: params.session.storeId,
+              customerId: latestSession.customerId,
+              activeCardId: latestSession.activeCardId,
+            },
           });
+          // 第二遍：把会员卡抵扣行计入明细（负向行，汇总时按卡口径加回营业额）
+          const freshSettlement = checkoutAssets.cardDeductionMoney.isPositive()
+            ? buildSpaceSessionSettlement({
+                ...settlementInput,
+                cardDeductionMoney: checkoutAssets.cardDeductionMoney,
+              })
+            : baseSettlement;
 
           // BUG-fix: autoCheckout 会话统一使用系统用户创建销售单，
           // 确保 SaleOrder.operatorStaffId 为 null，交班页显示"空间自动结账"，
@@ -163,10 +192,14 @@ export class SpaceSessionSettlementService {
               paymentMethod: params.paymentMethod,
               note: params.note,
               items: freshSettlement.orderItems,
-              // 营业额 / 利润按列表口径（消费毛额）落库：券面不能被抵扣行抹掉
+              // 营业额 / 利润按列表口径（消费毛额）落库：券面/卡抵扣不能被抵扣行抹掉
               totalRevenue: freshSettlement.grossRevenue,
               totalProfit: freshSettlement.grossProfit,
               totalQuantity: freshSettlement.totalQuantity,
+              // be-06：收款构成按列拆分（现金 / 卡抵扣 / 储值余额）
+              cardDeductAmount: checkoutAssets.cardDeductionMoney.toDbCents(),
+              balancePaidAmount:
+                checkoutAssets.balanceDeductionMoney.toDbCents(),
               ...(params.customerPaymentMethod !== undefined
                 ? { customerPaymentMethod: params.customerPaymentMethod }
                 : {}),
@@ -203,6 +236,19 @@ export class SpaceSessionSettlementService {
             },
           );
 
+          // be-06：资产核销落账（卡确认扣次 → 余额条件扣减 → 团购券核销绑定），
+          // 全部与销售单同一事务：任何一步失败都整笔回滚，不会出现「单开了卡没扣」。
+          await applyCheckoutAssets(transaction, {
+            resolution: checkoutAssets,
+            storeId: params.session.storeId,
+            sessionId: params.session.id,
+            saleOrderNo: createdOrder.orderNo,
+            spaceNameSnapshot: params.session.space.name,
+            operatorStaffId: params.session.autoCheckout
+              ? null
+              : (user.currentMembership?.staffId ?? null),
+          });
+
           // 追加点单扣库存发生在加单时（早于销售单创建），流水当时无单号可挂；
           // 结账时按「备注中的会话 ID」把本会话的销售扣减流水回填结账单号，
           // 交班「当前库存」列据此回溯该笔销售后的库存
@@ -224,7 +270,8 @@ export class SpaceSessionSettlementService {
               storeId: params.session.storeId,
               guestName: latestSession.guestName,
               guestPhone: latestSession.guestPhone,
-              totalRevenueYuan: freshSettlement.totalRevenue,
+              // be-06：会员消费额不能被卡抵扣抹掉（卡是权益核销不是折价）
+              totalRevenueYuan: freshSettlement.consumptionRevenue,
               paymentMethod: params.paymentMethod,
               checkoutAt: params.checkoutAt,
               itemsSummary: freshSettlement.orderItems

@@ -462,6 +462,8 @@ describe('ClubOrdersService', () => {
   });
 
   it('createServiceOrder 对微信登录用户使用稳定标识查顾客并走 JSAPI 下单', async () => {
+    // 真实模式才会向微信预下单；测试模式会刻意跳过这一步（见下方测试模式用例）
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({
       id: 66,
       points: 300,

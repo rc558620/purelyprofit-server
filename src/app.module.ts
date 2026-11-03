@@ -26,6 +26,7 @@ import { CustodyModule } from './purely-profit/operations/custody/custody.module
 import { FinanceModule } from './purely-profit/finance/finance.module';
 import { InventoryModule } from './purely-profit/goods/inventory/inventory.module';
 import { MarketingModule } from './purely-profit/marketing/marketing.module';
+import { MemberCardsModule } from './purely-profit/member/cards/member-cards.module';
 import { SmsModule } from './purely-profit/marketing/sms/sms.module';
 import { ProductsModule } from './purely-profit/goods/products/products.module';
 import { PurchasesModule } from './purely-profit/operations/purchases/purchases.module';
@@ -135,6 +136,8 @@ import { UploadModule } from './shared/upload.module';
     CustodyModule,
     FinanceModule,
     MarketingModule,
+    // 商家端会员卡：卡模板 / 持卡实例 / 核销流水 / 开台识别
+    MemberCardsModule,
     CategoriesModule,
     ProductsModule,
     SuppliersModule,

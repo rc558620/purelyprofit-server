@@ -452,6 +452,8 @@ describe('ClubRechargeService', () => {
   });
 
   it('createOrder 对微信登录用户使用稳定标识查顾客并走 JSAPI 下单', async () => {
+    // 真实模式才会向微信预下单；测试模式刻意跳过（见「测试模式跳过」用例）
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
     prismaService.marketingPromotion.findMany.mockResolvedValue([
       createPromotion({
         id: 18,
@@ -617,6 +619,8 @@ describe('ClubRechargeService', () => {
       };
       return configMap[key];
     });
+    // 真实模式（生产口径）才向微信预下单
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
     prismaService.marketingPromotion.findMany.mockResolvedValue([
       createPromotion({
         id: 18,
@@ -674,6 +678,8 @@ describe('ClubRechargeService', () => {
       };
       return configMap[key];
     });
+    // 真实模式（生产口径）才向微信预下单
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
@@ -1039,7 +1045,9 @@ describe('ClubRechargeService', () => {
   });
 
   // A1：门店没配微信收款时必须在下单阶段就失败，不能等微信返回错误再翻译成「支付失败」
-  it('createOrder 在门店未配置微信收款时直接失败，不下单也不建草稿', async () => {
+  it('createOrder 在真实模式下门店未配置微信收款时直接失败，不下单也不建草稿', async () => {
+    // 真实模式：钱真要收，配置缺失必须提前拦
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
     clubWechatJsapiService.assertStorePayConfigured.mockRejectedValue(
       new BadRequestException({
         code: 'STORE_PAY_CONFIG_MISSING',
@@ -1056,6 +1064,27 @@ describe('ClubRechargeService', () => {
     expect(
       clubWechatJsapiService.createJsapiPaymentParams,
     ).not.toHaveBeenCalled();
+  });
+
+  // 测试模式不向微信预下单：门店未配置收款也要能下单，钱由 confirm-paid 兜底落账
+  it('createOrder 在测试模式下跳过门店收款校验与微信预下单', async () => {
+    clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
+    clubWechatOpenidService.resolveOpenid.mockResolvedValue('oOPENID123');
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
+
+    await expect(
+      service.createOrder(currentContext, { storeId: 11, packageId: 'default-500' }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'RC123' }));
+
+    expect(
+      clubWechatJsapiService.assertStorePayConfigured,
+    ).not.toHaveBeenCalled();
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).not.toHaveBeenCalled();
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalled();
   });
 
   // 生产环境缺 openid 会生成注定无法支付的参数，必须直接拒绝下单

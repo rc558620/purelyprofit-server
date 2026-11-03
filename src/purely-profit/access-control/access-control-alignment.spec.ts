@@ -35,6 +35,9 @@ import { BusinessAnalysisController } from '../dashboard/business-analysis/busin
 import { DashboardHomeController } from '../dashboard/dashboard-home/dashboard-home.controller';
 import { EmployeesPayrollsController } from '../staff/employees/employees.controller';
 import { StoresController } from '../stores/stores.controller';
+import { MemberCardsController } from '../member/cards/member-cards.controller';
+import { MemberCardPlansController } from '../member/cards/member-card-plans.controller';
+import { MemberCardOrdersController } from '../member/cards/member-card-orders.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
 
 const accessControlService = new AccessControlService();
@@ -80,6 +83,8 @@ describe('Sub-account alignment regression', () => {
       'operation-entry:create',
       'goods:view',
       'space:view',
+      // 会员卡：空间管理设置面板入口，收银员可只读持卡与售卡订单
+      'member-card:view',
       'self-ordering:view',
       'scan-ordering:view',
       'scan-ordering:table-manage',
@@ -95,6 +100,8 @@ describe('Sub-account alignment regression', () => {
       'custody:pickup',
     ]);
     expect(permissions).toContain('goods:view');
+    expect(permissions).toContain('member-card:view');
+    expect(permissions).not.toContain('member-card:manage');
     expect(permissions).not.toContain('sales:view');
     expect(permissions).not.toContain('marketing:view');
     expect(permissions).not.toContain('finance:view');
@@ -127,6 +134,8 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).toContain('purchase:view');
     expect(permissions).toContain('sales:view');
     expect(permissions).toContain('staff:view');
+    expect(permissions).toContain('member-card:view');
+    expect(permissions).toContain('member-card:manage');
     expect(permissions).not.toContain('members:view');
     expect(permissions).not.toContain('partner:view');
     expect(permissions).not.toContain('finance:view');
@@ -371,6 +380,65 @@ describe('Permission metadata regression', () => {
         DashboardHomeController.prototype.getOverview,
       ),
     ).toEqual(['report:view', 'operation-entry:view']);
+  });
+
+  it('会员卡接口应按只读 / 管理拆分权限码', () => {
+    // 只读：持卡列表 / 详情 / 流水 / 售卡订单——空间管理面板内收银员与店长均需访问
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardsController.prototype.listCards,
+      ),
+    ).toEqual(['member-card:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardsController.prototype.getCardDetail,
+      ),
+    ).toEqual(['member-card:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardsController.prototype.listTransactions,
+      ),
+    ).toEqual(['member-card:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardOrdersController.prototype.listOrders,
+      ),
+    ).toEqual(['member-card:view']);
+    // 管理：卡模板维护与手动调次属权益配置，仅主账号与店长
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardPlansController.prototype.listPlans,
+      ),
+    ).toEqual(['member-card:manage']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardPlansController.prototype.createPlan,
+      ),
+    ).toEqual(['member-card:manage']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardPlansController.prototype.updatePlan,
+      ),
+    ).toEqual(['member-card:manage']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardPlansController.prototype.togglePlan,
+      ),
+    ).toEqual(['member-card:manage']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MemberCardsController.prototype.adjustTimes,
+      ),
+    ).toEqual(['member-card:manage']);
   });
 
   it('门店设置应同时启用权限 guard 与子账号封禁 guard', () => {

@@ -5,7 +5,14 @@ import { ClubPaymentCallbackDispatchService } from '../purely-club/payments/club
 import { ClubPaymentCallbackFailureService } from '../purely-club/payments/club-payment-callback-failure.service';
 import type { ClubPaymentCallbackJobData } from './club-payment-callback.types';
 
-/** 微信支付成功回调异步处理器。 */
+/**
+ * 微信支付成功回调异步处理器。
+ *
+ * 单一入口按 orderNo 前缀分发（RC / SV / SO / VC / SF / MC）：
+ * 其中 MC 为 C 端购卡单，落账动作是「事务内创建 MemberCard 实例 +
+ * 写 purchase 流水」，见 ClubCardOrderService.confirmOrderPaidByCallback。
+ * 落账侧带状态抢占与流水号唯一约束，因此本 job 的重复投递不会重复发卡。
+ */
 @Processor('club-payment-callback', { concurrency: 8 })
 export class ClubPaymentCallbackProcessor extends WorkerHost {
   private readonly logger = new Logger(ClubPaymentCallbackProcessor.name);

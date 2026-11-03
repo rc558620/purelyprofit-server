@@ -13,6 +13,19 @@ export const SYS_PREPAID_DEDUCTION_PRODUCT_ID = 'SYS_PREPAID_DEDUCTION';
 export const SYS_EMPTY_SETTLEMENT_PRODUCT_ID = 'SYS_EMPTY_SETTLEMENT';
 
 /**
+ * 会员卡抵扣行（结账时用持卡权益核销台位费）。
+ *
+ * 语义：卡抵扣属于「权益核销」而不是「折价」——台位费在营业额里依然存在，
+ * 只是付款方式从现金换成了卡权益，因此：
+ *  - 明细行取负值（与预付款抵扣行同构，保证合计=客人现场应付）；
+ *  - 汇总时再按 SaleOrder.cardDeductAmount 口径加回（见 buildSpaceSessionSettlement）。
+ * 该行同样属于系统虚拟行：不计件数、不进商品排行、不进护理档案商品明细。
+ */
+export const SYS_CARD_DEDUCTION_PRODUCT_ID = 'SYS_CARD_DEDUCTION';
+/** 会员卡抵扣行展示名（落库快照，读取侧按 productId 判定，不依赖文案） */
+export const SYS_CARD_DEDUCTION_PRODUCT_NAME = '会员卡抵扣';
+
+/**
  * 纯消费（items）模式下开台团购券的「正向消费行」。
  *
  * 背景：券在 purelyClub 已由顾客支付，但购买时不生成销售单/流水，
@@ -46,7 +59,9 @@ export const VENUE_ORDER_ITEM_CATEGORY_NAME = '场地费';
 const isSpaceSessionDeductionItem = (productId: string): boolean =>
   productId === SYS_RENEW_DEDUCTION_PRODUCT_ID ||
   productId === SYS_PREPAID_DEDUCTION_PRODUCT_ID ||
-  productId === SELF_ORDER_DEDUCTION_PRODUCT_ID;
+  productId === SELF_ORDER_DEDUCTION_PRODUCT_ID ||
+  // be-06：会员卡抵扣台位费，等价于一笔「已支付」，必须进抵扣集合
+  productId === SYS_CARD_DEDUCTION_PRODUCT_ID;
 
 /**
  * BUG-7 fix: 导出基于 productId 的抵扣项判定函数，

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ClubCardOrderService } from '../cards/club-card-order.service';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
@@ -31,6 +32,10 @@ describe('ClubPaymentCallbackDispatchService', () => {
     confirmVoucherOrderPaidByCallback: jest.fn(),
   };
 
+  const clubCardOrderService = {
+    confirmOrderPaidByCallback: jest.fn(),
+  };
+
   const settlement: ClubPaymentCallbackSettlementParams = {
     amountFen: 50000,
     transactionId: '4200001234202606101234567890',
@@ -60,10 +65,13 @@ describe('ClubPaymentCallbackDispatchService', () => {
           provide: ClubSelfOrderingPaymentService,
           useValue: clubSelfOrderingPaymentService,
         },
-        // 预先存在的缺失：constructor 注入了 Voucher 服务但此 spec 一直未 mock
         {
           provide: ClubVoucherOrdersService,
           useValue: clubVoucherOrdersService,
+        },
+        {
+          provide: ClubCardOrderService,
+          useValue: clubCardOrderService,
         },
       ],
     }).compile();
@@ -166,6 +174,25 @@ describe('ClubPaymentCallbackDispatchService', () => {
     expect(
       clubSelfOrderingPaymentService.confirmOrderPaidByCallback,
     ).toHaveBeenCalledWith('SF202609041230000001A2B', settlement);
+  });
+
+  it('dispatchByOrderNo 在 MC 前缀时驱动购卡落账服务', async () => {
+    clubCardOrderService.confirmOrderPaidByCallback.mockResolvedValue({
+      orderNo: 'MC202611021200000001A2B',
+      orderType: 'card',
+      status: 'paid',
+      settled: true,
+      cardId: 88,
+    });
+
+    await expect(
+      service.dispatchByOrderNo('MC202611021200000001A2B', settlement),
+    ).resolves.toEqual(
+      expect.objectContaining({ orderType: 'card', status: 'paid' }),
+    );
+    expect(
+      clubCardOrderService.confirmOrderPaidByCallback,
+    ).toHaveBeenCalledWith('MC202611021200000001A2B', settlement);
   });
 
   it('dispatchByOrderNo 在未知前缀时抛出 BadRequestException', () => {

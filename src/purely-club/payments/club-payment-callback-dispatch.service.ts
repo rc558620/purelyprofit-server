@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ClubCardOrderService } from '../cards/club-card-order.service';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
@@ -12,17 +13,23 @@ import type {
 /** 订单号前缀 → 订单类型映射 */
 const ORDER_NO_TYPE_MAP: Record<
   string,
-  'recharge' | 'service' | 'scan_ordering' | 'voucher' | 'self_ordering'
+  | 'recharge'
+  | 'service'
+  | 'scan_ordering'
+  | 'voucher'
+  | 'self_ordering'
+  | 'card'
 > = {
   RC: 'recharge',
   SV: 'service',
   SO: 'scan_ordering',
   VC: 'voucher',
   SF: 'self_ordering',
+  MC: 'card',
 };
 
-/** 订单号格式正则：前缀（RC/SV/SO/VC/SF）+ 时间戳 + 随机 HEX */
-const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC|SF)[A-Za-z0-9-]+$/;
+/** 订单号格式正则：前缀（RC/SV/SO/VC/SF/MC）+ 时间戳 + 随机 HEX */
+const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC|SF|MC)[A-Za-z0-9-]+$/;
 
 /**
  * 校验 ORDER_NO_TYPE_MAP 的 key 与 ORDER_NO_PATTERN 中的前缀选项一致。
@@ -53,7 +60,8 @@ export type ClubOrderTypeByOrderNo =
   | 'service'
   | 'scan_ordering'
   | 'voucher'
-  | 'self_ordering';
+  | 'self_ordering'
+  | 'card';
 
 /**
  * 按订单号前缀解析订单类型。
@@ -69,7 +77,7 @@ export function resolveClubOrderTypeByOrderNo(
 
   if (!orderType) {
     throw new BadRequestException(
-      `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC）`,
+      `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC / SF / MC）`,
     );
   }
 
@@ -84,6 +92,7 @@ export class ClubPaymentCallbackDispatchService {
     private readonly clubScanOrderingPaymentService: ClubScanOrderingPaymentService,
     private readonly clubSelfOrderingPaymentService: ClubSelfOrderingPaymentService,
     private readonly clubVoucherOrdersService: ClubVoucherOrdersService,
+    private readonly clubCardOrderService: ClubCardOrderService,
   ) {}
 
   /**
@@ -94,6 +103,8 @@ export class ClubPaymentCallbackDispatchService {
    *   SV{timestamp}{random} — 服务购买单
    *   SO{timestamp}{random} — 扫码点餐单
    *   VC{timestamp}{random} — 团购券单
+   *   SF{timestamp}{random} — 空间自助下单
+   *   MC{timestamp}{random} — C 端购卡单
    */
   dispatchByOrderNo(
     orderNo: string,
@@ -127,6 +138,12 @@ export class ClubPaymentCallbackDispatchService {
     }
     if (orderType === 'voucher') {
       return this.clubVoucherOrdersService.confirmVoucherOrderPaidByCallback(
+        orderNo,
+        settlementParams,
+      );
+    }
+    if (orderType === 'card') {
+      return this.clubCardOrderService.confirmOrderPaidByCallback(
         orderNo,
         settlementParams,
       );

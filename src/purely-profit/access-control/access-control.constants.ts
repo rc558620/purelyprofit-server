@@ -19,6 +19,9 @@ export const PERMISSION_CODES = [
   'partner:review',
   'marketing:view',
   'marketing:manage',
+  // 会员卡（入口已并入空间管理：持卡/售卡订单只读 member-card:view，卡模板维护与手动调次 member-card:manage）
+  'member-card:view',
+  'member-card:manage',
   'finance:view',
   'finance:manage',
   'finance:export',

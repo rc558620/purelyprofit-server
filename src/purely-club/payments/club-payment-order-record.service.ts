@@ -1,7 +1,7 @@
 /**
  * 支付订单记录服务：按 out_trade_no 定位订单记录，并读写「这笔钱到底收在哪个商户号上」。
  *
- * 存在的理由：C 端有 RC / VC / SO / SF 四类订单，但它们共用同一个微信回调入口。
+ * 存在的理由：C 端有 RC / VC / SO / SF / MC 五类订单，但它们共用同一个微信回调入口。
  * （SV 服务购买单只有 Redis 草稿、没有订单表，不在本服务的落库范围内，
  *   它的归属校验在 ClubPaymentsService 里走草稿解析门店，见该方法注释。）
  * 回调里带着权威的服务商号与子商户号（sp_mchid / sub_mchid），必须落到订单上，
@@ -20,7 +20,8 @@ export type ClubPaymentRecordKind =
   | 'recharge'
   | 'voucher'
   | 'scan_ordering'
-  | 'self_ordering';
+  | 'self_ordering'
+  | 'card';
 
 export interface ClubPaymentRecordSnapshot {
   kind: ClubPaymentRecordKind;
@@ -72,6 +73,12 @@ export class ClubPaymentOrderRecordService {
     });
     if (voucher) return { kind: 'voucher', ...voucher };
 
+    const card = await this.prisma.memberCardOrder.findUnique({
+      where: { orderNo },
+      select: MERCHANT_FIELDS,
+    });
+    if (card) return { kind: 'card', ...card };
+
     const scan = await this.prisma.scanOrderPaymentAttempt.findUnique({
       where: { merchantPaymentNo: orderNo },
       select: MERCHANT_FIELDS,
@@ -115,6 +122,12 @@ export class ClubPaymentOrderRecordService {
       data: { spMchId, subMchId },
     });
     if (voucher.count > 0) return 'voucher';
+
+    const card = await this.prisma.memberCardOrder.updateMany({
+      where: { orderNo },
+      data: { spMchId, subMchId },
+    });
+    if (card.count > 0) return 'card';
 
     const scan = await this.prisma.scanOrderPaymentAttempt.updateMany({
       where: { merchantPaymentNo: orderNo },

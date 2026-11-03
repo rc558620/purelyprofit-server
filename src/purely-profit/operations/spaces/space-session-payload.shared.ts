@@ -61,6 +61,11 @@ export const normalizeOpenSessionPayload = (
     ...(guestName ? { guestName } : {}),
     ...(guestPhone ? { guestPhone } : {}),
     ...(dto.guestCount !== undefined ? { guestCount: dto.guestCount } : {}),
+    // 会员卡核销：顾客与持卡实例一一对应，两者缺一不可（由 ensureOpenSessionPayload 兜底）
+    ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+    ...(dto.activeCardId !== undefined
+      ? { activeCardId: dto.activeCardId }
+      : {}),
     billingMode: dto.billingMode,
     ...(dto.hourlyRate !== undefined ? { hourlyRate: dto.hourlyRate } : {}),
     ...(dto.countdownMinutes !== undefined

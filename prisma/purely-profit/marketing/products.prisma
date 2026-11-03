@@ -14,40 +14,49 @@ model MarketingProductCategory {
 }
 
 model MarketingProduct {
-  id               Int                      @id @default(autoincrement())
-  storeId          Int                      @map("store_id")
-  categoryId       Int                      @map("category_id")
-  name             String
-  price            Int
-  originalPrice    Int?                     @map("original_price")
+  id                Int                      @id @default(autoincrement())
+  storeId           Int                      @map("store_id")
+  categoryId        Int                      @map("category_id")
+  name              String
+  price             Int
+  originalPrice     Int?                     @map("original_price")
   /// 成本价（分，用于商品利润统计 = 售价 - 成本价；空则利润按售价计）
-  costPrice        Int?                     @map("cost_price")
-  image            String?
-  descriptionTitle String?                  @map("description_title")
-  description      String?
-  stock            Int                      @default(0)
-  durationMinutes  Int?                     @map("duration_minutes")
-  personCount      Int?                     @map("person_count")
-  unit             String?                  @map("unit")
+  costPrice         Int?                     @map("cost_price")
+  image             String?
+  descriptionTitle  String?                  @map("description_title")
+  description       String?
+  stock             Int                      @default(0)
+  durationMinutes   Int?                     @map("duration_minutes")
+  personCount       Int?                     @map("person_count")
+  unit              String?                  @map("unit")
   /// 商品类型：service=服务商品（原链路），voucher=团购券商品（支付成功后生成团购券）
-  type             MarketingProductType     @default(service)
+  type              MarketingProductType     @default(service)
+  /// 商品性质：regular=常规商品（一次消费）；monthly/quarterly/yearly=时长卡；
+  /// times=次数卡。非 regular 时本商品承载会员卡权益，由后端关联 / 生成卡模板
+  nature            MarketingProductNature   @default(regular)
+  /// 关联会员卡模板（nature != regular 时回填）。
+  /// 只保留「商品 → 卡模板」单向外键，卡模板侧不再冗余 productId，
+  /// 避免双向写入产生两套事实源
+  cardPlanId        Int?                     @map("card_plan_id")
   /// 团购券有效天数（type=voucher 时生效；空则按默认 7 天）
-  validDays        Int?                     @map("valid_days")
+  validDays         Int?                     @map("valid_days")
   /// 开台计费方式（type=voucher 时生效）：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时
-  billingMode      String                   @default("items") @map("billing_mode")
+  billingMode       String                   @default("items") @map("billing_mode")
   /// 计时单价（分，billingMode=timed/mixed 时生效）
-  hourlyRate       Int?                     @map("hourly_rate")
+  hourlyRate        Int?                     @map("hourly_rate")
   /// 预设时长（分钟，billingMode=countdown 时生效）
-  countdownMinutes Int?                     @map("countdown_minutes")
+  countdownMinutes  Int?                     @map("countdown_minutes")
   /// 台位费（分，billingMode=countdown 时生效）
-  countdownPrice   Int?                     @map("countdown_price")
+  countdownPrice    Int?                     @map("countdown_price")
   /// 到时自动结账（billingMode=countdown 时生效）
-  autoCheckout     Boolean                  @default(false) @map("auto_checkout")
-  isActive         Boolean                  @default(true) @map("is_active")
-  createdAt        DateTime                 @default(now()) @map("created_at")
-  updatedAt        DateTime                 @updatedAt @map("updated_at")
-  category         MarketingProductCategory @relation(fields: [categoryId], references: [id])
-  store            Store                    @relation(fields: [storeId], references: [id])
+  autoCheckout      Boolean                  @default(false) @map("auto_checkout")
+  isActive          Boolean                  @default(true) @map("is_active")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  category          MarketingProductCategory @relation(fields: [categoryId], references: [id])
+  store             Store                    @relation(fields: [storeId], references: [id])
+  /// 关联的会员卡模板（仅卡性质商品有值）
+  cardPlan          MemberCardPlan?          @relation(fields: [cardPlanId], references: [id])
   /// 团购券订单（列表页取商品当前图片）
   clubVoucherOrders ClubVoucherOrder[]
 
@@ -57,10 +66,23 @@ model MarketingProduct {
   @@index([storeId, isActive, updatedAt])
   @@index([storeId, name])
   @@index([storeId, price])
+  /// 按门店 + 商品性质筛选卡类商品 / 上架校验
+  @@index([storeId, nature, isActive])
+  @@index([cardPlanId])
   @@map("marketing_products")
 }
 
 enum MarketingProductType {
   service
   voucher
+}
+
+/// 商品性质：regular=常规商品；其余取自会员卡类型（时长卡 / 次数卡）。
+/// 与 type（service/voucher）正交：type 决定支付后产出什么，nature 决定是否承载卡权益
+enum MarketingProductNature {
+  regular
+  monthly
+  quarterly
+  yearly
+  times
 }

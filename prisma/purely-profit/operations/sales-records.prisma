@@ -1,53 +1,58 @@
 model SaleOrder {
-  id                           Int                      @id @default(autoincrement())
-  storeId                      Int                      @map("store_id")
-  operatorStaffId              Int?                     @map("operator_staff_id")
-  operatorNameSnapshot         String?                  @map("operator_name_snapshot") @db.VarChar(100)
-  orderNo                      String                   @map("order_no")
-  totalRevenue                 Int                      @map("total_revenue")
-  totalProfit                  Int                      @map("total_profit")
-  totalQuantity                Int                      @map("total_quantity")
-  paymentMethod                SalesPaymentMethod       @map("payment_method")
-  calcMode                     SalesCalcMode            @default(business) @map("calc_mode")
+  id                           Int                       @id @default(autoincrement())
+  storeId                      Int                       @map("store_id")
+  operatorStaffId              Int?                      @map("operator_staff_id")
+  operatorNameSnapshot         String?                   @map("operator_name_snapshot") @db.VarChar(100)
+  orderNo                      String                    @map("order_no")
+  totalRevenue                 Int                       @map("total_revenue")
+  totalProfit                  Int                       @map("total_profit")
+  totalQuantity                Int                       @map("total_quantity")
+  paymentMethod                SalesPaymentMethod        @map("payment_method")
+  /// 会员卡抵扣金额（分）：一笔订单只允许抵扣台位费，属非现金收入。
+  /// 与 totalRevenue 的关系是「组成部分」而不是「额外收入」，统计口径按列拆分
+  cardDeductAmount             Int                       @default(0) @map("card_deduct_amount")
+  /// 储值余额支付金额（分）：多资产核销中的余额部分，同样属非现金收入
+  balancePaidAmount            Int                       @default(0) @map("balance_paid_amount")
+  calcMode                     SalesCalcMode             @default(business) @map("calc_mode")
   note                         String?
   date                         DateTime
-  customerPaymentMethod        String?                  @map("customer_payment_method")
-  grouponCode                  String?                  @map("groupon_code")
-  grouponPlatform              String?                  @map("groupon_platform")
-  settlementChannel            String?                  @map("settlement_channel")
-  voucherCode                  String?                  @map("voucher_code")
-  voucherPlatform              String?                  @map("voucher_platform")
-  voucherFaceAmount            Int?                     @map("voucher_face_amount")
-  grouponSettlementStatus      String?                  @map("settlement_status")
-  grouponPlatformReceivable    Int?                     @map("platform_receivable")
-  grouponPlatformSettledAmount Int?                     @map("platform_settled_amount")
-  grouponPlatformFee           Int?                     @map("platform_fee")
-  scanOrderId                  Int?                     @unique @map("scan_order_id")
+  customerPaymentMethod        String?                   @map("customer_payment_method")
+  grouponCode                  String?                   @map("groupon_code")
+  grouponPlatform              String?                   @map("groupon_platform")
+  settlementChannel            String?                   @map("settlement_channel")
+  voucherCode                  String?                   @map("voucher_code")
+  voucherPlatform              String?                   @map("voucher_platform")
+  voucherFaceAmount            Int?                      @map("voucher_face_amount")
+  grouponSettlementStatus      String?                   @map("settlement_status")
+  grouponPlatformReceivable    Int?                      @map("platform_receivable")
+  grouponPlatformSettledAmount Int?                      @map("platform_settled_amount")
+  grouponPlatformFee           Int?                      @map("platform_fee")
+  scanOrderId                  Int?                      @unique @map("scan_order_id")
   /// 手工补录订单标记（true 表示由商家端「录入订单」功能补录的线下交易）
-  manualEntry                  Boolean                  @default(false) @map("manual_entry")
+  manualEntry                  Boolean                   @default(false) @map("manual_entry")
   /// 手工补录：就餐方式（堂食/自取/第三方外卖）
-  diningMode                   ManualEntryDiningMode?   @map("dining_mode")
+  diningMode                   ManualEntryDiningMode?    @map("dining_mode")
   /// 手工补录：来源渠道（美团外卖/饿了么/美团团购/抖音团购/大众点评/其他）
   sourceChannel                ManualEntrySourceChannel? @map("source_channel")
   /// 手工补录：第三方平台结算单号（用于对账）
-  externalOrderNo              String?                  @map("external_order_no") @db.VarChar(128)
+  externalOrderNo              String?                   @map("external_order_no") @db.VarChar(128)
   /// 手工补录：就餐人数
-  guestCount                   Int?                     @map("guest_count")
+  guestCount                   Int?                      @map("guest_count")
   /// 手工补录：顾客手机号（用于订单归属）
-  customerPhone                String?                  @map("customer_phone") @db.VarChar(20)
+  customerPhone                String?                   @map("customer_phone") @db.VarChar(20)
   /// 手工补录：堂食/团购到店关联的桌台
-  diningTableId                Int?                     @map("dining_table_id")
-  createdAt                    DateTime                 @default(now()) @map("created_at")
-  updatedAt                    DateTime                 @updatedAt @map("updated_at")
+  diningTableId                Int?                      @map("dining_table_id")
+  createdAt                    DateTime                  @default(now()) @map("created_at")
+  updatedAt                    DateTime                  @updatedAt @map("updated_at")
   cashFlowRecord               FinanceCashFlowRecord?
   inventoryLogs                InventoryAdjustmentLog[]
   items                        SaleOrderItem[]
-  operatorStaff                Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id])
-  store                        Store                    @relation(fields: [storeId], references: [id])
+  operatorStaff                Staff?                    @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id])
+  store                        Store                     @relation(fields: [storeId], references: [id])
   spaceSession                 SpaceSession?
-  scanOrder                    ScanOrders?              @relation("ScanOrderSaleOrder", fields: [scanOrderId], references: [id])
+  scanOrder                    ScanOrders?               @relation("ScanOrderSaleOrder", fields: [scanOrderId], references: [id])
   refund                       SaleOrderRefund?
-  diningTable                  ScanOrderingTable?       @relation("SaleOrderDiningTable", fields: [diningTableId], references: [id])
+  diningTable                  ScanOrderingTable?        @relation("SaleOrderDiningTable", fields: [diningTableId], references: [id])
 
   @@unique([storeId, orderNo])
   @@index([storeId, date(sort: Desc), id(sort: Desc)])

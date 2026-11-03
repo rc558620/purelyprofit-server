@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -23,6 +24,11 @@ import {
   bindVoucherOnOpen,
   type BindVoucherResult,
 } from './space-session-voucher.shared';
+import {
+  assertMemberCardUsable,
+  reserveMemberCardTimes,
+  type UsableMemberCardSnapshot,
+} from './space-session-card.shared';
 import type {
   OpenSpaceSessionDto,
   SpaceSessionResponseDto,
@@ -44,6 +50,16 @@ const OPEN_SESSION_LOCK_TTL_SECONDS = 15;
 const OPEN_SESSION_LOCK_RETRY_TIMES = 3;
 /** 开台分布式锁重试间隔（毫秒） */
 const OPEN_SESSION_LOCK_RETRY_DELAY_MS = 60;
+
+/** 开台所需的门店空间上下文（含类型快照，供会员卡模板限制校验） */
+interface OpenSessionSpaceContext {
+  id: number;
+  name: string;
+  storeId: number;
+  capacity: number | null;
+  autoCheckout: boolean;
+  type: { id: number; name: string };
+}
 
 @Injectable()
 export class SpaceSessionOpenService {
@@ -74,6 +90,7 @@ export class SpaceSessionOpenService {
       include: {
         type: {
           select: {
+            id: true,
             name: true,
           },
         },
@@ -152,12 +169,7 @@ export class SpaceSessionOpenService {
 
   private async openSessionUnderLock(
     user: AuthenticatedUser,
-    space: {
-      id: number;
-      storeId: number;
-      capacity: number | null;
-      autoCheckout: boolean;
-    },
+    space: OpenSessionSpaceContext,
     payload: ReturnType<typeof normalizeOpenSessionPayload>,
   ): Promise<SpaceSessionResponseDto> {
     // 在事务外解析开台操作员，避免在事务中额外查询
@@ -251,6 +263,14 @@ export class SpaceSessionOpenService {
           payload.commissionAssignments,
         );
 
+        // 会员卡核销：先做只读可用性校验（归属 / 状态 / 有效期 / 模板限制 / 剩余次数），
+        // 校验失败直接抛错，不落任何数据；校验通过后建台，再原子预扣次数
+        const cardSnapshot = await this.resolveMemberCardSnapshot(
+          transaction,
+          space,
+          payload,
+        );
+
         const created = await transaction.spaceSession.create({
           data: {
             storeId: space.storeId,
@@ -259,6 +279,9 @@ export class SpaceSessionOpenService {
             guestName: payload.guestName ?? null,
             guestPhone: payload.guestPhone ?? null,
             guestCount: payload.guestCount ?? null,
+            // 开台识别到的会员与本次核销的持卡实例：结账据此取储值余额 / 卡抵扣
+            customerId: payload.customerId ?? null,
+            activeCardId: payload.activeCardId ?? null,
             startTime: new Date(),
             billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
             hourlyRate:
@@ -323,6 +346,20 @@ export class SpaceSessionOpenService {
 
         // Space.status 已移除，不再更新空间状态字段
 
+        // 次数卡：原子预扣（updateMany 条件更新）并写 pending reserve 流水。
+        // 预扣失败抛冲突 → 整笔开台事务回滚，会话与流水都不落库（开台失败即自动释放）；
+        // 开台成功后若取消 / 作废，走 releaseMemberCardReservation 置 cancelled 并回加次数。
+        if (cardSnapshot) {
+          await reserveMemberCardTimes(transaction, {
+            snapshot: cardSnapshot,
+            sessionId: created.id,
+            storeId: space.storeId,
+            spaceNameSnapshot: space.name,
+            operatorStaffId: openOperatorStaffId,
+            operatorNameSnapshot: openOperatorNameSnapshot,
+          });
+        }
+
         // 纯利宝团购券自动核销：读取过的券码开台成功后绑定会话并置已使用；
         // 已开台使用的券再次开台 → 抛"该团购券已使用"，整笔事务回滚
         if (payload.prepaidVoucherCode) {
@@ -360,6 +397,38 @@ export class SpaceSessionOpenService {
     );
 
     return toSpaceSessionResponse(session);
+  }
+
+  /**
+   * 解析开台会员卡快照：未使用会员卡返回 null，否则做只读可用性校验。
+   *
+   * 校验在事务内、建台之前完成——失败直接抛错且不落任何数据，
+   * 避免「会话已建、卡不可用」这类需要补偿的中间态。
+   */
+  private async resolveMemberCardSnapshot(
+    transaction: Prisma.TransactionClient,
+    space: OpenSessionSpaceContext,
+    payload: ReturnType<typeof normalizeOpenSessionPayload>,
+  ): Promise<UsableMemberCardSnapshot | null> {
+    const { activeCardId, customerId } = payload;
+    if (activeCardId === undefined) {
+      return null;
+    }
+    if (customerId === undefined) {
+      // ensureOpenSessionPayload 已在输入层拦截，此处防御根路径开台等旁路调用
+      throw new BadRequestException('会员卡核销缺少会员信息，请重新识别会员');
+    }
+
+    return assertMemberCardUsable(transaction, {
+      storeId: space.storeId,
+      customerId,
+      cardId: activeCardId,
+      spaceTypeId: space.type.id,
+      spaceTypeName: space.type.name,
+      ...(payload.guestCount !== undefined
+        ? { guestCount: payload.guestCount }
+        : {}),
+    });
   }
 
   private toPrismaSpaceBillingMode(

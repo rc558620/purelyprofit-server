@@ -116,6 +116,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
     prepaidDeduction: 0,
     selfOrderDeduction: 0,
     voucherConsumption: 0,
+    cardDeduction: 0,
     totalAmount: 20,
     orderItems: [
       {
@@ -130,6 +131,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
     ],
     grossRevenue: 20,
     grossProfit: 8,
+    consumptionRevenue: 20,
     totalRevenue: 20,
     totalProfit: 8,
     totalQuantity: 1,

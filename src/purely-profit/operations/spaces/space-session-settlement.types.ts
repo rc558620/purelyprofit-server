@@ -3,6 +3,7 @@ import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types
 import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import type { SpaceStatusValue } from './spaces.constants';
 import type {
+  CheckoutSettlementInput,
   GrouponVoucherCostSnapshot,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
@@ -55,6 +56,18 @@ export interface SettleSpaceSessionParams {
    * 防止续费券面金额污染预付池字段，保持「两池独立」不变量。
    */
   skipPrepaidVoucherPersistence?: boolean;
+  /**
+   * be-06：结账多资产抵扣明细（卡 / 券 / 余额），已由 DTO 归一化。
+   * 金额仅作「前端预期」，后端在事务内按权威结算结果重新夹紧额度上限。
+   * 缺省时仍会按 session.activeCardId 确认开台绑定的次数卡，避免预扣次数泄漏。
+   */
+  settlements?: CheckoutSettlementInput[];
+  /**
+   * be-06：抵扣后的前端预期应付（元）。
+   * 事务内与后端权威应收比对，不一致直接拒绝（锁单过期/并发改单导致的金额漂移）。
+   * 缺省（自动结账等无前端场景）时跳过比对。
+   */
+  expectedPayable?: number;
 }
 
 export interface SettleSpaceSessionResult {

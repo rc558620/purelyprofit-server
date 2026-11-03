@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
+import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
@@ -30,6 +31,7 @@ export class ClubOrderServiceCreationService {
     private readonly clubOrderServiceContextService: ClubOrderServiceContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly clubWechatOpenidService: ClubWechatOpenidService,
+    private readonly clubPaymentModeService: ClubPaymentModeService,
     private readonly downgradeService: MembershipDowngradeService,
     private readonly quotaService: ClubNewCustomerQuotaService,
     private readonly idempotencyService: ClubOrderIdempotencyService,
@@ -128,12 +130,19 @@ export class ClubOrderServiceCreationService {
     }
 
     try {
+      // 测试模式不向微信预下单：订单照常落 unpaid，前端改由 confirm-paid 结算。
+      // 预下单要求门店已配置微信收款，门店没配时会抛 STORE_PAY_CONFIG_MISSING，
+      // 而测试模式根本用不到支付参数，不该被这一步拦死在建单阶段。
+      const skipWechatPrepay =
+        await this.clubPaymentModeService.isManualConfirmPaidAllowed();
       // 解析 openid：显式传入优先，未传则按 userId 回查 users.wechat_openid。
       // 解析不到时不调起真实微信支付，与其余链路同口径由前端兜底。
-      const openid = await this.clubWechatOpenidService.resolveOpenid(
-        currentContext.user.id,
-        dto.openid,
-      );
+      const openid = skipWechatPrepay
+        ? null
+        : await this.clubWechatOpenidService.resolveOpenid(
+            currentContext.user.id,
+            dto.openid,
+          );
       const paymentParams = openid
         ? await this.clubWechatJsapiService.createJsapiPaymentParams({
             storeId: context.store.id,

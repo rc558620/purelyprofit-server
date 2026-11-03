@@ -20,6 +20,16 @@ export interface CreateSessionSaleOrderParams {
   totalRevenue: number;
   totalProfit: number;
   totalQuantity: number;
+  /**
+   * be-06：会员卡抵扣台位费金额（分）。
+   * 落 sale_orders.card_deduct_amount 列——该金额是营业额组成部分（权益核销），
+   * 报表按列拆分「现金 / 卡抵扣 / 储值余额」三种收款构成。
+   */
+  cardDeductAmount?: number;
+  /**
+   * be-06：储值余额抵扣金额（分），落 sale_orders.balance_paid_amount 列。
+   */
+  balancePaidAmount?: number;
   // ─── 团购 / 券 / 平台结算元数据 ─────────────────────────────
   customerPaymentMethod?: string;
   grouponCode?: string;
@@ -97,7 +107,7 @@ export class SpaceSessionSaleOrderService {
         : {}),
     };
 
-    return this.salesRecordService.create(user, dto, {
+    const salesRecord = await this.salesRecordService.create(user, dto, {
       // 追加点单时 session.items 已经扣过库存，结账只生成销售单，不再重复校验/扣减。
       skipInventoryValidationAndDeduction: true,
       // 结账权限已在 checkout service 层以 operation-entry:create 完成验证，无需再检查 sales:create。
@@ -115,5 +125,18 @@ export class SpaceSessionSaleOrderService {
       totalRevenueOverride: params.totalRevenue,
       totalProfitOverride: params.totalProfit,
     });
+
+    // 多资产核销的收款构成单独落列（销售记录 DTO 不承载这两个字段，
+    // 因此在同一事务内补写；未使用卡/余额时保持默认 0，不产生额外写入）。
+    const cardDeductAmount = params.cardDeductAmount ?? 0;
+    const balancePaidAmount = params.balancePaidAmount ?? 0;
+    if (cardDeductAmount > 0 || balancePaidAmount > 0) {
+      await params.transaction.saleOrder.update({
+        where: { id: Number(salesRecord.id) },
+        data: { cardDeductAmount, balancePaidAmount },
+      });
+    }
+
+    return salesRecord;
   }
 }

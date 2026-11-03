@@ -52,6 +52,31 @@ export const SPACE_SETTLEMENT_STATUS_VALUES = [
 export type SpaceSettlementStatusValue =
   (typeof SPACE_SETTLEMENT_STATUS_VALUES)[number];
 
+/**
+ * 结账多资产核销：可参与抵扣的资产类型。
+ * 与 purelyProfit 结账弹窗（checkoutSettlement.calc.ts）保持同一枚举，
+ * 后端据此选择「卡确认扣次 / 券核销绑定 / 余额条件扣减」三条不同的写入链路。
+ */
+export const SPACE_CHECKOUT_SETTLEMENT_KIND_VALUES = [
+  'member_card',
+  'voucher',
+  'balance',
+] as const;
+export type SpaceCheckoutSettlementKindValue =
+  (typeof SPACE_CHECKOUT_SETTLEMENT_KIND_VALUES)[number];
+
+/**
+ * 抵扣作用对象：会员卡只能抵台位费、团购券只能抵商品、储值余额抵应付合计。
+ * 后端按「资产类型 → 唯一作用对象」强校验，禁止「券抵台位费」这类越权口径。
+ */
+export const SPACE_CHECKOUT_SETTLEMENT_TARGET_VALUES = [
+  'time_fee',
+  'items',
+  'total',
+] as const;
+export type SpaceCheckoutSettlementTargetValue =
+  (typeof SPACE_CHECKOUT_SETTLEMENT_TARGET_VALUES)[number];
+
 /** 团购平台枚举值列表 */
 export const GROUPON_PLATFORM_VALUES = [
   'meituan',

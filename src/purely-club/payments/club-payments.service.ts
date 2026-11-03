@@ -151,7 +151,7 @@ export class ClubPaymentsService {
       }
     }
 
-    // 门店来源有两条：订单落库记录（RC/VC/SO/SF），或服务购买单的 Redis 草稿（SV 无落库表）
+    // 门店来源有两条：订单落库记录（RC/VC/SO/SF/MC），或服务购买单的 Redis 草稿（SV 无落库表）
     const storeId =
       record?.storeId ?? (await this.resolveStoreIdFromServiceDraft(orderNo));
 

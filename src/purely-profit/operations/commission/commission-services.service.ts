@@ -7,14 +7,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { EmployeeStatus, type Prisma } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { normalizeTechnicianLabel } from '../../stores/dto/store-response.dto';
 import { CommissionCoreService } from './commission-core.service';
 import { toCommissionServiceResponse } from './commission.mapper';
 import type {
+  CommissionOpenOptionsResponseDto,
   CommissionServiceResponseDto,
   UpsertCommissionServiceDto,
 } from './dto/commission-service.dto';
@@ -42,6 +44,60 @@ export class CommissionServicesService {
       storeId,
     );
     return records.map(toCommissionServiceResponse);
+  }
+
+  /**
+   * 开台选项（空间管理开台弹窗）：已启用服务项 + 在职服务人员。
+   *
+   * 不复用提成配置列表与员工档案接口的原因：
+   * - GET /commission-services 由 commission:view 把关（与提成明细/导出同源），收银员无此权限；
+   * - GET /employees 由 staff:view 把关，且响应带手机号、薪资等档案字段，不应下发给收银员。
+   * 因此本接口以 space:view 放行，仅返回开台选择所需的最小字段；
+   * 提成金额仍由后端在结账时按配置重算，前端拿到的快照仅用于展示。
+   */
+  async listOpenOptions(
+    user: AuthenticatedUser,
+  ): Promise<CommissionOpenOptionsResponseDto> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'space:view',
+      '无权访问该门店的开台选项',
+    );
+
+    const [records, store, employees] = await Promise.all([
+      this.coreService.listConfigRecords(this.prisma, storeId),
+      this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { technicianLabel: true },
+      }),
+      this.prisma.employee.findMany({
+        where: { storeId, deletedAt: null, status: EmployeeStatus.active },
+        select: { id: true, name: true, position: true, isTechnician: true },
+        orderBy: [{ id: 'asc' }],
+      }),
+    ]);
+
+    // 服务人员判定与前端 filterTechnicianEmployees 同口径：
+    // 优先 isTechnician 标记，历史未回填时回落到职位名匹配门店称呼。
+    const technicianLabel = normalizeTechnicianLabel(store?.technicianLabel);
+
+    return {
+      services: records
+        .filter((record) => record.enabled)
+        .map((record) => ({ id: record.id, name: record.name })),
+      technicians: employees
+        .filter(
+          (employee) =>
+            employee.isTechnician ||
+            employee.position.includes(technicianLabel),
+        )
+        .map((employee) => ({
+          id: employee.id,
+          name: employee.name,
+          position: employee.position,
+        })),
+    };
   }
 
   /** 新增服务配置：同名（未软删）返回 409，服务人员覆盖表须全部存在。 */

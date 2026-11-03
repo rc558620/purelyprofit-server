@@ -170,20 +170,31 @@ export class ClubPaymentCallbackFailureService {
 
   /**
    * 死信上补门店 ID：门店维度排查能直接定位到「某门店收款配置有问题」。
-   * 目前只为充值单回源；其余订单类型表结构不同，留 null 由人工按订单号查。
+   *
+   * 已接入充值单与购卡单（都有 store_id 列）；其余订单类型表结构不同，
+   * 留 null 由人工按订单号查。
    */
   private async resolveStoreId(
     orderType: string,
     orderNo: string,
   ): Promise<number | null> {
-    if (orderType !== 'recharge') {
-      return null;
+    if (orderType === 'recharge') {
+      const order = await this.prisma.clubRechargeOrder.findUnique({
+        where: { orderNo },
+        select: { storeId: true },
+      });
+      return order?.storeId ?? null;
     }
-    const order = await this.prisma.clubRechargeOrder.findUnique({
-      where: { orderNo },
-      select: { storeId: true },
-    });
-    return order?.storeId ?? null;
+
+    if (orderType === 'card') {
+      const order = await this.prisma.memberCardOrder.findUnique({
+        where: { orderNo },
+        select: { storeId: true },
+      });
+      return order?.storeId ?? null;
+    }
+
+    return null;
   }
 
   private toItem(record: {

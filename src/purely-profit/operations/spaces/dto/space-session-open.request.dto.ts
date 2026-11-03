@@ -61,6 +61,28 @@ export class OpenSpaceSessionDto {
   @Max(999, { message: '顾客人数必须小于等于 999' })
   guestCount?: number;
 
+  @ApiPropertyOptional({
+    example: 128,
+    description:
+      '开台识别的营销顾客 ID（GET /marketing/member-cards/identify 返回）；会员卡核销的归属主体',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '顾客 ID 必须是整数' })
+  @Min(1, { message: '顾客 ID 必须大于等于 1' })
+  customerId?: number;
+
+  @ApiPropertyOptional({
+    example: 36,
+    description:
+      '本次开台核销的持卡实例 ID；未使用会员卡时不下发。次数卡开台即预扣次数，结账确认扣次，取消释放',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '会员卡 ID 必须是整数' })
+  @Min(1, { message: '会员卡 ID 必须大于等于 1' })
+  activeCardId?: number;
+
   @ApiProperty({
     example: 'items',
     description: '计费模式',

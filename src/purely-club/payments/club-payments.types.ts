@@ -30,8 +30,16 @@ export interface ClubPaymentCallbackSettlementParams {
 
 export interface ClubPaymentCallbackResult {
   orderNo: string;
-  /** self_ordering 为空间自助下单（SF 前缀），支付成功后订单直接置为 paid（无需商家接单） */
-  orderType: ClubOrderTypeValue | 'scan_ordering' | 'voucher' | 'self_ordering';
+  /**
+   * self_ordering 为空间自助下单（SF 前缀），支付成功后订单直接置为 paid（无需商家接单）；
+   * card 为 C 端购卡单（MC 前缀），落账时事务内建卡实例并写 purchase 流水。
+   */
+  orderType:
+    | ClubOrderTypeValue
+    | 'scan_ordering'
+    | 'voucher'
+    | 'self_ordering'
+    | 'card';
   status:
     | ClubOrderStatusValue
     | 'pending_acceptance'
