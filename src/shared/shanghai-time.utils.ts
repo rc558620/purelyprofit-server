@@ -111,10 +111,6 @@ export function formatYearMonthKeyFromYm(
 }
 
 /** 读取任意 UTC 毫秒瞬间在上海本地时区下的分钟（0-59）。 */
-export function getShanghaiMinute(timestampMs: number): number {
-  return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCMinutes();
-}
-
 /** 读取任意 UTC 毫秒瞬间在上海本地时区下的月份（0-11）。 */
 export function getShanghaiMonth(timestampMs: number): number {
   return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCMonth();

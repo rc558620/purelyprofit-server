@@ -11,11 +11,6 @@ export const CLUB_VOUCHER_ORDER_STATUS_VALUES = [
 export type ClubVoucherOrderStatusValue =
   (typeof CLUB_VOUCHER_ORDER_STATUS_VALUES)[number];
 
-/** 团购券订单支付渠道（当前仅微信，余额渠道预留） */
-export const CLUB_VOUCHER_ORDER_PAYMENT_CHANNEL_VALUES = ['wechat'] as const;
-export type ClubVoucherOrderPaymentChannelValue =
-  (typeof CLUB_VOUCHER_ORDER_PAYMENT_CHANNEL_VALUES)[number];
-
 /** 团购平台：当前固定纯利宝 */
 export const CLUB_VOUCHER_PLATFORM = 'chunlibao' as const;
 

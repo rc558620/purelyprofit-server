@@ -32,10 +32,6 @@ export const createSelfOrderNo = (): string =>
 export const createMerchantPaymentNo = (orderNo: string): string =>
   `${orderNo}-${randomBytes(2).toString('hex').toUpperCase()}`;
 
-/** 余额支付渠道标识；商户单号不使用订单号，避免与微信渠道在同一唯一索引下冲突 */
-export const BALANCE_PAYMENT_CHANNEL = 'marketing_balance';
-export const WECHAT_PAYMENT_CHANNEL = 'wechat_jsapi';
-
 /** 空间账单商品行来源标识：区分会员自助下单与员工手工追加 */
 export const SESSION_ITEM_SOURCE_TYPE = 'member_self_order';
 

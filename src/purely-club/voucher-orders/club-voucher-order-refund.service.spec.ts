@@ -1,16 +1,8 @@
-import { ClubVoucherOrderRefundService } from './club-voucher-order-refund.service';
+// 余额回补口径的回归用例：账目字段必须与结算时同口径反向冲减
+// 回补逻辑已抽到 club-voucher-order-refund-restore.helper.ts（与商家拒绝链路共用）
+import { restoreVoucherBalance } from './club-voucher-order-refund-restore.helper';
 
 describe('ClubVoucherOrderRefundService.restoreBalance', () => {
-  const prismaService = {} as never;
-  const wechatRefundService = {} as never;
-  const realtimeService = {} as never;
-
-  const service = new ClubVoucherOrderRefundService(
-    prismaService,
-    wechatRefundService,
-    realtimeService,
-  );
-
   const buildTx = () => ({
     marketingCustomer: {
       findFirst: jest.fn().mockResolvedValue({
@@ -45,11 +37,10 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
   it('退款时写负向消费流水（金额含积分抵扣）并对称回滚物化字段', async () => {
     const tx = buildTx();
 
-    await (
-      service as unknown as {
-        restoreBalance: (tx: unknown, order: unknown) => Promise<void>;
-      }
-    ).restoreBalance(tx, order);
+    await restoreVoucherBalance(
+      tx as unknown as Parameters<typeof restoreVoucherBalance>[0],
+      order,
+    );
 
     // 消费流水是既有事实（amount >= 0 约束），退款不写负数流水，
     // 展示侧由退款单据冲减（computeCustomerConsumptionStats）
@@ -70,16 +61,15 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
   it('积分抵扣为 0 时仍按实付金额冲减', async () => {
     const tx = buildTx();
 
-    await (
-      service as unknown as {
-        restoreBalance: (tx: unknown, order: unknown) => Promise<void>;
-      }
-    ).restoreBalance(tx, {
-      ...order,
-      paidAmountFen: 7040,
-      pointsDeductFen: 0,
-      pointsUsed: 0,
-    });
+    await restoreVoucherBalance(
+      tx as unknown as Parameters<typeof restoreVoucherBalance>[0],
+      {
+        ...order,
+        paidAmountFen: 7040,
+        pointsDeductFen: 0,
+        pointsUsed: 0,
+      },
+    );
 
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
     expect(tx.marketingCustomer.update).toHaveBeenCalledWith(

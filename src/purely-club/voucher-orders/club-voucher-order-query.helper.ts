@@ -1,6 +1,12 @@
 // 团购券订单查询辅助：常量 / 纯类型 / DTO 映射函数
 import type { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
+import {
+  CLUB_CHANNEL_BALANCE,
+  CLUB_CHANNEL_MARKETING_BALANCE,
+  CLUB_CHANNEL_WECHAT,
+  CLUB_CHANNEL_WECHAT_JSAPI,
+} from '../payments/club-payment-channels.constants';
 import type { ClubVoucherOrderStatusValue } from './club-voucher-orders.types';
 
 /** 状态 → 展示文案 */
@@ -14,8 +20,10 @@ export const STATUS_LABEL_MAP: Record<string, string> = {
 
 /** 支付方式文案 */
 export const PAYMENT_METHOD_LABEL_MAP: Record<string, string> = {
-  wechat: '微信支付',
-  balance: '储值余额',
+  [CLUB_CHANNEL_WECHAT]: '微信支付',
+  [CLUB_CHANNEL_WECHAT_JSAPI]: '微信支付',
+  [CLUB_CHANNEL_BALANCE]: '储值余额',
+  [CLUB_CHANNEL_MARKETING_BALANCE]: '储值余额',
 };
 
 /**

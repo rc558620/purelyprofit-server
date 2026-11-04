@@ -27,6 +27,7 @@ import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service'
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubCardContextService } from './club-card-context.service';
 import { buildCardOrderNo, parseCardId } from './club-card-code.utils';
+import { ClubCardImmediateSettlementService } from './club-card-immediate-settlement.service';
 import { ClubCardSettlementService } from './club-card-settlement.service';
 import {
   CLUB_CARD_MANUAL_CONFIRM_DISABLED_MESSAGE,
@@ -34,9 +35,11 @@ import {
   CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
   CLUB_CARD_PAY_WINDOW_MINUTES,
   CLUB_CARD_PURCHASE_LIMIT_MESSAGE_PREFIX,
+  buildCardBalanceInsufficientMessage,
 } from './club-cards.constants';
 import { toOrderView } from './club-cards.mapper';
 import type {
+  ClubCardPaymentMethod,
   ClubMemberCardOrderView,
   ClubMemberCardSettlementResult,
 } from './club-cards.types';
@@ -52,6 +55,7 @@ export class ClubCardOrderService {
     private readonly openidService: ClubWechatOpenidService,
     private readonly idempotencyService: ClubOrderIdempotencyService,
     private readonly settlementService: ClubCardSettlementService,
+    private readonly immediateSettlementService: ClubCardImmediateSettlementService,
     private readonly wechatVerifyService: ClubWechatVerifyService,
   ) {}
 
@@ -85,6 +89,7 @@ export class ClubCardOrderService {
     );
     const customer =
       await this.contextService.resolveOwnCustomer(currentContext);
+    const paymentMethod: ClubCardPaymentMethod = dto.paymentMethod ?? 'wechat';
 
     // 每人限购：以「已持有的未退款卡数」为准。
     // 不含未支付订单——用户在支付页反复取消不应被自己的废单拦住。
@@ -100,17 +105,26 @@ export class ClubCardOrderService {
       }
     }
 
+    // 余额支付前置校验：余额不足直接拒绝，避免落库永远付不掉的 unpaid 脏单（比较与文案均在后端）
+    if (paymentMethod === 'balance' && customer.balanceFen < plan.price) {
+      throw new BadRequestException(
+        buildCardBalanceInsufficientMessage(customer.balanceFen, plan.price),
+      );
+    }
+
     const orderNo = buildCardOrderNo(Date.now());
     // 测试模式不向微信预下单：订单照常落 unpaid，响应不带 paymentParams，
     // 前端据此不拉起收银台，改由 confirm-paid 直接发卡。
     // 必须在这里短路——预下单要求门店已配置微信收款，门店没配时会抛
     // STORE_PAY_CONFIG_MISSING，把本可走通的联调流程拦死在建单阶段。
+    // 余额支付不需要微信预下单，同样短路（且不会被门店收款配置影响）。
     const skipWechatPrepay =
-      await this.paymentModeService.isManualConfirmPaidAllowed();
+      paymentMethod === 'wechat' &&
+      (await this.paymentModeService.isManualConfirmPaidAllowed());
     // openid 解析不到时不调微信下单（保持既有降级口径），前端拿不到
-    // paymentParams 就不会去拉起支付；零元卡同样不走微信。
+    // paymentParams 就不会去拉起支付；零元卡与余额支付同样不走微信。
     const openid =
-      plan.price > 0 && !skipWechatPrepay
+      paymentMethod === 'wechat' && plan.price > 0 && !skipWechatPrepay
         ? await this.openidService.resolveOpenid(currentContext.user.id)
         : null;
     const paymentParams = openid
@@ -159,29 +173,24 @@ export class ClubCardOrderService {
           customerName: customer.guestName,
           customerPhone: customer.guestPhone,
           clubUserId: currentContext.user.id,
-          paymentChannel: 'wechat',
+          paymentChannel: paymentMethod,
           expiresAt: new Date(
             Date.now() + CLUB_CARD_PAY_WINDOW_MINUTES * 60 * 1000,
           ),
         },
       });
 
-      // 零元卡（赠送定价）无法走微信收款：直接落账发卡，
-      // 交易号加 `zero-` 前缀，对账侧可与真实流水区分
-      if (plan.price <= 0) {
-        const settlement = await this.settlementService.settlePaidOrder(
-          created.id,
-          0,
-          {
-            transactionId: `zero-${orderNo}`,
-            paidAtMs: Date.now(),
-            callbackReceivedAtMs: Date.now(),
-          },
-        );
+      // 零元卡与余额支付都不经过微信收银台，需要在本次请求内直接落账发卡
+      const immediate = await this.immediateSettlementService.settle(
+        created,
+        plan.price,
+        paymentMethod,
+      );
+      if (immediate) {
         const paidOrder = await this.reloadOrder(created.id);
         return toOrderView({
           order: paidOrder,
-          cardId: settlement.cardId === null ? null : String(settlement.cardId),
+          cardId: immediate.cardId === null ? null : String(immediate.cardId),
         });
       }
 

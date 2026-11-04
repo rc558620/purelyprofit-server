@@ -27,6 +27,8 @@ import {
 /** 本人顾客档案摘要（下单落库与快照用） */
 export interface ClubCardCustomerSnapshot {
   id: number;
+  /** 储值余额（分）：余额支付前置校验用，不允许前端自行判断 */
+  balanceFen: number;
   /** 顾客姓名快照：昵称优先，否则按手机号派生展示名 */
   guestName: string | null;
   /** 顾客手机号快照：占位手机号不留存 */
@@ -107,7 +109,7 @@ export class ClubCardContextService {
 
     const bound = await this.prisma.marketingCustomer.findFirst({
       where: { storeId, clubUserId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, balance: true },
     });
 
     const customer =
@@ -119,7 +121,7 @@ export class ClubCardContextService {
           clubUserId: null,
           deletedAt: null,
         },
-        select: { id: true },
+        select: { id: true, balance: true },
       }));
 
     if (!customer) {
@@ -129,6 +131,7 @@ export class ClubCardContextService {
     const phone = currentContext.user.phone ?? '';
     return {
       id: customer.id,
+      balanceFen: customer.balance,
       guestName: buildClubMemberDisplayName(phone, currentContext.user.name),
       guestPhone: getDisplayPhone(phone) || null,
     };

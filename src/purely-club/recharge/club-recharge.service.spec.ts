@@ -1075,7 +1075,10 @@ describe('ClubRechargeService', () => {
     clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
 
     await expect(
-      service.createOrder(currentContext, { storeId: 11, packageId: 'default-500' }),
+      service.createOrder(currentContext, {
+        storeId: 11,
+        packageId: 'default-500',
+      }),
     ).resolves.toEqual(expect.objectContaining({ id: 'RC123' }));
 
     expect(

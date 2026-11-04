@@ -12,6 +12,11 @@ import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
 } from '../payments/club-payments.types';
+import {
+  assertClubPaymentAmountMatchesAllowZero,
+  assertClubPaymentAmountsMatchAllowZero,
+} from '../payments/club-payments.utils';
+import { debitCustomerBalance } from '../payments/club-balance-settlement.utils';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
@@ -21,10 +26,10 @@ import { ClubSelfOrderingPaymentNotifierService } from './club-self-ordering-pay
 import { ClubSelfOrderingPaymentRepository } from './club-self-ordering-payment.repository';
 import { ClubSelfOrderingPaymentSettlementService } from './club-self-ordering-payment-settlement.service';
 import {
-  BALANCE_PAYMENT_CHANNEL,
-  WECHAT_PAYMENT_CHANNEL,
-  createMerchantPaymentNo,
-} from './club-self-ordering.utils';
+  CLUB_CHANNEL_MARKETING_BALANCE,
+  CLUB_CHANNEL_WECHAT_JSAPI,
+} from '../payments/club-payment-channels.constants';
+import { createMerchantPaymentNo } from './club-self-ordering.utils';
 
 /** 分布式锁键：与订单维度保持一致，落账与回调共用同一把锁 */
 const buildOrderLockKey = (orderId: number): string => `self-order:${orderId}`;
@@ -75,22 +80,17 @@ export class ClubSelfOrderingPaymentService {
         this.prisma.$transaction(
           async (tx) => {
             // 条件扣减：靠 balance >= 应付额 的原子条件避免「先查后判」的并发超扣
-            const debited = await tx.marketingCustomer.updateMany({
-              where: {
-                id: customer.id,
-                storeId: order.storeId,
-                balance: { gte: order.payableAmount },
-                status: 'active',
-                deletedAt: null,
-              },
-              data: { balance: { decrement: order.payableAmount } },
+            await debitCustomerBalance(tx, {
+              customerId: customer.id,
+              storeId: order.storeId,
+              balancePaidFen: order.payableAmount,
+              requireActive: true,
+              buildInsufficientError: () =>
+                new ConflictException('储值余额不足'),
             });
-            if (debited.count === 0) {
-              throw new ConflictException('储值余额不足');
-            }
 
             await this.settlementService.settlePaidOrder(tx, order, {
-              channel: BALANCE_PAYMENT_CHANNEL,
+              channel: CLUB_CHANNEL_MARKETING_BALANCE,
               merchantPaymentNo: `BAL-${order.orderNo}`,
               balanceTransaction: {
                 customerId: customer.id,
@@ -198,7 +198,7 @@ export class ClubSelfOrderingPaymentService {
             );
 
             await this.settlementService.settlePaidOrder(tx, order, {
-              channel: WECHAT_PAYMENT_CHANNEL,
+              channel: CLUB_CHANNEL_WECHAT_JSAPI,
               merchantPaymentNo: `DEV-${order.orderNo}`,
             });
             settled = true;
@@ -228,9 +228,11 @@ export class ClubSelfOrderingPaymentService {
       );
     if (!attempt) throw new NotFoundException('自助下单支付流水不存在');
     // 锁前金额预校验：金额不符直接拒绝，避免无谓占用分布式锁
-    if (attempt.amountFen !== params.amountFen) {
-      throw new ConflictException('微信支付金额与自助下单订单不一致');
-    }
+    // 允许 0 元：0 元订单只可能来自测试模式兜底落账，不经过微信收银台
+    assertClubPaymentAmountMatchesAllowZero(
+      attempt.amountFen,
+      params.amountFen,
+    );
     const { id: attemptId, orderId } = attempt;
 
     let settledNow = false;
@@ -249,12 +251,10 @@ export class ClubSelfOrderingPaymentService {
               throw new NotFoundException('自助下单订单或支付流水不存在');
             }
             // 事务内二次校验：流水金额与订单应付金额都必须与回调一致
-            if (
-              paymentAttempt.amountFen !== params.amountFen ||
-              order.payableAmount !== params.amountFen
-            ) {
-              throw new ConflictException('微信支付金额与自助下单订单不一致');
-            }
+            assertClubPaymentAmountsMatchAllowZero(params.amountFen, [
+              paymentAttempt.amountFen,
+              order.payableAmount,
+            ]);
 
             // 幂等：回调重复触发时直接返回，不重复落账、不重复写入空间账单
             if (
@@ -287,7 +287,7 @@ export class ClubSelfOrderingPaymentService {
             }
 
             await this.settlementService.settlePaidOrder(tx, order, {
-              channel: WECHAT_PAYMENT_CHANNEL,
+              channel: CLUB_CHANNEL_WECHAT_JSAPI,
               merchantPaymentNo,
               transactionId: params.transactionId,
             });

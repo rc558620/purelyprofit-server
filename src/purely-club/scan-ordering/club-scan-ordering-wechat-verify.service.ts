@@ -7,11 +7,9 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CLUB_CHANNEL_WECHAT_JSAPI } from '../payments/club-payment-channels.constants';
 import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
-
-/** 微信 JSAPI 支付渠道标识（与下单链路写入 paymentChannel 的值一致） */
-const WECHAT_PAYMENT_CHANNEL = 'wechat_jsapi';
 
 @Injectable()
 export class ClubScanOrderingWechatVerifyService {
@@ -38,7 +36,7 @@ export class ClubScanOrderingWechatVerifyService {
     }
 
     const attempt = await this.prisma.scanOrderPaymentAttempt.findFirst({
-      where: { orderId: order.id, paymentChannel: WECHAT_PAYMENT_CHANNEL },
+      where: { orderId: order.id, paymentChannel: CLUB_CHANNEL_WECHAT_JSAPI },
       orderBy: { createdAt: 'desc' },
       select: { merchantPaymentNo: true, amount: true },
     });

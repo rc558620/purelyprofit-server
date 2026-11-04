@@ -1,49 +1,119 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+// C 端扫码点餐订单支付发起服务。
+//
+// 职责边界：本文件只负责**微信 JSAPI 发起**与在途支付尝试的管理；
+// 「当场扣款落账」（储值余额支付 / 开发态手动确认）在
+// ClubScanOrderingBalanceCheckoutService —— 两者对失败的处理完全不同，
+// 微信发起失败只是没拉起收银台，落账失败则涉及资金与状态机。
+import { ConflictException, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
-import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
-import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
-import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/invalidator';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
-import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { CLUB_CHANNEL_WECHAT_JSAPI } from '../payments/club-payment-channels.constants';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
-import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
-import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ClubScanOrderingBalanceCheckoutService } from './club-scan-ordering-balance-checkout.service';
+import { ClubScanOrderingDevelopmentCheckoutService } from './club-scan-ordering-development-checkout.service';
 
 /** 在途支付尝试回收阈值：超过该时长仍处 created/paying 的尝试视为已放弃 */
 const SCAN_PAYMENT_ATTEMPT_TTL_MS = 5 * 60 * 1000;
 
-/** C 端扫码点餐订单支付发起服务。 */
+/** 可发起微信支付的订单字段 */
+interface PayableScanOrder {
+  id: number;
+  storeId: number;
+  orderNo: string;
+  payableAmount: number;
+  paymentExpiresAt: Date | null;
+}
+
 @Injectable()
 export class ClubScanOrderingCheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wechatJsapiService: ClubWechatJsapiService,
-    private readonly realtimeService: ScanOrderingRealtimeService,
-    private readonly clubPaymentModeService: ClubPaymentModeService,
-    private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
-    private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
-    private readonly pickupNumberService: ScanOrderingPickupNumberService,
-    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly clubWechatOpenidService: ClubWechatOpenidService,
+    private readonly balanceCheckoutService: ClubScanOrderingBalanceCheckoutService,
+    private readonly developmentCheckoutService: ClubScanOrderingDevelopmentCheckoutService,
   ) {}
 
+  /** 发起微信 JSAPI 支付：占用一笔在途支付尝试并换取收银台参数 */
   async createWechatPayment(
     user: AuthenticatedUser,
     orderId: number,
     openid?: string,
   ): Promise<unknown> {
+    const order = await this.loadPayableOrder(user.id, orderId);
+    await this.closeStaleAttempts(orderId);
+    await this.assertNoActiveAttempt(orderId);
+
+    const merchantPaymentNo = `${order.orderNo}-${randomBytes(4).toString('hex').toUpperCase()}`;
+    const attempt = await this.prisma.scanOrderPaymentAttempt.create({
+      data: {
+        orderId: order.id,
+        storeId: order.storeId,
+        paymentChannel: CLUB_CHANNEL_WECHAT_JSAPI,
+        merchantPaymentNo,
+        amount: order.payableAmount,
+        status: ScanOrderPaymentAttemptStatus.paying,
+        expiredAt: order.paymentExpiresAt,
+      },
+    });
+
+    // openid 显式传入优先，未传则按 userId 回查 users.wechat_openid。
+    // 仍解析不到时不调起真实微信支付，仅保留一笔本地尝试并返回空 paymentParams；
+    // 注意 confirm-paid 兜底在生产已被禁用，此分支在生产等同于支付不可用。
+    const resolvedOpenid = await this.clubWechatOpenidService.resolveOpenid(
+      user.id,
+      openid,
+    );
+    if (!resolvedOpenid) {
+      await this.markAttempt(attempt.id, ScanOrderPaymentAttemptStatus.created);
+      return { paymentAttemptId: attempt.id, merchantPaymentNo };
+    }
+
+    return this.requestJsapiParams(
+      order,
+      attempt.id,
+      merchantPaymentNo,
+      resolvedOpenid,
+    );
+  }
+
+  /** 储值余额支付：落账链路在独立 service（当场扣款 + 状态推进同一事务） */
+  createBalancePayment(
+    user: AuthenticatedUser,
+    orderId: number,
+    version: number,
+  ): Promise<unknown> {
+    return this.balanceCheckoutService.createBalancePayment(
+      user,
+      orderId,
+      version,
+    );
+  }
+
+  /** 开发态手动确认支付：闸门与落账由独立 service 裁决 */
+  confirmPaidForDevelopment(
+    user: AuthenticatedUser,
+    orderId: number,
+  ): Promise<unknown> {
+    return this.developmentCheckoutService.confirmPaidForDevelopment(
+      user,
+      orderId,
+    );
+  }
+
+  // ─── 微信发起步骤 ─────────────────────────────────────────────────────────
+
+  private async loadPayableOrder(
+    userId: number,
+    orderId: number,
+  ): Promise<PayableScanOrder> {
     const order = await this.prisma.scanOrders.findFirst({
       where: {
         id: orderId,
-        clubUserId: user.id,
+        clubUserId: userId,
         status: 'pending_payment',
         paymentStatus: 'unpaid',
         deletedAt: null,
@@ -61,9 +131,14 @@ export class ClubScanOrderingCheckoutService {
       },
     });
     if (!order) throw new ConflictException('订单不可支付或已过期');
+    return order;
+  }
 
-    // 回收超时仍在途的尝试，避免用户放弃收银台后同订单长期无法重试。
-    // 真实微信支付回调会按 merchantPaymentNo 幂等落账，回收不会造成重复结算。
+  /**
+   * 回收超时仍在途的尝试，避免用户放弃收银台后同订单长期无法重试。
+   * 真实微信支付回调会按 merchantPaymentNo 幂等落账，回收不会造成重复结算。
+   */
+  private async closeStaleAttempts(orderId: number): Promise<void> {
     await this.prisma.scanOrderPaymentAttempt.updateMany({
       where: {
         orderId,
@@ -77,7 +152,10 @@ export class ClubScanOrderingCheckoutService {
       },
       data: { status: ScanOrderPaymentAttemptStatus.failed },
     });
+  }
 
+  /** 同一订单同时只允许一笔在途支付尝试，避免重复拉起收银台 */
+  private async assertNoActiveAttempt(orderId: number): Promise<void> {
     const activeAttempt = await this.prisma.scanOrderPaymentAttempt.findFirst({
       where: {
         orderId,
@@ -90,37 +168,23 @@ export class ClubScanOrderingCheckoutService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (activeAttempt)
+    if (activeAttempt) {
       throw new ConflictException('支付请求正在处理中，请勿重复发起');
-
-    const merchantPaymentNo = `${order.orderNo}-${randomBytes(4).toString('hex').toUpperCase()}`;
-    const attempt = await this.prisma.scanOrderPaymentAttempt.create({
-      data: {
-        orderId: order.id,
-        storeId: order.storeId,
-        paymentChannel: 'wechat_jsapi',
-        merchantPaymentNo,
-        amount: order.payableAmount,
-        status: ScanOrderPaymentAttemptStatus.paying,
-        expiredAt: order.paymentExpiresAt,
-      },
-    });
-
-    // openid 显式传入优先，未传则按 userId 回查 users.wechat_openid。
-    // 仍解析不到时不调起真实微信支付，仅保留一笔本地尝试并返回空 paymentParams；
-    // 注意 confirm-paid 兜底在生产已被禁用，此分支在生产等同于支付不可用。
-    const resolvedOpenid = await this.clubWechatOpenidService.resolveOpenid(
-      user.id,
-      openid,
-    );
-    if (!resolvedOpenid) {
-      await this.prisma.scanOrderPaymentAttempt.update({
-        where: { id: attempt.id },
-        data: { status: ScanOrderPaymentAttemptStatus.created },
-      });
-      return { paymentAttemptId: attempt.id, merchantPaymentNo };
     }
+  }
 
+  /**
+   * 换取 JSAPI 收银台参数。
+   *
+   * 下单失败时把本次尝试标记 failed：否则这笔 paying 记录会把订单锁在
+   * 「支付请求正在处理中」直到 TTL 过期，用户连重试都做不到。
+   */
+  private async requestJsapiParams(
+    order: PayableScanOrder,
+    attemptId: number,
+    merchantPaymentNo: string,
+    openid: string,
+  ): Promise<unknown> {
     try {
       const paymentParams =
         await this.wechatJsapiService.createJsapiPaymentParams({
@@ -128,310 +192,26 @@ export class ClubScanOrderingCheckoutService {
           orderNo: merchantPaymentNo,
           description: `扫码点餐订单 ${order.orderNo}`,
           amountFen: order.payableAmount,
-          openid: resolvedOpenid,
+          openid,
         });
-      await this.prisma.scanOrderPaymentAttempt.update({
-        where: { id: attempt.id },
-        data: { status: ScanOrderPaymentAttemptStatus.created },
-      });
-      return { paymentAttemptId: attempt.id, merchantPaymentNo, paymentParams };
+      await this.markAttempt(attemptId, ScanOrderPaymentAttemptStatus.created);
+      return { paymentAttemptId: attemptId, merchantPaymentNo, paymentParams };
     } catch (error) {
       await this.prisma.scanOrderPaymentAttempt.updateMany({
-        where: { id: attempt.id, status: ScanOrderPaymentAttemptStatus.paying },
+        where: { id: attemptId, status: ScanOrderPaymentAttemptStatus.paying },
         data: { status: ScanOrderPaymentAttemptStatus.failed },
       });
       throw error;
     }
   }
 
-  async createBalancePayment(
-    user: AuthenticatedUser,
-    orderId: number,
-    _version: number,
-  ): Promise<unknown> {
-    const order = await this.prisma.scanOrders.findFirst({
-      where: {
-        id: orderId,
-        clubUserId: user.id,
-        status: 'pending_payment',
-        paymentStatus: 'unpaid',
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        storeId: true,
-        orderNo: true,
-        payableAmount: true,
-        sessionId: true,
-        version: true,
-        marketingSnapshot: true,
-      },
+  private async markAttempt(
+    attemptId: number,
+    status: ScanOrderPaymentAttemptStatus,
+  ): Promise<void> {
+    await this.prisma.scanOrderPaymentAttempt.update({
+      where: { id: attemptId },
+      data: { status },
     });
-    if (!order) throw new ConflictException('订单状态已变化，请刷新后重试');
-    const customer = await this.marketingCustomerService.resolveActiveCustomer(
-      order.storeId,
-      user.id,
-    );
-    const pointsSnapshot = (order.marketingSnapshot ?? {}) as {
-      pointsUsed?: number;
-      pointsDeductAmount?: number;
-    };
-    const pointsUsed = pointsSnapshot.pointsUsed ?? 0;
-    const pointsDeductAmount = pointsSnapshot.pointsDeductAmount ?? 0;
-    const paidAt = new Date();
-    const result = await this.prisma.$transaction(async (tx) => {
-      const debited = await tx.marketingCustomer.updateMany({
-        where: {
-          id: customer.id,
-          storeId: order.storeId,
-          balance: { gte: order.payableAmount },
-          status: 'active',
-          deletedAt: null,
-        },
-        data: { balance: { decrement: order.payableAmount } },
-      });
-      if (debited.count === 0) throw new ConflictException('储值余额不足');
-      // 积分扣减 / 消费送积分 / 消费记录统一在此落账：应付金额已是积分抵扣后的值，
-      // 不扣 pointsUsed 就等于让顾客白拿抵扣。三条支付路径都必须走这里。
-      const { earnedPoints } =
-        await this.marketingCustomerService.settlePaidOrder(tx, {
-          storeId: order.storeId,
-          orderId: order.id,
-          orderNo: order.orderNo,
-          customerId: customer.id,
-          paidAmountFen: order.payableAmount,
-          pointsUsed,
-          pointsDeductAmount,
-          payType: 'balance',
-        });
-      const updated = await tx.scanOrders.updateMany({
-        where: {
-          id: order.id,
-          version: order.version,
-          status: 'pending_payment',
-          paymentStatus: 'unpaid',
-        },
-        data: {
-          status: 'pending_acceptance',
-          paymentStatus: 'paid',
-          paidAmount: order.payableAmount,
-          paidAt,
-          marketingSnapshot: {
-            ...(order.marketingSnapshot as object),
-            pointsSettlementStatus: 'settled',
-            earnedPoints,
-          },
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count === 0)
-        throw new ConflictException('订单状态已变化，请刷新后重试');
-      // 余额支付成功分配取餐号（幂等：已分配时直接跳过）
-      await this.pickupNumberService.assignForPaidOrder(
-        tx,
-        order.id,
-        order.storeId,
-        paidAt.getTime(),
-      );
-      await tx.scanOrderPaymentAttempt.create({
-        data: {
-          orderId: order.id,
-          storeId: order.storeId,
-          paymentChannel: 'marketing_balance',
-          merchantPaymentNo: `BAL-${order.orderNo}`,
-          amount: order.payableAmount,
-          status: 'succeeded',
-          paidAt,
-          providerTransactionId: `marketing-balance-${order.id}`,
-        },
-      });
-      await tx.scanOrderBalanceTransaction.create({
-        data: {
-          orderId: order.id,
-          customerId: customer.id,
-          amount: order.payableAmount,
-          type: 'payment',
-        },
-      });
-      await tx.scanOrderStatusHistory.create({
-        data: {
-          orderId: order.id,
-          storeId: order.storeId,
-          fromStatus: 'pending_payment',
-          toStatus: 'pending_acceptance',
-          operatorType: 'club_user',
-          operatorId: user.id,
-          reason: '储值余额支付成功',
-        },
-      });
-      // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
-      return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
-    });
-
-    // 余额/积分已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
-    // 否则商家端要等 TTL（概览 120s、列表 60s、详情 15s）才看得到变化
-    await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
-      result.storeId,
-    );
-
-    this.realtimeService.publishOrderStatusChanged({
-      storeId: result.storeId,
-      orderId: result.id,
-      sessionId: result.sessionId,
-      // 支付成功会推进乐观锁版本：不带 version 时商家端列表项版本会一直是旧的，
-      // 接单/拒单首次请求必然 409（表现为「要点两次才能接单」）
-      version: result.version,
-      status: result.status,
-      paymentStatus: result.paymentStatus,
-      fulfillmentStatus: result.fulfillmentStatus,
-      pickupNumber: result.pickupNumber,
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        result.pickupNumber,
-      ),
-      pickupNumberStatus: result.pickupNumberStatus,
-      pickupCalledAt: result.pickupCalledAt?.toISOString() ?? null,
-      pickupCompletedAt: result.pickupCompletedAt?.toISOString() ?? null,
-    });
-    return this.getOrder(user, result.id);
-  }
-
-  async confirmPaidForDevelopment(
-    user: AuthenticatedUser,
-    orderId: number,
-  ): Promise<unknown> {
-    // 资金安全闸门：与通用 confirm-paid 同口径，只有测试模式才允许跳过真实扣款。
-    // 生产环境恒为 false，切到真实模式后同样不可用。
-    const manualConfirmPaidAllowed =
-      await this.clubPaymentModeService.isManualConfirmPaidAllowed();
-    if (!manualConfirmPaidAllowed) {
-      throw new ForbiddenException(
-        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
-      );
-    }
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const order = await tx.scanOrders.findFirst({
-        where: {
-          id: orderId,
-          clubUserId: user.id,
-          status: 'pending_payment',
-          paymentStatus: 'unpaid',
-          deletedAt: null,
-        },
-      });
-      if (!order) throw new ConflictException('订单不可确认支付');
-      const customer =
-        await this.marketingCustomerService.resolveActiveCustomer(
-          order.storeId,
-          user.id,
-        );
-      const pointsSnapshot = (order.marketingSnapshot ?? {}) as {
-        pointsUsed?: number;
-        pointsDeductAmount?: number;
-      };
-      const pointsUsed = pointsSnapshot.pointsUsed ?? 0;
-      const pointsDeductAmount = pointsSnapshot.pointsDeductAmount ?? 0;
-      const paymentAttempt = await tx.scanOrderPaymentAttempt.findFirst({
-        where: { orderId, status: { in: ['created', 'paying'] } },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (paymentAttempt) {
-        await tx.scanOrderPaymentAttempt.update({
-          where: { id: paymentAttempt.id },
-          data: {
-            status: ScanOrderPaymentAttemptStatus.succeeded,
-            providerTransactionId: `dev-${order.orderNo}`,
-            paidAt: new Date(),
-          },
-        });
-      }
-      const paidAt = new Date();
-      // 与余额支付同口径落账：openid 缺省时微信链路会 fallback 到本接口，
-      // 不补这一步就会出现「用了积分抵扣但积分没扣、也没有消费记录」。
-      const { earnedPoints } =
-        await this.marketingCustomerService.settlePaidOrder(tx, {
-          storeId: order.storeId,
-          orderId: order.id,
-          orderNo: order.orderNo,
-          customerId: customer.id,
-          paidAmountFen: order.payableAmount,
-          pointsUsed,
-          pointsDeductAmount,
-          payType: 'wechat',
-        });
-      await tx.scanOrders.update({
-        where: { id: order.id },
-        data: {
-          status: 'pending_acceptance',
-          paymentStatus: 'paid',
-          paidAmount: order.payableAmount,
-          paidAt,
-          marketingSnapshot: {
-            ...(order.marketingSnapshot as object),
-            pointsSettlementStatus: 'settled',
-            earnedPoints,
-          },
-          version: { increment: 1 },
-        },
-      });
-      // 开发环境确认支付成功分配取餐号（幂等：已分配时直接跳过）
-      await this.pickupNumberService.assignForPaidOrder(
-        tx,
-        order.id,
-        order.storeId,
-        paidAt.getTime(),
-      );
-      await tx.scanOrderStatusHistory.create({
-        data: {
-          orderId: order.id,
-          storeId: order.storeId,
-          fromStatus: 'pending_payment',
-          toStatus: 'pending_acceptance',
-          operatorType: 'development_payment',
-          operatorId: user.id,
-          reason: '开发环境 H5 支付确认',
-        },
-      });
-      // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
-      // 事务内重新读取，保证发布事件携带最新取餐号字段
-      return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
-    });
-
-    // 余额/积分已落账：失效营销衍生缓存，避免商家端要等 TTL 才看到变化
-    await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
-      updated.storeId,
-    );
-
-    this.realtimeService.publishOrderStatusChanged({
-      storeId: updated.storeId,
-      orderId: updated.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-      status: updated.status,
-      paymentStatus: updated.paymentStatus,
-      fulfillmentStatus: updated.fulfillmentStatus,
-      pickupNumber: updated.pickupNumber,
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        updated.pickupNumber,
-      ),
-      pickupNumberStatus: updated.pickupNumberStatus,
-      pickupCalledAt: updated.pickupCalledAt?.toISOString() ?? null,
-      pickupCompletedAt: updated.pickupCompletedAt?.toISOString() ?? null,
-    });
-    return this.getOrder(user, updated.id);
-  }
-
-  private async getOrder(
-    user: AuthenticatedUser,
-    orderId: number,
-  ): Promise<unknown> {
-    const order = await this.prisma.scanOrders.findFirst({
-      where: { id: orderId, clubUserId: user.id, deletedAt: null },
-      include: {
-        items: { include: { specs: true }, orderBy: { sortOrder: 'asc' } },
-        paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
-      },
-    });
-    if (!order) throw new NotFoundException('订单不存在');
-    return order;
   }
 }

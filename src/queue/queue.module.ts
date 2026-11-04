@@ -17,6 +17,7 @@ import { SmsBroadcastRecoveryProcessor } from './sms-broadcast-recovery.processo
 import { SmsDeliveryReconcileProcessor } from './sms-delivery-reconcile.processor';
 import { ProfitPaymentReconcileProcessor } from './profit-payment-reconcile.processor';
 import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
+import { ClubPaymentCallbackProcessorModule } from '../purely-club/payments/club-payment-callback-processor.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SmsModule } from '../purely-profit/marketing/sms/sms.module';
 import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platform-payment-reconcile.module';
@@ -96,6 +97,8 @@ import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platfo
       },
     ),
     ClubPaymentCallbackQueueModule,
+    // 回调 worker 的装配模块：只注册队列不 import 本模块，等于没有消费者
+    ClubPaymentCallbackProcessorModule,
     RedisModule, // 提供 CachePrewarmCycleService
     SpacesModule, // 提供 SpaceSessionAutoCheckoutService
     ScanOrderingModule,

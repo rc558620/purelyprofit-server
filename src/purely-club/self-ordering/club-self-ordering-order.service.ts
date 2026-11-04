@@ -1,3 +1,8 @@
+// 自助下单建单服务：幂等闸门 → 门禁校验 → 服务端定价（ClubSelfOrderingPricingService）→ 事务内建单
+//
+// 相比扫码点餐刻意简化：无服务端购物车、无库存预留、无优惠/积分，
+// 价格一律由服务端按 Product 重算并落快照（不信任客户端传价）。
+// 保留的五件套：幂等键 + 事务 + 乐观锁 version + 会话校验 + 事务内建单。
 import {
   ConflictException,
   ForbiddenException,
@@ -7,31 +12,24 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
+import { SELF_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
-import { assertGeneralStoreForSelfOrdering } from './club-self-ordering.utils';
+import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import {
-  CreateSelfOrderDto,
-  SelfOrderItemInputDto,
-} from './dto/create-self-order.dto';
-import {
+  assertGeneralStoreForSelfOrdering,
   createSelfOrderNo,
   hashSelfOrderRequest,
 } from './club-self-ordering.utils';
-import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
-import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
-import { SELF_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
-import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
+import {
+  toSelfOrderResponse,
+  type SelfOrderIdempotencyRecord,
+} from './club-self-ordering-order.mapper';
+import { ClubSelfOrderingPricingService } from './club-self-ordering-pricing.service';
+import type { SelfOrderPricingResult } from './club-self-ordering-pricing.service';
 import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
+import type { CreateSelfOrderDto } from './dto/create-self-order.dto';
 import type { ClubSelfOrderStatusQueryDto } from './dto/club-self-order-status-query.dto';
-
-/** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */
-const buildSelfOrderLineKey = (
-  productId: string,
-  specOptionIds: number[],
-): string =>
-  specOptionIds.length > 0
-    ? `${productId}:${specOptionIds.join('-')}`
-    : `${productId}:plain`;
 
 const IDEMPOTENCY_SCOPE = 'club:self-order:create';
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -44,40 +42,31 @@ const IDEMPOTENCY_PROCESSING_LEASE_MS = 60 * 1000;
 /** 待支付订单有效期：超时后不再允许发起支付 */
 export const SELF_ORDER_PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
 
-/** 定价后的订单行（含服务端重算的价格与商品快照） */
-export interface PricedSelfOrderItem {
-  productId: string;
-  productName: string;
-  categoryName: string | null;
-  /** 销售单价（分） */
-  salePrice: number;
-  /** 成本单价（分） */
-  costPrice: number;
-  quantity: number;
-  /** 规格签名（选项 ID 升序 sha256）；无规格时为 null */
-  specSignature: string | null;
-  /** 规格名快照 */
-  specNames: string[];
-  /** 已选规格选项快照（用于落 self_order_item_specs） */
-  specOptions: Array<{ id: number; name: string; extraPrice: number }>;
+/** 通过四道门禁后的落库锚点（门店 / 会话 / 空间） */
+interface SelfOrderTarget {
+  storeId: number;
+  sessionId: number;
+  spaceId: number;
 }
 
-/**
- * 自助下单建单服务
- *
- * 相比扫码点餐刻意简化：无服务端购物车、无库存预留、无优惠/积分，
- * 价格一律由服务端按 Product 重算并落快照（不信任客户端传价）。
- * 保留的五件套：幂等键 + 事务 + 乐观锁 version + 会话校验 + 事务内建单。
- */
+/** 一次建单所需的全部事实：幂等键、入参、锚点、定价结果、订单号 */
+interface SelfOrderCreation {
+  key: string;
+  dto: CreateSelfOrderDto;
+  target: SelfOrderTarget;
+  priced: SelfOrderPricingResult;
+  orderNo: string;
+}
+
 @Injectable()
 export class ClubSelfOrderingOrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
-    private readonly specPricing: ProductSpecPricingService,
     private readonly downgradeService: MembershipDowngradeService,
     private readonly quotaService: ClubNewCustomerQuotaService,
     private readonly wechatVerifyService: ClubSelfOrderingWechatVerifyService,
+    private readonly pricingService: ClubSelfOrderingPricingService,
   ) {}
 
   async create(
@@ -85,181 +74,30 @@ export class ClubSelfOrderingOrderService {
     dto: CreateSelfOrderDto,
     idempotencyKey: string | undefined,
   ): Promise<Record<string, unknown>> {
-    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
-      throw new ConflictException('请提供有效的 Idempotency-Key 以创建订单');
-    }
-    const key = idempotencyKey.trim();
-
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        scope_actorId_idempotencyKey: {
-          scope: IDEMPOTENCY_SCOPE,
-          actorId: user.id,
-          idempotencyKey: key,
-        },
-      },
-    });
-    // 崩溃残留的 processing 占位：超过租约后删除并重建，避免同键在 TTL 内被永久阻塞
-    if (
-      existing?.status === 'processing' &&
-      Date.now() - existing.updatedAt.getTime() >
-        IDEMPOTENCY_PROCESSING_LEASE_MS
-    ) {
-      await this.prisma.idempotencyRecord.deleteMany({
-        where: {
-          scope: IDEMPOTENCY_SCOPE,
-          actorId: user.id,
-          idempotencyKey: key,
-          status: 'processing',
-          updatedAt: {
-            lt: new Date(Date.now() - IDEMPOTENCY_PROCESSING_LEASE_MS),
-          },
-        },
-      });
-    } else if (existing) {
-      return this.resolveExistingIdempotency(existing);
+    const key = this.requireIdempotencyKey(idempotencyKey);
+    const replayed = await this.replayExistingOrder(user.id, key);
+    if (replayed) {
+      return replayed;
     }
 
-    const currentContext =
-      await this.currentStoreContextService.requireCurrentContext(user);
-    const storeId = currentContext.store.id;
-
-    // 与扫码定位/菜单同一道业态门禁：餐饮门店走既有扫码点餐链路
-    assertGeneralStoreForSelfOrdering(currentContext.store);
-
-    // 会话必须 active 且属于当前门店：杜绝把订单挂到别家门店或已结账的会话
-    const session = await this.prisma.spaceSession.findFirst({
-      where: { id: dto.sessionId, storeId, status: 'active' },
-      select: { id: true, spaceId: true, createdAt: true },
-    });
-    if (!session) {
-      throw new ForbiddenException('当前空间会话不可用，请重新扫码');
-    }
-
-    // 会员过期门店停止新的下单流程；到期之前已开台的会话允许继续下单
-    await this.downgradeService.assertStoreCanOrder(
-      storeId,
-      SELF_ORDER_BLOCKED_MESSAGE,
-      session.createdAt,
+    const target = await this.resolveTarget(user, dto);
+    const priced = await this.pricingService.priceItems(
+      target.storeId,
+      dto.items,
     );
 
-    // 新客额度闸门：新客在额度耗尽时禁止下单，与扫码点餐同一口径。
-    // 额度归属取本次下单所在门店（会话已校验属于当前门店）——这位顾客若是新客，
-    // 为其认证手机号的成本就由这家门店承担；他若已在别家店认证过，
-    // 则不再扣额度、也不受本店额度是否为 0 影响。
-    await this.quotaService.assertAvailableForOrder(storeId, user.id);
-
-    const priced = await this.priceItems(storeId, dto.items);
-    const orderNo = createSelfOrderNo();
-
     try {
-      const response = await this.prisma.$transaction(async (tx) => {
-        // 先插占位记录抢占唯一索引，并发的兄弟请求会在此失败并走幂等回放
-        await tx.idempotencyRecord.create({
-          data: {
-            scope: IDEMPOTENCY_SCOPE,
-            actorId: user.id,
-            idempotencyKey: key,
-            requestHash: hashSelfOrderRequest({
-              sessionId: dto.sessionId,
-              // 用定价后的结果：同商品多行已合并，避免因行顺序不同算出不同指纹
-              // 必须纳入 specSignature：同商品不同规格是不同订单，指纹不同才能在
-              // 同幂等键下被识别为「内容不一致」而不是回放错误订单
-              items: priced.items.map((item) => [
-                item.productId,
-                item.specSignature ?? '',
-                item.quantity,
-              ]),
-              remark: dto.remark ?? null,
-            }),
-            status: 'processing',
-            expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
-          },
-        });
-
-        const order = await tx.selfOrder.create({
-          data: {
-            storeId,
-            orderNo,
-            sessionId: session.id,
-            spaceId: session.spaceId,
-            clubUserId: user.id,
-            remark: dto.remark?.trim() || null,
-            idempotencyKey: key,
-            itemTotalAmount: priced.itemTotalAmount,
-            payableAmount: priced.payableAmount,
-            status: 'pending_payment',
-            paymentStatus: 'unpaid',
-            items: {
-              create: priced.items.map((item) => ({
-                productId: item.productId,
-                productName: item.productName,
-                categoryName: item.categoryName,
-                salePrice: item.salePrice,
-                costPrice: item.costPrice,
-                quantity: item.quantity,
-                specSignature: item.specSignature,
-                ...(item.specOptions.length > 0
-                  ? {
-                      specs: {
-                        create: item.specOptions.map((spec) => ({
-                          specOptionId: spec.id,
-                          specOptionNameSnapshot: spec.name,
-                          extraPriceSnapshot: spec.extraPrice,
-                        })),
-                      },
-                    }
-                  : {}),
-              })),
-            },
-          },
-          include: { items: true },
-        });
-
-        // 新客额度扣减：与订单落库在同一个事务里提交。
-        // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
-        // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
-        await this.quotaService.consumeWithinOrderTransaction(
-          tx,
-          storeId,
-          user.id,
-          user.phone || null,
-        );
-
-        const response = this.toOrderResponse(order);
-        await tx.idempotencyRecord.update({
-          where: {
-            scope_actorId_idempotencyKey: {
-              scope: IDEMPOTENCY_SCOPE,
-              actorId: user.id,
-              idempotencyKey: key,
-            },
-          },
-          data: {
-            status: 'succeeded',
-            resourceType: 'self_order',
-            resourceId: order.id,
-            responseSnapshot: response as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        return response;
+      return await this.persistOrder(user, {
+        key,
+        dto,
+        target,
+        priced,
+        orderNo: createSelfOrderNo(),
       });
-
-      return response;
     } catch (error) {
-      // 唯一键冲突等并发场景：兄弟请求可能已建单成功，回放其结果
-      if (!(error instanceof ConflictException)) {
-        const created = await this.prisma.idempotencyRecord.findUnique({
-          where: {
-            scope_actorId_idempotencyKey: {
-              scope: IDEMPOTENCY_SCOPE,
-              actorId: user.id,
-              idempotencyKey: key,
-            },
-          },
-        });
-        if (created) return this.resolveExistingIdempotency(created);
+      const replay = await this.replayAfterFailure(error, user.id, key);
+      if (replay) {
+        return replay;
       }
       throw error;
     }
@@ -285,7 +123,7 @@ export class ClubSelfOrderingOrderService {
       include: { items: true },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    return this.toOrderResponse(order);
+    return toSelfOrderResponse(order);
   }
 
   /** 会话维度的历史订单（供菜单页/订单列表使用） */
@@ -299,141 +137,250 @@ export class ClubSelfOrderingOrderService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    return orders.map((order) => this.toOrderResponse(order));
+    return orders.map((order) => toSelfOrderResponse(order));
   }
+
+  // ─── 幂等闸门 ─────────────────────────────────────────────────────────────
+
+  private requireIdempotencyKey(idempotencyKey: string | undefined): string {
+    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
+      throw new ConflictException('请提供有效的 Idempotency-Key 以创建订单');
+    }
+    return idempotencyKey.trim();
+  }
+
+  /** 同键已建单直接回放；崩溃残留的 processing 占位过期后删除并允许重建 */
+  private async replayExistingOrder(
+    actorId: number,
+    key: string,
+  ): Promise<Record<string, unknown> | null> {
+    const existing = await this.prisma.idempotencyRecord.findUnique({
+      where: this.idempotencyWhere(actorId, key),
+    });
+    if (!existing) {
+      return null;
+    }
+
+    if (
+      existing.status === 'processing' &&
+      Date.now() - existing.updatedAt.getTime() >
+        IDEMPOTENCY_PROCESSING_LEASE_MS
+    ) {
+      await this.prisma.idempotencyRecord.deleteMany({
+        where: {
+          ...this.idempotencyWhere(actorId, key),
+          status: 'processing',
+          updatedAt: {
+            lt: new Date(Date.now() - IDEMPOTENCY_PROCESSING_LEASE_MS),
+          },
+        },
+      });
+      return null;
+    }
+
+    return this.resolveExistingIdempotency(existing);
+  }
+
+  /** 建单失败时的兜底：兄弟请求可能已建单成功，回放其结果 */
+  private async replayAfterFailure(
+    error: unknown,
+    actorId: number,
+    key: string,
+  ): Promise<Record<string, unknown> | null> {
+    if (error instanceof ConflictException) {
+      return null;
+    }
+    const created = await this.prisma.idempotencyRecord.findUnique({
+      where: this.idempotencyWhere(actorId, key),
+    });
+    return created ? this.resolveExistingIdempotency(created) : null;
+  }
+
+  // ─── 门禁与落库 ───────────────────────────────────────────────────────────
 
   /**
-   * 商品定价与快照
-   * 同一商品多行时先合并数量；价格、名称、分类名一律取自商品库当前值并落快照
+   * 四道门禁：业态 / 会话归属 / 会员时效 / 新客额度。
+   *
+   * 会话必须 active 且属于当前门店：杜绝把订单挂到别家门店或已结账的会话。
+   * 新客额度闸门与扫码点餐同一口径：额度归属取本次下单所在门店——这位顾客若是新客，
+   * 为其认证手机号的成本就由这家门店承担；他若已在别家店认证过，
+   * 则不再扣额度、也不受本店额度是否为 0 影响。
    */
-  private async priceItems(
-    storeId: number,
-    inputs: SelfOrderItemInputDto[],
-  ): Promise<{
-    items: PricedSelfOrderItem[];
-    itemTotalAmount: number;
-    payableAmount: number;
-  }> {
-    // 合并键必须含规格：同商品不同规格是不同行，仅按 productId 合并会静默丢规格
-    const mergedLines = new Map<
-      string,
-      { productId: string; specOptionIds: number[]; quantity: number }
-    >();
-    for (const input of inputs) {
-      const specOptionIds = [...new Set(input.specOptionIds ?? [])].sort(
-        (left, right) => left - right,
-      );
-      const key = buildSelfOrderLineKey(input.productId, specOptionIds);
-      const hit = mergedLines.get(key);
-      if (hit) {
-        hit.quantity += input.quantity;
-        continue;
-      }
-      mergedLines.set(key, {
-        productId: input.productId,
-        specOptionIds,
-        quantity: input.quantity,
-      });
+  private async resolveTarget(
+    user: AuthenticatedUser,
+    dto: CreateSelfOrderDto,
+  ): Promise<SelfOrderTarget> {
+    const currentContext =
+      await this.currentStoreContextService.requireCurrentContext(user);
+    const storeId = currentContext.store.id;
+
+    // 与扫码定位/菜单同一道业态门禁：餐饮门店走既有扫码点餐链路
+    assertGeneralStoreForSelfOrdering(currentContext.store);
+
+    const session = await this.prisma.spaceSession.findFirst({
+      where: { id: dto.sessionId, storeId, status: 'active' },
+      select: { id: true, spaceId: true, createdAt: true },
+    });
+    if (!session) {
+      throw new ForbiddenException('当前空间会话不可用，请重新扫码');
     }
 
-    const items: PricedSelfOrderItem[] = [];
-    for (const line of mergedLines.values()) {
-      const productId = Number(line.productId);
-      if (!Number.isInteger(productId) || productId <= 0) {
-        throw new NotFoundException('购物车中存在无效商品，请刷新后重试');
-      }
-
-      // 服务端权威定价：单价 = Product.price + Σ 规格加价，商品名用含规格后缀的展示名
-      let priced: Awaited<ReturnType<ProductSpecPricingService['price']>>;
-      try {
-        priced = await this.specPricing.price({
-          storeId,
-          productId,
-          specOptionIds: line.specOptionIds,
-        });
-      } catch (error) {
-        if (error instanceof NotFoundException) {
-          throw new NotFoundException('购物车中存在已下架商品，请刷新后重试');
-        }
-        throw error;
-      }
-
-      items.push({
-        productId: line.productId,
-        productName: priced.displayName,
-        categoryName: priced.categoryName,
-        salePrice: priced.unitPriceCents,
-        costPrice: priced.costPriceCents,
-        quantity: line.quantity,
-        specSignature: priced.specSignature,
-        specNames: priced.specNames,
-        specOptions: priced.specOptions,
-      });
-    }
-
-    const itemTotalAmount = items.reduce(
-      (sum, item) => sum + item.salePrice * item.quantity,
-      0,
+    // 会员过期门店停止新的下单流程；到期之前已开台的会话允许继续下单
+    await this.downgradeService.assertStoreCanOrder(
+      storeId,
+      SELF_ORDER_BLOCKED_MESSAGE,
+      session.createdAt,
     );
-    // 自助下单不参与任何优惠：应付恒等于商品合计
-    return { items, itemTotalAmount, payableAmount: itemTotalAmount };
+    await this.quotaService.assertAvailableForOrder(storeId, user.id);
+
+    return { storeId, sessionId: session.id, spaceId: session.spaceId };
   }
 
-  private resolveExistingIdempotency(record: {
-    status: string;
-    responseSnapshot: Prisma.JsonValue | null;
-  }): Record<string, unknown> {
+  private async persistOrder(
+    user: AuthenticatedUser,
+    creation: SelfOrderCreation,
+  ): Promise<Record<string, unknown>> {
+    return this.prisma.$transaction(async (tx) => {
+      // 先插占位记录抢占唯一索引，并发的兄弟请求会在此失败并走幂等回放
+      await this.reserveIdempotencyRecord(tx, user.id, creation);
+
+      const { orderId, response } = await this.createOrderRow(
+        tx,
+        user.id,
+        creation,
+      );
+
+      // 新客额度扣减：与订单落库在同一个事务里提交。
+      // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
+      // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
+      await this.quotaService.consumeWithinOrderTransaction(
+        tx,
+        creation.target.storeId,
+        user.id,
+        user.phone || null,
+      );
+
+      await this.markIdempotencySucceeded(tx, user.id, {
+        key: creation.key,
+        orderId,
+        response,
+      });
+      return response;
+    });
+  }
+
+  private async reserveIdempotencyRecord(
+    tx: Prisma.TransactionClient,
+    actorId: number,
+    creation: SelfOrderCreation,
+  ): Promise<void> {
+    await tx.idempotencyRecord.create({
+      data: {
+        scope: IDEMPOTENCY_SCOPE,
+        actorId,
+        idempotencyKey: creation.key,
+        requestHash: hashSelfOrderRequest({
+          sessionId: creation.dto.sessionId,
+          // 用定价后的结果：同商品多行已合并，避免因行顺序不同算出不同指纹
+          // 必须纳入 specSignature：同商品不同规格是不同订单，指纹不同才能在
+          // 同幂等键下被识别为「内容不一致」而不是回放错误订单
+          items: creation.priced.items.map((item) => [
+            item.productId,
+            item.specSignature ?? '',
+            item.quantity,
+          ]),
+          remark: creation.dto.remark ?? null,
+        }),
+        status: 'processing',
+        expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+      },
+    });
+  }
+
+  private async createOrderRow(
+    tx: Prisma.TransactionClient,
+    actorId: number,
+    creation: SelfOrderCreation,
+  ): Promise<{ orderId: number; response: Record<string, unknown> }> {
+    const order = await tx.selfOrder.create({
+      data: {
+        storeId: creation.target.storeId,
+        orderNo: creation.orderNo,
+        sessionId: creation.target.sessionId,
+        spaceId: creation.target.spaceId,
+        clubUserId: actorId,
+        remark: creation.dto.remark?.trim() || null,
+        idempotencyKey: creation.key,
+        itemTotalAmount: creation.priced.itemTotalAmount,
+        payableAmount: creation.priced.payableAmount,
+        status: 'pending_payment',
+        paymentStatus: 'unpaid',
+        items: {
+          create: creation.priced.items.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            categoryName: item.categoryName,
+            salePrice: item.salePrice,
+            costPrice: item.costPrice,
+            quantity: item.quantity,
+            specSignature: item.specSignature,
+            ...(item.specOptions.length > 0
+              ? {
+                  specs: {
+                    create: item.specOptions.map((spec) => ({
+                      specOptionId: spec.id,
+                      specOptionNameSnapshot: spec.name,
+                      extraPriceSnapshot: spec.extraPrice,
+                    })),
+                  },
+                }
+              : {}),
+          })),
+        },
+      },
+      include: { items: true },
+    });
+    return { orderId: order.id, response: toSelfOrderResponse(order) };
+  }
+
+  private async markIdempotencySucceeded(
+    tx: Prisma.TransactionClient,
+    actorId: number,
+    params: {
+      key: string;
+      orderId: number;
+      response: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await tx.idempotencyRecord.update({
+      where: this.idempotencyWhere(actorId, params.key),
+      data: {
+        status: 'succeeded',
+        resourceType: 'self_order',
+        resourceId: params.orderId,
+        responseSnapshot: params.response as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private idempotencyWhere(actorId: number, key: string) {
+    return {
+      scope_actorId_idempotencyKey: {
+        scope: IDEMPOTENCY_SCOPE,
+        actorId,
+        idempotencyKey: key,
+      },
+    };
+  }
+
+  // ─── 映射 ─────────────────────────────────────────────────────────────────
+
+  private resolveExistingIdempotency(
+    record: SelfOrderIdempotencyRecord,
+  ): Record<string, unknown> {
     if (record.status === 'succeeded' && record.responseSnapshot) {
       return record.responseSnapshot as Record<string, unknown>;
     }
     throw new ConflictException('订单正在创建中，请稍后重试');
-  }
-
-  private toOrderResponse(order: {
-    id: number;
-    orderNo: string;
-    storeId: number;
-    sessionId: number;
-    spaceId: number;
-    remark: string | null;
-    itemTotalAmount: number;
-    payableAmount: number;
-    status: string;
-    paymentStatus: string;
-    version: number;
-    createdAt: Date;
-    items: Array<{
-      id: number;
-      productId: string;
-      productName: string;
-      categoryName: string | null;
-      salePrice: number;
-      quantity: number;
-      specSignature?: string | null;
-    }>;
-  }): Record<string, unknown> {
-    return {
-      id: order.id,
-      orderNo: order.orderNo,
-      storeId: order.storeId,
-      sessionId: order.sessionId,
-      spaceId: order.spaceId,
-      remark: order.remark,
-      itemTotalAmount: order.itemTotalAmount,
-      payableAmount: order.payableAmount,
-      status: order.status,
-      paymentStatus: order.paymentStatus,
-      version: order.version,
-      createdAt: order.createdAt.toISOString(),
-      items: order.items.map((item) => ({
-        id: item.id,
-        productId: item.productId,
-        productName: item.productName,
-        categoryName: item.categoryName,
-        salePrice: item.salePrice,
-        quantity: item.quantity,
-        specSignature: item.specSignature ?? null,
-      })),
-    };
   }
 }

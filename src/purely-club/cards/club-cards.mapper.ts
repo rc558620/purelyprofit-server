@@ -8,6 +8,7 @@
 import type { MemberCardKind, MemberCardStatus } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import type { ClubWechatPaymentParamsDto } from '../orders/dto/club-order.dto';
+import { CLUB_CHANNEL_WECHAT } from '../payments/club-payment-channels.constants';
 import {
   CLUB_CARD_ORDER_TITLE_SUFFIX,
   CLUB_CARD_PAY_WINDOW_MINUTES,
@@ -302,7 +303,7 @@ export const toOrderView = (params: {
     orderType: 'card',
     title: `${order.planNameSnapshot}${CLUB_CARD_ORDER_TITLE_SUFFIX}`,
     amount: Money.fromDbCents(order.amount).toOutputYuan(),
-    paymentChannel: order.paymentChannel ?? 'wechat',
+    paymentChannel: order.paymentChannel ?? CLUB_CHANNEL_WECHAT,
     status: toOrderStatusValue(order.status),
     createdAt: order.createdAt.toISOString(),
     expiresAt: expiresAt.toISOString(),

@@ -15,6 +15,3 @@ export type WechatPayConfigRecord = {
   bindFailReason: string | null;
   configuredAt: Date;
 };
-
-/** 服务商模式下「已配置」的判定状态：只有校验通过才算真正可以收款 */
-export const BIND_STATUS_VERIFIED: StoreWechatPayBindStatus = 'verified';

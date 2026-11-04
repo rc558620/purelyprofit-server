@@ -20,6 +20,8 @@ import {
 } from '../club-cards.constants';
 import {
   CLUB_MEMBER_CARD_LIST_STATUS_VALUES,
+  CLUB_CARD_PAYMENT_METHOD_VALUES,
+  type ClubCardPaymentMethod,
   type ClubMemberCardListStatusValue,
   type ClubMemberCardOrderStatusValue,
   type ClubMemberCardStatusValue,
@@ -67,6 +69,18 @@ export class CreateClubCardOrderDto {
   @IsInt({ message: 'storeId 必须是整数' })
   @Min(1, { message: 'storeId 不合法' })
   storeId?: number;
+
+  @ApiPropertyOptional({
+    example: 'balance',
+    enum: CLUB_CARD_PAYMENT_METHOD_VALUES,
+    default: 'wechat',
+    description:
+      '支付方式：wechat（微信支付，默认，返回支付参数由回调落账）/ ' +
+      'balance（储值余额，下单即扣款并直接发卡，不返回支付参数）',
+  })
+  @IsOptional()
+  @IsIn(CLUB_CARD_PAYMENT_METHOD_VALUES, { message: 'paymentMethod 不合法' })
+  paymentMethod?: ClubCardPaymentMethod;
 }
 
 /** 我的卡包查询入参 */
@@ -283,7 +297,12 @@ export class ClubMemberCardOrderDto {
   @ApiProperty({ example: 1999, description: '应付金额（元）' })
   amount: number;
 
-  @ApiProperty({ example: 'wechat' })
+  @ApiProperty({
+    enum: ['wechat', 'balance', 'cash', 'gift'],
+    example: 'wechat',
+    description:
+      '支付渠道：wechat=微信支付 / balance=储值余额 / cash=线下现金 / gift=赠送',
+  })
   paymentChannel: string;
 
   @ApiProperty({

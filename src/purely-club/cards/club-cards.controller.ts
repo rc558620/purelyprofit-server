@@ -89,9 +89,12 @@ export class ClubCardsController {
 
   @Post('orders')
   @ApiOperation({
-    summary: '创建购卡订单并发起微信支付',
+    summary: '创建购卡订单（微信支付 / 储值余额）',
     description:
-      '校验卡模板归属当前门店与每人限购后创建待支付订单（15 分钟窗口），返回微信 JSAPI 支付参数；支持 Idempotency-Key 幂等。',
+      '校验卡模板归属当前门店与每人限购后创建订单（15 分钟窗口）。' +
+      'paymentMethod=wechat（默认）返回微信 JSAPI 支付参数，由回调落账；' +
+      'paymentMethod=balance 在同一事务内扣减储值余额并直接发卡，响应 status=paid 且不带支付参数。' +
+      '支持 Idempotency-Key 幂等。',
   })
   @ApiCreatedResponse({ type: ClubMemberCardOrderDto })
   createOrder(

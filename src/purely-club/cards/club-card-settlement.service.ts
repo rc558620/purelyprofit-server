@@ -16,8 +16,13 @@ import {
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { resolveCardExpiresAt } from '../../purely-profit/member/cards/member-card.utils';
+import { assertClubPaymentAmountMatchesAllowZero } from '../payments/club-payments.utils';
 import { buildCardNo } from './club-card-code.utils';
-import { CLUB_CARD_ORDER_NOT_FOUND_MESSAGE } from './club-cards.constants';
+import { settleCardBalancePayment } from './club-card-balance-settlement.helper';
+import {
+  CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
+  buildClubCardBalanceTransactionId,
+} from './club-cards.constants';
 
 /** 落账入参（回调 / 手动确认 / 微信侧核对统一结构） */
 export interface ClubCardSettleParams {
@@ -33,6 +38,16 @@ export interface ClubCardSettleOutcome {
   storeId: number;
 }
 
+/** 落账统一入参：微信链路带期望金额，余额支付以库内订单金额为准 */
+interface ClubCardSettlementInput {
+  orderId: number;
+  /** 微信回调 / 手动确认携带的期望金额（分）；余额支付不传 */
+  expectedAmountFen?: number;
+  params?: ClubCardSettleParams;
+  /** 余额支付：在同一事务内扣减储值余额并记消费流水 */
+  viaBalance?: boolean;
+}
+
 @Injectable()
 export class ClubCardSettlementService {
   private readonly logger = new Logger(ClubCardSettlementService.name);
@@ -43,7 +58,7 @@ export class ClubCardSettlementService {
   ) {}
 
   /**
-   * 执行落账。
+   * 执行落账（微信链路）。
    *
    * 幂等闸门：`updateMany({ where: { status: 'unpaid' } })` 等价于
    * 「当前读 + 行级写锁」——并发的第二笔会阻塞到第一笔提交后重新判定条件，
@@ -54,6 +69,27 @@ export class ClubCardSettlementService {
     expectedAmountFen: number,
     params?: ClubCardSettleParams,
   ): Promise<ClubCardSettleOutcome> {
+    return this.runSettlement({ orderId, expectedAmountFen, params });
+  }
+
+  /**
+   * 余额支付落账：与微信落账共用同一段事务（抢占 → 发卡），
+   * 区别只在事务内先扣减储值余额并记消费流水。
+   *
+   * 金额一律以库内订单为准：余额支付没有第三方对账金额可比，
+   * 由扣款侧的条件更新（balance >= amount）保证不会扣成负数。
+   */
+  async settlePaidOrderByBalance(
+    orderId: number,
+  ): Promise<ClubCardSettleOutcome> {
+    return this.runSettlement({ orderId, viaBalance: true });
+  }
+
+  /** 落账事务本体：微信 / 余额两条链路共用，避免幂等闸门出现第二份实现 */
+  private async runSettlement(
+    input: ClubCardSettlementInput,
+  ): Promise<ClubCardSettleOutcome> {
+    const { orderId, expectedAmountFen, params } = input;
     const outcome = await this.prisma.$transaction(
       async (tx): Promise<ClubCardSettleOutcome> => {
         const order = await tx.memberCardOrder.findUnique({
@@ -62,17 +98,27 @@ export class ClubCardSettlementService {
         if (!order) {
           throw new NotFoundException(CLUB_CARD_ORDER_NOT_FOUND_MESSAGE);
         }
-        if (order.amount !== expectedAmountFen) {
-          throw new BadRequestException('订单金额不一致');
+        // 零元卡（0 元购 / 赠送）金额为 0 属合法场景，
+        // 必须用允许 0 元的版本，否则免费卡永远无法落账
+        if (expectedAmountFen !== undefined) {
+          assertClubPaymentAmountMatchesAllowZero(
+            order.amount,
+            expectedAmountFen,
+          );
         }
+
+        // 余额支付没有微信流水号，用固定前缀交易号留痕，对账侧可与真实流水区分
+        const transactionId =
+          params?.transactionId ??
+          (input.viaBalance === true
+            ? buildClubCardBalanceTransactionId(order.orderNo)
+            : undefined);
 
         const claimed = await tx.memberCardOrder.updateMany({
           where: { id: orderId, status: 'unpaid' },
           data: {
             status: 'pending',
-            ...(params?.transactionId
-              ? { transactionId: params.transactionId }
-              : {}),
+            ...(transactionId ? { transactionId } : {}),
             ...(params?.callbackReceivedAtMs
               ? { callbackReceivedAt: new Date(params.callbackReceivedAtMs) }
               : {}),
@@ -107,6 +153,11 @@ export class ClubCardSettlementService {
         });
         if (!plan) {
           throw new BadRequestException('卡模板已不存在，无法发卡');
+        }
+
+        // 余额支付：扣款必须与发卡同事务，避免「钱扣了没有卡」
+        if (input.viaBalance === true) {
+          await settleCardBalancePayment(tx, order, order.customerId);
         }
 
         const paidAt = params?.paidAtMs

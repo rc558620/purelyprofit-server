@@ -8,6 +8,10 @@ import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
 } from '../payments/club-payments.types';
+import {
+  assertClubPaymentAmountMatchesAllowZero,
+  assertClubPaymentAmountsMatchAllowZero,
+} from '../payments/club-payments.utils';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import {
   Prisma,
@@ -78,9 +82,8 @@ export class ClubScanOrderingPaymentService {
       select: { id: true, orderId: true, amount: true, status: true },
     });
     if (!attempt) throw new NotFoundException('扫码点餐支付流水不存在');
-    if (attempt.amount !== params.amountFen) {
-      throw new ConflictException('微信支付金额与扫码点餐订单不一致');
-    }
+    // 允许 0 元：积分全额抵扣的订单由内部 confirm-paid 落账，不经过微信收银台
+    assertClubPaymentAmountMatchesAllowZero(attempt.amount, params.amountFen);
     const result = await this.paymentLockService.withOrderLock(
       `scan-order:${attempt.orderId}`,
       async (): Promise<PaymentCallbackOutcome> => {
@@ -94,12 +97,10 @@ export class ClubScanOrderingPaymentService {
           if (!paymentAttempt || !order) {
             throw new NotFoundException('扫码点餐订单或支付流水不存在');
           }
-          if (
-            paymentAttempt.amount !== params.amountFen ||
-            order.payableAmount !== params.amountFen
-          ) {
-            throw new ConflictException('微信支付金额与扫码点餐订单不一致');
-          }
+          assertClubPaymentAmountsMatchAllowZero(params.amountFen, [
+            paymentAttempt.amount,
+            order.payableAmount,
+          ]);
           // 幂等：已成功回调过
           if (
             paymentAttempt.status === ScanOrderPaymentAttemptStatus.succeeded &&

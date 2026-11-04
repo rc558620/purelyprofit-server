@@ -16,7 +16,9 @@ import { NewCustomerQuotaModule } from '../../purely-profit/member/new-customer-
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
+import { ClubVoucherOrderDraftService } from './club-voucher-order-draft.service';
 import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.service';
+import { ClubVoucherOrderSettlementService } from './club-voucher-order-settlement.service';
 import { ClubVoucherOrderQueryService } from './club-voucher-order-query.service';
 import { ClubVoucherOrderRefundService } from './club-voucher-order-refund.service';
 import { ClubVoucherOrderVerifyService } from './club-voucher-order-verify.service';
@@ -41,7 +43,11 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
   controllers: [ClubVoucherOrdersController],
   providers: [
     ClubVoucherOrderContextService,
+    // 下单前置：算价 / 顾客快照 / 支付意图（含新客额度预检与事务内扣减）
+    ClubVoucherOrderDraftService,
     ClubVoucherOrderPaymentService,
+    // 支付确认落账（扣库存 / 扣余额 / 扣积分 / 生成券码），由下单服务与回调链路共用
+    ClubVoucherOrderSettlementService,
     ClubVoucherOrderQueryService,
     ClubVoucherOrderRefundService,
     ClubVoucherOrderVerifyService,

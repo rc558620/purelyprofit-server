@@ -8,7 +8,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service';
-import { WECHAT_PAYMENT_CHANNEL } from './club-self-ordering.utils';
+import { CLUB_CHANNEL_WECHAT_JSAPI } from '../payments/club-payment-channels.constants';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
 
 @Injectable()
@@ -36,7 +36,7 @@ export class ClubSelfOrderingWechatVerifyService {
     }
 
     const attempt = await this.prisma.selfOrderPaymentAttempt.findFirst({
-      where: { orderId: order.id, paymentChannel: WECHAT_PAYMENT_CHANNEL },
+      where: { orderId: order.id, paymentChannel: CLUB_CHANNEL_WECHAT_JSAPI },
       orderBy: { createdAt: 'desc' },
       select: { merchantPaymentNo: true, amountFen: true },
     });

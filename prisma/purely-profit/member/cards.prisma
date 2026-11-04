@@ -199,7 +199,7 @@ model MemberCardOrder {
   /// 线下办卡操作员
   operatorStaffId    Int?                    @map("operator_staff_id")
   operatorName       String?                 @map("operator_name") @db.VarChar(100)
-  /// 收款方式：wechat=微信支付 cash=线下现金 gift=赠送
+  /// 收款方式：wechat=微信支付 balance=储值余额 cash=线下现金 gift=赠送
   paymentChannel     String?                 @map("payment_channel") @db.VarChar(32)
   /// 微信支付交易单号（回调携带，对账主键）
   transactionId      String?                 @map("transaction_id")

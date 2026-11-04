@@ -4,11 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
-import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { debitCustomerBalance } from '../payments/club-balance-settlement.utils';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
@@ -96,16 +95,17 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       this.increasePromotionUsage(tx, draft),
     ]);
 
-    // updateCustomerMetrics、deductCustomerPoints、awardConsumptionPoints 都操作同一行 marketingCustomer，需串行
-    await this.updateCustomerMetrics(
-      tx,
-      draft.storeId,
-      settlementContext.customer.id,
-      settlementContext.customer.totalSpent,
+    // debitCustomerBalance、deductCustomerPoints、awardConsumptionPoints 都操作同一行 marketingCustomer，需串行
+    await debitCustomerBalance(tx, {
+      customerId: settlementContext.customer.id,
+      storeId: draft.storeId,
       balancePaidFen,
-      // 累计消费口径与消费流水 amount 一致（含积分抵扣部分）
-      balancePaidFen + pointsDeductFen,
-    );
+      metrics: {
+        // 累计消费口径与消费流水 amount 一致（含积分抵扣部分）
+        settlementAmountFen: balancePaidFen + pointsDeductFen,
+        currentTotalSpent: settlementContext.customer.totalSpent,
+      },
+    });
     // 若使用了积分抵扣，结算时从账户中扣除
     if (draft.metadata.pointsUsed > 0) {
       await deductCustomerPoints(
@@ -213,45 +213,6 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         promotionId: draft.metadata.promotionId,
       },
     });
-  }
-
-  private async updateCustomerMetrics(
-    tx: Prisma.TransactionClient,
-    storeId: number,
-    customerId: number,
-    currentTotalSpent: number,
-    // 实际余额扣减金额
-    balancePaidFen: number,
-    // 计入累计消费的金额（含积分抵扣部分，与消费流水同口径）
-    settlementAmountFen: number = balancePaidFen,
-  ): Promise<void> {
-    const newTotalSpent = currentTotalSpent + settlementAmountFen;
-    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
-    const thresholds = await queryCustomerTierThresholds(tx, storeId);
-    this.logger.log(
-      `更新顾客指标: customerId=${customerId}, balancePaidFen=${balancePaidFen}, newTotalSpent=${newTotalSpent}`,
-    );
-    // 使用 updateMany + where 条件保证余额不会并发扣减为负数
-    const result = await tx.marketingCustomer.updateMany({
-      where: {
-        id: customerId,
-        // 防止并发扣减后余额为负：只有当前余额 >= 扣减金额时才执行
-        balance: { gte: balancePaidFen },
-      },
-      data: {
-        balance: { decrement: balancePaidFen },
-        totalSpent: { increment: settlementAmountFen },
-        visitCount: { increment: 1 },
-        lastVisitAt: new Date(),
-        tier: calcCustomerTier(newTotalSpent, thresholds) as never,
-      },
-    });
-    if (result.count === 0) {
-      throw new BadRequestException(
-        `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
-      );
-    }
-    this.logger.log(`成功更新顾客指标`);
   }
 
   private async decrementProductStock(

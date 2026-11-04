@@ -9,7 +9,9 @@ import type { ClubPaymentModeService } from '../payments/club-payment-mode.servi
 import type { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
+import { ClubVoucherOrderDraftService } from './club-voucher-order-draft.service';
 import { ClubVoucherOrderPaymentService } from './club-voucher-order-payment.service';
+import { ClubVoucherOrderSettlementService } from './club-voucher-order-settlement.service';
 import type { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import type { CreateClubVoucherOrderDto } from './dto/club-voucher-order.dto';
 
@@ -59,17 +61,27 @@ describe('ClubVoucherOrderPaymentService 幂等', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ClubVoucherOrderPaymentService(
+    // 算价与落账已拆到独立 service：与下单服务共用同一批 mock，
+    // 因此「进入落账事务」的断言仍然观察的是同一个 prisma.$transaction
+    const settlementService = new ClubVoucherOrderSettlementService(
       prisma as unknown as PrismaService,
       clubPaymentModeService as unknown as ClubPaymentModeService,
-      contextService as unknown as ClubVoucherOrderContextService,
-      clubWechatJsapiService as unknown as ClubWechatJsapiService,
-      breakdownService as unknown as ClubOrderPreviewBreakdownService,
-      realtimeService as unknown as ScanOrderingRealtimeService,
       cacheInvalidatorService as unknown as CacheInvalidatorService,
+      realtimeService as unknown as ScanOrderingRealtimeService,
+    );
+    const draftService = new ClubVoucherOrderDraftService(
+      contextService as unknown as ClubVoucherOrderContextService,
+      breakdownService as unknown as ClubOrderPreviewBreakdownService,
       quotaService as unknown as ClubNewCustomerQuotaService,
+      clubPaymentModeService as unknown as ClubPaymentModeService,
       clubWechatOpenidService as unknown as ClubWechatOpenidService,
+      clubWechatJsapiService as unknown as ClubWechatJsapiService,
+    );
+    service = new ClubVoucherOrderPaymentService(
+      prisma as unknown as PrismaService,
       idempotencyService as unknown as ClubOrderIdempotencyService,
+      draftService,
+      settlementService,
     );
   });
 

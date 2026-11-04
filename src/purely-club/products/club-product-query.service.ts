@@ -54,7 +54,7 @@ export class ClubProductQueryService {
   /**
    * F9 修复：返回所有商品 id，避免 hot-only 过滤隐藏新上架商品。
    *
-   * 背景：原实现按 createdAt desc 取前 CLUB_HOT_PRODUCT_COUNT 个作为"热销"，
+   * 背景：原实现按 createdAt desc 取前 3 个作为"热销"，
    * 导致 B 端上架的商品只要不在这 N 个之内就会被全部隐藏。
    * MarketingProduct 表没有 isHot/isFeatured 字段，"热销"概念无法落地。
    *

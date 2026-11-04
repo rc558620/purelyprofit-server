@@ -12,7 +12,7 @@ import {
   SELF_ORDER_ATTEMPT_TTL_MS,
   type PayableOrder,
 } from './club-self-ordering-payment.types';
-import { WECHAT_PAYMENT_CHANNEL } from './club-self-ordering.utils';
+import { CLUB_CHANNEL_WECHAT_JSAPI } from '../payments/club-payment-channels.constants';
 
 /** 支付尝试定位信息（回调按商户单号路由时用于找订单） */
 export interface SelfOrderPaymentAttemptRef {
@@ -149,7 +149,7 @@ export class ClubSelfOrderingPaymentRepository {
     await this.prisma.selfOrderPaymentAttempt.create({
       data: {
         orderId: params.orderId,
-        paymentChannel: WECHAT_PAYMENT_CHANNEL,
+        paymentChannel: CLUB_CHANNEL_WECHAT_JSAPI,
         merchantPaymentNo: params.merchantPaymentNo,
         amountFen: params.amountFen,
         status: params.status,

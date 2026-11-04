@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Money } from '../../shared/money.utils';
+import { CLUB_CHANNEL_WECHAT } from '../payments/club-payment-channels.constants';
 import type {
   ClubOrderStatusResponseDto,
   ClubServiceOrderResponseDto,
@@ -32,7 +33,8 @@ export {
 const CLUB_ORDER_DRAFT_KEY_PREFIX = 'club:order:draft:';
 export const CLUB_ORDER_DRAFT_TTL_SECONDS = 2 * 60 * 60;
 const CLUB_ORDER_EXPIRE_MS = 15 * 60 * 1000;
-const CLUB_ORDER_PAYMENT_CHANNEL: ClubOrderPaymentChannelValue = 'wechat';
+const CLUB_ORDER_PAYMENT_CHANNEL: ClubOrderPaymentChannelValue =
+  CLUB_CHANNEL_WECHAT;
 const CLUB_ORDER_PAYMENT_SIGN_TYPE = 'RSA';
 
 const pad = (value: number, width = 2): string =>

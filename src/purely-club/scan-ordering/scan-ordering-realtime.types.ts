@@ -192,16 +192,3 @@ export interface SelfOrderStatusChangedPayload {
   paymentStatus: string;
   version: number;
 }
-
-/** 各事件对应的 payload 类型映射。 */
-export interface RealtimeEventPayloadMap {
-  'order.created': OrderCreatedPayload;
-  'order.status_changed': OrderStatusChangedPayload;
-  'service_call.created': ServiceCallCreatedPayload;
-  'service_call.updated': ServiceCallUpdatedPayload;
-  'voucher_order.created': VoucherOrderCreatedPayload;
-  'voucher_order.confirmed': VoucherOrderConfirmedPayload;
-  'voucher_order.status_changed': VoucherOrderStatusChangedPayload;
-  'self_order.created': SelfOrderCreatedPayload;
-  'self_order.status_changed': SelfOrderStatusChangedPayload;
-}

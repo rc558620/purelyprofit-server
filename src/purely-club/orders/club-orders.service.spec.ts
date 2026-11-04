@@ -1063,8 +1063,11 @@ describe('ClubOrdersService', () => {
     });
     // BUG-1 修复后使用 updateMany + balance>=amountFen 条件防止并发扣减为负
     expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
+      // 扣款限定在同一门店的未删除档案内，避免跨店扣错人
       where: {
         id: 36,
+        storeId: 11,
+        deletedAt: null,
         balance: { gte: 49900 },
       },
       data: {
@@ -1196,6 +1199,8 @@ describe('ClubOrdersService', () => {
     expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
       where: {
         id: 66,
+        storeId: 11,
+        deletedAt: null,
         balance: { gte: 49900 },
       },
       data: expect.objectContaining({

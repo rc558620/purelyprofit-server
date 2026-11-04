@@ -27,6 +27,8 @@ import { ClubScanOrderingWechatVerifyService } from './club-scan-ordering-wechat
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
+import { ClubScanOrderingBalanceCheckoutService } from './club-scan-ordering-balance-checkout.service';
+import { ClubScanOrderingDevelopmentCheckoutService } from './club-scan-ordering-development-checkout.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
 // 支付落账锁仅依赖 RedisService，本地提供实例，避免引入整个 ClubPaymentsModule 造成循环依赖
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
@@ -76,6 +78,10 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubScanOrderingOrderPreviewService,
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
+    // 当场扣款落账（储值余额支付）与微信发起分离，失败语义不同
+    ClubScanOrderingBalanceCheckoutService,
+    // 开发态手动确认（跳过真实扣款）单独成 service，避免与余额支付互相污染
+    ClubScanOrderingDevelopmentCheckoutService,
     // 支付回调落账与微信侧主动核对共用同一落账入口，provider 归属扫码点餐模块
     ClubScanOrderingPaymentService,
     ClubPaymentLockService,

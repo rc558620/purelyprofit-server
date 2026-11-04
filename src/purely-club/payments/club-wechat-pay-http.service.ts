@@ -1,40 +1,28 @@
 /**
  * 微信支付 API v3 请求客户端（purely-club · 门店收款商户号）。
  *
- * 下单（JSAPI）、查单、关单三条接口共用同一套基础设施：
- *   - 商户私钥加载与缓存（生产环境 fail-fast，见 A2）
- *   - WECHATPAY2-SHA256-RSA2048 鉴权头构造
- *   - 请求超时上限与错误响应解析
+ * 本文件只保留**身份适配**：从门店收款配置里取出「证书序列号 + 商户私钥」
+ * 对应的配置键，并决定哪种凭据作用域在生产环境必须 fail-fast。
+ * 签名串拼接、鉴权头构造、请求发送、超时与错误响应解析全部走
+ * `src/shared/wechat-pay/wechat-pay-sign-transport.ts`。
+ *
+ * ⚠️ 门店收款商户号与平台收款商户号**必须分开**：一旦共用同一份身份配置，
+ * 门店的钱会按平台主体签名，属于资金事故。所以要共用的是传输层，不是身份。
  *
  * 从 ClubWechatJsapiService 抽出的原因：查单与关单必须复用同一份签名与私钥逻辑。
  * 若各自复制一份，「私钥加载失败时是否降级为占位签名」这类资金安全口径会在
  * 不同接口之间漂移，最终出现「下单报错、查单却返回看起来正常的假结果」。
  */
-import { createPrivateKey, createSign, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { WechatPaySignTransport } from '../../shared/wechat-pay/wechat-pay-sign-transport';
+import type {
+  WechatPayCredentialConfig,
+  WechatPayHttpMethod,
+  WechatPayResponse,
+} from '../../shared/wechat-pay/wechat-pay.types';
 
-/** 微信支付 API v3 基址 */
-const WECHAT_API_BASE = 'https://api.mch.weixin.qq.com';
-
-/**
- * 微信 API 请求超时（毫秒）。
- *
- * 微信侧挂起时若不设上限，下单 / 关单会无限等待，把 Node 事件循环里的连接
- * 和上层请求一起拖住；框架层的 requestTimeout 只断客户端，不会中断 fetch。
- */
-const WECHAT_REQUEST_TIMEOUT_MS = 8000;
-
-/** 私钥缓存有效期：5 分钟，支持证书热更新而不必重启进程 */
-const PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
-
-/** 未配置私钥时的占位签名：请求会被微信拒绝，但不会让本地链路崩溃 */
-const DEV_PLACEHOLDER_SIGNATURE = 'DEV_MODE_NO_RSA_KEY';
+export type { WechatPayResponse };
 
 /**
  * 凭据作用域：决定这次请求用哪一套「证书序列号 + 商户私钥」签名。
@@ -47,24 +35,29 @@ const DEV_PLACEHOLDER_SIGNATURE = 'DEV_MODE_NO_RSA_KEY';
  */
 export type WechatPayCredentialScope = 'store' | 'partner';
 
-const CREDENTIAL_CONFIG_PATHS: Record<
+/** 各作用域对应的门店收款凭据配置键（身份适配层，不进共享传输层） */
+const CREDENTIAL_CONFIG: Record<
   WechatPayCredentialScope,
-  { serialNo: string; privateKeyPath: string; privateKeyContent: string }
+  WechatPayCredentialConfig
 > = {
   store: {
-    serialNo: 'wechat.mchSerialNo',
-    privateKeyPath: 'wechat.privateKeyPath',
-    privateKeyContent: 'wechat.privateKeyContent',
+    serialNoKey: 'wechat.mchSerialNo',
+    privateKeyPathKey: 'wechat.privateKeyPath',
+    privateKeyContentKey: 'wechat.privateKeyContent',
+    failFastWhenMissingKeyInProduction: true,
+    privateKeyPathHint: 'WECHAT_PRIVATE_KEY_PATH',
   },
   partner: {
-    serialNo: 'wechat.partner.serialNo',
-    privateKeyPath: 'wechat.partner.privateKeyPath',
-    privateKeyContent: 'wechat.partner.privateKeyContent',
+    serialNoKey: 'wechat.partner.serialNo',
+    privateKeyPathKey: 'wechat.partner.privateKeyPath',
+    privateKeyContentKey: 'wechat.partner.privateKeyContent',
+    failFastWhenMissingKeyInProduction: true,
+    privateKeyPathHint: 'WECHAT_PARTNER_PRIVATE_KEY_PATH',
   },
 };
 
 export interface WechatPayRequestParams {
-  method: 'GET' | 'POST';
+  method: WechatPayHttpMethod;
   /**
    * 参与签名的 canonical url（不含域名），形如 `/v3/pay/transactions/jsapi`。
    *
@@ -83,37 +76,24 @@ export interface WechatPayRequestParams {
   body?: string;
 }
 
-export type WechatPayResponse<T> =
-  | { ok: true; status: number; data: T }
-  | { ok: false; status: number; code: string | null; message: string };
-
-interface WechatErrorResponse {
-  code?: string;
-  message?: string;
-}
-
 @Injectable()
 export class ClubWechatPayHttpService {
   private readonly logger = new Logger(ClubWechatPayHttpService.name);
-  private readonly nodeEnv: string;
-
-  /** 私钥缓存与并发去重，按凭据作用域分别保存（两套证书互不影响） */
-  private privateKeyCache: Record<
-    WechatPayCredentialScope,
-    { pem: string | null; loadedAt: number } | null
-  > = { store: null, partner: null };
-  private privateKeyLoadInFlight: Record<
-    WechatPayCredentialScope,
-    Promise<string | null> | null
-  > = { store: null, partner: null };
+  /** 传输层实例按商户身份构造，私钥缓存与降级策略都跟着门店收款配置走 */
+  private readonly transport: WechatPaySignTransport<WechatPayCredentialScope>;
 
   constructor(private readonly configService: ConfigService) {
-    this.nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
+    this.transport = new WechatPaySignTransport<WechatPayCredentialScope>({
+      configService: this.configService,
+      logger: this.logger,
+      defaultScope: 'store',
+      resolveCredential: (scope) => CREDENTIAL_CONFIG[scope],
+    });
   }
 
   /** 是否生产环境：生产禁用一切「签名降级」路径 */
   isProduction(): boolean {
-    return this.nodeEnv === 'production';
+    return this.transport.isProduction();
   }
 
   /**
@@ -123,49 +103,17 @@ export class ClubWechatPayHttpService {
    * 由调用方按错误码决定语义（例如关单遇到 `ORDERPAID` 意味着用户其实已付款）。
    * 只有网络层不可达才抛 `InternalServerErrorException`。
    */
-  async request<T>(
-    params: WechatPayRequestParams,
-  ): Promise<WechatPayResponse<T>> {
-    const scope = params.credential ?? 'store';
-    const serialNo = this.getRequiredConfig(
-      CREDENTIAL_CONFIG_PATHS[scope].serialNo,
-    );
-    const privateKeyPem = await this.loadPrivateKeyPem(scope);
-    const canonicalUrl = params.query
-      ? `${params.urlPath}?${params.query}`
-      : params.urlPath;
+  request<T>(params: WechatPayRequestParams): Promise<WechatPayResponse<T>> {
+    const querySuffix = params.query ? `?${params.query}` : '';
 
-    const authorization = this.buildAuthorization({
+    return this.transport.request<T>({
+      method: params.method,
+      // 门店侧签名 URL 与请求 URL 恒等，无需单独给出 signUrlPath
+      requestUrlPath: `${params.urlPath}${querySuffix}`,
       mchId: params.mchId,
-      serialNo,
-      privateKeyPem,
-      method: params.method,
-      canonicalUrl,
-      body: params.body ?? '',
-    });
-
-    const response = await this.send({
-      url: `${WECHAT_API_BASE}${canonicalUrl}`,
-      method: params.method,
-      authorization,
+      credential: params.credential,
       body: params.body,
     });
-
-    if (response.ok) {
-      return {
-        ok: true,
-        status: response.status,
-        data: await this.readJson<T>(response),
-      };
-    }
-
-    const errorPayload = await this.readErrorPayload(response);
-    return {
-      ok: false,
-      status: response.status,
-      code: errorPayload?.code ?? null,
-      message: errorPayload?.message ?? '',
-    };
   }
 
   /**
@@ -175,24 +123,7 @@ export class ClubWechatPayHttpService {
    * 否则前端拿到的是「能拉起但必被拒」的参数。
    */
   signWithRsa(message: string, privateKeyPem: string | null): string {
-    if (!privateKeyPem) {
-      this.logger.warn(
-        '微信支付私钥未配置，使用开发态占位签名（微信将拒绝此请求）',
-      );
-      return DEV_PLACEHOLDER_SIGNATURE;
-    }
-
-    try {
-      const privateKey = createPrivateKey(privateKeyPem);
-      const sign = createSign('RSA-SHA256');
-      sign.update(message, 'utf8');
-      return sign.sign(privateKey, 'base64');
-    } catch (error) {
-      this.logger.error('RSA 签名失败，商户私钥格式可能有误', error);
-      throw new InternalServerErrorException(
-        '微信支付签名失败，请检查私钥配置是否正确',
-      );
-    }
+    return this.transport.signWithRsa(message, privateKeyPem);
   }
 
   /**
@@ -203,167 +134,13 @@ export class ClubWechatPayHttpService {
    *
    * @param scope 凭据作用域，两套作用域各自独立缓存互不影响
    */
-  async loadPrivateKeyPem(
+  loadPrivateKeyPem(
     scope: WechatPayCredentialScope = 'store',
   ): Promise<string | null> {
-    const cache = this.privateKeyCache[scope];
-    if (
-      cache?.pem !== undefined &&
-      Date.now() - cache.loadedAt < PRIVATE_KEY_CACHE_TTL_MS
-    ) {
-      return cache.pem;
-    }
-
-    const key = this.privateKeyLoadInFlight[scope];
-    if (key) {
-      return key;
-    }
-
-    this.privateKeyLoadInFlight[scope] = this.loadPrivateKeyPemFromSource(
-      scope,
-    ).finally(() => {
-      this.privateKeyLoadInFlight[scope] = null;
-    });
-    return this.privateKeyLoadInFlight[scope];
+    return this.transport.loadPrivateKeyPem(scope);
   }
-
-  // ─── 请求发送与响应解析 ───────────────────────────────────────────────────
-
-  private async send(params: {
-    url: string;
-    method: 'GET' | 'POST';
-    authorization: string;
-    body?: string;
-  }): Promise<Response> {
-    try {
-      return await fetch(params.url, {
-        method: params.method,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: params.authorization,
-          'User-Agent': 'purelyprofit-server/1.0',
-        },
-        ...(params.body ? { body: params.body } : {}),
-        signal: AbortSignal.timeout(WECHAT_REQUEST_TIMEOUT_MS),
-      });
-    } catch (error) {
-      this.logger.error(
-        `微信支付接口请求异常 method=${params.method} path=${params.url.replace(WECHAT_API_BASE, '')}`,
-        error,
-      );
-      throw new InternalServerErrorException(
-        '微信支付服务暂时不可用，请稍后重试',
-      );
-    }
-  }
-
-  /** 成功响应体解析；关单返回 204 时无响应体，按 null 处理 */
-  private async readJson<T>(response: Response): Promise<T> {
-    if (response.status === 204) {
-      return null as T;
-    }
-    return (await response.json()) as T;
-  }
-
-  private async readErrorPayload(
-    response: Response,
-  ): Promise<WechatErrorResponse | null> {
-    try {
-      return (await response.json()) as WechatErrorResponse;
-    } catch {
-      return null;
-    }
-  }
-
-  // ─── 配置与签名 ───────────────────────────────────────────────────────────
 
   getRequiredConfig(key: string): string {
-    const value = this.configService.get<string>(key);
-    if (!value?.trim()) {
-      throw new InternalServerErrorException(
-        `环境变量 ${key} 未配置，无法发起微信支付`,
-      );
-    }
-    return value.trim();
-  }
-
-  /** 组装 WECHATPAY2-SHA256-RSA2048 鉴权头 */
-  private buildAuthorization(params: {
-    mchId: string;
-    serialNo: string;
-    privateKeyPem: string | null;
-    method: string;
-    canonicalUrl: string;
-    body: string;
-  }): string {
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const nonce = randomBytes(16).toString('hex');
-
-    const signMessage = [
-      params.method,
-      params.canonicalUrl,
-      timestamp,
-      nonce,
-      params.body,
-      '',
-    ].join('\n');
-
-    return [
-      `WECHATPAY2-SHA256-RSA2048 mchid="${params.mchId}"`,
-      `nonce_str="${nonce}"`,
-      `signature="${this.signWithRsa(signMessage, params.privateKeyPem)}"`,
-      `timestamp="${timestamp}"`,
-      `serial_no="${params.serialNo}"`,
-    ].join(',');
-  }
-
-  /** 真正读取私钥（文件优先，其次内联），结果写入对应作用域的缓存 */
-  private async loadPrivateKeyPemFromSource(
-    scope: WechatPayCredentialScope,
-  ): Promise<string | null> {
-    const paths = CREDENTIAL_CONFIG_PATHS[scope];
-    // 先清缓存再加载：读取失败时不会残留上一次的旧值
-    this.privateKeyCache[scope] = { pem: null, loadedAt: Date.now() };
-
-    const keyPath = this.configService
-      .get<string>(paths.privateKeyPath)
-      ?.trim();
-    if (keyPath) {
-      try {
-        const pem = await readFile(keyPath, 'utf8');
-        this.privateKeyCache[scope] = { pem, loadedAt: Date.now() };
-        return pem;
-      } catch (error) {
-        this.logger.error(`读取微信支付私钥文件失败: ${keyPath}`, error);
-        throw new InternalServerErrorException(
-          '读取微信支付私钥文件失败，请检查 WECHAT_PRIVATE_KEY_PATH 配置',
-        );
-      }
-    }
-
-    const keyContent = this.configService
-      .get<string>(paths.privateKeyContent)
-      ?.trim();
-    if (keyContent) {
-      // 支持环境变量中以字面 \n 代替换行的写法
-      const pem = keyContent.replace(/\\n/g, '\n');
-      this.privateKeyCache[scope] = { pem, loadedAt: Date.now() };
-      return pem;
-    }
-
-    if (this.isProduction()) {
-      this.logger.error(
-        '生产环境未配置微信支付商户私钥（privateKeyPath / privateKeyContent），' +
-          '拒绝生成支付参数，避免下发注定被微信拒绝的签名',
-      );
-      throw new InternalServerErrorException(
-        '微信支付商户私钥未配置，支付暂不可用，请联系平台管理员',
-      );
-    }
-
-    this.logger.warn('微信支付私钥未配置，将使用开发态占位签名');
-    this.privateKeyCache[scope] = { pem: null, loadedAt: Date.now() };
-    return null;
+    return this.transport.getRequiredConfig(key);
   }
 }

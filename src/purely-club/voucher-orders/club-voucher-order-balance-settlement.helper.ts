@@ -2,10 +2,9 @@
 // 与「服务订单余额结算」同口径：余额支付即门店消费，需记流水与累计消费
 import { BadRequestException, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
-import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { Money } from '../../shared/money.utils';
 import { awardPointsForSettlement } from '../orders/club-order-settlement-points.utils';
+import { debitCustomerBalance } from '../payments/club-balance-settlement.utils';
 import type { VoucherBalanceSettlementOrder } from './club-voucher-order-payment.types';
 import { CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE } from './club-voucher-orders.constants';
 
@@ -51,26 +50,15 @@ export async function settleVoucherBalancePayment(
 
   // 累计消费口径必须与消费流水 amount 一致（含积分抵扣部分），
   // 否则物化字段会永远比「流水实时聚合」少掉积分抵扣金额
-  const settlementAmountFen = balancePaidFen + order.pointsDeductFen;
-  // updateMany + where 条件保证余额不会被并发扣减为负数
-  const newTotalSpent = customer.totalSpent + settlementAmountFen;
-  // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
-  const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
-  const updated = await tx.marketingCustomer.updateMany({
-    where: { id: customerId, balance: { gte: balancePaidFen } },
-    data: {
-      balance: { decrement: balancePaidFen },
-      totalSpent: { increment: settlementAmountFen },
-      visitCount: { increment: 1 },
-      lastVisitAt: new Date(),
-      tier: calcCustomerTier(newTotalSpent, thresholds) as never,
+  await debitCustomerBalance(tx, {
+    customerId,
+    storeId: order.storeId,
+    balancePaidFen,
+    metrics: {
+      settlementAmountFen: balancePaidFen + order.pointsDeductFen,
+      currentTotalSpent: customer.totalSpent,
     },
   });
-  if (updated.count !== 1) {
-    throw new BadRequestException(
-      `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
-    );
-  }
 
   // 赠送消费积分（受积分规则 enabled 开关控制）
   const awardedPoints = await awardPointsForSettlement(

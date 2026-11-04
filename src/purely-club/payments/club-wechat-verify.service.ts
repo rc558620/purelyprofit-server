@@ -29,6 +29,7 @@ export const CLUB_WECHAT_VERIFY_SCOPES = [
   'voucher',
   'self-ordering',
   'scan-ordering',
+  'recharge',
   'card',
 ] as const;
 

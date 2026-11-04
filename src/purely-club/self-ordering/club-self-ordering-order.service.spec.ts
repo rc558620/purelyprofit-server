@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
+import { ClubSelfOrderingPricingService } from './club-self-ordering-pricing.service';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
@@ -165,6 +166,8 @@ describe('ClubSelfOrderingOrderService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubSelfOrderingOrderService,
+        // 定价已拆到独立 service：仍复用同一份商品规格定价桩
+        ClubSelfOrderingPricingService,
         { provide: PrismaService, useValue: prisma },
         {
           provide: ClubCurrentStoreContextService,

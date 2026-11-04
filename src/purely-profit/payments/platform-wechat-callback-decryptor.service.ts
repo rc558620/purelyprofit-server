@@ -14,9 +14,9 @@
  *   - AAD：resource.associated_data（可选）
  *   - 密文：resource.ciphertext（Base64，末尾 16 字节为 GCM Tag）
  */
-import { createDecipheriv } from 'node:crypto';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { decryptResource } from '../../shared/wechat-pay/wechat-callback-crypto';
 import type { WechatDecryptedTransaction } from '../../purely-club/payments/dto/club-wechat-callback.dto';
 
 export interface WechatCallbackResourcePayload {
@@ -27,9 +27,6 @@ export interface WechatCallbackResourcePayload {
     associated_data?: string;
   };
 }
-
-/** GCM Tag 固定 16 字节 */
-const GCM_TAG_LENGTH = 16;
 
 @Injectable()
 export class PlatformWechatCallbackDecryptorService {
@@ -100,51 +97,29 @@ export class PlatformWechatCallbackDecryptorService {
     associatedData: string,
     apiV3Key: string,
   ): WechatDecryptedTransaction | null {
-    try {
-      const ciphertextBuf = Buffer.from(ciphertextBase64, 'base64');
-      if (ciphertextBuf.length <= GCM_TAG_LENGTH) {
-        return null;
-      }
+    const outcome = decryptResource<WechatDecryptedTransaction>(
+      apiV3Key,
+      nonce,
+      associatedData,
+      ciphertextBase64,
+    );
 
-      const ciphertext = ciphertextBuf.subarray(
-        0,
-        ciphertextBuf.length - GCM_TAG_LENGTH,
-      );
-      const authTag = ciphertextBuf.subarray(
-        ciphertextBuf.length - GCM_TAG_LENGTH,
-      );
+    if (outcome.ok) {
+      return outcome.payload;
+    }
 
-      // APIv3Key 直接作为 32 字节 AES 密钥（UTF-8 编码）
-      const keyBuf = Buffer.from(apiV3Key, 'utf8');
-      if (keyBuf.length !== 32) {
-        this.logger.error(
-          `平台 APIv3Key 长度非法（${keyBuf.length} 字节，应为 32），请检查 WECHAT_PAY_API_V3_KEY`,
-        );
-        return null;
-      }
-
-      const decipher = createDecipheriv(
-        'aes-256-gcm',
-        keyBuf,
-        Buffer.from(nonce, 'utf8'),
-      );
-      decipher.setAuthTag(authTag);
-      decipher.setAAD(Buffer.from(associatedData, 'utf8'));
-
-      const plaintext = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]).toString('utf8');
-
-      return JSON.parse(plaintext) as WechatDecryptedTransaction;
-    } catch (error: unknown) {
-      // 密钥不对或 GCM 认证失败，返回 null
-      this.logger.warn(
-        `平台收款回调 AES-GCM 解密失败: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+    // 平台侧只有一把密钥：长度非法属于部署事故，必须留下可定位的 error 日志
+    if (outcome.kind === 'invalid-key-length') {
+      this.logger.error(
+        `平台 APIv3Key 长度非法（${outcome.keyByteLength} 字节，应为 32），请检查 WECHAT_PAY_API_V3_KEY`,
       );
       return null;
     }
+    if (outcome.kind === 'decrypt-failed') {
+      this.logger.warn(
+        `平台收款回调 AES-GCM 解密失败: ${outcome.errorMessage}`,
+      );
+    }
+    return null;
   }
 }

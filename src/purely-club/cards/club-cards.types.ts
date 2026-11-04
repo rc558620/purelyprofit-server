@@ -53,6 +53,17 @@ export type ClubMemberCardOrderStatusValue =
   | 'cancelled'
   | 'expired';
 
+/**
+ * 购卡支付方式。
+ *
+ * wechat=微信 JSAPI 支付（下单返回支付参数，由回调落账）；
+ * balance=储值余额支付（下单同一请求内扣余额并直接发卡，不返回支付参数）。
+ */
+export const CLUB_CARD_PAYMENT_METHOD_VALUES = ['wechat', 'balance'] as const;
+
+export type ClubCardPaymentMethod =
+  (typeof CLUB_CARD_PAYMENT_METHOD_VALUES)[number];
+
 /** 可购卡模板（购卡页档位卡） */
 export interface ClubMemberCardPlanView {
   id: string;
@@ -121,6 +132,7 @@ export interface ClubMemberCardOrderView {
   title: string;
   /** 应付金额（元） */
   amount: number;
+  /** 支付渠道：wechat=微信支付 / balance=储值余额 / cash=线下现金 / gift=赠送 */
   paymentChannel: string;
   status: ClubMemberCardOrderStatusValue;
   createdAt: string;

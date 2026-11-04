@@ -1,8 +1,4 @@
-/**
- * @deprecated 已废弃：resolveHotProductIds 不再按数量截取，返回所有商品 id。
- * 保留导出仅为兼容历史引用，后续清理。
- */
-export const CLUB_HOT_PRODUCT_COUNT = 3;
+/** 精选商品展示数量上限 */
 export const CLUB_FEATURED_PRODUCT_LIMIT = 6;
 /** 列表接口默认返回上限，防止全量加载 */
 export const CLUB_PRODUCT_DEFAULT_LIST_LIMIT = 50;

@@ -29,18 +29,6 @@ export const CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE = '团购券已过期，无法�
 export const CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE =
   '该团购券已开台使用，无法退款';
 
-/** 当前状态不允许支付确认 */
-export const CLUB_VOUCHER_CONFIRM_NOT_ALLOWED_MESSAGE =
-  '当前订单状态不允许确认支付';
-
-/** 团购券订单金额与回调不一致 */
-export const CLUB_VOUCHER_CALLBACK_AMOUNT_MISMATCH_MESSAGE =
-  '回调金额与订单金额不一致';
-
-/** 人数不合法 */
-export const CLUB_VOUCHER_INVALID_PERSON_COUNT_MESSAGE =
-  '到店人数须为大于 0 的整数';
-
 /** 商品库存不足 */
 export const CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE = '商品库存不足';
 

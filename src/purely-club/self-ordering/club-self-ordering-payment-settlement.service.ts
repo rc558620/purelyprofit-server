@@ -5,7 +5,11 @@ import type {
   SettlePaidOrderParams,
 } from './club-self-ordering-payment.types';
 import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-session-bridge.service';
-import { BALANCE_PAYMENT_CHANNEL } from './club-self-ordering.utils';
+import {
+  CLUB_CHANNEL_BALANCE,
+  CLUB_CHANNEL_WECHAT,
+  isBalancePaymentChannel,
+} from '../payments/club-payment-channels.constants';
 
 /**
  * 自助下单订单落账服务
@@ -85,8 +89,9 @@ export class ClubSelfOrderingPaymentSettlementService {
     await this.sessionBridge.appendPaidItemsToSession(tx, {
       sessionId: order.sessionId,
       orderNo: order.orderNo,
-      sourceChannel:
-        params.channel === BALANCE_PAYMENT_CHANNEL ? 'balance' : 'wechat',
+      sourceChannel: isBalancePaymentChannel(params.channel)
+        ? CLUB_CHANNEL_BALANCE
+        : CLUB_CHANNEL_WECHAT,
       items: order.items.map((item) => ({
         id: item.id,
         productId: item.productId,

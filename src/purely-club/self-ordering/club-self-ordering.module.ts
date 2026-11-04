@@ -9,6 +9,7 @@ import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.modu
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubSelfOrderingController } from './club-self-ordering.controller';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
+import { ClubSelfOrderingPricingService } from './club-self-ordering-pricing.service';
 import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
 import { ClubSelfOrderingPaymentRepository } from './club-self-ordering-payment.repository';
@@ -45,6 +46,8 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
   providers: [
     ClubSelfOrderingService,
     ClubSelfOrderingOrderService,
+    // 商品定价与快照（服务端权威重算），建单服务只负责幂等与事务
+    ClubSelfOrderingPricingService,
     ClubSelfOrderingWechatVerifyService,
     ClubSelfOrderingPaymentService,
     ClubSelfOrderingSessionBridgeService,

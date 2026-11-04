@@ -8,6 +8,7 @@ import type {
 } from '../orders/club-order-drafts.types';
 import type { ClubOrderStatusValue } from '../orders/club-order.types';
 import type { ClubWechatPaymentParamsDto } from '../orders/dto/club-order.dto';
+import { CLUB_CHANNEL_WECHAT } from '../payments/club-payment-channels.constants';
 
 /** Prisma 唯一约束冲突错误码 */
 const PRISMA_UNIQUE_VIOLATION = 'P2002';
@@ -183,7 +184,7 @@ export class ClubRechargeOrderStoreService {
       customerId: order.customerId,
       title: '会员充值',
       amountFen: order.amountFen,
-      paymentChannel: 'wechat',
+      paymentChannel: CLUB_CHANNEL_WECHAT,
       createdAtMs: order.createdAt.getTime(),
       expiresAtMs: order.expiresAt.getTime(),
       paidAtMs: order.paidAt ? order.paidAt.getTime() : null,

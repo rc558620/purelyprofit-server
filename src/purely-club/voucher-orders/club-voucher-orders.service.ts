@@ -19,12 +19,6 @@ import type {
   PreviewClubVoucherOrderDto,
 } from './dto/club-voucher-order.dto';
 
-/** 团购券订单状态码（前端可直接使用） */
-export const CLUB_VOUCHER_STATUS_PENDING = 'pending';
-export const CLUB_VOUCHER_STATUS_USED = 'used';
-export const CLUB_VOUCHER_STATUS_REFUNDED = 'refunded';
-export const CLUB_VOUCHER_STATUS_EXPIRED = 'expired';
-
 @Injectable()
 export class ClubVoucherOrdersService {
   constructor(

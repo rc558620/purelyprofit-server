@@ -29,14 +29,6 @@ export const PROFIT_PAYMENT_RECONCILE_DEFAULT_BATCH_SIZE = 200;
 export const PROFIT_PAYMENT_RECONCILE_DEFAULT_MIN_PENDING_MINUTES = 5;
 
 /**
- * 执行间隔：30 分钟。
- *
- * 远大于支付单 15 分钟有效期，保证「确认未支付 → 关单」只在订单真正过期后执行，
- * 同时把丢失回调的自愈延迟控制在半小时内。
- */
-export const PROFIT_PAYMENT_RECONCILE_DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
-
-/**
  * 对账时间窗上限：只处理 24 小时内创建的挂起单。
  *
  * 再老的单要么早已被微信侧自动关闭、要么属于需要人工介入的对账差异，

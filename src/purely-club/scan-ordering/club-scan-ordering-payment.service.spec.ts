@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
@@ -460,13 +464,15 @@ describe('ClubScanOrderingPaymentService', () => {
       });
     });
 
-    it('抛出 ConflictException', async () => {
+    // 金额一致性校验统一走 payments/club-payments.utils：
+    // 异常类型与文案在全站只有一份，便于对账与告警按统一口径检索
+    it('抛出 BadRequestException', async () => {
       await expect(
         service.confirmOrderPaidByCallback('SO20260723120000ABCD-EFGH5678', {
           ...baseSettlement,
           amountFen: 4999,
         }),
-      ).rejects.toBeInstanceOf(ConflictException);
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('不修改支付尝试', async () => {

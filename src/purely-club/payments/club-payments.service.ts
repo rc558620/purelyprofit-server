@@ -14,7 +14,6 @@ import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { ClubPaymentCallbackJobData } from '../../queue/club-payment-callback.types';
 import type {
-  ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
   ClubWechatCallbackHeaders,
 } from './club-payments.types';
@@ -245,16 +244,5 @@ export class ClubPaymentsService {
       return fallbackMs;
     }
     return parsed;
-  }
-
-  private toCallbackAck(
-    order: ClubPaymentCallbackResult,
-  ): ClubWechatPaymentCallbackAckDto {
-    return {
-      success: true,
-      orderNo: order.orderNo,
-      orderType: order.orderType,
-      status: order.status,
-    };
   }
 }
