@@ -33,6 +33,27 @@ const SCAN_ORDERING_QR_CODE_SIZE = 240;
 /** 桌码列表缓存时长（秒）：列表只在轮换 / 作废后失效，读远多于写。 */
 const QR_CODE_LIST_CACHE_TTL_SECONDS = 300;
 
+/**
+ * 桌码密文不可还原时的对外提示。
+ *
+ * 明文只存在于密文中，密钥一旦丢失就无法还原，唯一出路是轮换重生；
+ * 因此文案只说「该做什么」，不出现环境变量名（配置细节不对外）。
+ */
+const QR_TOKEN_UNRECOVERABLE_MESSAGE =
+  '当前桌码已无法还原，请「轮换二维码」后重新下载';
+
+/** 桌码密文不可还原的错误码（便于前端分支与工单检索）。 */
+const SCAN_QR_TOKEN_UNRECOVERABLE_CODE = 'SCAN_QR_TOKEN_UNRECOVERABLE';
+
+/** 桌码加密 / 生成失败的错误码。 */
+const SCAN_QR_TOKEN_ENCRYPT_FAILED_CODE = 'SCAN_QR_TOKEN_ENCRYPT_FAILED';
+
+/** 加解密失败时的对外提示与错误码。 */
+interface CryptoFailure {
+  message: string;
+  code: string;
+}
+
 /** 新写入的桌码记录的最小投影。 */
 interface CreatedQrCodeRow {
   id: number;
@@ -135,7 +156,10 @@ export class ScanOrderingQrService implements OnModuleInit {
       );
     }
 
-    const token = this.decryptToken(qrCode.tokenCiphertext);
+    const token = this.decryptToken(qrCode.tokenCiphertext, {
+      tableId,
+      qrCodeId: qrCode.id,
+    });
     return this.toQrCodeResponse(qrCode.id, tableId, qrCode.version, token);
   }
 
@@ -351,11 +375,22 @@ export class ScanOrderingQrService implements OnModuleInit {
   private buildTokenSecrets(
     token: string,
   ): Required<ScanOrderingQrTokenSecrets> {
-    const secrets = this.guardCrypto(() =>
-      buildScanOrderingQrTokenSecrets(token, this.readTokenKeyConfig()),
+    const secrets = this.guardCrypto(
+      () => buildScanOrderingQrTokenSecrets(token, this.readTokenKeyConfig()),
+      {
+        message: '桌码生成失败，请稍后重试',
+        code: SCAN_QR_TOKEN_ENCRYPT_FAILED_CODE,
+      },
+      'build-token-secrets',
     );
     if (!secrets.tokenCiphertext) {
-      throw new InternalServerErrorException('未配置桌码加密密钥');
+      this.logger.error(
+        '桌码生成失败：没有任何可用加密密钥（scanOrdering.qrTokenEncryptionKey / jwt.secret 均为空）',
+      );
+      throw new InternalServerErrorException({
+        message: '桌码生成失败，请稍后重试',
+        code: SCAN_QR_TOKEN_ENCRYPT_FAILED_CODE,
+      });
     }
     return { ...secrets, tokenCiphertext: secrets.tokenCiphertext };
   }
@@ -365,31 +400,57 @@ export class ScanOrderingQrService implements OnModuleInit {
    *
    * 依次尝试当前密钥 → 上一代密钥 → JWT_SECRET 派生密钥：
    * 密钥轮换后，轮换前生成的历史桌码仍能被重新下载 / 导出。
+   *
+   * 全部候选都解不开属于**不可逆**故障（写库时的密钥已丢失，明文只存在于密文里），
+   * 只能靠轮换桌码重生。因此给商家端的提示只说明可执行动作；具体排查线索
+   * （桌台 / 桌码 id、应该检查哪些配置）只落日志，避免把服务端配置细节透传给前端。
    */
-  private decryptToken(ciphertext: string): string {
-    const token = this.guardCrypto(() =>
-      decryptScanOrderingQrToken(
-        ciphertext,
-        resolveScanOrderingQrTokenKeys(this.readTokenKeyConfig()),
-      ),
+  private decryptToken(
+    ciphertext: string,
+    context: { tableId: number; qrCodeId: number },
+  ): string {
+    const token = this.guardCrypto(
+      () =>
+        decryptScanOrderingQrToken(
+          ciphertext,
+          resolveScanOrderingQrTokenKeys(this.readTokenKeyConfig()),
+        ),
+      {
+        message: QR_TOKEN_UNRECOVERABLE_MESSAGE,
+        code: SCAN_QR_TOKEN_UNRECOVERABLE_CODE,
+      },
+      `decrypt-token(tableId=${context.tableId}, qrCodeId=${context.qrCodeId})`,
     );
     if (!token) {
-      throw new InternalServerErrorException(
-        '桌码加密数据无法解密：密钥可能已轮换，请检查 ' +
-          'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY / ' +
-          'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY_PREVIOUS 配置，' +
-          '或轮换桌码后重新下载',
+      this.logger.error(
+        `桌码密文无法解密：tableId=${context.tableId} qrCodeId=${context.qrCodeId}，` +
+          '当前候选密钥（SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY / _PREVIOUS / JWT_SECRET 派生）' +
+          '均解不开，说明写库时的密钥已丢失；只能轮换该桌码重生',
       );
+      throw new InternalServerErrorException({
+        message: QR_TOKEN_UNRECOVERABLE_MESSAGE,
+        code: SCAN_QR_TOKEN_UNRECOVERABLE_CODE,
+      });
     }
     return token;
   }
 
-  /** codec util 抛的是纯 Error，这里统一转成 500 并保留原提示文案。 */
-  private guardCrypto<T>(run: () => T): T {
+  /**
+   * codec util 抛的是纯 Error：详细原因（含密钥配置问题）落日志，
+   * 前端只拿到调用方指定的可操作提示，不暴露服务端配置项名称。
+   */
+  private guardCrypto<T>(
+    run: () => T,
+    failure: CryptoFailure,
+    scene: string,
+  ): T {
     try {
       return run();
     } catch (error) {
-      throw new InternalServerErrorException((error as Error).message);
+      this.logger.error(
+        `桌码加解密失败（${scene}）：${(error as Error).message}`,
+      );
+      throw new InternalServerErrorException(failure);
     }
   }
 

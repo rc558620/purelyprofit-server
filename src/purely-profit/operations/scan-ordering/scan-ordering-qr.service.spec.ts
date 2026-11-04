@@ -111,20 +111,44 @@ describe('ScanOrderingQrService - 已印刷物料保护', () => {
       expect(result.token).toBe(TABLE_TOKEN);
     });
 
-    it('全部候选密钥都解不开时给出可排查的提示', async () => {
+    it('全部候选密钥都解不开时给出可操作提示，排查细节只落日志', async () => {
       prismaService.scanOrderingTableQrCode.findFirst.mockResolvedValue({
         id: 10,
         version: 1,
         tokenCiphertext: encrypt(TABLE_TOKEN, randomBytes(32)),
       });
 
+      const logger = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
       const service = await buildService({
         'scanOrdering.qrTokenEncryptionKey': randomBytes(32).toString('base64'),
       });
 
-      await expect(service.getCurrentQrCode({} as never, 1)).rejects.toThrow(
-        /SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY/,
+      let caught: unknown;
+      try {
+        await service.getCurrentQrCode({} as never, 1);
+      } catch (error) {
+        caught = error;
+      }
+
+      // 对外提示必须可操作，且不能暴露服务端环境变量名
+      expect(caught).toBeInstanceOf(InternalServerErrorException);
+      const response = (
+        caught as InternalServerErrorException
+      ).getResponse() as { message: string; code: string };
+      expect(response.code).toBe('SCAN_QR_TOKEN_UNRECOVERABLE');
+      expect(response.message).toContain('轮换二维码');
+      expect(response.message).not.toContain(
+        'SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY',
       );
+
+      // 排查线索（桌台 / 桌码 id + 应检查的配置）必须留在日志里
+      expect(logger).toHaveBeenCalledWith(expect.stringContaining('tableId=1'));
+      expect(logger).toHaveBeenCalledWith(
+        expect.stringContaining('SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY'),
+      );
+      logger.mockRestore();
     });
   });
 
