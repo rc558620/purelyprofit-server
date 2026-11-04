@@ -73,6 +73,11 @@ jobs:
       - name: Run SQL timezone gate
         run: pnpm run sql:tz:check
 
+      # @nestjs/throttler v5+ 的 ttl 单位是毫秒：写成 60 只有 60ms 窗口，且会覆盖全局默认限流。
+      # 该门为纯静态扫描（不依赖 DB / Redis / Prisma Client），失败即表示限流形同虚设。
+      - name: Run throttle ttl gate
+        run: pnpm run throttle:ttl:check
+
       - name: Run unit tests
         run: pnpm run test --ci
 
@@ -302,6 +307,9 @@ jobs:
           test -f dist/src/main.js || { echo '::error::dist/src/main.js 缺失'; exit 1; }
           test -f dist/cluster-main.js || { echo '::error::dist/cluster-main.js 缺失'; exit 1; }
           test -f dist/config/cluster.configuration.js || { echo '::error::dist/config/cluster.configuration.js 缺失'; exit 1; }
+          # cluster-main.js 在 primary 进程中 require('./config/rsa-key-pair.utils')，
+          # 该文件缺失时 start:cluster 会在 fork 之前直接 MODULE_NOT_FOUND。
+          test -f dist/config/rsa-key-pair.utils.js || { echo '::error::dist/config/rsa-key-pair.utils.js 缺失（集群启动会失败）'; exit 1; }
           echo '构建产物校验通过'
 
       # 产物自带 package.json / pnpm-lock.yaml / prisma，保证部署侧 migrate 与运行时依赖可复现。

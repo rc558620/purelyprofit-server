@@ -56,7 +56,8 @@ export class AuthController {
   ) {}
 
   @Get('public-key')
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。登录页每次提交前都会取公钥，按 60 次/分钟给足重试余量
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '获取 RSA 公钥',
     description:
@@ -73,7 +74,8 @@ export class AuthController {
 
   @Post('captcha/challenge')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。拼图令牌保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '颁发拼图验证令牌',
     description:
@@ -85,15 +87,15 @@ export class AuthController {
     description: '颁发成功，返回 captchaToken',
     type: CaptchaChallengeResponseDto,
   })
-  issueCaptchaChallenge(): Promise<CaptchaChallengeResponseDto> {
-    return this.captchaTokenService
-      .issueChallenge()
-      .then((captchaToken) => ({ captchaToken }));
+  async issueCaptchaChallenge(): Promise<CaptchaChallengeResponseDto> {
+    const captchaToken = await this.captchaTokenService.issueChallenge();
+    return { captchaToken };
   }
 
   @Post('register/send-code')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 3 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。短信即成本，维持 3 次/分钟不放宽
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
   @ApiOperation({
     summary: '发送 purely-profit 注册短信验证码',
     description:
@@ -111,7 +113,8 @@ export class AuthController {
   }
 
   @Post('register')
-  @Throttle({ default: { ttl: 60, limit: 5 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。注册保持 5 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @ApiOperation({
     summary: 'purely-profit 注册',
     description:
@@ -158,7 +161,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。门店共用出口 IP，30 次/分钟避免交接班批量登录被误伤
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: 'purely-profit 登录',
     description:
@@ -182,7 +186,8 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。前端并发刷新，保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '刷新访问令牌',
     description:
@@ -205,7 +210,8 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 5 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。敏感操作保持 5 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '修改当前账号密码' })
@@ -232,7 +238,8 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 5 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。会下发短信，保持 5 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @ApiOperation({
     summary: '发送 purely-profit 找回密码短信验证码',
     description:
@@ -254,7 +261,8 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 5 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。需校验短信码，保持 5 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @ApiOperation({
     summary: '通过短信验证码重置 purely-profit 密码',
     description:

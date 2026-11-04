@@ -57,7 +57,8 @@ export class ClubAuthController {
    */
   @Post('captcha/register')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。拼图令牌保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '注册拼图验证令牌',
     description:
@@ -73,7 +74,8 @@ export class ClubAuthController {
   }
 
   @Get('public-key')
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。登录页加载即取公钥，按 60 次/分钟给足重试余量
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '获取 purely-club RSA 公钥',
     description:
@@ -90,7 +92,8 @@ export class ClubAuthController {
 
   @Post('login/send-code')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 3 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。短信即成本，维持 3 次/分钟不放宽
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
   @UseGuards(ClubDevLoginGuard)
   @ApiOperation({
     summary: '发送 purely-club 登录验证码（仅供开发调试）',
@@ -115,7 +118,8 @@ export class ClubAuthController {
 
   @Post('login/code')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。门店共用出口 IP，30 次/分钟避免交接班/高峰误伤
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @UseGuards(ClubDevLoginGuard)
   @ApiOperation({
     summary: '手机号验证码登录（登录即注册，仅供开发调试）',
@@ -135,7 +139,8 @@ export class ClubAuthController {
   }
 
   @Post('login/wechat')
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。扫码点餐高峰期成批冷启动登录，共享出口 IP 下 60 次/分钟更贴合真实并发
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '微信小程序登录（登录即注册）',
     description:
@@ -157,7 +162,8 @@ export class ClubAuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { ttl: 60, limit: 3 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。短信即成本，维持 3 次/分钟不放宽
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
   @ApiOperation({
     summary: '发送绑定手机号验证码',
     description:
@@ -182,7 +188,8 @@ export class ClubAuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。绑定需校验短信码，保持 10 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiOperation({
     summary: '微信登录后绑定手机号',
     description:
@@ -210,7 +217,8 @@ export class ClubAuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。换绑有 30 天冷静期，保持 10 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiOperation({
     summary: '换绑手机号（已绑定用户更换联系方式）',
     description:
@@ -236,7 +244,8 @@ export class ClubAuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。一键绑定走微信手机号背书，保持 10 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiOperation({
     summary: '微信一键绑定手机号（getPhoneNumber）',
     description:
@@ -262,7 +271,8 @@ export class ClubAuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。额度预检保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '新用户额度预检',
     description:
@@ -289,7 +299,8 @@ export class ClubAuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。前端并发刷新，保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '刷新 purely-club 访问令牌',
     description:

@@ -281,7 +281,9 @@ const buildListService = () => {
       expiringCount: 0,
       monthPickupCount: 0,
     },
-    validUntil: '2026-11-01T00:00:00.000Z',
+    // 必须是「相对当前时间」的未来时刻：写死日期会在到期后变成脏缓存，
+    // 使统计走重算分支、多打一次 count，本文件的用例会随日期推移集体变红。
+    validUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   });
   const readStoreSnapshot = jest.fn().mockResolvedValue(null);
   const writeStoreSnapshot = jest.fn().mockResolvedValue(undefined);

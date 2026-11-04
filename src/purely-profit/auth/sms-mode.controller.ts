@@ -34,7 +34,8 @@ export class SmsModeController {
   constructor(private readonly authSmsModeService: AuthSmsModeService) {}
 
   @Get('sms-mode')
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。调试查询保持 30 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: '查询当前短信通道模式',
     description:
@@ -48,7 +49,8 @@ export class SmsModeController {
 
   @Post('sms-mode')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。敏感切换保持 10 次/分钟
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiOperation({
     summary: '切换短信通道模式',
     description:

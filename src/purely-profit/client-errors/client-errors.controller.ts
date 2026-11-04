@@ -35,7 +35,8 @@ export class ClientErrorsController {
    * - ThrottlerGuard 按 IP 计数，门店共用出口 IP 时，一个人的死循环会挤掉全店配额；
    * - 被 429 拒绝的上报本身又是一条前端错误，不设上限会形成自激循环。
    */
-  @Throttle({ default: { ttl: 60, limit: 20 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。错误上报 20 次/分钟，避免死循环上报自激挤爆全店配额
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({ summary: '接收前端全局错误上报' })
   @ApiNoContentResponse({ description: '错误日志接收成功' })
   report(

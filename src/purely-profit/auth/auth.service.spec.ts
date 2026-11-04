@@ -1392,7 +1392,10 @@ describe('AuthService', () => {
 
   it('更新昵称后返回最新 profile', async () => {
     prismaService.user.update.mockResolvedValue(undefined);
-    prismaService.user.findUnique.mockResolvedValueOnce({
+    // 改昵称链路会先读一次用户（同步门店顾客档案时解析关联手机号），
+    // 再读一次回填 profile；只用 mockResolvedValueOnce 会被第一次读吃掉，
+    // 导致 profile 读回 undefined 并抛「用户不存在」。
+    prismaService.user.findUnique.mockResolvedValue({
       id: 1,
       email: 'phone_13800138000@purelyprofit.local',
       name: '新昵称',

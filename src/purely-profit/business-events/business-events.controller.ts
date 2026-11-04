@@ -16,7 +16,8 @@ export class BusinessEventsController {
    * 正常客户端一屏只会产生个位数事件，30 次/分钟足够；
    * 没有上限时被刷会让日志量失控（错误上报低频可以不管，埋点高频不行）。
    */
-  @Throttle({ default: { ttl: 60, limit: 30 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。埋点 30 次/分钟，防止无认证写入接口被刷
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({ summary: '接收前端业务埋点事件' })
   @ApiNoContentResponse({ description: '事件接收成功' })
   report(@Body() payload: BusinessEventReportDto): void {

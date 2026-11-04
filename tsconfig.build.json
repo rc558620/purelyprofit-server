@@ -1,7 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src",
+    // 生产以 dist/cluster-main.js 启动，且 cluster-main 内部 require('./src/main')，
+    // 因此产物必须保持 dist/src/… 布局；rootDir 显式设为项目根以锁定该布局
+    // （TS 6 / CLI 12 不再自动推断，若保持 ./src 会变成 dist/main.js）。
+    "rootDir": ".",
     "incremental": false
   },
   "include": ["src/**/*.ts"],

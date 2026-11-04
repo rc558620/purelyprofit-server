@@ -23,7 +23,8 @@ export class PulseAuthController {
   ) {}
 
   @Get('public-key')
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。登录页加载即取公钥，按 60 次/分钟给足重试余量
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '获取 purely-pulse RSA 公钥',
     description:
@@ -40,7 +41,8 @@ export class PulseAuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { ttl: 60, limit: 10 } })
+  // ttl 单位是毫秒：60_000 = 60 秒窗口。开发者账号登录，30 次/分钟覆盖共享出口 IP 的重试与切换
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiOperation({
     summary: 'purely-pulse 开发者登录',
     description:

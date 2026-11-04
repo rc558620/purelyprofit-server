@@ -1,5 +1,11 @@
 {
   "compilerOptions": {
+    // TypeScript 6 起：`strict` 默认开启，且不再自动引入 node_modules/@types 的全局声明。
+    // 这里显式写回升级前的语义（非 strict + 仅 node/jest 全局类型），
+    // 避免一次框架升级顺带把整个仓库的严格度提高，产生 2600+ 无关报错。
+    // 收紧 strict 属于独立技术债，需单独排期。
+    "strict": false,
+    "types": ["node", "jest"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "resolvePackageJsonExports": true,
@@ -13,7 +19,9 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
+    // TS 6 起不再自动推断 rootDir（ts-jest 逐文件编译会报 TS5011）。
+    // 这里显式设为项目根，构建时由 tsconfig.build.json 覆盖为 ./src，产物布局不变。
+    "rootDir": ".",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,

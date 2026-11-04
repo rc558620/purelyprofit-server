@@ -6,6 +6,13 @@
 #   msgpackr-extract  → BullMQ 消息打包原生模块缺失
 #   unrs-resolver     → ESLint import 解析器二进制缺失
 # 新增原生依赖时必须同步在此登记，否则 CI 的 --frozen-lockfile 与生产部署都会踩坑。
+# @nest-lab/throttler-storage-redis 的 peer 范围尚未跟进 Nest 12（仍停在 ^11），
+# 但限流 Redis storage 在 Nest 12 下已用「并发 40 次命中 429」的探针验证可用。
+# 在此显式放行，避免 pnpm 把它当成真实的 peer 冲突。
+peerDependencyRules:
+  allowedVersions:
+    '@nest-lab/throttler-storage-redis>@nestjs/common': '12'
+    '@nest-lab/throttler-storage-redis>@nestjs/core': '12'
 allowBuilds:
   '@nestjs/core': false
   '@prisma/engines': true
