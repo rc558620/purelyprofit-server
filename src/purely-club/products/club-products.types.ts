@@ -18,6 +18,7 @@ export const clubProductSelect = {
   personCount: true,
   validDays: true,
   type: true,
+  showGroupBuyTag: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -44,6 +45,8 @@ export interface ClubProductRecord {
   validDays: number | null;
   /** 商品类型：service=服务商品 voucher=团购券商品 */
   type: 'service' | 'voucher';
+  /** 是否展示「限时团购」标签（商家开关，默认展示） */
+  showGroupBuyTag: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

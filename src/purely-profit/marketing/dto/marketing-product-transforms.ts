@@ -52,3 +52,15 @@ export function trimString({ value }: TransformFnParams): string | undefined {
   if (typeof value === 'string') return value.trim();
   return value;
 }
+
+/**
+ * 原始布尔值透传：绕过全局 enableImplicitConversion 对布尔属性的隐式转换。
+ *
+ * 背景：implicit conversion 会把字符串 "false" 转成 true（非空字符串为真），
+ * 之后 @IsBoolean 仍能通过，商家「关闭开关」会被静默翻转成开启。
+ * 这里直接取请求体原始值，把 "false" / 0 / 其它非法值留给 @IsBoolean 拒绝。
+ */
+export function transformRawBoolean({ obj, key }: TransformFnParams): unknown {
+  const source = obj as Record<string, unknown> | null | undefined;
+  return source?.[key];
+}

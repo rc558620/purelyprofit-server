@@ -58,6 +58,8 @@ export function toProductRow(
     countdownMinutes: row.countdownMinutes,
     countdownPrice: row.countdownPrice,
     autoCheckout: row.autoCheckout,
+    // 历史行兜底：列默认 true，缺失时按「展示」处理，避免标签被静默隐藏
+    showGroupBuyTag: row.showGroupBuyTag ?? true,
     isActive: row.isActive,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -99,6 +101,7 @@ export function buildProductCreateData(input: {
     countdownMinutes: billing.countdownMinutes,
     countdownPrice: billing.countdownPriceCents,
     autoCheckout: billing.autoCheckout,
+    showGroupBuyTag: dto.showGroupBuyTag ?? true,
   };
 }
 
@@ -135,6 +138,9 @@ export function buildProductUpdateData(input: {
   if (dto.personCount !== undefined) data.personCount = dto.personCount ?? null;
   if (dto.unit !== undefined) data.unit = dto.unit || null;
   if (dto.type !== undefined) data.type = dto.type;
+  // 标签开关：仅显式传入时更新，undefined 保持原值（false 也必须落库）
+  if (dto.showGroupBuyTag !== undefined)
+    data.showGroupBuyTag = dto.showGroupBuyTag;
 
   // 计费相关字段统一写入归一化结果（含脏数据清理），不再逐个判断 undefined
   data.validDays = billing.validDays;

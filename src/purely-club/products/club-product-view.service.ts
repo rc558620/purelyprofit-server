@@ -110,6 +110,9 @@ export class ClubProductViewService {
       type: this.resolveProductType(product),
       tags,
       isHot,
+      // 限时团购标签：直接透传商家开关，不做「缺字段=展示」兜底，
+      // 避免字段链路漏字段时静默把商家已关闭的标签重新放出来
+      showGroupBuyTag: product.showGroupBuyTag === true,
       isActive: product.isActive,
       stock,
       ...(product.durationMinutes

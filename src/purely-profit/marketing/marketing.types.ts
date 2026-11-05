@@ -131,6 +131,8 @@ export interface MarketingProductRow {
   countdownPrice: number | null;
   /** 到时自动结账（billingMode=countdown 时生效） */
   autoCheckout: boolean;
+  /** 是否在 C 端商品卡片展示「限时团购」标签（type=voucher 时生效） */
+  showGroupBuyTag: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

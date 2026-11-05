@@ -336,6 +336,8 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
         ? Money.fromDbCents(row.countdownPrice).toOutputYuan()
         : undefined,
     autoCheckout: row.autoCheckout ?? false,
+    // 历史行兜底：默认展示「限时团购」标签
+    showGroupBuyTag: row.showGroupBuyTag ?? true,
     isActive: row.isActive,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),

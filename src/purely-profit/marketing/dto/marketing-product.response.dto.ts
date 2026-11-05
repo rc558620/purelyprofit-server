@@ -155,6 +155,13 @@ export class MarketingProductDto {
   @ApiPropertyOptional({ example: true, description: '到时自动结账' })
   autoCheckout?: boolean;
 
+  @ApiProperty({
+    example: true,
+    description:
+      '是否在 C 端商品卡片展示「限时团购」标签（type=voucher 时生效，默认展示）',
+  })
+  showGroupBuyTag: boolean;
+
   @ApiProperty({ example: true })
   isActive: boolean;
 

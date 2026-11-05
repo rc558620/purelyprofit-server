@@ -307,6 +307,7 @@ function createProduct(
     personCount: 1,
     validDays: null,
     type: 'service',
+    showGroupBuyTag: true,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
     updatedAt: new Date('2026-06-01T00:00:00.000Z'),
     category: { name: '面部护理' },

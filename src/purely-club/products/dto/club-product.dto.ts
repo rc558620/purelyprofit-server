@@ -225,6 +225,14 @@ export class ClubProductDto {
   @IsBoolean({ message: '热门标记必须是布尔值' })
   isHot: boolean;
 
+  @ApiProperty({
+    example: true,
+    description:
+      '是否展示「限时团购」标签（团购券商品开关；false 表示商家已关闭）',
+  })
+  @IsBoolean({ message: '限时团购标签开关必须是布尔值' })
+  showGroupBuyTag: boolean;
+
   @ApiProperty({ example: true, description: '是否上架' })
   @IsBoolean({ message: 'isActive 必须是布尔值' })
   isActive: boolean;

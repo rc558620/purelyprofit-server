@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsDefined,
   IsIn,
   IsInt,
@@ -25,6 +26,7 @@ import {
   MARKETING_PRODUCT_IMAGE_MAX_LENGTH,
   transformNullableInt,
   transformNullableYuan,
+  transformRawBoolean,
   trimString,
 } from './marketing-product-transforms';
 
@@ -218,6 +220,16 @@ export class CreateMarketingProductDto {
   })
   @IsOptional()
   autoCheckout?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否在 C 端商品卡片展示「限时团购」标签（type=voucher 时生效，默认展示）',
+  })
+  @Transform(transformRawBoolean)
+  @ValidateIf((o: CreateMarketingProductDto) => o.showGroupBuyTag !== undefined)
+  @IsBoolean({ message: '限时团购标签开关必须是布尔值（true / false）' })
+  showGroupBuyTag?: boolean;
 }
 
 /**
@@ -425,4 +437,14 @@ export class UpdateMarketingProductDto {
   })
   @IsOptional()
   autoCheckout?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否在 C 端商品卡片展示「限时团购」标签（type=voucher 时生效，默认展示）',
+  })
+  @Transform(transformRawBoolean)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.showGroupBuyTag !== undefined)
+  @IsBoolean({ message: '限时团购标签开关必须是布尔值（true / false）' })
+  showGroupBuyTag?: boolean;
 }

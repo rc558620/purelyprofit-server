@@ -43,6 +43,8 @@ model MarketingProduct {
   countdownPrice    Int?                     @map("countdown_price")
   /// 到时自动结账（billingMode=countdown 时生效）
   autoCheckout      Boolean                  @default(false) @map("auto_checkout")
+  /// 是否在 C 端商品卡片展示「限时团购」标签（type=voucher 时生效；默认展示，商家可关闭）
+  showGroupBuyTag   Boolean                  @default(true) @map("show_group_buy_tag")
   isActive          Boolean                  @default(true) @map("is_active")
   createdAt         DateTime                 @default(now()) @map("created_at")
   updatedAt         DateTime                 @updatedAt @map("updated_at")

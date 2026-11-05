@@ -38,6 +38,7 @@ describe('ClubProductViewService', () => {
       type: 'package',
       tags: ['热销', '面部护理', '多人适用'],
       isHot: true,
+      showGroupBuyTag: true,
       isActive: true,
       stock: 30,
       durationMinutes: 100,
@@ -120,6 +121,7 @@ describe('ClubProductViewService', () => {
       type: 'package',
       tags: ['热销', '面部护理', '多人适用'],
       isHot: true,
+      showGroupBuyTag: true,
       isActive: true,
       stock: 30,
       durationMinutes: 100,
@@ -275,11 +277,25 @@ describe('ClubProductViewService', () => {
       type: 'product',
       tags: [],
       isHot: false,
+      showGroupBuyTag: true,
       isActive: true,
       stock: 0,
       createdAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
       updatedAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
     });
+  });
+
+  it('toClubProduct 透传商家「限时团购标签」开关关闭结果', () => {
+    const product = createProduct({ type: 'voucher', showGroupBuyTag: false });
+
+    const result = service.toClubProduct(
+      product,
+      new Set<number>(),
+      emptyPricingContext(),
+    );
+
+    expect(result.showGroupBuyTag).toBe(false);
+    expect(result.type).toBe('voucher');
   });
 });
 
@@ -310,6 +326,7 @@ function createProduct(
     personCount: 1,
     validDays: null,
     type: 'service',
+    showGroupBuyTag: true,
     isActive: true,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
     updatedAt: new Date('2026-06-01T00:00:00.000Z'),
