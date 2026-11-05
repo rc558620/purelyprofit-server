@@ -5,6 +5,7 @@ import { ClubPaymentModeModule } from '../payments/club-payment-mode.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { ClubStoresModule } from '../stores/club-stores.module';
+import { ClubCardBusinessModeGuard } from './club-card-business-mode.guard';
 import { ClubCardContextService } from './club-card-context.service';
 import { ClubCardImmediateSettlementService } from './club-card-immediate-settlement.service';
 import { ClubCardOrderService } from './club-card-order.service';
@@ -29,6 +30,8 @@ import { ClubCardsController } from './club-cards.controller';
   ],
   controllers: [ClubCardsController],
   providers: [
+    // 业态门禁：餐饮门店不提供会员卡，挂在 ClubCardsController 上统一拦截
+    ClubCardBusinessModeGuard,
     ClubCardContextService,
     ClubCardQueryService,
     ClubCardOrderService,

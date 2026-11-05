@@ -22,6 +22,7 @@ import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { CurrentClubContext } from '../stores/current-club-context.decorator';
+import { ClubCardBusinessModeGuard } from './club-card-business-mode.guard';
 import { ClubCardOrderService } from './club-card-order.service';
 import { ClubCardQueryService } from './club-card-query.service';
 import { parseCardId } from './club-card-code.utils';
@@ -41,10 +42,14 @@ import {
  *
  * 路由顺序刻意把 `plans` / `orders/:id` 放在 `:id` 之前：
  * 否则 Nest 会把 `/club/cards/plans` 当成卡详情去解析 ID。
+ *
+ * 业态门禁：餐饮门店整块不可用（与商家端 member-cards 三个 controller 的
+ * `@RequireBusinessMode('general')` 同口径），所有路由统一由
+ * `ClubCardBusinessModeGuard` 拦截，不依赖前端隐藏入口。
  */
 @ApiTags('Club / Cards')
 @ApiBearerAuth()
-@UseGuards(ClubJwtAuthGuard)
+@UseGuards(ClubJwtAuthGuard, ClubCardBusinessModeGuard)
 @UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/cards')
 export class ClubCardsController {

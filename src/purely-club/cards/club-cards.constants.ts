@@ -33,6 +33,15 @@ export const CLUB_CARD_MANUAL_CONFIRM_DISABLED_MESSAGE =
   '当前环境未开启手动确认支付，请通过支付回调驱动落账';
 
 /**
+ * 餐饮门店不提供会员卡能力时的统一文案。
+ *
+ * 与商家端 `@RequireBusinessMode('general')` 的「该功能仅适用于非餐饮门店」
+ * 是同一业务结论在 C 端的表述：餐饮门店没有卡模板，任何购卡 / 卡包请求都无意义。
+ */
+export const CLUB_CARD_CATERING_STORE_UNSUPPORTED_MESSAGE =
+  '餐饮门店暂不提供会员卡服务';
+
+/**
  * 余额不足提示（金额文案统一由后端拼装）。
  *
  * 下单前置校验与落账事务两处都要用同一句话：分别手写极易出现
