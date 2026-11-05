@@ -3,12 +3,10 @@ import type { MemberCardPlan } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import type { MemberCardPlanDto } from './dto/member-card-plan.response.dto';
 
-/** 卡模板的派生聚合：不落库，由售卡订单 / 营销商品反查得到 */
+/** 卡模板的派生聚合：不落库，由售卡订单反查得到 */
 export interface MemberCardPlanAggregates {
   /** 累计售出张数（已支付售卡订单的数量合计），无订单记录时不下发 */
   soldCount?: number;
-  /** 关联的营销商品 ID（商品侧单向外键反查，卡模板侧不冗余该列） */
-  marketingProductId?: string;
 }
 
 /**
@@ -37,7 +35,6 @@ export function mapMemberCardPlan(
     usableWeekdays: [...row.usableWeekdays],
     maxGuestPerUse: row.maxGuestPerUse ?? undefined,
     purchaseLimit: row.purchaseLimit ?? undefined,
-    marketingProductId: aggregates.marketingProductId,
     soldCount: aggregates.soldCount,
     isActive: row.isActive,
     createdAt: row.createdAt.getTime(),

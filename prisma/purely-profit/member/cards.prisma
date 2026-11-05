@@ -47,8 +47,6 @@ model MemberCardPlan {
   cards            MemberCard[]
   /// 售卡订单（下单时对模板做名称 / 类型 / 单价快照，模板改名不影响历史单据）
   orders           MemberCardOrder[]
-  /// 反向引用：卡性质营销商品（nature != regular）
-  cardProducts     MarketingProduct[]
 
   /// 同门店未删除模板名称唯一，避免列表出现两档同名卡
   @@unique([storeId, name], map: "uq_member_card_plans_store_name", where: raw("(deleted_at IS NULL)"))

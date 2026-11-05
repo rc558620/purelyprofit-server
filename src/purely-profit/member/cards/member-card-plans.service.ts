@@ -44,7 +44,7 @@ import {
  * - 金额：DTO 入参为元，落库统一转分，出参再转回元（Money 是唯一换算入口）；
  * - 归属：模板属于门店，写操作按模板自身 storeId 做权限校验，不信任前端透传；
  * - 软删除：查询一律带 deletedAt: null，本模块不提供物理删除；
- * - 派生字段：soldCount / marketingProductId 不落库，读时按订单与商品反查回填。
+ * - 派生字段：soldCount 不落库，读时按订单反查回填。
  */
 @Injectable()
 export class MemberCardPlansService {
@@ -250,10 +250,7 @@ export class MemberCardPlansService {
     };
   }
 
-  /**
-   * 派生聚合回填：soldCount 取已支付售卡订单的数量合计，
-   * marketingProductId 由 marketing_products.cardPlanId 反查（卡模板侧无该列）。
-   */
+  /** 派生聚合回填：soldCount 取已支付售卡订单的数量合计 */
   private async resolveAggregates(
     storeId: number,
     planIds: number[],
@@ -263,36 +260,14 @@ export class MemberCardPlansService {
       return aggregates;
     }
 
-    const [orderGroups, products] = await Promise.all([
-      this.prisma.memberCardOrder.groupBy({
-        by: ['planId'],
-        where: { storeId, planId: { in: planIds }, status: 'paid' },
-        _sum: { quantity: true },
-      }),
-      this.prisma.marketingProduct.findMany({
-        where: { storeId, cardPlanId: { in: planIds } },
-        select: { id: true, cardPlanId: true },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      }),
-    ]);
+    const orderGroups = await this.prisma.memberCardOrder.groupBy({
+      by: ['planId'],
+      where: { storeId, planId: { in: planIds }, status: 'paid' },
+      _sum: { quantity: true },
+    });
 
     orderGroups.forEach((group) => {
       aggregates.set(group.planId, { soldCount: group._sum.quantity ?? 0 });
-    });
-
-    products.forEach((product) => {
-      if (product.cardPlanId === null) {
-        return;
-      }
-      const current = aggregates.get(product.cardPlanId) ?? {};
-      // 正常数据下 1 个模板只挂 1 个商品；异常数据按最近更新的为准
-      if (current.marketingProductId !== undefined) {
-        return;
-      }
-      aggregates.set(product.cardPlanId, {
-        ...current,
-        marketingProductId: String(product.id),
-      });
     });
 
     return aggregates;

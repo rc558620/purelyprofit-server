@@ -19,8 +19,8 @@ import {
  * 卡模板详情。
  *
  * - `price` / `originalPrice` 为元（库内分），由 mapper 用 Money 换算；
- * - `soldCount` / `marketingProductId` 不落库，由售卡订单与营销商品反查派生，
- *   查不到时不下发（前端按「未知」展示，而不是伪造 0）。
+ * - `soldCount` 不落库，由售卡订单反查派生，查不到时不下发
+ *   （前端按「未知」展示，而不是伪造 0）。
  */
 export class MemberCardPlanDto {
   @ApiProperty({ example: '1', description: '卡模板 ID' })
@@ -90,11 +90,6 @@ export class MemberCardPlanDto {
   @IsOptional()
   @IsInt()
   purchaseLimit?: number;
-
-  @ApiPropertyOptional({ example: '12', description: '关联的营销商品 ID' })
-  @IsOptional()
-  @IsString()
-  marketingProductId?: string;
 
   @ApiPropertyOptional({
     example: 8,

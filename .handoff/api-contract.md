@@ -57,7 +57,6 @@ usableSpaceTypes?: string[]
 usableWeekdays?: number[] 1-7
 maxGuestPerUse?: number
 purchaseLimit?: number
-marketingProductId?: string
 soldCount?: number
 isActive: boolean
 createdAt: number
