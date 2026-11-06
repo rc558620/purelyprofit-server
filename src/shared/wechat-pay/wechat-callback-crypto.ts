@@ -35,7 +35,7 @@ export type WechatResourceDecryptOutcome<T> =
   | {
       ok: false;
       kind: 'decrypt-failed';
-      /** 已脱敏的失败摘要（来自 crypto / JSON.parse 的 message） */
+      /** 白名单化的排查摘要，不含原始错误文本、密钥、密文与内部路径 */
       errorMessage: string;
     };
 
@@ -90,11 +90,13 @@ export function decryptResource<T>(
 
     return { ok: true, payload: JSON.parse(plaintext) as T };
   } catch (error: unknown) {
-    // 密钥不对或 GCM 认证失败
-    return {
-      ok: false,
-      kind: 'decrypt-failed',
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    // 密钥不对 / GCM 认证失败 / 明文不是合法 JSON。
+    // 原始 error.message 可能携带 Node 内部路径或密文片段，且会直接进业务日志，
+    // 因此只回传可枚举的排查分类，不把原始错误文本带出本层。
+    const errorMessage =
+      error instanceof SyntaxError
+        ? '明文不是合法 JSON'
+        : 'GCM 认证失败或解密过程异常（原始错误已省略）';
+    return { ok: false, kind: 'decrypt-failed', errorMessage };
   }
 }

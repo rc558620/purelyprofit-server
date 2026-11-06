@@ -2,8 +2,8 @@
  * 微信支付 API v3 请求客户端（purely-profit · 平台收款商户号）。
  *
  * 本文件只保留**身份适配**：平台收款固定用 `wechat.mchSerialNo` +
- * `wechat.privateKey*` 这一套凭据，且在生产环境缺少私钥时沿用历史行为
- * （降级为占位签名，让微信侧给出明确的拒绝），而不是本地直接 500。
+ * `wechat.privateKey*` 这一套凭据，生产环境缺少私钥时与门店侧一致直接失败，
+ * 不再降级为占位签名（那会下发注定被微信拒绝、用户却看不出原因的二维码）。
  * 签名串拼接、鉴权头构造、请求发送、超时与错误响应解析全部走
  * `src/shared/wechat-pay/wechat-pay-sign-transport.ts`。
  *
@@ -30,8 +30,8 @@ const PLATFORM_CREDENTIAL: WechatPayCredentialConfig = {
   serialNoKey: 'wechat.mchSerialNo',
   privateKeyPathKey: 'wechat.privateKeyPath',
   privateKeyContentKey: 'wechat.privateKeyContent',
-  // 平台侧历史行为：生产缺失私钥也降级为占位签名，由微信返回明确错误码
-  failFastWhenMissingKeyInProduction: false,
+  // 与门店侧一致：生产缺失私钥直接失败，避免下发注定被微信拒绝的二维码
+  failFastWhenMissingKeyInProduction: true,
   privateKeyPathHint: 'WECHAT_PRIVATE_KEY_PATH',
 };
 

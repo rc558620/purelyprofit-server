@@ -8,6 +8,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
 import { SmsWechatCallbackAckDto, SmsWechatCallbackDto } from './dto/sms.dto';
 
@@ -32,6 +33,10 @@ export class SmsCallbackController {
   constructor(private readonly callbackService: SmsRechargeCallbackService) {}
 
   @Post('wechat/callback')
+  // 与 club / profit 两条回调对齐：回调来自微信服务器且出口 IP 高度集中，
+  // 被全局限流（默认 100 次/60s/IP）打成 429 会让微信反复重投、延迟入账。
+  // 防伪造由验签承担，这里只兜住异常流量，因此单独放宽窗口。
+  @Throttle({ default: { ttl: 60_000, limit: 600 } })
   // 微信支付只认 200 / 204 为应答成功，POST 默认返回 201 会被当成失败并反复重投
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
