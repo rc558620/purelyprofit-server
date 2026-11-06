@@ -225,7 +225,8 @@ export type PointsSourceValue =
   | 'purchase_bonus'
   | 'deduct_payment'
   | 'admin_adjust'
-  | 'expire';
+  | 'expire'
+  | 'check_in';
 export type PointsTypeValue = 'earn' | 'spend' | 'expire';
 export type BeanSourceValue =
   | 'promo_reward'

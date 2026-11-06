@@ -3,7 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
-import Redis from 'ioredis';
+import { createRedisClient } from './redis/redis.service';
 import { buildRedisConnectionOptions } from './shared/redis-connection.utils';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -64,6 +64,7 @@ import { PlatformPaymentCallbackModule } from './purely-profit/payments/platform
 import { ClubProductsModule } from './purely-club/products/club-products.module';
 import { ClubProductBootstrapModule } from './purely-club/products/bootstrap/club-product-bootstrap.module';
 import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.module';
+import { ClubCheckInModule } from './purely-club/check-in/club-check-in.module';
 import { ClubRechargeModule } from './purely-club/recharge/club-recharge.module';
 import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubPointsModule } from './purely-club/points/club-points.module';
@@ -92,7 +93,7 @@ import { UploadModule } from './shared/upload.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const redisOptions = buildRedisConnectionOptions(configService);
-        const redisClient = new Redis(redisOptions);
+        const redisClient = createRedisClient(redisOptions);
 
         return {
           throttlers: [
@@ -176,6 +177,7 @@ import { UploadModule } from './shared/upload.module';
     ClubProductsModule,
     ClubProductBootstrapModule,
     ClubPromotionsModule,
+    ClubCheckInModule,
     ClubRechargeModule,
     ClubRecordsModule,
     ClubCareRecordsModule,

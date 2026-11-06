@@ -69,7 +69,12 @@ type PulseAdminLogOwnerRecord = {
 type PulseAdminPointsLogRecord = {
   id: number;
   storeId: number;
-  source: 'purchase_bonus' | 'deduct_payment' | 'admin_adjust' | 'expire';
+  source:
+    | 'purchase_bonus'
+    | 'deduct_payment'
+    | 'admin_adjust'
+    | 'expire'
+    | 'check_in';
   changeType: 'increase' | 'decrease';
   changeAmount: number;
   description: string;

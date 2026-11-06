@@ -38,6 +38,7 @@ import {
   resolveMarketingPagination,
   type MarketingPromotionTypeValue,
   assertPromotionRange,
+  PROMOTION_TYPE_CONFLICT_MESSAGE,
   throwOnPromotionTypeConflict,
 } from './marketing.utils';
 import { validatePromotionParams } from './schemas/promotion-params.schema';
@@ -205,7 +206,11 @@ export class MarketingPromotionsService {
     );
 
     const willBeEnabled = dto.enabled ?? true;
-    if (willBeEnabled) {
+    if (dto.type === 'daily_check_in') {
+      // 签到配置按「门店 + 类型」读取，停用态重复会造成 C 端取错积分值，
+      // 因此含停用态也按全量唯一校验（DB 侧另有部分唯一索引兜底）。
+      await this.ensureDailyCheckInUniqueness(storeId);
+    } else if (willBeEnabled) {
       await this.ensurePromotionTypeUnique(storeId, dto.type);
     }
 
@@ -279,7 +284,9 @@ export class MarketingPromotionsService {
 
     // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
     const willBeEnabled = dto.enabled ?? promotion.enabled;
-    if (willBeEnabled) {
+    if (promotion.type === 'daily_check_in') {
+      await this.ensureDailyCheckInUniqueness(promotion.storeId, promotionId);
+    } else if (willBeEnabled) {
       await this.ensurePromotionTypeUnique(
         promotion.storeId,
         promotion.type as MarketingPromotionTypeValue,
@@ -391,9 +398,27 @@ export class MarketingPromotionsService {
     });
 
     if ((duplicatedCount ?? 0) > 0) {
-      throw new ConflictException(
-        '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
-      );
+      throw new ConflictException(PROMOTION_TYPE_CONFLICT_MESSAGE);
+    }
+  }
+
+  /** 签到活动的全量唯一校验（含停用态）：与 DB 部分唯一索引口径一致 */
+  private async ensureDailyCheckInUniqueness(
+    storeId: number,
+    excludePromotionId?: number,
+  ): Promise<void> {
+    const duplicatedCount = await this.prisma.marketingPromotion.count({
+      where: {
+        storeId,
+        type: 'daily_check_in',
+        ...(excludePromotionId !== undefined
+          ? { id: { not: excludePromotionId } }
+          : {}),
+      },
+    });
+
+    if ((duplicatedCount ?? 0) > 0) {
+      throw new ConflictException(PROMOTION_TYPE_CONFLICT_MESSAGE);
     }
   }
 }

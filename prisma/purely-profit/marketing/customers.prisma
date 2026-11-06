@@ -40,6 +40,7 @@ model MarketingCustomer {
   pointsRecords      MarketingPointsRecord[]
   recharges          MarketingRecharge[]
   member             Member?                 @relation("MemberCustomer")
+  dailyCheckInRecords ClubDailyCheckInRecord[]
 
   @@unique([storeId, clubUserId], map: "uq_marketing_customers_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
   /// 换绑 / 账号合并 / C 端绑定会按 club_user_id 直接定位顾客（不带 storeId），

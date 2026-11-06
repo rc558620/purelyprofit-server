@@ -1,0 +1,40 @@
+// ─── C 端每日签到事实表 ────────────────────────────────────────────
+//
+// 稳定业务实体：一次「当前门店 + 当前用户 + 上海自然日」的签到事实。
+// 与 MarketingCustomer.points / MarketingPointsRecord 在同一事务内写入，
+// 唯一约束是并发幂等的最终权威，Redis 只作前置防抖。
+//
+// 口径：
+// - checkInDate 固定为上海时区 YYYY-MM-DD，禁止用 UTC createdAt 判重；
+// - pointsAwarded 是积分「个数」，不是金额、不走元⇄分转换；
+// - 事实表只增不改、不软删；活动被删除时 promotionId 置空保留历史。
+
+model ClubDailyCheckInRecord {
+  id            Int      @id @default(autoincrement())
+  storeId       Int      @map("store_id")
+  customerId    Int      @map("customer_id")
+  /// 写时快照：便于按 C 端用户追溯，避免回查顾客档案归属变化
+  clubUserId    Int?     @map("club_user_id")
+  /// 写时快照：memberId 非空时同步写 MemberPointsLog 审计流水
+  memberId      Int?     @map("member_id")
+  /// 写时快照：签到所依据的活动配置，删除活动后置空
+  promotionId   Int?     @map("promotion_id")
+  checkInDate   String   @map("check_in_date")
+  pointsAwarded Int      @map("points_awarded")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  store     Store               @relation(fields: [storeId], references: [id])
+  customer  MarketingCustomer  @relation(fields: [customerId], references: [id])
+  promotion MarketingPromotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+
+  /// 幂等最终兜底：同店同顾客同一上海自然日只允许一条签到
+  @@unique([storeId, customerId, checkInDate], map: "uq_club_daily_check_in_records_store_customer_date")
+  /// 门店按日统计 / 对账报表
+  @@index([storeId, checkInDate], map: "idx_club_daily_check_in_records_store_date")
+  /// 按顾客对账与时间线
+  @@index([customerId, createdAt], map: "idx_club_daily_check_in_records_customer_created")
+  /// 按活动统计参与人次
+  @@index([promotionId], map: "idx_club_daily_check_in_records_promotion")
+  @@map("club_daily_check_in_records")
+}

@@ -203,22 +203,38 @@ export class ClubMemberProfileService {
     };
   }
 
+  /**
+   * 会员 / 顾客档案统一采用与 ClubPointsQueryService.findCustomerByStoreAndPhone
+   * 相同的两段锚定：先命中当前用户绑定档案，再回落「手机号 + clubUserId:null」无主档案。
+   * 原 OR + findFirst 无排序时，同店同号多条档案可能命中无主档案，导致签到加分的
+   * MarketingCustomer 与首页账户接口读取的不是同一条，出现积分不可见 / 回退。
+   */
   private async findCurrentMember(
     storeId: number,
     clubUserId: number,
     phone: string,
   ): Promise<ClubMemberAccountRecord | null> {
+    const bound = await this.prisma.member.findFirst({
+      where: {
+        storeId,
+        clubUserId,
+        status: { not: MemberStatus.banned },
+        deletedAt: null,
+      },
+      select: { id: true, createdAt: true },
+    });
+    if (bound) {
+      return bound;
+    }
     return this.prisma.member.findFirst({
       where: {
         storeId,
+        phone,
+        clubUserId: null,
         status: { not: MemberStatus.banned },
         deletedAt: null,
-        OR: [{ clubUserId }, { phone, clubUserId: null }],
       },
-      select: {
-        id: true,
-        createdAt: true,
-      },
+      select: { id: true, createdAt: true },
     });
   }
 
@@ -227,12 +243,21 @@ export class ClubMemberProfileService {
     clubUserId: number,
     phone: string,
   ): Promise<ClubMarketingCustomerRecord | null> {
-    return this.prisma.marketingCustomer.findFirst({
-      where: {
-        storeId,
-        deletedAt: null,
-        OR: [{ clubUserId }, { phone, clubUserId: null }],
+    const bound = await this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, deletedAt: null },
+      select: {
+        id: true,
+        balance: true,
+        points: true,
+        tier: true,
+        createdAt: true,
       },
+    });
+    if (bound) {
+      return bound;
+    }
+    return this.prisma.marketingCustomer.findFirst({
+      where: { storeId, phone, clubUserId: null, deletedAt: null },
       select: {
         id: true,
         balance: true,

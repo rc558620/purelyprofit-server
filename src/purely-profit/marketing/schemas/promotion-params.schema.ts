@@ -171,6 +171,34 @@ export const pointsRechargeParamsSchema = z
     return data;
   });
 
+// ─── daily_check_in ────────────────────────────────────────────
+
+/** 单次签到积分默认值：与 purelyProfit DEFAULT_POINTS_PER_CHECK_IN 一致 */
+export const DEFAULT_DAILY_CHECK_IN_POINTS = 1;
+/** 单次签到积分上限：防止脏配置打爆 INTEGER 余额与账务口径 */
+export const MAX_DAILY_CHECK_IN_POINTS = 1_000_000;
+
+/**
+ * 后端权威归一化：只接受 [1, MAX] 内的整数积分「个数」；
+ * 缺失 / 非数字 / 非正整数 / 越界一律回落默认值。
+ * 该值不经过 Money 元⇄分转换。
+ */
+export function normalizeDailyCheckInPoints(value: unknown): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_DAILY_CHECK_IN_POINTS
+    ? value
+    : DEFAULT_DAILY_CHECK_IN_POINTS;
+}
+
+/** 签到活动只允许 pointsPerCheckIn 一个参数，非法值回落默认 1 */
+export const dailyCheckInParamsSchema = z
+  .strictObject({ pointsPerCheckIn: z.unknown().optional() })
+  .transform((data) => ({
+    pointsPerCheckIn: normalizeDailyCheckInPoints(data.pointsPerCheckIn),
+  }));
+
 // ─── free / points_2x ─────────────────────────────────────────────
 
 export const emptyParamsSchema = bannerFieldsSchema.passthrough();
@@ -198,6 +226,10 @@ export const promotionParamsSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('free'), params: emptyParamsSchema }),
   z.object({ type: z.literal('points_2x'), params: emptyParamsSchema }),
+  z.object({
+    type: z.literal('daily_check_in'),
+    params: dailyCheckInParamsSchema,
+  }),
 ]);
 
 export type DiscountParams = z.infer<typeof discountParamsSchema>;

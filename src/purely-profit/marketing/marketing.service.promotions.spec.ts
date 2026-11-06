@@ -223,7 +223,9 @@ describe('MarketingService promotions', () => {
         endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
         enabled: true,
       }),
-    ).rejects.toThrow('当前门店已存在相同类型的上架活动，请直接编辑现有活动');
+    ).rejects.toThrow(
+      '当前门店已存在相同类型的活动（含未上架），请直接编辑现有活动',
+    );
     expect(
       context.prismaService.marketingPromotion.create,
     ).not.toHaveBeenCalled();
@@ -254,7 +256,9 @@ describe('MarketingService promotions', () => {
       context.service.updatePromotion(context.user, 9, {
         name: '首单 8 折',
       }),
-    ).rejects.toThrow('当前门店已存在相同类型的上架活动，请直接编辑现有活动');
+    ).rejects.toThrow(
+      '当前门店已存在相同类型的活动（含未上架），请直接编辑现有活动',
+    );
     expect(
       context.prismaService.marketingPromotion.update,
     ).not.toHaveBeenCalled();

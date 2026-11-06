@@ -96,9 +96,14 @@ export const MARKETING_PROMOTION_TYPE_VALUES = [
   'points_2x',
   'points_recharge',
   'discount_day',
+  'daily_check_in',
 ] as const;
 export type MarketingPromotionTypeValue =
   (typeof MARKETING_PROMOTION_TYPE_VALUES)[number];
+
+/** 活动类型唯一性冲突文案：create / update / P2002 兜底共用，避免口径分叉 */
+export const PROMOTION_TYPE_CONFLICT_MESSAGE =
+  '当前门店已存在相同类型的活动（含未上架），请直接编辑现有活动';
 
 export type MarketingPromotionParamValue =
   | string
@@ -416,9 +421,7 @@ export function throwOnPromotionTypeConflict(err: unknown): never {
     err instanceof Prisma.PrismaClientKnownRequestError &&
     err.code === 'P2002'
   ) {
-    throw new ConflictException(
-      '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
-    );
+    throw new ConflictException(PROMOTION_TYPE_CONFLICT_MESSAGE);
   }
   throw err;
 }

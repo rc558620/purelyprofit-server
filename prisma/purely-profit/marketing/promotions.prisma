@@ -26,6 +26,8 @@ model MarketingPromotion {
   consumptions  MarketingConsumption[]
   store         Store                  @relation(fields: [storeId], references: [id])
   recharges     MarketingRecharge[]
+  /// C 端每日签到事实（活动被删除时 promotion_id 置空，历史记录保留）
+  dailyCheckInRecords ClubDailyCheckInRecord[]
 
   @@index([storeId, enabled, startAt])
   @@index([storeId, createdAt])
@@ -53,4 +55,5 @@ enum MarketingPromotionType {
   points_2x
   points_recharge
   discount_day
+  daily_check_in
 }

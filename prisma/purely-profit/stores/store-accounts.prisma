@@ -121,6 +121,7 @@ model Store {
   marketingProducts           MarketingProduct[]
   marketingPromotions         MarketingPromotion[]
   marketingRecharges          MarketingRecharge[]
+  dailyCheckInRecords         ClubDailyCheckInRecord[]
   memberBeanLogs              MemberBeanLog[]
   memberPointsLogs            MemberPointsLog[]
   memberRechargeLogs          MemberRechargeLog[]

@@ -61,12 +61,12 @@ export class PlatformMembershipPointsLogDto {
   type: (typeof PLATFORM_POINTS_RECORD_TYPES)[number];
 
   @ApiProperty({
-    enum: PLATFORM_POINTS_RECORD_SOURCES,
+    enum: [...PLATFORM_POINTS_RECORD_SOURCES, 'check_in'],
     example: 'purchase_bonus',
     description: '积分来源',
   })
   @IsString({ message: '积分来源必须是字符串' })
-  source: (typeof PLATFORM_POINTS_RECORD_SOURCES)[number];
+  source: (typeof PLATFORM_POINTS_RECORD_SOURCES)[number] | 'check_in';
 
   @ApiProperty({ example: '购买季度会员赠积分', description: '来源描述' })
   @IsString({ message: '来源描述必须是字符串' })

@@ -45,6 +45,7 @@ import {
   normalizePromotionParams,
   mapPromotionParamsForOutput,
 } from './marketing.mapper.promotion-params';
+import { normalizeDailyCheckInPoints } from './schemas/promotion-params.schema';
 
 export {
   normalizePromotionParams,
@@ -157,6 +158,10 @@ export function buildPromotionDisplayText(
   }
 
   if (type === 'points_2x') return '双倍积分';
+
+  if (type === 'daily_check_in') {
+    return `每日签到 +${normalizeDailyCheckInPoints(params.pointsPerCheckIn)} 积分`;
+  }
 
   return '';
 }

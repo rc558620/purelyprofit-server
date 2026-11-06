@@ -71,6 +71,10 @@ export class ClubPromotionsService {
         .filter((promotion): promotion is ClubPromotionRecord =>
           this.isSupportedPromotionType(promotion.type),
         )
+        // 签到入口由首页 Hero 独立承载；ClubPromotionDto.actionType 只有
+        // view_products / open_recharge，签到活动若进入优惠卡会错误跳商品页。
+        // 此处只排除「优惠活动卡」，不影响 isSupportedPromotionType 全量白名单。
+        .filter((promotion) => !this.isDailyCheckInPromotion(promotion.type))
         .map((promotion) => this.toClubPromotion(promotion, now))
         .sort(
           (left, right) =>
@@ -141,6 +145,11 @@ export class ClubPromotionsService {
     return MARKETING_PROMOTION_TYPE_VALUES.includes(
       type as MarketingPromotionTypeValue,
     );
+  }
+
+  /** 签到活动不是「优惠活动卡」，全量白名单仍保留该类型 */
+  private isDailyCheckInPromotion(type: string): boolean {
+    return type === 'daily_check_in';
   }
 
   private toClubPromotion(
@@ -255,6 +264,8 @@ export class ClubPromotionsService {
           actionType: 'view_products',
           actionTarget: 'club_products',
         };
+      // daily_check_in 已在 list() 被排除，不会走到 presentation；
+      // 若未来要展示签到卡，需新增 actionType 'open_check_in' 并跨端确认后再改。
       default:
         return {
           priority: 40,
@@ -403,6 +414,8 @@ export class ClubPromotionsService {
         return '积分抵现';
       case 'discount_day':
         return '折扣日';
+      case 'daily_check_in':
+        return '每日签到';
       default:
         return '限时优惠';
     }

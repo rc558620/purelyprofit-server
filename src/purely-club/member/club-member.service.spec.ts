@@ -236,13 +236,14 @@ describe('ClubMemberService', () => {
       heldLevelLabel: '黄金会员',
       heldLevelVisible: true,
     });
+    // 与签到 / 积分明细统一「先 clubUserId 绑定、后无主档案」两段锚定：
+    // 命中绑定档案时只发第一段查询，不再用 OR + findFirst 随机命中同号他人档案
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
+        clubUserId: 201,
         status: { not: 'banned' },
         deletedAt: null,
-        // 两层锚定：clubUserId 权威 + 无主档案按手机号认领
-        OR: [{ clubUserId: 201 }, { phone: '13800138000', clubUserId: null }],
       },
       select: {
         id: true,
@@ -252,8 +253,8 @@ describe('ClubMemberService', () => {
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
+        clubUserId: 201,
         deletedAt: null,
-        OR: [{ clubUserId: 201 }, { phone: '13800138000', clubUserId: null }],
       },
       select: {
         id: true,
@@ -323,16 +324,14 @@ describe('ClubMemberService', () => {
       totalConsume: 1260,
       heldLevel: 'gold',
     });
-    // 微信用户（未绑真实手机号）：占位手机号全局唯一，但认人仍走 clubUserId 权威锚点
+    // 微信用户（未绑真实手机号）：认人只走 clubUserId 权威锚点，
+    // 占位手机号不会进入第一段查询，第二段无主档案回落仅在未绑定时触发
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
+        clubUserId: 301,
         status: { not: 'banned' },
         deletedAt: null,
-        OR: [
-          { clubUserId: 301 },
-          { phone: 'club_wechat:oOPENID123', clubUserId: null },
-        ],
       },
       select: {
         id: true,
@@ -342,11 +341,8 @@ describe('ClubMemberService', () => {
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
+        clubUserId: 301,
         deletedAt: null,
-        OR: [
-          { clubUserId: 301 },
-          { phone: 'club_wechat:oOPENID123', clubUserId: null },
-        ],
       },
       select: {
         id: true,

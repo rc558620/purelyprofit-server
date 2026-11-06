@@ -7,13 +7,21 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import type { ChainableCommander } from 'ioredis';
+import type { ChainableCommander, RedisOptions } from 'ioredis';
 import { recordRedisOperation } from '../observability';
 import { pipelineUnlinkByPattern } from './redis-pipeline.util';
 import { safeJsonStringify } from './redis-json.util';
 import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
+
+/**
+ * 供 ThrottlerModule 等基础设施装配创建独立 Redis 客户端。
+ * Redis 客户端构造统一收敛在基础设施层，装配层不再直接 new Redis()。
+ */
+export function createRedisClient(options: RedisOptions): Redis {
+  return new Redis(options);
+}
 
 @Injectable()
 export class RedisService

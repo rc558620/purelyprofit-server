@@ -148,6 +148,7 @@ enum MemberPointsSource {
   deduct_payment
   admin_adjust
   expire
+  check_in
 }
 
 enum MemberBeanSource {

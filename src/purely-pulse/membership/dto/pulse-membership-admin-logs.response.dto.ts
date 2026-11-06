@@ -12,15 +12,15 @@ import {
 import {
   PULSE_ADMIN_MEMBER_BEAN_SOURCE_VALUES,
   PULSE_ADMIN_MEMBER_BEAN_TYPE_VALUES,
-  PULSE_ADMIN_MEMBER_POINTS_SOURCE_VALUES,
   PULSE_ADMIN_MEMBER_POINTS_TYPE_VALUES,
 } from './pulse-membership-admin-logs.shared.dto';
 import type {
   PulseAdminMemberBeanSourceValue,
   PulseAdminMemberBeanTypeValue,
-  PulseAdminMemberPointsSourceValue,
   PulseAdminMemberPointsTypeValue,
 } from './pulse-membership-admin-logs.shared.dto';
+import { PULSE_ADMIN_MEMBER_POINTS_SOURCE_VALUES } from './pulse-membership-admin-logs.sources.constants';
+import type { PulseAdminMemberPointsSourceValue } from './pulse-membership-admin-logs.sources.constants';
 
 export class PulseAdminMemberPointsLogDto {
   @ApiProperty({ example: 'pts-12', description: '积分流水 ID' })

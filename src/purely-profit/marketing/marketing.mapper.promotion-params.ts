@@ -176,14 +176,16 @@ export function mapPromotionParamsForWrite(
   params: MarketingPromotionParamsValue,
   type: string,
 ): MarketingPromotionParamsValue {
-  // discount / first_order_discount / points_recharge / free / points_2x 不涉及元→分
+  // discount / first_order_discount / points_recharge / free / points_2x /
+  // daily_check_in 不涉及元→分；签到的 pointsPerCheckIn 是积分个数，必须原样透传
   if (
     type === 'discount' ||
     type === 'discount_day' ||
     type === 'first_order_discount' ||
     type === 'points_recharge' ||
     type === 'free' ||
-    type === 'points_2x'
+    type === 'points_2x' ||
+    type === 'daily_check_in'
   ) {
     return params;
   }
@@ -220,14 +222,16 @@ export function mapPromotionParamsForOutput(
   params: MarketingPromotionParamsValue,
   type: string,
 ): MarketingPromotionParamsValue {
-  // discount / first_order_discount / points_recharge / free / points_2x 不涉及分→元
+  // discount / first_order_discount / points_recharge / free / points_2x /
+  // daily_check_in 不涉及分→元；签到的 pointsPerCheckIn 是积分个数，必须原样透传
   if (
     type === 'discount' ||
     type === 'discount_day' ||
     type === 'first_order_discount' ||
     type === 'points_recharge' ||
     type === 'free' ||
-    type === 'points_2x'
+    type === 'points_2x' ||
+    type === 'daily_check_in'
   ) {
     return params;
   }

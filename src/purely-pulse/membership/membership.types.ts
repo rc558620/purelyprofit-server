@@ -134,7 +134,12 @@ export interface PulseDeveloperPointsProfileRecord {
 
 export interface PulseDeveloperPointsLogRecord {
   id: number;
-  source: 'purchase_bonus' | 'deduct_payment' | 'admin_adjust' | 'expire';
+  source:
+    | 'purchase_bonus'
+    | 'deduct_payment'
+    | 'admin_adjust'
+    | 'expire'
+    | 'check_in';
   changeType: 'increase' | 'decrease';
   changeAmount: number;
   description: string;
