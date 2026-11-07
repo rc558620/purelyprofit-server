@@ -12,6 +12,10 @@ import {
   buildStoreInviteQrPayload,
 } from '../stores/store-invite-code-qr.utils';
 import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
+import {
+  resolveAllowPrivateNetwork,
+  sanitizePublicBaseUrl,
+} from '../../shared/qr-public-url.utils';
 import { MarketingSharedService } from './marketing-shared.service';
 import type {
   CreateMarketingInviteQrIssueDto,
@@ -234,6 +238,11 @@ export class MarketingInviteQrIssueService {
 
   private hasPublicBaseUrl(): boolean {
     const baseUrl = this.configService.get<string>('club.publicBaseUrl');
-    return typeof baseUrl === 'string' && baseUrl.trim().length > 0;
+    // 与出图侧共用同一套域名校验：只判非空会让「填了但被 sanitize 拒绝」的取值通过闸门，
+    // 结果是创建成功、但 entryUrl 与 qrCodeImageUrl 全为 null 的半成品发行记录
+    // （生产环境填 localhost / 带路径的地址都会命中这种情况）。
+    return (
+      sanitizePublicBaseUrl(baseUrl, resolveAllowPrivateNetwork()).length > 0
+    );
   }
 }

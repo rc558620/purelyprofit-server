@@ -136,6 +136,7 @@ export interface MarketingServiceTestingContext {
   clubMemberProfileService: MarketingClubMemberProfileServiceMock;
   clubMemberLevelsService: MarketingClubMemberLevelsServiceMock;
   redisService: ReturnType<typeof createRedisServiceMock>;
+  refreshableCache: ReturnType<typeof createRefreshableCacheServiceMock>;
   user: AuthenticatedUser;
 }
 
@@ -323,6 +324,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
     createPlatformMembershipAccessServiceMock();
   const clubMemberProfileService = createClubMemberProfileServiceMock();
   const clubMemberLevelsService = createClubMemberLevelsServiceMock();
+  const refreshableCache = createRefreshableCacheServiceMock();
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -354,7 +356,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       },
       {
         provide: RefreshableCacheService,
-        useValue: createRefreshableCacheServiceMock(),
+        useValue: refreshableCache,
       },
       { provide: MarketingAccessService, useValue: accessService },
       {
@@ -382,6 +384,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
     service: module.get<MarketingService>(MarketingService),
     prismaService,
     redisService,
+    refreshableCache,
     accessService,
     platformMembershipAccessService,
     clubMemberProfileService,

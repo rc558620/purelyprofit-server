@@ -19,6 +19,8 @@ import {
   AllowLegacyOwnerAccess,
   RequirePermissions,
 } from '../../access-control/decorators/require-permissions.decorator';
+import { BlockSubAccount } from '../../access-control/decorators/block-sub-account.decorator';
+import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-block.guard';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -59,7 +61,9 @@ import {
 @ApiTags('营销中心')
 @ApiBearerAuth()
 @AllowLegacyOwnerAccess()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 类上只挂 Guard、不加 @BlockSubAccount()：账户、钱包、档位、流水、询价与群发店长都要用，
+// 仅「余额充值下单」用方法级装饰器收紧（店长持 marketing:manage 但不得充值，见下方 recharge-orders）。
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
 @Controller('marketing/sms')
 export class SmsController {
   constructor(
@@ -122,6 +126,9 @@ export class SmsController {
 
   @Post('recharge-orders')
   @RequirePermissions('marketing:manage')
+  // 余额充值属资金类写操作：店长持 marketing:manage 也必须拦住，
+  // 否则放开营销写权限后会连带放出真实充值能力（前端另有硬锁，此处是最终防线）。
+  @BlockSubAccount('子账号无权充值短信余额，请联系主账号操作')
   @ApiOperation({
     summary: '创建短信钱包充值订单（微信 Native 扫码支付）',
     description:

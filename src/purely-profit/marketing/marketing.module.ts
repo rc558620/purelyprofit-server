@@ -20,6 +20,7 @@ import {
   MarketingProductCategoriesController,
   MarketingProductsController,
   MarketingPromotionsController,
+  MarketingStoreLocationController,
   MarketingTransactionsController,
 } from './marketing.controller';
 import { EntryQrPosterService } from './entry-qr-poster.service';
@@ -68,6 +69,7 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingProductCategoriesController,
     MarketingProductsController,
     MarketingPromotionsController,
+    MarketingStoreLocationController,
   ],
   providers: [
     MarketingService,

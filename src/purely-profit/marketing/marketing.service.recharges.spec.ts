@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   createMarketingServiceTestingContext,
   type MarketingServiceTestingContext,
@@ -106,6 +110,28 @@ describe('MarketingService recharges', () => {
         pageSize: 20,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('createRecharge 子账号退款被硬拒且不进入事务', async () => {
+    const subAccountUser = {
+      ...context.user,
+      currentMembership: context.user.currentMembership
+        ? {
+            ...context.user.currentMembership,
+            subjectType: 'sub_account' as const,
+          }
+        : null,
+    };
+
+    await expect(
+      context.service.createRecharge(subAccountUser, 18, {
+        customerId: 9,
+        amount: 3000,
+        type: 'refund',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(context.prismaService.$transaction).not.toHaveBeenCalled();
   });
 
   it('createRecharge 退款超过可退本金时抛 BadRequestException', async () => {

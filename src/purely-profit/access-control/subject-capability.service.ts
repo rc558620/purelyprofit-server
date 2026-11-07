@@ -48,6 +48,8 @@ const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'goods-management',
   'handover-management',
+  // 店长可进入营销中心只读查看；敏感入口由前端路由守卫与后端 Guard 单独收紧
+  'marketing-center',
   'space-management',
   'staff-management',
 ]);

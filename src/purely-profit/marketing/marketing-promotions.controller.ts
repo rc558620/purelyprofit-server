@@ -25,6 +25,8 @@ import {
   AllowLegacyOwnerAccess,
   RequirePermissions,
 } from '../access-control/decorators/require-permissions.decorator';
+import { BlockSubAccount } from '../access-control/decorators/block-sub-account.decorator';
+import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block.guard';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -43,7 +45,10 @@ import { MarketingService } from './marketing.service';
 @ApiTags('营销中心')
 @ApiBearerAuth()
 @AllowLegacyOwnerAccess()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
+// 优惠活动对全部子账号（含店长）关闭：marketing:view 放行后读接口会一并开放，
+// 因此这里用与权限码解耦的账号级 Guard 兜底，覆盖本类全部 6 个读写接口。
+@BlockSubAccount('子账号无权访问优惠活动')
 @Controller('marketing/promotions')
 export class MarketingPromotionsController {
   constructor(private readonly marketingService: MarketingService) {}

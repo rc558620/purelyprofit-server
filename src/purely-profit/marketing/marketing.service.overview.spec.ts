@@ -7,6 +7,7 @@ import {
   type MarketingServiceTestingContext,
 } from './marketing.service.test-setup';
 import { aNonEmptyArray } from '../../spec-matchers';
+import type { MarketingOverviewDto } from './dto/marketing-response-overview.dto';
 
 describe('MarketingService overview', () => {
   let context: MarketingServiceTestingContext;
@@ -18,6 +19,7 @@ describe('MarketingService overview', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   it('getOverview 在会员不支持营销中心时拒绝访问', async () => {
@@ -32,6 +34,57 @@ describe('MarketingService overview', () => {
     expect(
       context.prismaService.marketingCustomer.count,
     ).not.toHaveBeenCalled();
+  });
+
+  it('getOverview 对子账号收敛收款敏感字段，且不污染共享缓存', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+
+    const cachedOverview = {
+      totalBalance: 0,
+      totalRecharge: 0,
+      todayRecharge: 0,
+      thisMonthRecharge: 0,
+      rechargeCount: 0,
+      activeMemberCount: 0,
+      inviteCode: '',
+      inviteCodeQrCodeImageUrl: '',
+      inviteQrPayloadVersion: null,
+      inviteQrEntryUrl: null,
+      last30Days: [],
+      currentYear: 2026,
+      thisYearMonthlyTrend: [],
+      lastYearMonthlyTrend: [],
+      wechatPayConfig: {
+        configured: true,
+        mchId: '1234567890',
+        mchName: '测试门店',
+        configuredAt: '2026-05-15T12:00:00.000Z',
+      },
+    } satisfies MarketingOverviewDto;
+
+    // 缓存按 storeId 共享且始终存完整 DTO，脱敏只作用于返回给子账号的响应
+    context.refreshableCache.getOrLoadRefreshableJson.mockResolvedValueOnce(
+      cachedOverview,
+    );
+
+    const subAccountUser = {
+      ...context.user,
+      currentMembership: context.user.currentMembership
+        ? {
+            ...context.user.currentMembership,
+            subjectType: 'sub_account' as const,
+          }
+        : null,
+    };
+
+    const result = await context.service.getOverview(subAccountUser, 18);
+
+    expect(result.wechatPayConfig).toEqual({ configured: true });
+    // 缓存内容保持完整：主账号随后请求仍能拿到商户号
+    expect(cachedOverview.wechatPayConfig.mchId).toBe('1234567890');
   });
 
   it('getOverview 按前端首页契约返回纯储值概览和年度趋势', async () => {

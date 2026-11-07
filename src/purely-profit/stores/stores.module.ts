@@ -35,6 +35,7 @@ import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
   ],
   exports: [
     StoresProfileService,
+    StoresService,
     StoresWechatPayService,
     StoreBusinessCapabilityModule,
   ],

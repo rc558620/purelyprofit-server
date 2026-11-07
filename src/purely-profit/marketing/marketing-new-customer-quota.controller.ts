@@ -22,6 +22,8 @@ import {
   AllowLegacyOwnerAccess,
   RequirePermissions,
 } from '../access-control/decorators/require-permissions.decorator';
+import { BlockSubAccount } from '../access-control/decorators/block-sub-account.decorator';
+import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block.guard';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -42,7 +44,9 @@ import {
 @ApiTags('营销中心')
 @ApiBearerAuth()
 @AllowLegacyOwnerAccess()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 类上只挂 Guard、不加 @BlockSubAccount()：概览 / 档位 / 流水 / 支付单状态店长需要读，
+// 仅充值下单用方法级装饰器收紧（店长持 marketing:manage 但不得充值，见下方 recharge）。
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
 @Controller('marketing')
 export class MarketingNewCustomerQuotaController {
   constructor(
@@ -104,6 +108,9 @@ export class MarketingNewCustomerQuotaController {
   @Post('new-customer-quota/recharge')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('marketing:manage')
+  // 额度充值属资金类写操作：店长持 marketing:manage 也必须拦住，
+  // 否则放开营销写权限后会连带放出真实充值能力（前端另有硬锁，此处是最终防线）。
+  @BlockSubAccount('子账号无权充值新用户额度，请联系主账号操作')
   // 每次下单都会真实调用微信 Native 接口，必须限频：
   // 否则重复点击或脚本会把微信下单接口刷穿，并留下一堆永不关闭的 pending 单
   @Throttle({ default: { ttl: 60_000, limit: 20 } })

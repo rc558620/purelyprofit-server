@@ -118,6 +118,10 @@ const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:view',
   'handover:create',
   'handover:update',
+  // 营销中心读写：店长可操作其它子页面；6 项禁止（会员等级/优惠活动/微信收款配置/
+  // 退款/两种充值）由 SubAccountBlockGuard 与前端硬锁收紧，不依赖权限码。
+  'marketing:view',
+  'marketing:manage',
   // 客存（餐饮门店店长专用：含门店口径配置与作废）
   'custody:view',
   'custody:create',
@@ -177,6 +181,10 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:view',
   'handover:create',
   'handover:update',
+  // 营销中心读写：店长可操作其它子页面；6 项禁止（会员等级/优惠活动/微信收款配置/
+  // 退款/两种充值）由 SubAccountBlockGuard 与前端硬锁收紧，不依赖权限码。
+  'marketing:view',
+  'marketing:manage',
   // 客存（非餐饮门店店长专用：含门店口径配置与作废）
   'custody:view',
   'custody:create',

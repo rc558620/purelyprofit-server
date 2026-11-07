@@ -19,6 +19,8 @@ import {
   AllowLegacyOwnerAccess,
   RequirePermissions,
 } from '../access-control/decorators/require-permissions.decorator';
+import { BlockSubAccount } from '../access-control/decorators/block-sub-account.decorator';
+import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block.guard';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -39,7 +41,9 @@ import { MarketingService } from './marketing.service';
 @ApiTags('营销中心')
 @ApiBearerAuth()
 @AllowLegacyOwnerAccess()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 类上只挂 Guard、不加 @BlockSubAccount()：概览接口必须对店长放行，
+// 仅会员等级相关方法用方法级装饰器收紧（见下方各方法）。
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
 @Controller('marketing')
 export class MarketingOverviewController {
   constructor(private readonly marketingService: MarketingService) {}
@@ -57,6 +61,7 @@ export class MarketingOverviewController {
 
   @Get('member-level-settings')
   @RequirePermissions('marketing:view')
+  @BlockSubAccount('子账号无权配置会员等级')
   @ApiOperation({ summary: '营销会员等级与积分规则配置' })
   @ApiOkResponse({ type: MarketingMemberLevelSettingsDto })
   getMemberLevelSettings(
@@ -68,6 +73,7 @@ export class MarketingOverviewController {
 
   @Patch('member-level-settings/levels/:levelId')
   @RequirePermissions('marketing:manage')
+  @BlockSubAccount('子账号无权配置会员等级')
   @ApiOperation({ summary: '更新营销会员等级配置' })
   @ApiOkResponse({ type: MarketingMemberLevelDto })
   updateMemberLevel(
@@ -84,6 +90,7 @@ export class MarketingOverviewController {
 
   @Patch('member-level-settings/points-ratio')
   @RequirePermissions('marketing:manage')
+  @BlockSubAccount('子账号无权配置会员等级')
   @ApiOperation({ summary: '更新营销积分规则配置' })
   @ApiOkResponse({ type: MarketingPointsRatioDto })
   updatePointsRatio(

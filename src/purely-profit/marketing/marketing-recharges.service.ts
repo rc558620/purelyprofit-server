@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -167,14 +168,24 @@ export class MarketingRechargesService {
       'marketing:manage',
     );
 
+    const rechargeType = dto.type ?? 'recharge';
+
+    // 资金链路硬约束：子账号（含店长）一律不得办理储值退款。
+    // 与 PermissionsGuard 的 marketing:manage 形成双保险，避免后续误授权子账号写权限后出现资金越权。
+    // 放在查顾客之前：越权请求不应触发任何业务读取。
+    if (
+      rechargeType === 'refund' &&
+      user.currentMembership?.subjectType === 'sub_account'
+    ) {
+      throw new ForbiddenException('子账号无权办理顾客退款');
+    }
+
     const customer = await this.marketingSharedService.findCustomerOrThrow(
       dto.customerId,
     );
     if (customer.storeId !== storeId) {
       throw new BadRequestException('顾客不属于该门店');
     }
-
-    const rechargeType = dto.type ?? 'recharge';
 
     // ── 幂等保护：同一笔操作 5 秒内不可重复提交 ──
     // F5: key 包含 clearRemainingGift，防止不同清零策略的请求被误判为重复

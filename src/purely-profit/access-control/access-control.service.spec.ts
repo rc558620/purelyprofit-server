@@ -69,7 +69,7 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('marketing:view');
   });
 
-  it('manager 子账号应拥有门店运营权限，但不包含财务、营销和门店设置权限', () => {
+  it('manager 子账号应拥有门店运营与营销读写权限，但不包含财务与门店设置权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.manager),
     );
@@ -113,6 +113,9 @@ describe('AccessControlService', () => {
       'handover:view',
       'handover:create',
       'handover:update',
+      // 营销中心读写（6 项禁止由 SubAccountBlockGuard 与前端硬锁收紧）
+      'marketing:view',
+      'marketing:manage',
       // 客存：店长额外拥有作废与门店口径配置
       'custody:view',
       'custody:create',

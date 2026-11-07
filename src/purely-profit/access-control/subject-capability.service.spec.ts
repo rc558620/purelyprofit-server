@@ -66,14 +66,16 @@ describe('SubjectCapabilityService', () => {
       'business-analysis',
       'goods-management',
       'handover-management',
+      'marketing-center',
       'space-management',
       'staff-management',
     ]);
     expect(snapshot.hiddenHomeModules).toContain('finance-center');
     expect(snapshot.hiddenHomeModules).toContain('member-center');
     expect(snapshot.hiddenHomeModules).toContain('store-settings');
+    expect(snapshot.hiddenHomeModules).not.toContain('marketing-center');
     expect(snapshot.canViewFinance).toBe(false);
-    expect(snapshot.canViewMarketing).toBe(false);
+    expect(snapshot.canViewMarketing).toBe(true);
     expect(snapshot.canUseGoodsManagement).toBe(true);
     expect(snapshot.canUseHandoverManagement).toBe(true);
     expect(snapshot.canUseSpaceManagement).toBe(true);
@@ -144,6 +146,7 @@ describe('SubjectCapabilityService', () => {
       'additional',
       'business-analysis',
       'goods-management',
+      'marketing-center',
       'space-management',
       'staff-management',
     ]);

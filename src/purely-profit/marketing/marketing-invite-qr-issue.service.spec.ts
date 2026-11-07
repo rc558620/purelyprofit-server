@@ -125,6 +125,19 @@ describe('MarketingInviteQrIssueService', () => {
       expect(prisma.storeInviteQrIssue.create).not.toHaveBeenCalled();
     });
 
+    it('配置了非法公共域名（缺协议头）时同样拒绝创建，不留半成品记录', async () => {
+      // 只判非空会让这类取值通过闸门，随后载荷回退裸码 → entryUrl / qrCodeImageUrl 全为 null
+      configService.get.mockImplementation((key: string) =>
+        key === 'club.publicBaseUrl' ? 'club.purelyprofit.com' : '/i',
+      );
+
+      await expect(
+        service.createIssue(user, 18, { channel: 'poster', name: '开业海报' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.storeInviteQrIssue.create).not.toHaveBeenCalled();
+      expect(toDataUrlMock).not.toHaveBeenCalled();
+    });
+
     it('创建成功：生成带 token 的稳定入口 URL 与二维码图', async () => {
       configService.get.mockImplementation((key: string) =>
         key === 'club.publicBaseUrl' ? 'https://club.purelyprofit.com' : '/i',

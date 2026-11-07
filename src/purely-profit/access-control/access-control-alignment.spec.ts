@@ -15,11 +15,16 @@ import {
 import { SubjectCapabilityService } from './subject-capability.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { MarketingOverviewController } from '../marketing/marketing.controller';
+import {
+  MarketingNewCustomerQuotaController,
+  MarketingOverviewController,
+  MarketingStoreLocationController,
+} from '../marketing/marketing.controller';
 import { MarketingCustomersController } from '../marketing/marketing-customers.controller';
 import { MarketingProductCategoriesController } from '../marketing/marketing-product-categories.controller';
 import { MarketingProductsController } from '../marketing/marketing-products.controller';
 import { MarketingPromotionsController } from '../marketing/marketing-promotions.controller';
+import { SmsController } from '../marketing/sms/sms.controller';
 import { MarketingTransactionsController } from '../marketing/marketing-transactions.controller';
 import { PartnerReviewController } from '../member/platform-membership/partner-review.controller';
 import { PlatformMembershipController } from '../member/platform-membership/platform-membership.controller';
@@ -39,6 +44,7 @@ import { MemberCardsController } from '../member/cards/member-cards.controller';
 import { MemberCardPlansController } from '../member/cards/member-card-plans.controller';
 import { MemberCardOrdersController } from '../member/cards/member-card-orders.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
+import { BLOCK_SUB_ACCOUNT_KEY } from './decorators/block-sub-account.decorator';
 
 const accessControlService = new AccessControlService();
 const subjectCapabilityService = new SubjectCapabilityService(
@@ -120,14 +126,16 @@ describe('Sub-account alignment regression', () => {
       'business-analysis',
       'goods-management',
       'handover-management',
+      'marketing-center',
       'space-management',
       'staff-management',
     ]);
     expect(capability.canUseGoodsManagement).toBe(true);
-    expect(capability.canViewMarketing).toBe(false);
+    expect(capability.canViewMarketing).toBe(true);
     expect(permissions).toContain('report:view');
-    expect(permissions).not.toContain('marketing:view');
-    expect(permissions).not.toContain('marketing:manage');
+    expect(permissions).toContain('marketing:view');
+    // 店长可操作营销中心其它子页面：写权限下放，6 项禁止改由 Guard / 前端硬锁收紧
+    expect(permissions).toContain('marketing:manage');
     expect(permissions).toContain('goods:view');
     expect(permissions).toContain('inventory:view');
     expect(permissions).toContain('cost:view');
@@ -227,11 +235,135 @@ describe('Sub-account alignment regression', () => {
   });
 });
 
+describe('营销写权限放开后的硬例外（metadata）', () => {
+  it('两个充值 controller 类级挂 SubAccountBlockGuard 但类级不封锁子账号', () => {
+    for (const controller of [
+      MarketingNewCustomerQuotaController,
+      SmsController,
+    ]) {
+      expect(Reflect.getMetadata(GUARDS_METADATA, controller)).toEqual([
+        JwtAuthGuard,
+        PermissionsGuard,
+        SubAccountBlockGuard,
+      ]);
+      // 类级封锁会误伤概览 / 档位 / 流水 / 询价 / 群发等店长必用接口
+      expect(Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, controller)).toBe(
+        undefined,
+      );
+    }
+  });
+
+  it('仅新用户额度充值下单方法级封锁子账号，其余方法保持放行', () => {
+    const quotaProto = MarketingNewCustomerQuotaController.prototype;
+
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, quotaProto.recharge),
+    ).toBe(true);
+    for (const method of [
+      quotaProto.getOverview,
+      quotaProto.getTiers,
+      quotaProto.getLogs,
+      quotaProto.getRechargeStatus,
+    ]) {
+      expect(
+        Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, method),
+      ).toBeUndefined();
+    }
+  });
+
+  it('仅短信余额充值下单方法级封锁子账号，群发与查询保持放行', () => {
+    const smsProto = SmsController.prototype;
+
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, smsProto.createRechargeOrder),
+    ).toBe(true);
+    for (const method of [
+      smsProto.getAccount,
+      smsProto.createQuote,
+      smsProto.createBroadcast,
+      smsProto.getRechargeOrderStatus,
+      smsProto.getWallet,
+      smsProto.getRechargeTiers,
+      smsProto.listWalletLogs,
+      smsProto.listBroadcasts,
+      smsProto.getBroadcastDetail,
+      smsProto.listBroadcastRecipients,
+    ]) {
+      expect(
+        Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, method),
+      ).toBeUndefined();
+    }
+  });
+
+  it('门店坐标专用接口只要求营销权限，且不放开门店设置接口', () => {
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MarketingStoreLocationController.prototype.updateStoreLocation,
+      ),
+    ).toEqual(['marketing:manage']);
+    // 读走 marketing:view：坐标页首屏必须能拿到门店数据（GET /stores/current 对子账号 403）
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        MarketingStoreLocationController.prototype.getStoreLocation,
+      ),
+    ).toEqual(['marketing:view']);
+    expect(
+      Reflect.getMetadata(GUARDS_METADATA, MarketingStoreLocationController),
+    ).toEqual([JwtAuthGuard, PermissionsGuard]);
+    // 类级不得挂子账号封锁：坐标读写给店长用
+    expect(
+      Reflect.getMetadata(
+        BLOCK_SUB_ACCOUNT_KEY,
+        MarketingStoreLocationController,
+      ),
+    ).toBeUndefined();
+    // 门店设置整块仍是主账号专属（含微信收款配置写接口）
+    expect(Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, StoresController)).toBe(
+      true,
+    );
+  });
+});
+
 describe('Permission metadata regression', () => {
   it('MarketingOverviewController 应启用登录态与权限 guard', () => {
     expect(
       Reflect.getMetadata(GUARDS_METADATA, MarketingOverviewController),
-    ).toEqual([JwtAuthGuard, PermissionsGuard]);
+    ).toEqual([JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard]);
+  });
+
+  it('优惠活动 controller 应类级封锁子账号，营销概览 controller 不得类级封锁', () => {
+    expect(
+      Reflect.getMetadata(GUARDS_METADATA, MarketingPromotionsController),
+    ).toEqual([JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard]);
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, MarketingPromotionsController),
+    ).toBe(true);
+    // 概览接口是店长进入营销中心的必要接口，类级封锁会误伤
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, MarketingOverviewController),
+    ).toBeUndefined();
+  });
+
+  it('会员等级读写方法逐方法封锁子账号，overview 保持放行', () => {
+    const prototype = MarketingOverviewController.prototype;
+
+    expect(
+      Reflect.getMetadata(
+        BLOCK_SUB_ACCOUNT_KEY,
+        prototype.getMemberLevelSettings,
+      ),
+    ).toBe(true);
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, prototype.updateMemberLevel),
+    ).toBe(true);
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, prototype.updatePointsRatio),
+    ).toBe(true);
+    expect(
+      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, prototype.getOverview),
+    ).toBeUndefined();
   });
 
   it.each([

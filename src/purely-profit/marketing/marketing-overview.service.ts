@@ -83,17 +83,40 @@ export class MarketingOverviewService {
         storeId,
       );
     if (!resolvedStoreId) {
-      return buildEmptyMarketingOverview();
+      return this.maskWechatPayConfigForSubAccount(
+        buildEmptyMarketingOverview(),
+        user,
+      );
     }
 
     const cacheKey = buildMarketingOverviewCacheKey(resolvedStoreId);
-    return this.refreshableCache.getOrLoadRefreshableJson({
+    const overview = await this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
       refreshAfterMs: MARKETING_OVERVIEW_REFRESH_AFTER_MS,
       loadValue: () => this.buildOverview(resolvedStoreId),
     });
+    return this.maskWechatPayConfigForSubAccount(overview, user);
+  }
+
+  /**
+   * 子账号（含店长）不下发商户号等收款敏感信息。
+   *
+   * 投影必须发生在缓存读取之后：overview 缓存按 storeId 共享，若在 buildOverview
+   * 内裁剪，先请求的子账号会把脱敏结果写入缓存，导致主账号随后读不到商户号。
+   */
+  private maskWechatPayConfigForSubAccount(
+    overview: MarketingOverviewDto,
+    user: AuthenticatedUser,
+  ): MarketingOverviewDto {
+    if (user.currentMembership?.subjectType !== 'sub_account') {
+      return overview;
+    }
+    return {
+      ...overview,
+      wechatPayConfig: { configured: overview.wechatPayConfig.configured },
+    };
   }
 
   getMemberLevelSettings(
