@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 function transformTrimmedString(value: unknown): unknown {
   if (typeof value !== 'string') {
@@ -16,6 +16,7 @@ export class RejectWithdrawalDto {
     description: '拒绝原因',
   })
   @Transform(({ value }) => transformTrimmedString(value))
+  @IsNotEmpty({ message: '拒绝原因不能为空' })
   @IsString({ message: '拒绝原因必须是字符串' })
   @MaxLength(100, { message: '拒绝原因最多 100 位' })
   reason: string;

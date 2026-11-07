@@ -13,27 +13,27 @@ model MembershipPlanSetting {
 }
 
 model StoreMembershipProfile {
-  id                   Int                        @id @default(autoincrement())
-  storeId              Int                        @unique @map("store_id")
-  currentPlanId        MembershipPlanCycle?       @map("current_plan_id")
+  id                       Int                        @id @default(autoincrement())
+  storeId                  Int                        @unique @map("store_id")
+  currentPlanId            MembershipPlanCycle?       @map("current_plan_id")
   /// 降级到免费时保留的原档位：`currentPlanId` 会被清空，续费页将无法判断
   /// 「原本买的是哪一档」，必须回落读本字段，否则 AGES 门店会被错判成年度档
-  previousPlanId       MembershipPlanCycle?       @map("previous_plan_id")
-  startsAt             DateTime?                  @map("starts_at")
-  expiresAt            DateTime?                  @map("expires_at")
-  totalPoints          Int                        @default(0) @map("total_points")
-  availablePoints      Int                        @default(0) @map("available_points")
-  subAccountQuota      Int                        @default(0) @map("sub_account_quota")
-  pulseSubAccountQuota Int?                       @map("pulse_sub_account_quota")
+  previousPlanId           MembershipPlanCycle?       @map("previous_plan_id")
+  startsAt                 DateTime?                  @map("starts_at")
+  expiresAt                DateTime?                  @map("expires_at")
+  totalPoints              Int                        @default(0) @map("total_points")
+  availablePoints          Int                        @default(0) @map("available_points")
+  subAccountQuota          Int                        @default(0) @map("sub_account_quota")
+  pulseSubAccountQuota     Int?                       @map("pulse_sub_account_quota")
   /// 新用户额度余额：还能服务多少位新客（微信 getPhoneNumber 调用次数）
-  newCustomerQuota         Int                    @default(0) @map("new_customer_quota")
+  newCustomerQuota         Int                        @default(0) @map("new_customer_quota")
   /// 累计已服务的新客数（只增不减，用于统计展示）
-  newCustomerQuotaConsumed Int                    @default(0) @map("new_customer_quota_consumed")
-  createdAt            DateTime                   @default(now()) @map("created_at")
-  updatedAt            DateTime                   @updatedAt @map("updated_at")
-  orders               StoreMembershipOrder[]
-  pointsLogs           StoreMembershipPointsLog[]
-  store                Store                      @relation(fields: [storeId], references: [id])
+  newCustomerQuotaConsumed Int                        @default(0) @map("new_customer_quota_consumed")
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  orders                   StoreMembershipOrder[]
+  pointsLogs               StoreMembershipPointsLog[]
+  store                    Store                      @relation(fields: [storeId], references: [id])
 
   @@index([expiresAt])
   @@map("store_membership_profiles")
@@ -76,16 +76,16 @@ model StoreMembershipOrder {
 /// 任何一笔成交（商家端自助购买 / 平台侧设置会员等级）都会被记录，
 /// 运营洽谈的价格才不会被配置价打回原形。
 model StoreMembershipLockedPrice {
-  id        Int                              @id @default(autoincrement())
-  storeId   Int                              @map("store_id")
-  planId    MembershipPlanCycle              @map("plan_id")
+  id                   Int                              @id @default(autoincrement())
+  storeId              Int                              @map("store_id")
+  planId               MembershipPlanCycle              @map("plan_id")
   /// 成交总额（分）：本次成交实际成交的套餐总价。只作记账 / 快照展示，不参与定价
-  price     Int
+  price                Int
   /// 该套餐包含的子账号加价（分）。参与定价——续费价 = 当前配置价 + 本字段。
   /// 可空：存量数据在运营补录前按 0 处理，即维持纯配置价的旧口径
-  subAccountAmount Int?                      @map("sub_account_amount")
+  subAccountAmount     Int?                             @map("sub_account_amount")
   /// 该套餐包含的子账号数量。仅用于展示与财务核算，不参与定价计算
-  subAccountCount  Int?                      @map("sub_account_count")
+  subAccountCount      Int?                             @map("sub_account_count")
   /// 续费价覆盖（分）：运营为该门店、该档位单独议定的**基础价**。
   ///
   /// 定价公式：`(本字段 ?? 当前配置价) + 子账号加价`
@@ -95,7 +95,7 @@ model StoreMembershipLockedPrice {
   ///   运营可随时清空本字段恢复默认价。
   /// - 与 `price`（成交总额，只记账）互斥：`price` 是一次成交的结果，
   ///   本字段是**未来每次续费**都生效的定价输入，两者语义不得混用。
-  renewalPriceOverride Int?                  @map("renewal_price_override")
+  renewalPriceOverride Int?                             @map("renewal_price_override")
   /// 成交锁定时点：**非空才代表本行的成交分量（price / subAccountAmount /
   /// subAccountCount / source）来自一次真实成交**。
   ///
@@ -103,13 +103,13 @@ model StoreMembershipLockedPrice {
   /// 那次的 `price` 只是建行时抄的配置价，不是任何一次成交的结果，
   /// 因此既不能进「成交价快照」展示，也不能拦住商家首次成交的写入
   /// （`lockPriceOnFirstDeal` 会以本字段为判据补写成交分量）。
-  dealLockedAt DateTime?                     @map("deal_locked_at")
+  dealLockedAt         DateTime?                        @map("deal_locked_at")
   /// 锁价来源：purchase=商家端下单成交，admin=平台侧设置会员等级成交
-  source    StoreMembershipLockedPriceSource @default(purchase)
-  lockedAt  DateTime                         @default(now()) @map("locked_at")
-  createdAt DateTime                         @default(now()) @map("created_at")
-  updatedAt DateTime                         @updatedAt @map("updated_at")
-  store     Store                            @relation(fields: [storeId], references: [id])
+  source               StoreMembershipLockedPriceSource @default(purchase)
+  lockedAt             DateTime                         @default(now()) @map("locked_at")
+  createdAt            DateTime                         @default(now()) @map("created_at")
+  updatedAt            DateTime                         @updatedAt @map("updated_at")
+  store                Store                            @relation(fields: [storeId], references: [id])
 
   @@unique([storeId, planId])
   @@map("store_membership_locked_prices")
@@ -120,17 +120,17 @@ model StoreMembershipLockedPrice {
 /// 改价直接影响门店的实际扣款，必须留痕：谁、什么时候、把哪一档从多少改成了多少。
 /// `oldPrice` / `newPrice` 为 null 分别表示「新建覆盖」与「清除覆盖（恢复默认价）」。
 model StoreMembershipPriceOverrideAudit {
-  id          Int                  @id @default(autoincrement())
-  storeId     Int                  @map("store_id")
-  planId      MembershipPlanCycle  @map("plan_id")
+  id             Int                 @id @default(autoincrement())
+  storeId        Int                 @map("store_id")
+  planId         MembershipPlanCycle @map("plan_id")
   /// 变更前的基础价（分）；null = 此前未覆盖
-  oldPrice    Int?                 @map("old_price")
+  oldPrice       Int?                @map("old_price")
   /// 变更后的基础价（分）；null = 已清除覆盖，回落到配置价
-  newPrice    Int?                 @map("new_price")
-  operatorUserId Int?              @map("operator_user_id")
-  operatorName   String?           @map("operator_name")
-  reason      String?
-  createdAt   DateTime             @default(now()) @map("created_at")
+  newPrice       Int?                @map("new_price")
+  operatorUserId Int?                @map("operator_user_id")
+  operatorName   String?             @map("operator_name")
+  reason         String?
+  createdAt      DateTime            @default(now()) @map("created_at")
 
   @@index([storeId, createdAt])
   @@index([storeId, planId, createdAt])

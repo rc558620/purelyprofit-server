@@ -3,6 +3,7 @@ import {
   BLOCK_SUB_ACCOUNT_KEY,
   BLOCK_SUB_ACCOUNT_MESSAGE_KEY,
 } from '../../access-control/decorators/block-sub-account.decorator';
+import { REQUIRE_PERMISSIONS_KEY } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-block.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -32,5 +33,14 @@ describe('PlatformMembership controllers metadata', () => {
     expect(Reflect.getMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, controller)).toBe(
       '子账号无权访问平台会员中心',
     );
+  });
+
+  it('listBeanLogs 要求 partner:view，与合伙人域其它读接口口径一致', () => {
+    const permissions = Reflect.getMetadata(
+      REQUIRE_PERMISSIONS_KEY,
+      PlatformMembershipController.prototype.listBeanLogs,
+    );
+
+    expect(permissions).toEqual(['partner:view']);
   });
 });

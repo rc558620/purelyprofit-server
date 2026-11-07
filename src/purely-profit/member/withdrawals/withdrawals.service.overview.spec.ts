@@ -95,6 +95,21 @@ describe('WithdrawalsService overview and list', () => {
     });
   });
 
+  it('getOverview 直接回源，不读有界陈旧的 refreshable cache', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createOverviewPartner(),
+    );
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(0);
+
+    await context.service.getOverview(context.user);
+
+    // 余额属强一致读数：走 refreshable cache 会被后台刷新写回旧值并存活一个 TTL
+    expect(
+      context.refreshableCache.getOrLoadRefreshableJson,
+    ).not.toHaveBeenCalled();
+    expect(context.prismaService.storePartner.findFirst).toHaveBeenCalled();
+  });
+
   it('list 默认按当前门店查询并映射前端字段', async () => {
     context.prismaService.partnerWithdrawal.findMany.mockResolvedValue([
       createWithdrawalRecord({

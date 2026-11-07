@@ -35,29 +35,29 @@ enum PlatformPayMode {
 
 /// 平台收款支付单。
 model PlatformPaymentOrder {
-  id Int @id @default(autoincrement())
+  id             Int                    @id @default(autoincrement())
   /// 支付单号（对外唯一，同时作为微信 out_trade_no）
-  orderNo String @unique @map("order_no")
-  bizType PlatformPaymentBizType @map("biz_type")
+  orderNo        String                 @unique @map("order_no")
+  bizType        PlatformPaymentBizType @map("biz_type")
   /// 对应业务单据 ID（会员订单 ID / 额度流水单号），弱引用
-  bizOrderId String? @map("biz_order_id")
-  storeId Int @map("store_id")
+  bizOrderId     String?                @map("biz_order_id")
+  storeId        Int                    @map("store_id")
   /// 发起支付的商家端用户（用于对账与审计）
-  operatorUserId Int @map("operator_user_id")
+  operatorUserId Int                    @map("operator_user_id")
   /// 应付金额（分）。金额计算权在后端，前端不传
-  amountFen Int @map("amount_fen")
+  amountFen      Int                    @map("amount_fen")
   /// 下单时的支付模式：测试单必须能与真实单区分开，否则会污染对账
-  payMode PlatformPayMode @map("pay_mode")
-  status PlatformPaymentStatus @default(pending)
+  payMode        PlatformPayMode        @map("pay_mode")
+  status         PlatformPaymentStatus  @default(pending)
   /// 微信 Native 支付二维码链接（真实模式下单时返回）
-  codeUrl String? @map("code_url")
+  codeUrl        String?                @map("code_url")
   /// 微信支付流水号（回调带回）
-  transactionId String? @map("transaction_id")
+  transactionId  String?                @map("transaction_id")
   /// 支付单过期时间（超时惰性置 closed）
-  expiresAt DateTime @map("expires_at")
-  paidAt DateTime? @map("paid_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  expiresAt      DateTime               @map("expires_at")
+  paidAt         DateTime?              @map("paid_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
 
   @@index([storeId, bizType, createdAt])
   @@index([storeId, status])

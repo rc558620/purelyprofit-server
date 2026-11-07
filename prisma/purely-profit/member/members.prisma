@@ -46,10 +46,10 @@ model Member {
   customer           MarketingCustomer?  @relation("MemberCustomer", fields: [customerId], references: [id])
   store              Store               @relation(fields: [storeId], references: [id])
 
-  @@index([storeId, phone])
   /// 同一 club 用户在一家门店最多一条会员档案。
   /// 部分唯一（仅约束非 null）：没有 club 账号的会员记录不受影响。
   @@unique([storeId, clubUserId], map: "uq_members_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
+  @@index([storeId, phone])
   @@index([storeId, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, status, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, isPartner, updatedAt], where: raw("(deleted_at IS NULL)"))

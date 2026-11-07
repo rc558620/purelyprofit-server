@@ -29,25 +29,25 @@ model StoreSmsAccount {
 
 /// 短信钱包流水。changeFen 正数为入账、负数为出账。
 model SmsWalletLog {
-  id               Int              @id @default(autoincrement())
-  storeId          Int              @map("store_id")
+  id              Int              @id @default(autoincrement())
+  storeId         Int              @map("store_id")
   /// recharge=微信充值 consume=群发扣费 refund=退费 grant=平台赠送
   /// admin_adjust=平台运营调整
-  type             SmsWalletLogType
+  type            SmsWalletLogType
   /// 变动金额（分）：正数入账、负数出账
-  changeFen        Int              @map("change_fen")
+  changeFen       Int              @map("change_fen")
   /// 变动后的账户余额（分）
-  balanceAfterFen  Int              @map("balance_after_fen")
+  balanceAfterFen Int              @map("balance_after_fen")
   /// 流水说明（前端直接展示）
-  description      String
+  description     String
   /// 该笔变动所属支付模式：live=真实收款，test=测试模式直充
   /// 真实对账 / 报表必须只统计 live，否则测试白送的余额会被算成营收
-  payMode          SmsPayMode       @default(live) @map("pay_mode")
+  payMode         SmsPayMode       @default(live) @map("pay_mode")
   /// 关联充值订单号（仅 recharge / refund 有值）
-  orderNo          String?          @map("order_no")
+  orderNo         String?          @map("order_no")
   /// 关联群发任务 ID（仅 consume / refund 有值）
-  broadcastId      String?          @map("broadcast_id")
-  createdAt        DateTime         @default(now()) @map("created_at")
+  broadcastId     String?          @map("broadcast_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
 
   @@index([storeId, createdAt])
   @@index([storeId, type, createdAt])
@@ -58,46 +58,46 @@ model SmsWalletLog {
 
 /// 群发任务。broadcastId 是外部可见的业务 ID，idempotencyKey 保证跨页续发只扣一次。
 model SmsBroadcastTask {
-  id               Int                    @id @default(autoincrement())
-  storeId          Int                    @map("store_id")
+  id                   Int                    @id @default(autoincrement())
+  storeId              Int                    @map("store_id")
   /// 对外暴露的业务 ID（前端 quote/broadcast 链路使用）
-  broadcastId      String                 @unique @map("broadcast_id")
+  broadcastId          String                 @unique @map("broadcast_id")
   /// 操作人（员工/子账号 ID），用于审计
-  operatorStaffId  Int?                   @map("operator_staff_id")
+  operatorStaffId      Int?                   @map("operator_staff_id")
   /// 短信正文
-  content          String
-  status           SmsBroadcastTaskStatus @default(pending)
+  content              String
+  status               SmsBroadcastTaskStatus @default(pending)
   /// 收件人数（提交时的全部收件人，含被剔除者）
-  recipientCount   Int                    @default(0) @map("recipient_count")
+  recipientCount       Int                    @default(0) @map("recipient_count")
   /// 有效手机号人数（真正提交给通道的）
-  validMobileCount Int                    @default(0) @map("valid_mobile_count")
+  validMobileCount     Int                    @default(0) @map("valid_mobile_count")
   /// 计费总条数 = 每人分段数 × 有效收件人数（**不是每人分段数**）
-  smsSegments      Int                    @default(0) @map("sms_segments")
+  smsSegments          Int                    @default(0) @map("sms_segments")
   /// 发送成功条数（**提交口径**：通道同步返回 Ok 的数量）
-  successCount     Int                    @default(0) @map("success_count")
+  successCount         Int                    @default(0) @map("success_count")
   /// 发送失败条数（提交口径）
-  failedCount      Int                    @default(0) @map("failed_count")
+  failedCount          Int                    @default(0) @map("failed_count")
   /// 送达成功人数（**回执口径**：运营商异步回执确认送达）
-  deliverySuccessCount Int                @default(0) @map("delivery_success_count")
+  deliverySuccessCount Int                    @default(0) @map("delivery_success_count")
   /// 送达失败人数（回执口径：空号 / 停机 / 黑名单等）
-  deliveryFailedCount  Int                @default(0) @map("delivery_failed_count")
+  deliveryFailedCount  Int                    @default(0) @map("delivery_failed_count")
   /// 商户被扣费、但腾讯云实际不收费的那部分（送达失败）的自动退费累计（分）
   /// 与人工退费的 refundedAmountFen 分开统计，两套退费互不干扰
-  autoRefundedFen  Int                    @default(0) @map("auto_refunded_fen")
+  autoRefundedFen      Int                    @default(0) @map("auto_refunded_fen")
   /// 计费单价（分/条），下单时固化，避免调价后历史任务对不上账
-  unitPriceFen     Int                    @default(0) @map("unit_price_fen")
+  unitPriceFen         Int                    @default(0) @map("unit_price_fen")
   /// 实际扣费金额（分）
-  chargedAmountFen Int                    @default(0) @map("charged_amount_fen")
+  chargedAmountFen     Int                    @default(0) @map("charged_amount_fen")
   /// 已退费金额（分）。> 0 表示已退过，退费只允许一次
-  refundedAmountFen Int                   @default(0) @map("refunded_amount_fen")
+  refundedAmountFen    Int                    @default(0) @map("refunded_amount_fen")
   /// 派发尝试次数（首次 + 补偿重发累计），达到上限即判死并转 failed 等人工退费
-  dispatchAttempts Int                    @default(0) @map("dispatch_attempts")
+  dispatchAttempts     Int                    @default(0) @map("dispatch_attempts")
   /// 最近一次派发失败原因（排障用，非通道逐条明细）
-  lastError        String?                @map("last_error")
+  lastError            String?                @map("last_error")
   /// 前端跨页续发用的幂等键，唯一索引兜底
-  idempotencyKey   String                 @unique @map("idempotency_key")
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @updatedAt @map("updated_at")
+  idempotencyKey       String                 @unique @map("idempotency_key")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
 
   @@index([storeId, createdAt])
   @@index([storeId, status, createdAt])
@@ -108,33 +108,33 @@ model SmsBroadcastTask {
 
 /// 群发收件人明细。发送失败**不自动退费**，仅在此记录逐条结果。
 model SmsBroadcastRecipient {
-  id              Int                         @id @default(autoincrement())
-  taskId          Int                         @map("task_id")
+  id                Int                         @id @default(autoincrement())
+  taskId            Int                         @map("task_id")
   /// 顾客 ID（顾客已被删除时留空，靠 phone 追溯）
-  customerId      Int?                        @map("customer_id")
+  customerId        Int?                        @map("customer_id")
   /// 收件手机号（归一化后的 11 位国内号码）
-  phone           String
-  status          SmsBroadcastRecipientStatus @default(pending)
+  phone             String
+  status            SmsBroadcastRecipientStatus @default(pending)
   /// 通道返回码（如 Ok / LimitExceeded.PhoneNumberCountLimit）
-  providerCode    String?                     @map("provider_code")
+  providerCode      String?                     @map("provider_code")
   /// 通道返回描述
-  providerMessage String?                     @map("provider_message")
+  providerMessage   String?                     @map("provider_message")
   /// 腾讯云返回的 RequestId：没有它事后无法与通道侧对账排障
-  providerRequestId String?                   @map("provider_request_id")
+  providerRequestId String?                     @map("provider_request_id")
   /// 腾讯云 SendSms 返回的流水号——异步送达回执靠它对回本条明细
-  serialNo        String?                     @map("serial_no")
+  serialNo          String?                     @map("serial_no")
   /// 运营商送达结果（异步回执写回）：null = 还没收到回执
-  deliveryStatus  SmsDeliveryStatus?          @map("delivery_status")
+  deliveryStatus    SmsDeliveryStatus?          @map("delivery_status")
   /// 回执里的原始状态码（如 DELIVRD / UNDELIV）
-  deliveryCode    String?                     @map("delivery_code")
+  deliveryCode      String?                     @map("delivery_code")
   /// 回执里的状态描述
-  deliveryMessage String?                     @map("delivery_message")
+  deliveryMessage   String?                     @map("delivery_message")
   /// 运营商回执时间
-  deliveredAt     DateTime?                   @map("delivered_at")
+  deliveredAt       DateTime?                   @map("delivered_at")
   /// 送达失败自动退费的落账时间（幂等闸门：一条明细只自动退一次）
-  refundedAt      DateTime?                   @map("refunded_at")
-  createdAt       DateTime                    @default(now()) @map("created_at")
-  updatedAt       DateTime                    @updatedAt @map("updated_at")
+  refundedAt        DateTime?                   @map("refunded_at")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
 
   @@index([taskId, status])
   // 回执只带流水号，必须能按 serialNo 快速定位明细

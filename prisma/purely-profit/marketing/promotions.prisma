@@ -1,31 +1,31 @@
 model MarketingPromotion {
-  id            Int                    @id @default(autoincrement())
-  storeId       Int                    @map("store_id")
+  id                  Int                      @id @default(autoincrement())
+  storeId             Int                      @map("store_id")
   /// 活动名称
-  name          String
+  name                String
   /// 活动类型
-  type          MarketingPromotionType
+  type                MarketingPromotionType
   /// 活动描述
-  description   String                 @default("")
+  description         String                   @default("")
   /// 优惠参数（JSON，按 type 存不同结构）
-  params        Json                   @default("{}")
+  params              Json                     @default("{}")
   /// 后端预计算的展示文案（如 "打 8 折"、"满 ¥50 减 ¥8"、"充 ¥100 赠 ¥10 起"）
-  displayText   String?                @map("display_text")
+  displayText         String?                  @map("display_text")
   /// 开始时间
-  startAt       DateTime               @map("start_at")
+  startAt             DateTime                 @map("start_at")
   /// 结束时间
-  endAt         DateTime               @map("end_at")
+  endAt               DateTime                 @map("end_at")
   /// 参与人次（实际使用次数）
-  usageCount    Int                    @default(0) @map("usage_count")
+  usageCount          Int                      @default(0) @map("usage_count")
   /// 核销总金额（分）
-  totalDiscount Int                    @default(0) @map("total_discount")
+  totalDiscount       Int                      @default(0) @map("total_discount")
   /// 是否上架
-  enabled       Boolean                @default(true)
-  createdAt     DateTime               @default(now()) @map("created_at")
-  updatedAt     DateTime               @updatedAt @map("updated_at")
-  consumptions  MarketingConsumption[]
-  store         Store                  @relation(fields: [storeId], references: [id])
-  recharges     MarketingRecharge[]
+  enabled             Boolean                  @default(true)
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  consumptions        MarketingConsumption[]
+  store               Store                    @relation(fields: [storeId], references: [id])
+  recharges           MarketingRecharge[]
   /// C 端每日签到事实（活动被删除时 promotion_id 置空，历史记录保留）
   dailyCheckInRecords ClubDailyCheckInRecord[]
 

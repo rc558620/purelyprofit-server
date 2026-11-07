@@ -139,7 +139,7 @@ model Store {
   spaceTypes                  SpaceType[]
   spaceZones                  SpaceZone[]
   spaces                      Space[]
-  spaceQrCodes                 SpaceQrCode[]
+  spaceQrCodes                SpaceQrCode[]
   staffs                      Staff[]
   handoverAdditionalItems     StoreHandoverAdditionalItem[]
   handoverRecords             StoreHandoverRecord[]

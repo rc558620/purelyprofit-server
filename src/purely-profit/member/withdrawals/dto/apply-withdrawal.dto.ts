@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -72,6 +73,7 @@ export class ApplyWithdrawalDto {
     description: '收款账号',
   })
   @Transform(({ value }) => transformTrimmedString(value))
+  @IsNotEmpty({ message: '收款账号不能为空' })
   @IsString({ message: '收款账号必须是字符串' })
   @MaxLength(64, { message: '收款账号最多 64 位' })
   accountNo: string;
@@ -81,6 +83,7 @@ export class ApplyWithdrawalDto {
     description: '收款人真实姓名',
   })
   @Transform(({ value }) => transformTrimmedString(value))
+  @IsNotEmpty({ message: '真实姓名不能为空' })
   @IsString({ message: '真实姓名必须是字符串' })
   @MaxLength(32, { message: '真实姓名最多 32 位' })
   accountName: string;

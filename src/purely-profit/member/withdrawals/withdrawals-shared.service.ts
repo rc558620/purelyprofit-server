@@ -107,20 +107,14 @@ export class WithdrawalsSharedService {
     }
   }
 
-  normalizeAccountInfoOrThrow(
+  /** 收款信息 trim；非空已由 DTO 的 @IsNotEmpty 在入口保证 */
+  normalizeAccountInfo(
     accountNo: string,
     accountName: string,
   ): { accountNo: string; accountName: string } {
-    const trimmedAccountNo = accountNo.trim();
-    const trimmedAccountName = accountName.trim();
-
-    if (trimmedAccountNo === '' || trimmedAccountName === '') {
-      throw new ConflictException('收款信息不能为空');
-    }
-
     return {
-      accountNo: trimmedAccountNo,
-      accountName: trimmedAccountName,
+      accountNo: accountNo.trim(),
+      accountName: accountName.trim(),
     };
   }
 

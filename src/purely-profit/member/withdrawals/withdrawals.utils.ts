@@ -11,20 +11,12 @@ import { calcWithdrawalAmounts } from './withdrawals-shared.service';
 
 export type PrismaTransactionExecutor = Prisma.TransactionClient;
 
-export type WithdrawalStatusUpdateInput = {
-  withdrawalId: number;
-  storeId: number;
-  currentStatus: PartnerWithdrawalStatus;
-  nextStatus: PartnerWithdrawalStatus;
-  reviewedAt?: Date | null;
-  paidAt?: Date | null;
-  rejectReason?: string | null;
-};
-
 export type ApplyWithdrawalTransactionInput = {
   storeId: number;
   partnerId: number;
   operatorStaffId: number | null;
+  /** 幂等键：客户端 Idempotency-Key 或服务端生成，落库唯一约束兜底 */
+  idempotencyKey: string;
   dto: ApplyWithdrawalDto;
   accountNo: string;
   accountName: string;
@@ -32,20 +24,49 @@ export type ApplyWithdrawalTransactionInput = {
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-export const WITHDRAWALS_OVERVIEW_CACHE_TTL_SECONDS = 90;
-export const WITHDRAWALS_OVERVIEW_REFRESH_AFTER_MS = 20_000;
 export const WITHDRAWALS_LIST_CACHE_TTL_SECONDS = 45;
 export const WITHDRAWALS_LIST_REFRESH_AFTER_MS = 15_000;
-export const APPLY_DUPLICATE_WINDOW_MS = 5_000;
+/** 提现申请分布式锁的持有上限，需覆盖一次事务写入 + 汇总回查 */
+export const APPLY_LOCK_TTL_SECONDS = 10;
+export const APPLY_LOCK_RETRY_TIMES = 2;
+export const APPLY_LOCK_RETRY_DELAY_MS = 50;
+/** 客户端幂等键最大长度，与 schema 的 VarChar(128) 对齐 */
+export const APPLY_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
-// ─── Transaction helpers ─────────────────────────────────────────────
+// ─── Transaction helpers ───────────────────────────────────────────
+
+/**
+ * 事务内幂等重放。
+ *
+ * 不再使用「5 秒内同金额」的启发式查重：它既挡不住并发穿透，又会误拒
+ * 合法的二次申请。幂等由客户端 Idempotency-Key + 数据库唯一约束保证。
+ */
+export async function findIdempotentWithdrawal(
+  tx: PrismaTransactionExecutor,
+  input: { storeId: number; idempotencyKey: string },
+): Promise<WithdrawalRecordSnapshot | null> {
+  return tx.partnerWithdrawal.findFirst({
+    where: {
+      storeId: input.storeId,
+      idempotencyKey: input.idempotencyKey,
+    },
+    select: withdrawalRecordSelect,
+  });
+}
 
 export async function createWithdrawalApplication(
   tx: PrismaTransactionExecutor,
   input: ApplyWithdrawalTransactionInput,
 ): Promise<WithdrawalRecordSnapshot> {
-  const { storeId, partnerId, operatorStaffId, dto, accountNo, accountName } =
-    input;
+  const {
+    storeId,
+    partnerId,
+    operatorStaffId,
+    idempotencyKey,
+    dto,
+    accountNo,
+    accountName,
+  } = input;
   const partnerUpdateResult = await tx.storePartner.updateMany({
     where: {
       id: partnerId,
@@ -70,6 +91,7 @@ export async function createWithdrawalApplication(
       storeId,
       partnerId,
       operatorStaffId,
+      idempotencyKey,
       beanAmount: dto.beanAmount,
       rmbAmount: calcWithdrawalAmounts(dto.beanAmount).rmbAmount,
       accountType: dto.accountType,
@@ -91,34 +113,6 @@ export async function createWithdrawalApplication(
   });
 
   return createdRecord;
-}
-
-export async function updateWithdrawalStatusOrThrow(
-  tx: PrismaTransactionExecutor,
-  input: WithdrawalStatusUpdateInput,
-): Promise<void> {
-  const { withdrawalId, storeId, currentStatus, nextStatus } = input;
-  const updateResult = await tx.partnerWithdrawal.updateMany({
-    where: {
-      id: withdrawalId,
-      storeId,
-      status: currentStatus,
-    },
-    data: {
-      status: nextStatus,
-      ...(input.reviewedAt !== undefined
-        ? { reviewedAt: input.reviewedAt }
-        : {}),
-      ...(input.paidAt !== undefined ? { paidAt: input.paidAt } : {}),
-      ...(input.rejectReason !== undefined
-        ? { rejectReason: input.rejectReason }
-        : {}),
-    },
-  });
-
-  if (updateResult.count !== 1) {
-    throw new ConflictException('提现申请状态已变化，请刷新后重试');
-  }
 }
 
 export async function refundRejectedWithdrawalOrThrow(
@@ -150,14 +144,4 @@ export async function refundRejectedWithdrawalOrThrow(
       description: `提现退回 · ${record.beanAmount} 豆已退回`,
     },
   });
-}
-
-export function assertWithdrawalStatus(
-  actualStatus: PartnerWithdrawalStatus,
-  expectedStatus: PartnerWithdrawalStatus,
-  errorMessage: string,
-): void {
-  if (actualStatus !== expectedStatus) {
-    throw new ConflictException(errorMessage);
-  }
 }

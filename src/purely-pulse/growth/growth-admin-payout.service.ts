@@ -1,15 +1,17 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
-  PrismaService,
-  TX_TIMEOUT_MEDIUM,
-  TX_TIMEOUT_SHORT,
-} from '../../prisma/prisma.service';
+  assertWithdrawalTransition,
+  buildWithdrawalAuditLog,
+  buildWithdrawalTransitionData,
+  updateWithdrawalStatusOrThrow,
+} from '../../purely-profit/member/withdrawals/withdrawals.state-machine';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   PulseAdminApprovePayoutDto,
@@ -20,6 +22,8 @@ import { queryAdminPayoutActionRecord } from './growth-admin-payout.query';
 
 @Injectable()
 export class PulseGrowthAdminPayoutService {
+  private readonly logger = new Logger(PulseGrowthAdminPayoutService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
@@ -44,42 +48,36 @@ export class PulseGrowthAdminPayoutService {
       '打款申请不存在',
     );
 
-    if (
-      record.status !== PartnerWithdrawalStatus.pending &&
-      record.status !== PartnerWithdrawalStatus.approved
-    ) {
-      throw new ConflictException('当前打款申请状态不可执行确认打款');
-    }
+    // 与商家端共用同一状态机：pulse 的「确认打款」等价于 pay 动作
+    const rule = assertWithdrawalTransition('pay', record.status);
+    const staffId = user.currentMembership?.staffId ?? null;
+    const data = buildWithdrawalTransitionData({
+      action: 'pay',
+      now: new Date(),
+      staffId,
+    });
 
     await this.prisma.$transaction(
       async (tx) => {
-        const now = new Date();
-        const updateResult = await tx.partnerWithdrawal.updateMany({
-          where: {
-            id: payoutId,
-            storeId: record.storeId,
-            status: {
-              in: [
-                PartnerWithdrawalStatus.pending,
-                PartnerWithdrawalStatus.approved,
-              ],
-            },
-          },
-          data: {
-            status: PartnerWithdrawalStatus.paid,
-            reviewedAt: now,
-            paidAt: now,
-            rejectReason: null,
-          },
+        await updateWithdrawalStatusOrThrow(tx, {
+          withdrawalId: payoutId,
+          storeId: record.storeId,
+          from: rule.from,
+          data,
         });
-
-        if (updateResult.count !== 1) {
-          throw new ConflictException('打款申请状态已变化，请刷新后重试');
-        }
       },
-      { timeout: TX_TIMEOUT_SHORT },
+      { timeout: TX_TIMEOUT_MEDIUM },
     );
 
+    this.logger.log(
+      buildWithdrawalAuditLog({
+        action: 'pay',
+        withdrawalId: payoutId,
+        storeId: record.storeId,
+        from: record.status,
+        staffId,
+      }),
+    );
     await this.invalidatePayoutDerivedCaches(record.storeId);
 
     return { success: true };
@@ -102,43 +100,23 @@ export class PulseGrowthAdminPayoutService {
       '打款申请不存在',
     );
 
-    if (
-      record.status !== PartnerWithdrawalStatus.pending &&
-      record.status !== PartnerWithdrawalStatus.approved
-    ) {
-      throw new ConflictException('当前打款申请状态不可执行拒绝操作');
-    }
-
-    const rejectReason = dto.rejectReason.trim();
-    if (!rejectReason) {
-      throw new ConflictException('拒绝原因不能为空');
-    }
+    const rule = assertWithdrawalTransition('reject', record.status);
+    const staffId = user.currentMembership?.staffId ?? null;
+    const data = buildWithdrawalTransitionData({
+      action: 'reject',
+      now: new Date(),
+      staffId,
+      rejectReason: dto.rejectReason.trim(),
+    });
 
     await this.prisma.$transaction(
       async (tx) => {
-        const now = new Date();
-        const updateResult = await tx.partnerWithdrawal.updateMany({
-          where: {
-            id: payoutId,
-            storeId: record.storeId,
-            status: {
-              in: [
-                PartnerWithdrawalStatus.pending,
-                PartnerWithdrawalStatus.approved,
-              ],
-            },
-          },
-          data: {
-            status: PartnerWithdrawalStatus.rejected,
-            reviewedAt: now,
-            paidAt: null,
-            rejectReason,
-          },
+        await updateWithdrawalStatusOrThrow(tx, {
+          withdrawalId: payoutId,
+          storeId: record.storeId,
+          from: rule.from,
+          data,
         });
-
-        if (updateResult.count !== 1) {
-          throw new ConflictException('打款申请状态已变化，请刷新后重试');
-        }
 
         const partnerUpdateResult = await tx.storePartner.updateMany({
           where: {
@@ -169,6 +147,15 @@ export class PulseGrowthAdminPayoutService {
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
+    this.logger.log(
+      buildWithdrawalAuditLog({
+        action: 'reject',
+        withdrawalId: payoutId,
+        storeId: record.storeId,
+        from: record.status,
+        staffId,
+      }),
+    );
     await this.invalidatePayoutDerivedCaches(record.storeId);
 
     return { success: true };
@@ -184,6 +171,11 @@ export class PulseGrowthAdminPayoutService {
       this.cacheInvalidatorService.invalidatePulseSessionNotification(storeId),
       this.cacheInvalidatorService.invalidatePulseSessionBootstrap(storeId),
       this.cacheInvalidatorService.invalidatePulseOnboardingStatus(storeId),
+      // 打款/驳回会改动 partner_withdrawals 与合伙人豆余额，
+      // 商家端提现列表、汇总、豆子中心与合伙人资料共用同一份数据，必须一并失效。
+      this.cacheInvalidatorService.invalidateWithdrawalsDerived(storeId),
+      this.cacheInvalidatorService.invalidatePlatformMembershipDerived(storeId),
+      this.cacheInvalidatorService.invalidateDashboardAndPulseSession(storeId),
     ]);
   }
 }

@@ -3,7 +3,6 @@ import { IdentityType } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   buildCacheRefreshTaskKey,
-  buildPlatformMembershipBeanLogsCacheKey,
   buildPlatformMembershipCenterCacheKey,
   buildPlatformMembershipPartnerProfileCacheKey,
   buildPlatformMembershipPointsLogsCacheKey,
@@ -256,13 +255,15 @@ export class PlatformMembershipService {
     return this.listBeanLogsByStoreId(this.getCurrentStoreIdOrThrow(user));
   }
 
+  /**
+   * 豆流水响应含余额、累计提现与待结算快照，属于强一致资金读数。
+   * 不走「有界陈旧」的 refreshable cache：否则提现写操作后旧余额可能被
+   * 后台刷新写回并存活一个 TTL，豆子中心会显示回退的余额与缺失的流水。
+   */
   async listBeanLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    return this.loadCachedLedger(
-      buildPlatformMembershipBeanLogsCacheKey(storeId),
-      () => this.platformMembershipLedgerService.listBeanLogsByStoreId(storeId),
-    );
+    return this.platformMembershipLedgerService.listBeanLogsByStoreId(storeId);
   }
 
   async getPromoCenter(

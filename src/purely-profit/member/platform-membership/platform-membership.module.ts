@@ -12,6 +12,7 @@ import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
+import { PlatformMembershipPromoBackfillService } from './platform-membership-promo-backfill.service';
 import { PlatformMembershipPromoBeanReconciliationService } from './platform-membership-promo-bean-reconciliation.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
@@ -45,6 +46,7 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
     PlatformMembershipActivationService,
     PlatformMembershipPaymentService,
     PlatformMembershipPromoService,
+    PlatformMembershipPromoBackfillService,
     PlatformMembershipPromoBeanReconciliationService,
     MembershipRenewalService,
     StoreMembershipLockedPriceService,

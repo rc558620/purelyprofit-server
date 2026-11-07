@@ -185,6 +185,10 @@ describe('PulseMembershipService ledger', () => {
       },
     ]);
 
+    context.prismaService.partnerWithdrawal.aggregate.mockResolvedValue({
+      _sum: { beanAmount: 7 },
+    });
+
     const result = await context.service.listBeanLogs(context.user);
 
     expect(
@@ -233,14 +237,30 @@ describe('PulseMembershipService ledger', () => {
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    expect(
+      context.prismaService.partnerWithdrawal.aggregate,
+    ).toHaveBeenCalledWith({
+      where: {
+        status: { in: ['pending', 'approved'] },
+        store: {
+          owner: {
+            email: {
+              notIn: ['dev@example.com'],
+            },
+          },
+        },
+      },
+      _sum: { beanAmount: true },
+    });
     expect(result).toEqual({
       approvedPartner: null,
       approvedPartners: [],
+      // 跨商家聚合：两个合伙人求和，待结算取处理中提现聚合值
       overview: {
-        beanBalance: 12,
-        totalEarnedBeans: 30,
-        totalWithdrawnBeans: 5,
-        pendingBeans: 13,
+        beanBalance: 20,
+        totalEarnedBeans: 50,
+        totalWithdrawnBeans: 8,
+        pendingBeans: 7,
       },
       items: [
         {

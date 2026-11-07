@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService, TX_TIMEOUT_SHORT } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { maskPhone } from './auth.utils';
 
 /**
  * 注册推广记录创建结果。
@@ -70,21 +71,21 @@ export class AuthPromoRecordService {
       return { status: 'invalid_code' };
     }
 
-    // 去重：同一门店同一被推广手机号只保留一条推广记录
-    const existing = await this.prisma.storeMembershipPromoRecord.findFirst({
-      where: { storeId, inviteePhone: input.inviteePhone },
-      select: { id: true },
-    });
-    if (existing) {
-      this.logger.debug(
-        `推广记录已存在，跳过创建: storeId=${storeId}, inviteePhone=${input.inviteePhone}`,
-      );
-      return { status: 'duplicate', storeId };
-    }
-
+    let duplicate = false;
     try {
       await this.prisma.$transaction(
         async (tx) => {
+          // 查重与写入收敛在同一事务，缩短并发注册重试下的 TOCTOU 窗口。
+          // 最终幂等仍需数据库唯一索引 (storeId, inviteePhone) 兜底，见交付说明。
+          const existing = await tx.storeMembershipPromoRecord.findFirst({
+            where: { storeId, inviteePhone: input.inviteePhone },
+            select: { id: true },
+          });
+          if (existing) {
+            duplicate = true;
+            return;
+          }
+
           // 查找该门店最早通过的合伙人（无合伙人时 partnerId 为 null，后续可补绑）
           const partner = await tx.storePartner.findFirst({
             where: { storeId, status: 'approved' },
@@ -107,18 +108,25 @@ export class AuthPromoRecordService {
       );
     } catch (err: unknown) {
       this.logger.error(
-        `推广记录创建失败: storeId=${storeId}, inviteePhone=${input.inviteePhone}, error=${
+        `推广记录创建失败: storeId=${storeId}, inviteePhone=${maskPhone(input.inviteePhone)}, error=${
           err instanceof Error ? err.message : String(err)
         }`,
       );
       return { status: 'failed' };
     }
 
+    if (duplicate) {
+      this.logger.debug(
+        `推广记录已存在，跳过创建: storeId=${storeId}, inviteePhone=${maskPhone(input.inviteePhone)}`,
+      );
+      return { status: 'duplicate', storeId };
+    }
+
     // 推广中心/会员中心统计依赖缓存，需主动失效，否则推广人看到的人数不更新
     await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     this.logger.log(
-      `推广记录已创建: storeId=${storeId}, inviteePhone=${input.inviteePhone}`,
+      `推广记录已创建: storeId=${storeId}, inviteePhone=${maskPhone(input.inviteePhone)}`,
     );
     return { status: 'created', storeId };
   }

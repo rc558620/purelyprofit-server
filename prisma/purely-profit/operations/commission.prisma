@@ -25,30 +25,30 @@ model CommissionService {
 /// 提成记录：结账时由后端按配置重算生成，沉淀为财务对账与工资回填数据源。
 /// 状态机：settled(已结账) -> included(已计入工资) / cancelled(作废)。
 model CommissionRecord {
-  id               Int                    @id @default(autoincrement())
-  storeId          Int                    @map("store_id")
-  sessionId        Int                    @map("session_id")
+  id                 Int                    @id @default(autoincrement())
+  storeId            Int                    @map("store_id")
+  sessionId          Int                    @map("session_id")
   /// 空间名称快照（空间改名/软删后历史记录不变）
-  spaceName        String                 @map("space_name")
-  technicianId     Int                    @map("technician_id")
+  spaceName          String                 @map("space_name")
+  technicianId       Int                    @map("technician_id")
   /// 技师姓名快照（技师改名/离职后历史记录不变）
-  technicianName   String                 @map("technician_name")
+  technicianName     String                 @map("technician_name")
   /// 关联服务 ID 列表（快照）
-  serviceIds       Json                   @map("service_ids")
+  serviceIds         Json                   @map("service_ids")
   /// 服务名称列表（快照）
-  serviceNames     Json                   @map("service_names")
+  serviceNames       Json                   @map("service_names")
   /// 每服务提成金额快照（分，与 serviceIds 对齐；结账时生成，明细拆分展示）
-  serviceCommissions Json?                @map("service_commissions")
+  serviceCommissions Json?                  @map("service_commissions")
   /// 提成金额（分）
-  commission       Int
-  status           CommissionRecordStatus @default(settled)
+  commission         Int
+  status             CommissionRecordStatus @default(settled)
   /// 结账时间（提成归属月份判定依据）
-  settledAt        DateTime               @map("settled_at")
+  settledAt          DateTime               @map("settled_at")
   /// 归属月份 YYYY-MM（按结账时间的上海时区）
-  month            String
-  createdAt        DateTime               @default(now()) @map("created_at")
-  store            Store                  @relation(fields: [storeId], references: [id])
-  session          SpaceSession           @relation(fields: [sessionId], references: [id])
+  month              String
+  createdAt          DateTime               @default(now()) @map("created_at")
+  store              Store                  @relation(fields: [storeId], references: [id])
+  session            SpaceSession           @relation(fields: [sessionId], references: [id])
 
   @@index([storeId, month])
   @@index([storeId, technicianId, month])

@@ -95,6 +95,9 @@ export interface PulseMembershipPrismaServiceMock {
     /** 概览统计：按 source 分组计数，与分页切片无关 */
     groupBy: jest.Mock;
   };
+  partnerWithdrawal: {
+    aggregate: jest.Mock;
+  };
   $executeRaw: jest.Mock;
   $transaction: jest.Mock;
 }
@@ -265,6 +268,9 @@ export function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       create: jest.fn(),
       findMany: jest.fn(),
       groupBy: jest.fn().mockResolvedValue([]),
+    },
+    partnerWithdrawal: {
+      aggregate: jest.fn().mockResolvedValue({ _sum: { beanAmount: 0 } }),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),

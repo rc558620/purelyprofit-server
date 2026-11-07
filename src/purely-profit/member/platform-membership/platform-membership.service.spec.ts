@@ -10,6 +10,7 @@ import { RefreshableCacheService } from '../../../redis/refreshable-cache.servic
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
+import { PlatformMembershipPromoBackfillService } from './platform-membership-promo-backfill.service';
 import { PlatformMembershipPromoBeanReconciliationService } from './platform-membership-promo-bean-reconciliation.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
@@ -346,6 +347,7 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipActivationService,
         PlatformMembershipPaymentService,
         PlatformMembershipPromoService,
+        PlatformMembershipPromoBackfillService,
         PlatformMembershipPromoBeanReconciliationService,
         PlatformMembershipAccessService,
         StoreMembershipLockedPriceService,

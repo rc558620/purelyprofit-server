@@ -47,7 +47,7 @@ describe('WithdrawalsService review actions', () => {
         where: {
           id: number;
           storeId: number;
-          status: PartnerWithdrawalStatus;
+          status: { in: PartnerWithdrawalStatus[] };
         };
         data: {
           status: PartnerWithdrawalStatus;
@@ -60,7 +60,7 @@ describe('WithdrawalsService review actions', () => {
     expect(approveCall[0].where).toEqual({
       id: 31,
       storeId: 18,
-      status: PartnerWithdrawalStatus.pending,
+      status: { in: [PartnerWithdrawalStatus.pending] },
     });
     expect(approveCall[0].data.status).toBe(PartnerWithdrawalStatus.approved);
     expect(approveCall[0].data.reviewedAt).toBeInstanceOf(Date);
@@ -110,7 +110,7 @@ describe('WithdrawalsService review actions', () => {
         where: {
           id: number;
           storeId: number;
-          status: PartnerWithdrawalStatus;
+          status: { in: PartnerWithdrawalStatus[] };
         };
         data: {
           status: PartnerWithdrawalStatus;
@@ -123,7 +123,9 @@ describe('WithdrawalsService review actions', () => {
     expect(rejectCall[0].where).toEqual({
       id: 32,
       storeId: 18,
-      status: PartnerWithdrawalStatus.pending,
+      status: {
+        in: [PartnerWithdrawalStatus.pending, PartnerWithdrawalStatus.approved],
+      },
     });
     expect(rejectCall[0].data.status).toBe(PartnerWithdrawalStatus.rejected);
     expect(rejectCall[0].data.reviewedAt).toBeInstanceOf(Date);
@@ -194,7 +196,7 @@ describe('WithdrawalsService review actions', () => {
         where: {
           id: number;
           storeId: number;
-          status: PartnerWithdrawalStatus;
+          status: { in: PartnerWithdrawalStatus[] };
         };
         data: {
           status: PartnerWithdrawalStatus;
@@ -206,7 +208,9 @@ describe('WithdrawalsService review actions', () => {
     expect(payCall[0].where).toEqual({
       id: 33,
       storeId: 18,
-      status: PartnerWithdrawalStatus.approved,
+      status: {
+        in: [PartnerWithdrawalStatus.pending, PartnerWithdrawalStatus.approved],
+      },
     });
     expect(payCall[0].data.status).toBe(PartnerWithdrawalStatus.paid);
     expect(payCall[0].data.paidAt).toBeInstanceOf(Date);
@@ -232,11 +236,11 @@ describe('WithdrawalsService review actions', () => {
     );
   });
 
-  it('reject 在状态不是 pending 时拒绝执行', async () => {
+  it('reject 在已打款终态时拒绝执行', async () => {
     context.prismaService.partnerWithdrawal.findUnique.mockResolvedValue(
       createWithdrawalRecord({
         id: 35,
-        status: PartnerWithdrawalStatus.approved,
+        status: PartnerWithdrawalStatus.paid,
         reviewedAt: new Date('2026-05-15T10:00:00.000Z'),
       }),
     );
@@ -244,5 +248,62 @@ describe('WithdrawalsService review actions', () => {
     await expect(
       context.service.reject(context.user, 35, { reason: '重复申请' }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('非主账号不可审核或打款', async () => {
+    const membership = context.user.currentMembership;
+    if (!membership) throw new Error('测试桩缺少 currentMembership');
+    const staffUser = {
+      ...context.user,
+      currentMembership: { ...membership, subjectType: 'staff' as const },
+    };
+    context.prismaService.partnerWithdrawal.findUnique.mockResolvedValue(
+      createWithdrawalRecord({ id: 38 }),
+    );
+
+    await expect(context.service.approve(staffUser, 38)).rejects.toThrow(
+      '仅主账号可审核或确认打款',
+    );
+    expect(
+      context.prismaService.partnerWithdrawal.updateMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('申请人不可自审自付', async () => {
+    context.prismaService.partnerWithdrawal.findUnique.mockResolvedValue(
+      createWithdrawalRecord({ id: 36, operatorStaffId: 8 }),
+    );
+
+    await expect(context.service.approve(context.user, 36)).rejects.toThrow(
+      '申请人不可自行审核或确认打款',
+    );
+    expect(
+      context.prismaService.partnerWithdrawal.updateMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('审核动作写入操作人审计字段', async () => {
+    context.prismaService.partnerWithdrawal.findUnique
+      .mockResolvedValueOnce(createWithdrawalRecord({ id: 37 }))
+      .mockResolvedValueOnce(
+        createWithdrawalRecord({
+          id: 37,
+          status: PartnerWithdrawalStatus.approved,
+          reviewedAt: new Date(),
+        }),
+      );
+    context.prismaService.partnerWithdrawal.updateMany.mockResolvedValue({
+      count: 1,
+    });
+    context.prismaService.storePartner.findMany.mockResolvedValue([
+      createOverviewPartner(),
+    ]);
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
+
+    await context.service.approve(context.user, 37);
+
+    const call = context.prismaService.partnerWithdrawal.updateMany.mock
+      .calls[0][0] as { data: { reviewedByStaffId: number | null } };
+    expect(call.data.reviewedByStaffId).toBe(8);
   });
 });

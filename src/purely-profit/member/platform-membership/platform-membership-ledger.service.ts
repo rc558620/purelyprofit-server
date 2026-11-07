@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PartnerWithdrawalStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   PlatformMembershipBeanLogsResponseDto,
@@ -76,7 +77,23 @@ export class PlatformMembershipLedgerService {
   async listBeanLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    const partner = await findCurrentStorePartner(this.prisma, storeId);
+    // 与 withdrawals/overview 保持同一口径：待结算豆 = 处理中(pending + approved)
+    // 提现记录的 beanAmount 之和，而不是依赖恒定不变的「总获得 - 总提现 - 余额」。
+    const [partner, pendingAgg] = await Promise.all([
+      findCurrentStorePartner(this.prisma, storeId),
+      this.prisma.partnerWithdrawal.aggregate({
+        where: {
+          storeId,
+          status: {
+            in: [
+              PartnerWithdrawalStatus.pending,
+              PartnerWithdrawalStatus.approved,
+            ],
+          },
+        },
+        _sum: { beanAmount: true },
+      }),
+    ]);
     const logs = partner
       ? await this.prisma.storePartnerBeanLog.findMany({
           where: { storeId },
@@ -97,7 +114,7 @@ export class PlatformMembershipLedgerService {
     return {
       approvedPartner: buildApprovedPartnerResponse(partner),
       approvedPartners: partner ? [buildApprovedPartnerResponse(partner)!] : [],
-      overview: buildBeanOverview(partner),
+      overview: buildBeanOverview(partner, pendingAgg._sum.beanAmount ?? 0),
       items: logs.map((log) => mapBeanLog(log)),
     };
   }

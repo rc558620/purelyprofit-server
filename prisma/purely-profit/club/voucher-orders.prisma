@@ -1,108 +1,108 @@
 // 纯利宝团购券订单：purelyClub 用户购买团购券商品后生成的券码订单，供商家开台读取核销
 model ClubVoucherOrder {
-  id                   Int                       @id @default(autoincrement())
+  id                   Int                    @id @default(autoincrement())
   /// 团购券码（支付成功后生成，唯一；用于商家开台读取）
-  voucherCode          String?                   @unique @map("voucher_code")
+  voucherCode          String?                @unique @map("voucher_code")
   /// 团购平台（当前固定纯利宝）
-  platform             String                    @default("chunlibao")
+  platform             String                 @default("chunlibao")
   /// 购买门店 ID（核销门店必须一致）
-  storeId              Int                       @map("store_id")
+  storeId              Int                    @map("store_id")
   /// purely-club 用户 ID（User.id）
-  userId               Int                       @map("user_id")
+  userId               Int                    @map("user_id")
   /// 门店营销顾客 ID（MarketingCustomer.id）
-  customerId           Int?                      @map("customer_id")
+  customerId           Int?                   @map("customer_id")
   /// 商品 ID（MarketingProduct.id）
-  productId            Int                       @map("product_id")
+  productId            Int                    @map("product_id")
   /// 关联营销商品（列表页取商品当前图片）
-  product              MarketingProduct          @relation(fields: [productId], references: [id])
+  product              MarketingProduct       @relation(fields: [productId], references: [id])
   /// 商品名称快照
-  productName          String                    @map("product_name")
+  productName          String                 @map("product_name")
   /// 商品分类名快照（下单时取营销产品分类 MarketingProductCategory.name）
-  categoryName         String?                   @map("category_name")
+  categoryName         String?                @map("category_name")
   /// 商品单价（分）
-  productPrice         Int                       @map("product_price")
+  productPrice         Int                    @map("product_price")
   /// 商品原价（分，可为空）
-  productOriginalPrice Int?                      @map("product_original_price")
+  productOriginalPrice Int?                   @map("product_original_price")
   /// 商品成本价快照（分，下单时固化用于利润统计；可为空）
-  productCostPrice     Int?                      @map("product_cost_price")
+  productCostPrice     Int?                   @map("product_cost_price")
   /// 购买数量
-  quantity             Int                       @default(1)
+  quantity             Int                    @default(1)
   /// 到店人数（下单时选择，快照）
-  personCount          Int?                      @map("person_count")
+  personCount          Int?                   @map("person_count")
   /// 顾客姓名快照（下单时取 purelyClub 昵称）
-  guestName            String?                   @map("guest_name")
+  guestName            String?                @map("guest_name")
   /// 客人电话快照（下单时取账号绑定手机号）
-  guestPhone           String?                   @map("guest_phone")
+  guestPhone           String?                @map("guest_phone")
   /// 下单备注（purelyClub 用户填写，可空；商家新订单通知展示）
-  remark               String?                   @map("remark") @db.VarChar(200)
+  remark               String?                @map("remark") @db.VarChar(200)
   /// 顾客类型（当前统一 member）
-  guestType            String                    @default("member") @map("guest_type")
+  guestType            String                 @default("member") @map("guest_type")
   /// 业务订单号（微信 out_trade_no）
-  orderNo              String                    @unique @map("order_no")
+  orderNo              String                 @unique @map("order_no")
   /// 客户端幂等键（同一用户同一键只允许一单；可空，历史数据与未传键的请求不受影响）
-  idempotencyKey       String?                   @map("idempotency_key") @db.VarChar(128)
+  idempotencyKey       String?                @map("idempotency_key") @db.VarChar(128)
   /// 应付金额（分，原价口径）
-  originalAmountFen    Int                       @map("original_amount_fen")
+  originalAmountFen    Int                    @map("original_amount_fen")
   /// 优惠金额（分，后端计算）
-  discountAmountFen    Int                       @default(0) @map("discount_amount_fen")
+  discountAmountFen    Int                    @default(0) @map("discount_amount_fen")
   /// 实付金额（分，券面金额口径）
-  paidAmountFen        Int                       @map("paid_amount_fen")
+  paidAmountFen        Int                    @map("paid_amount_fen")
   /// 优惠拆解快照（下单时后端生成：会员售价/等级折扣/活动折扣/满减/小计等展示行）
-  breakdownItems      Json?                     @map("breakdown_items")
+  breakdownItems       Json?                  @map("breakdown_items")
   /// 积分抵扣金额（分）
-  pointsDeductFen      Int                       @default(0) @map("points_deduct_fen")
+  pointsDeductFen      Int                    @default(0) @map("points_deduct_fen")
   /// 实际扣减积分个数
-  pointsUsed           Int                       @default(0) @map("points_used")
+  pointsUsed           Int                    @default(0) @map("points_used")
   /// 结算时赠送的积分个数快照（仅余额支付；退款时按此数回收，避免重算受积分规则/双倍活动变更影响）
-  pointsAwarded        Int                       @default(0) @map("points_awarded")
+  pointsAwarded        Int                    @default(0) @map("points_awarded")
   /// 支付渠道：wechat=微信支付 balance=储值余额
-  paymentChannel       String                    @default("wechat") @map("payment_channel")
+  paymentChannel       String                 @default("wechat") @map("payment_channel")
   /// 服务商商户号（sp_mchid）：退款必须拿原收款主体发起，不能用门店当前配置顶替
-  spMchId              String?                   @map("sp_mch_id")
+  spMchId              String?                @map("sp_mch_id")
   /// 子商户号（sub_mchid）：这笔钱的结算去向，退款与按子商户对账必需
-  subMchId             String?                   @map("sub_mch_id")
+  subMchId             String?                @map("sub_mch_id")
   /// 微信支付交易单号
-  transactionId        String?                   @map("transaction_id")
+  transactionId        String?                @map("transaction_id")
   /// 订单状态：unpaid=未支付 pending=待使用 used=已使用 refunded=已退款 expired=已过期
-  status               ClubVoucherOrderStatus    @default(unpaid)
+  status               ClubVoucherOrderStatus @default(unpaid)
   /// 有效期截止时间（下单成功时间 + 商品 validDays）
-  expiresAt            DateTime?                 @map("expires_at")
+  expiresAt            DateTime?              @map("expires_at")
   /// 用户端立即核销时间（used 且 usedSessionId 为空 = used-未开台）
-  verifyAt             DateTime?                 @map("verify_at")
+  verifyAt             DateTime?              @map("verify_at")
   /// 开台核销时间（used 且 usedSessionId 非空 = used-已开台）
-  usedAt               DateTime?                 @map("used_at")
+  usedAt               DateTime?              @map("used_at")
   /// 核销门店 ID
-  usedStoreId          Int?                      @map("used_store_id")
+  usedStoreId          Int?                   @map("used_store_id")
   /// 绑定的空间会话 ID（开台成功后写入）
-  usedSessionId        Int?                      @map("used_session_id")
+  usedSessionId        Int?                   @map("used_session_id")
   /// 退款时间
-  refundAt             DateTime?                 @map("refund_at")
+  refundAt             DateTime?              @map("refund_at")
   /// 退款金额（分）
-  refundAmountFen      Int?                      @map("refund_amount_fen")
+  refundAmountFen      Int?                   @map("refund_amount_fen")
   /// 退款渠道：wechat=微信原路 balance=余额
-  refundChannel        String?                   @map("refund_channel")
+  refundChannel        String?                @map("refund_channel")
   /// 退款单号（幂等）
-  refundNo             String?                   @unique @map("refund_no")
+  refundNo             String?                @unique @map("refund_no")
   /// 商家确认时间（仅记录，不改变订单状态）
-  confirmedAt          DateTime?                 @map("confirmed_at")
+  confirmedAt          DateTime?              @map("confirmed_at")
   /// 商家确认操作员姓名快照
-  confirmedByStaffName String?                   @map("confirmed_by_staff_name")
+  confirmedByStaffName String?                @map("confirmed_by_staff_name")
   /// 商家确认操作员角色快照（owner=主账号/manager=店长/staff=收银员）
-  confirmedByStaffRole  String?                 @map("confirmed_by_staff_role")
+  confirmedByStaffRole String?                @map("confirmed_by_staff_role")
   /// 商家拒绝时间（拒绝走退款链路，状态变为 refunded）
-  rejectedAt           DateTime?                 @map("rejected_at")
+  rejectedAt           DateTime?              @map("rejected_at")
   /// 商家拒绝操作员姓名快照
-  rejectedByStaffName  String?                   @map("rejected_by_staff_name")
+  rejectedByStaffName  String?                @map("rejected_by_staff_name")
   /// 商家拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员）
-  rejectedByStaffRole  String?                   @map("rejected_by_staff_role")
-  createdAt            DateTime                  @default(now()) @map("created_at")
-  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  rejectedByStaffRole  String?                @map("rejected_by_staff_role")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
 
+  /// 幂等最终兜底：并发重复提交时由数据库保证同用户同键只有一单
+  @@unique([userId, idempotencyKey])
   @@index([storeId, status, createdAt(sort: Desc)])
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([usedSessionId])
-  /// 幂等最终兜底：并发重复提交时由数据库保证同用户同键只有一单
-  @@unique([userId, idempotencyKey])
   @@map("club_voucher_orders")
 }
 

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
@@ -13,13 +14,14 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
-  ApiExcludeController,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { BlockSubAccount } from '../../access-control/decorators/block-sub-account.decorator';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-block.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
@@ -39,7 +41,8 @@ import { WithdrawalsService } from './withdrawals.service';
 
 @ApiTags('Withdrawals')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@BlockSubAccount('子账号无权操作提现')
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
 @Controller('withdrawals')
 export class WithdrawalsController {
   constructor(private readonly withdrawalsService: WithdrawalsService) {}
@@ -98,8 +101,9 @@ export class WithdrawalsController {
   apply(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyWithdrawalDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApplyWithdrawalResponseDto> {
-    return this.withdrawalsService.apply(user, dto);
+    return this.withdrawalsService.apply(user, dto, idempotencyKey);
   }
 
   @Patch(':id/approve')
@@ -138,80 +142,6 @@ export class WithdrawalsController {
     description: '确认打款后返回最新提现记录与汇总数据',
     type: ReviewWithdrawalResponseDto,
   })
-  pay(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) withdrawalId: number,
-  ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.pay(user, withdrawalId);
-  }
-}
-
-@ApiExcludeController()
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Controller('partner-payout')
-export class PartnerPayoutController {
-  constructor(private readonly withdrawalsService: WithdrawalsService) {}
-
-  @Get(['', 'overview'])
-  @RequirePermissions('partner:view')
-  getOverview(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<WithdrawalOverviewResponseDto> {
-    return this.withdrawalsService.getOverview(user);
-  }
-
-  @Get('records')
-  @RequirePermissions('partner:view')
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: ListWithdrawalsQueryDto,
-  ): Promise<WithdrawalRecordResponseDto[]> {
-    return this.withdrawalsService.list(user, query);
-  }
-
-  @Post('preview')
-  @RequirePermissions('partner:withdraw')
-  preview(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: PreviewWithdrawalDto,
-  ): Promise<PreviewWithdrawalResponseDto> {
-    return this.withdrawalsService.preview(
-      user,
-      dto.beanAmount,
-    ) as Promise<PreviewWithdrawalResponseDto>;
-  }
-
-  @Post(['', 'apply'])
-  @RequirePermissions('partner:withdraw')
-  apply(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ApplyWithdrawalDto,
-  ): Promise<ApplyWithdrawalResponseDto> {
-    return this.withdrawalsService.apply(user, dto);
-  }
-
-  @Patch(':id/approve')
-  @RequirePermissions('partner:review')
-  approve(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) withdrawalId: number,
-  ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.approve(user, withdrawalId);
-  }
-
-  @Patch(':id/reject')
-  @RequirePermissions('partner:review')
-  reject(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) withdrawalId: number,
-    @Body() dto: RejectWithdrawalDto,
-  ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.reject(user, withdrawalId, dto);
-  }
-
-  @Patch(':id/pay')
-  @RequirePermissions('partner:review')
   pay(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,

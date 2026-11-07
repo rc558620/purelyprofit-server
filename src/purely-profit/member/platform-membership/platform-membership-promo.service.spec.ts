@@ -5,6 +5,7 @@ import { RedisLockService } from '../../../redis/redis-lock.service';
 import { PROMO_BEAN_REWARDS_BY_LEVEL } from './platform-membership.constants';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
 import { PlatformMembershipPromoBeanReconciliationService } from './platform-membership-promo-bean-reconciliation.service';
+import { PlatformMembershipPromoBackfillService } from './platform-membership-promo-backfill.service';
 
 const SHANGHAI_NOW = Date.UTC(2026, 6, 15, 12, 0, 0); // 上海 2026-07-15 20:00
 const INVITEE_PHONE = '13700137000';
@@ -47,6 +48,7 @@ describe(' PlatformMembershipPromoService · 推广奖励发放', () => {
   let service: PlatformMembershipPromoService;
   let prisma: ReturnType<typeof buildPrismaMock>;
   let cacheInvalidator: { invalidateMembershipDerived: jest.Mock };
+  let redisLock: { acquireLock: jest.Mock; releaseLock: jest.Mock };
   let reconciliation: { runStartupReconciliation: jest.Mock };
   let dateNowSpy: jest.SpyInstance;
 
@@ -55,6 +57,14 @@ describe(' PlatformMembershipPromoService · 推广奖励发放', () => {
 
     prisma = buildPrismaMock();
     cacheInvalidator = { invalidateMembershipDerived: jest.fn() };
+    redisLock = {
+      acquireLock: jest.fn().mockResolvedValue({
+        resource: 'promo:award:1',
+        token: 'token-promo',
+        key: 'distributed-lock:promo:award:1',
+      }),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+    };
     reconciliation = { runStartupReconciliation: jest.fn() };
 
     // 事务内的三个写入默认指向同一批 mock，便于统一断言
@@ -68,10 +78,13 @@ describe(' PlatformMembershipPromoService · 推广奖励发放', () => {
         PlatformMembershipPromoService,
         { provide: PrismaService, useValue: prisma },
         { provide: CacheInvalidatorService, useValue: cacheInvalidator },
+        { provide: RedisLockService, useValue: redisLock },
         {
           provide: PlatformMembershipPromoBeanReconciliationService,
           useValue: reconciliation,
         },
+        // 用真实补偿服务实例，保留「启动补偿」系列用例对拆分后逻辑的回归覆盖
+        PlatformMembershipPromoBackfillService,
       ],
     }).compile();
 

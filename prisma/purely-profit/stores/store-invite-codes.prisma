@@ -2,12 +2,12 @@ model StoreInviteCode {
   id             Int                  @id @default(autoincrement())
   storeId        Int                  @map("store_id")
   inviteQrIssues StoreInviteQrIssue[]
-  code      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  usedCount Int      @default(0) @map("used_count")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code           String               @unique
+  isActive       Boolean              @default(true) @map("is_active")
+  usedCount      Int                  @default(0) @map("used_count")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId, isActive])
   @@map("store_invite_codes")

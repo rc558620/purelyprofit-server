@@ -113,16 +113,18 @@ export function mapPointsLog(
 
 export function buildBeanOverview(
   partner: ApprovedPartnerLike | null,
+  pendingBeansOverride?: number,
 ): PlatformMembershipBeanLogsResponseDto['overview'] {
   const beanBalance = partner?.beanBalance ?? 0;
   const totalEarnedBeans = partner?.totalEarnedBeans ?? 0;
   const totalWithdrawnBeans = partner?.totalWithdrawnBeans ?? 0;
 
-  // 待结算纯利豆 = max(0, 总获得 - 总提现 - 当前余额)，防止因并发写入出现负数
-  const pendingBeans = Math.max(
-    0,
-    totalEarnedBeans - totalWithdrawnBeans - beanBalance,
-  );
+  // 商家端「待结算」由 withdrawals 域按处理中提现记录聚合后传入：
+  // 提现申请会同步扣 beanBalance、加 totalWithdrawnBeans，下面的恒等式恒不变，
+  // 无法反映处理中金额。未传入时保留开发者跨商家视图的历史口径。
+  const pendingBeans =
+    pendingBeansOverride ??
+    Math.max(0, totalEarnedBeans - totalWithdrawnBeans - beanBalance);
 
   return {
     beanBalance,

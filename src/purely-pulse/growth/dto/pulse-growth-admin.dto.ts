@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -201,6 +202,7 @@ export class PulseAdminRejectPayoutDto {
     description: '拒绝原因',
   })
   @Transform(({ value }) => trimString(value))
+  @IsNotEmpty({ message: '拒绝原因不能为空' })
   @IsString({ message: '拒绝原因必须是字符串' })
   @MaxLength(200, { message: '拒绝原因最多 200 字' })
   rejectReason: string;

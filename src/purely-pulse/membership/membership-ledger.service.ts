@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { PartnerWithdrawalStatus } from '@prisma/client';
 import {
   buildBeanOverview,
   buildPointsOverview,
@@ -156,15 +157,13 @@ export class PulseMembershipLedgerService {
   }
 
   private async listDeveloperBeanLogs(): Promise<PlatformMembershipBeanLogsResponseDto> {
-    const [partners, logs]: [
-      PulseDeveloperBeanPartnerRecord[],
-      PulseDeveloperBeanLogRecord[],
-    ] = await Promise.all([
+    const adminStoreWhere = this.accessService.buildAdminStoreExclusionWhere();
+    const [partners, logs, pendingAgg] = await Promise.all([
       this.prisma.storePartner.findMany({
         where: {
           deletedAt: null,
           status: 'approved',
-          store: this.accessService.buildAdminStoreExclusionWhere(),
+          store: adminStoreWhere,
         },
         select: {
           status: true,
@@ -175,7 +174,7 @@ export class PulseMembershipLedgerService {
       }),
       this.prisma.storePartnerBeanLog.findMany({
         where: {
-          store: this.accessService.buildAdminStoreExclusionWhere(),
+          store: adminStoreWhere,
         },
         select: {
           id: true,
@@ -189,9 +188,43 @@ export class PulseMembershipLedgerService {
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
+      // 与商家端保持同一口径：待结算 = 处理中(pending + approved)提现豆之和。
+      // 「总获得 - 总提现 - 余额」在申请时同步增减，恒不变，无法反映处理中金额。
+      this.prisma.partnerWithdrawal.aggregate({
+        where: {
+          status: {
+            in: [
+              PartnerWithdrawalStatus.pending,
+              PartnerWithdrawalStatus.approved,
+            ],
+          },
+          store: adminStoreWhere,
+        },
+        _sum: { beanAmount: true },
+      }),
     ]);
 
-    const overview = buildBeanOverview(partners[0] ?? null);
+    // 开发者跨商家聚合视图没有单一归属合伙人，余额与累计值必须对全部合伙人求和。
+    // 取 partners[0] 会把整页汇总串到某一个商家的档案上。
+    const aggregatedPartner =
+      partners.reduce<PulseDeveloperBeanPartnerRecord | null>(
+        (acc, partner) => {
+          if (acc === null) return { ...partner };
+          return {
+            ...acc,
+            beanBalance: acc.beanBalance + partner.beanBalance,
+            totalEarnedBeans: acc.totalEarnedBeans + partner.totalEarnedBeans,
+            totalWithdrawnBeans:
+              acc.totalWithdrawnBeans + partner.totalWithdrawnBeans,
+          };
+        },
+        null,
+      );
+
+    const overview = buildBeanOverview(
+      aggregatedPartner,
+      pendingAgg._sum.beanAmount ?? 0,
+    );
 
     return {
       approvedPartner: null,

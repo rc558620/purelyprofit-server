@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import { WithdrawalsSharedService } from './withdrawals-shared.service';
 import { WithdrawalsService } from './withdrawals.service';
 
@@ -34,6 +35,17 @@ export interface WithdrawalsServiceTestingContext {
   prismaService: WithdrawalsPrismaServiceMock;
   cacheInvalidatorService: {
     invalidateDashboardAndPulseSession: jest.Mock;
+    invalidateWithdrawalsDerived: jest.Mock;
+    invalidatePlatformMembershipDerived: jest.Mock;
+    invalidatePulseGrowthEarnings: jest.Mock;
+    invalidatePulseGrowthAdminQueries: jest.Mock;
+  };
+  redisLockService: {
+    acquireLock: jest.Mock;
+    releaseLock: jest.Mock;
+  };
+  refreshableCache: {
+    getOrLoadRefreshableJson: jest.Mock;
   };
   user: AuthenticatedUser;
 }
@@ -42,6 +54,7 @@ type WithdrawalRecordOverrides = Partial<{
   id: number;
   storeId: number;
   partnerId: number;
+  operatorStaffId: number | null;
   beanAmount: number;
   rmbAmount: number;
   accountType: 'wechat' | 'alipay' | 'bank';
@@ -123,6 +136,7 @@ export function createWithdrawalRecord(
   id: number;
   storeId: number;
   partnerId: number;
+  operatorStaffId: number | null;
   beanAmount: number;
   rmbAmount: number;
   accountType: 'wechat' | 'alipay' | 'bank';
@@ -138,6 +152,7 @@ export function createWithdrawalRecord(
     id: 15,
     storeId: 18,
     partnerId: 6,
+    operatorStaffId: null,
     beanAmount: 500,
     rmbAmount: 50000,
     accountType: 'wechat',
@@ -206,7 +221,17 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
   const cacheInvalidatorService = {
     invalidateDashboardAndPulseSession: jest.fn(),
     invalidateWithdrawalsDerived: jest.fn(),
+    invalidatePlatformMembershipDerived: jest.fn(),
     invalidatePulseGrowthEarnings: jest.fn(),
+    invalidatePulseGrowthAdminQueries: jest.fn(),
+  };
+  const redisLockService = {
+    acquireLock: jest.fn().mockResolvedValue({
+      resource: 'withdrawals:apply',
+      token: 'test-lock-token',
+      key: 'distributed-lock:withdrawals:apply',
+    }),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
   };
   const refreshableCache = {
     getOrLoadRefreshableJson: jest
@@ -227,6 +252,7 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
         provide: CacheInvalidatorService,
         useValue: cacheInvalidatorService,
       },
+      { provide: RedisLockService, useValue: redisLockService },
     ],
   }).compile();
 
@@ -234,6 +260,8 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
     service: module.get<WithdrawalsService>(WithdrawalsService),
     prismaService,
     cacheInvalidatorService,
+    redisLockService,
+    refreshableCache,
     user: createAuthenticatedUser(),
   };
 }

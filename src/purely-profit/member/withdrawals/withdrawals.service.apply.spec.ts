@@ -60,7 +60,7 @@ describe('WithdrawalsService apply', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('apply 在短时间窗口内同合伙人同金额重复提交时被拒绝且不生成记录', async () => {
+  it('相同幂等键重复提交时重放已有记录，不重复扣豆或建单', async () => {
     context.prismaService.storePartner.findFirst.mockResolvedValue(
       createApplyPartner(),
     );
@@ -73,18 +73,51 @@ describe('WithdrawalsService apply', () => {
       }),
     );
 
-    await expect(
-      context.service.apply(context.user, {
+    const result = await context.service.apply(
+      context.user,
+      {
         beanAmount: 500,
         accountType: 'alipay',
         accountNo: '13800138000',
         accountName: '张三',
-      }),
-    ).rejects.toThrow('请勿重复提交提现申请');
+      },
+      'same-key',
+    );
 
+    expect(result.record.id).toBe('99');
+    expect(
+      context.prismaService.storePartner.updateMany,
+    ).not.toHaveBeenCalled();
     expect(
       context.prismaService.partnerWithdrawal.create,
     ).not.toHaveBeenCalled();
+  });
+
+  it('不同幂等键的同额二次申请不再被时间窗口误拒', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner(),
+    );
+    context.prismaService.partnerWithdrawal.findFirst.mockResolvedValue(null);
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 1,
+    });
+    context.prismaService.partnerWithdrawal.create.mockResolvedValue(
+      createWithdrawalRecord({ id: 21 }),
+    );
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(2);
+
+    const payload = {
+      beanAmount: 500,
+      accountType: 'alipay' as const,
+      accountNo: '13800138000',
+      accountName: '张三',
+    };
+    await context.service.apply(context.user, payload, 'key-a');
+    await context.service.apply(context.user, payload, 'key-b');
+
+    expect(
+      context.prismaService.partnerWithdrawal.create,
+    ).toHaveBeenCalledTimes(2);
   });
 
   it('apply 提现成功时扣减余额、累加累计提现并返回前端所需字段', async () => {
@@ -192,6 +225,7 @@ describe('WithdrawalsService apply', () => {
       storeId: 18,
       partnerId: 6,
       operatorStaffId: 8,
+      idempotencyKey: expect.any(String),
       beanAmount: 500,
       rmbAmount: 50000,
       accountType: 'alipay',
@@ -211,5 +245,116 @@ describe('WithdrawalsService apply', () => {
         description: '提现申请 · 500 豆',
       },
     });
+  });
+
+  it('apply 的重复申请查重在事务内执行，避免被并发请求穿透', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner(),
+    );
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 1,
+    });
+    context.prismaService.partnerWithdrawal.create.mockResolvedValue(
+      createWithdrawalRecord({ id: 21 }),
+    );
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
+
+    await context.service.apply(context.user, {
+      beanAmount: 500,
+      accountType: 'wechat',
+      accountNo: 'wxid_abc123',
+      accountName: '张三',
+    });
+
+    const duplicateCheckOrder =
+      context.prismaService.partnerWithdrawal.findFirst.mock
+        .invocationCallOrder[0];
+    const transactionOrder =
+      context.prismaService.$transaction.mock.invocationCallOrder[0];
+    expect(duplicateCheckOrder).toBeGreaterThan(transactionOrder);
+  });
+
+  it('apply 在锁保护下执行且无论成功失败都释放锁', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner(),
+    );
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 1,
+    });
+    context.prismaService.partnerWithdrawal.create.mockRejectedValueOnce(
+      new Error('db down'),
+    );
+
+    await expect(
+      context.service.apply(context.user, {
+        beanAmount: 500,
+        accountType: 'wechat',
+        accountNo: 'wxid_abc123',
+        accountName: '张三',
+      }),
+    ).rejects.toThrow('db down');
+
+    expect(context.redisLockService.acquireLock).toHaveBeenCalledWith(
+      'withdrawals:apply:store:18:partner:6',
+      expect.objectContaining({ ttlSeconds: expect.any(Number) }),
+    );
+    expect(context.redisLockService.releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('apply 获取锁失败时拒绝提交且不落库', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner(),
+    );
+    context.redisLockService.acquireLock.mockResolvedValueOnce(null);
+
+    await expect(
+      context.service.apply(context.user, {
+        beanAmount: 500,
+        accountType: 'wechat',
+        accountNo: 'wxid_abc123',
+        accountName: '张三',
+      }),
+    ).rejects.toThrow('提现申请正在处理中，请稍后重试');
+
+    expect(
+      context.prismaService.partnerWithdrawal.create,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('apply 成功后失效提现、豆子中心、合伙人资料与 pulse 打款列表的全部派生缓存', async () => {
+    context.prismaService.storePartner.findFirst
+      .mockResolvedValueOnce(createApplyPartner())
+      .mockResolvedValueOnce(createOverviewPartner());
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 1,
+    });
+    context.prismaService.partnerWithdrawal.create.mockResolvedValue(
+      createWithdrawalRecord({ id: 21 }),
+    );
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
+
+    await context.service.apply(context.user, {
+      beanAmount: 500,
+      accountType: 'wechat',
+      accountNo: 'wxid_abc123',
+      accountName: '张三',
+    });
+
+    expect(
+      context.cacheInvalidatorService.invalidateWithdrawalsDerived,
+    ).toHaveBeenCalledWith(18);
+    expect(
+      context.cacheInvalidatorService.invalidatePlatformMembershipDerived,
+    ).toHaveBeenCalledWith(18);
+    expect(
+      context.cacheInvalidatorService.invalidateDashboardAndPulseSession,
+    ).toHaveBeenCalledWith(18);
+    expect(
+      context.cacheInvalidatorService.invalidatePulseGrowthEarnings,
+    ).toHaveBeenCalledWith(18);
+    // 商家端提交后 pulse 合伙人打款列表必须立刻回源，否则 30s 内仍是空列表
+    expect(
+      context.cacheInvalidatorService.invalidatePulseGrowthAdminQueries,
+    ).toHaveBeenCalledTimes(1);
   });
 });

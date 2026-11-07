@@ -1,45 +1,45 @@
 model MarketingCustomer {
-  id                 Int                     @id @default(autoincrement())
-  storeId            Int                     @map("store_id")
+  id                  Int                      @id @default(autoincrement())
+  storeId             Int                      @map("store_id")
   /// 显式外键关联到 Member（可为 null，兼容历史数据）
-  memberId           Int?                    @unique @map("member_id")
+  memberId            Int?                     @unique @map("member_id")
   /// Club 用户 ID；仅餐饮扫码点餐客户使用，按门店唯一绑定
-  clubUserId         Int?                    @map("club_user_id")
+  clubUserId          Int?                     @map("club_user_id")
   /// 昵称
-  name               String
+  name                String
   /// 手机号（明文存储，展示层脱敏；仅用于真实手机号）
-  phone              String?
+  phone               String?
   /// 外部身份标识（微信 openid / 其他第三方标识，可为 null）
-  externalIdentifier String?                 @map("external_identifier")
+  externalIdentifier  String?                  @map("external_identifier")
   /// 头像 URL（可选）
-  avatar             String?
+  avatar              String?
   /// 会员等级（根据 totalSpent 计算，实时同步）
-  tier               MarketingCustomerTier   @default(regular)
+  tier                MarketingCustomerTier    @default(regular)
   /// 顾客状态（active=正常 inactive=停用 banned=封禁）
-  status             MarketingCustomerStatus @default(active)
+  status              MarketingCustomerStatus  @default(active)
   /// 储值余额（分）
-  balance            Int                     @default(0)
+  balance             Int                      @default(0)
   /// 积分余额
-  points             Int                     @default(0)
+  points              Int                      @default(0)
   /// 累计消费金额（分，流水口径）
-  totalSpent         Int                     @default(0) @map("total_spent")
+  totalSpent          Int                      @default(0) @map("total_spent")
   /// 累计消费次数
-  visitCount         Int                     @default(0) @map("visit_count")
+  visitCount          Int                      @default(0) @map("visit_count")
   /// 最后消费时间
-  lastVisitAt        DateTime?               @map("last_visit_at")
+  lastVisitAt         DateTime?                @map("last_visit_at")
   /// 备注
-  remark             String?
+  remark              String?
   /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt          DateTime?               @map("deleted_at")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
-  consumptions       MarketingConsumption[]
+  deletedAt           DateTime?                @map("deleted_at")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  consumptions        MarketingConsumption[]
   /// 会员护理档案（美容院业态，由空间场次结账自动生成）
-  careRecords        CareRecord[]             @relation("CustomerCareRecords")
-  store              Store                   @relation(fields: [storeId], references: [id])
-  pointsRecords      MarketingPointsRecord[]
-  recharges          MarketingRecharge[]
-  member             Member?                 @relation("MemberCustomer")
+  careRecords         CareRecord[]             @relation("CustomerCareRecords")
+  store               Store                    @relation(fields: [storeId], references: [id])
+  pointsRecords       MarketingPointsRecord[]
+  recharges           MarketingRecharge[]
+  member              Member?                  @relation("MemberCustomer")
   dailyCheckInRecords ClubDailyCheckInRecord[]
 
   @@unique([storeId, clubUserId], map: "uq_marketing_customers_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
@@ -56,29 +56,29 @@ model MarketingCustomer {
 }
 
 model MarketingRecharge {
-  id          Int                   @id @default(autoincrement())
-  storeId     Int                   @map("store_id")
-  customerId  Int                   @map("customer_id")
+  id            Int                   @id @default(autoincrement())
+  storeId       Int                   @map("store_id")
+  customerId    Int                   @map("customer_id")
   /// 充值金额（分）
-  amount      Int
+  amount        Int
   /// 赠送金额（分）
-  giftAmount  Int                   @default(0) @map("gift_amount")
+  giftAmount    Int                   @default(0) @map("gift_amount")
   /// 到账总额（分）= amount + giftAmount，写入时由后端计算
-  totalAmount Int                   @default(0) @map("total_amount")
+  totalAmount   Int                   @default(0) @map("total_amount")
   /// 类型：recharge=储值 gift=赠送 refund=退款
-  type        MarketingRechargeType @default(recharge)
+  type          MarketingRechargeType @default(recharge)
   /// 关联活动 ID（字符串，对应 MarketingPromotion.id）
-  promotionId Int?                  @map("promotion_id")
+  promotionId   Int?                  @map("promotion_id")
   /// 关联 club 充值订单号（club 充值落账时写入，用于幂等与对账；商家端手动充值为空）
-  orderNo     String?               @map("order_no")
+  orderNo       String?               @map("order_no")
   /// 微信支付交易单号（对账用；非微信支付为空）
-  transactionId String?             @map("transaction_id")
+  transactionId String?               @map("transaction_id")
   /// 备注
-  note        String?
-  createdAt   DateTime              @default(now()) @map("created_at")
-  customer    MarketingCustomer     @relation(fields: [customerId], references: [id])
-  promotion   MarketingPromotion?   @relation(fields: [promotionId], references: [id])
-  store       Store                 @relation(fields: [storeId], references: [id])
+  note          String?
+  createdAt     DateTime              @default(now()) @map("created_at")
+  customer      MarketingCustomer     @relation(fields: [customerId], references: [id])
+  promotion     MarketingPromotion?   @relation(fields: [promotionId], references: [id])
+  store         Store                 @relation(fields: [storeId], references: [id])
 
   /// 幂等最终兜底：同一笔 club 充值订单只允许落一条充值流水，
   /// 防止 Redis 锁过期后并发回调重复加余额。历史数据 order_no 为空，不受影响。

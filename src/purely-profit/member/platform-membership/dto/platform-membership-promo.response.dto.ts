@@ -43,8 +43,8 @@ export class PlatformMembershipPromoRecordDto {
   inviteeName: string;
 
   @ApiProperty({
-    example: '159****4321',
-    description: '被推广用户手机号（脱敏）',
+    example: '13700137000',
+    description: '被推广用户手机号（完整号码，前端展示前须脱敏）',
   })
   @IsString({ message: '被推广用户手机号必须是字符串' })
   inviteePhone: string;

@@ -1,11 +1,11 @@
 import { Prisma, type PartnerWithdrawal } from '@prisma/client';
 import type { WithdrawalRecordResponseDto } from './dto/withdrawal-response.dto';
-import { calcWithdrawalAmounts } from './withdrawals-shared.service';
 
 export const withdrawalRecordSelect = {
   id: true,
   storeId: true,
   partnerId: true,
+  operatorStaffId: true,
   beanAmount: true,
   rmbAmount: true,
   accountType: true,
@@ -38,14 +38,13 @@ export function mapWithdrawalRecord(
     | 'rejectReason'
   >,
 ): WithdrawalRecordResponseDto {
-  // 金额换算走统一入口，确保 netRmbAmount 始终由 calcWithdrawalAmounts 产出
-  const amounts = calcWithdrawalAmounts(record.beanAmount);
-
+  // 金额取申请时落库的快照，禁止按当前费率重算历史记录；
+  // 当前无手续费，实到金额与落库金额一致，未来扣费口径由 preview/apply 统一产出。
   const response: WithdrawalRecordResponseDto = {
     id: String(record.id),
-    beanAmount: amounts.beanAmount,
-    rmbAmount: amounts.rmbAmount,
-    netRmbAmount: amounts.netRmbAmount,
+    beanAmount: record.beanAmount,
+    rmbAmount: record.rmbAmount,
+    netRmbAmount: record.rmbAmount,
     accountType: record.accountType,
     accountNo: record.accountNo,
     accountName: record.accountName,

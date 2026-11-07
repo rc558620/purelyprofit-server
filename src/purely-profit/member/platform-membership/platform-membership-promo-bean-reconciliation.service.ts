@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_SHORT,
+} from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 
@@ -7,6 +10,11 @@ import { RedisLockService } from '../../../redis/redis-lock.service';
 const RECONCILE_LOCK_RESOURCE = 'promo:bean-reconciliation';
 /** 锁 TTL：需覆盖全量合伙人对账耗时，过期后自动释放防死锁 */
 const RECONCILE_LOCK_TTL_SECONDS = 300;
+
+interface BeanDelta {
+  balance: number;
+  earned: number;
+}
 
 @Injectable()
 export class PlatformMembershipPromoBeanReconciliationService {
@@ -23,10 +31,9 @@ export class PlatformMembershipPromoBeanReconciliationService {
   /**
    * 启动期一次性对账入口（去重日志 + 校正余额）。
    *
-   * 必须加分布式锁：对账是「读全部日志 → 重算 → 覆盖写余额」的非幂等操作，
-   * 多实例部署时若并发执行，会读到不含彼此新写入的日志快照，
-   * 把并发充值 / 提现产生的余额覆盖回退（用户豆凭空消失）。
-   *
+   * 分布式锁只负责「多实例不重复执行对账」。
+   * 在线的发豆 / 提现 / 管理端调豆不持有这把锁，因此对账禁止用日志快照
+   * 绝对值覆盖余额：所有修正都改为「条件 + 增量」，见 reconcileOne。
    * 拿不到锁说明已有实例在执行，直接跳过（对账允许延后，不阻塞启动）。
    */
   async runStartupReconciliation(): Promise<void> {
@@ -55,11 +62,10 @@ export class PlatformMembershipPromoBeanReconciliationService {
 
   /**
    * 清理同一推广记录的重复豆日志。
-   * 对每个 promoRecord，只保留最早的一条 promo_reward 日志，
-   * 删除多余的并回滚对应的 bean 余额。
+   * 对每个 promoRecord 只保留最早一条 promo_reward 日志，
+   * 删除与余额回退在同一事务内完成，且按合伙人精确回退增量。
    */
   async deduplicatePromoBeanLogs(): Promise<void> {
-    // 查找有重复豆日志的 promoRecordId
     const duplicates = await this.prisma.storePartnerBeanLog.groupBy({
       by: ['relatedPromoRecordId'],
       where: {
@@ -76,90 +82,70 @@ export class PlatformMembershipPromoBeanReconciliationService {
     );
 
     const affectedPartnerIds = new Set<number>();
-
     for (const dup of duplicates) {
       if (!dup.relatedPromoRecordId) continue;
-
-      // 获取所有该记录的豆日志，按时间排序
-      const logs = await this.prisma.storePartnerBeanLog.findMany({
-        where: {
-          relatedPromoRecordId: dup.relatedPromoRecordId,
-          source: 'promo_reward',
-        },
-        select: { id: true, partnerId: true, changeAmount: true },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      // 保留第一条，删除其余
-      const [keep, ...remove] = logs;
-      if (remove.length === 0) continue;
-
-      const removeIds = remove.map((r) => r.id);
-
-      // 删除重复日志
-      await this.prisma.storePartnerBeanLog.deleteMany({
-        where: { id: { in: removeIds } },
-      });
-
-      if (keep.partnerId) {
-        affectedPartnerIds.add(keep.partnerId);
-      }
-
-      this.logger.log(
-        `已清理推广记录 #${dup.relatedPromoRecordId} 的 ${remove.length} 条重复豆日志`,
-      );
+      const partnerIds = await this.deduplicateOne(dup.relatedPromoRecordId);
+      partnerIds.forEach((id) => affectedPartnerIds.add(id));
     }
 
-    // 从所有日志重新计算受影响合伙人的 bean 余额（绝对值校正）
-    for (const partnerId of affectedPartnerIds) {
-      const allLogs = await this.prisma.storePartnerBeanLog.findMany({
-        where: { partnerId },
-        select: { changeAmount: true, source: true },
-      });
+    await this.invalidatePartners(affectedPartnerIds);
+  }
 
-      // totalEarnedBeans = 所有 promo_reward 正数日志之和
-      const correctTotalEarned = allLogs
-        .filter((l) => l.source === 'promo_reward' && l.changeAmount > 0)
-        .reduce((sum, l) => sum + l.changeAmount, 0);
+  private async deduplicateOne(promoRecordId: number): Promise<number[]> {
+    const logs = await this.prisma.storePartnerBeanLog.findMany({
+      where: {
+        relatedPromoRecordId: promoRecordId,
+        source: 'promo_reward',
+      },
+      select: { id: true, partnerId: true, changeAmount: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
-      // beanBalance = 所有日志 changeAmount 之和
-      const correctBalance = allLogs.reduce(
-        (sum, l) => sum + l.changeAmount,
-        0,
-      );
+    const [keep, ...remove] = logs;
+    if (!keep || remove.length === 0) return [];
 
-      await this.prisma.storePartner.update({
-        where: { id: partnerId },
-        data: {
-          beanBalance: Math.max(0, correctBalance),
-          totalEarnedBeans: correctTotalEarned,
-        },
-      });
-
-      this.logger.log(
-        `合伙人 #${partnerId} 豆余额已校正: balance=${Math.max(0, correctBalance)}, totalEarned=${correctTotalEarned}`,
-      );
-
-      // 清除缓存
-      const partnerRecord = await this.prisma.storePartner.findUnique({
-        where: { id: partnerId },
-        select: { storeId: true },
-      });
-      if (partnerRecord) {
-        await this.cacheInvalidatorService.invalidateMembershipDerived(
-          partnerRecord.storeId,
-        );
-      }
+    // 重复日志可能挂在不同合伙人名下，必须全部纳入回退范围：
+    // 否则「仅剩这一条日志」的合伙人不会被后续 groupBy 扫到，余额永久偏高。
+    const deltasByPartner = new Map<number, BeanDelta>();
+    for (const log of remove) {
+      const delta = deltasByPartner.get(log.partnerId) ?? {
+        balance: 0,
+        earned: 0,
+      };
+      delta.balance += log.changeAmount;
+      if (log.changeAmount > 0) delta.earned += log.changeAmount;
+      deltasByPartner.set(log.partnerId, delta);
     }
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.storePartnerBeanLog.deleteMany({
+          where: { id: { in: remove.map((log) => log.id) } },
+        });
+        for (const [partnerId, delta] of deltasByPartner) {
+          await tx.storePartner.updateMany({
+            where: { id: partnerId },
+            data: {
+              beanBalance: { increment: -delta.balance },
+              totalEarnedBeans: { increment: -delta.earned },
+            },
+          });
+        }
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
+
+    this.logger.log(
+      `已清理推广记录 #${promoRecordId} 的 ${remove.length} 条重复豆日志`,
+    );
+    return [...deltasByPartner.keys()];
   }
 
   /**
    * 校正所有推广人的豆余额。
-   * 从豆日志重新计算 balance 和 totalEarnedBeans，与数据库值比对，
-   * 不一致则校正。每次服务启动运行一次。
+   * 以「日志之和」为准，但只允许条件增量修正，不得绝对值覆盖。
    */
   async reconcilePartnerBeanBalances(): Promise<void> {
-    // 查找所有有 promo_reward 日志的合伙人
     const partnersWithLogs = await this.prisma.storePartnerBeanLog.groupBy({
       by: ['partnerId'],
       where: { source: 'promo_reward' },
@@ -167,62 +153,87 @@ export class PlatformMembershipPromoBeanReconciliationService {
 
     if (partnersWithLogs.length === 0) return;
 
-    let _correctedCount = 0;
     const affectedStoreIds = new Set<number>();
-
     for (const entry of partnersWithLogs) {
-      const allLogs = await this.prisma.storePartnerBeanLog.findMany({
-        where: { partnerId: entry.partnerId },
+      const storeId = await this.reconcileOne(entry.partnerId);
+      if (storeId !== null) affectedStoreIds.add(storeId);
+    }
+
+    // 无论余额是否变化都清缓存，确保 Redis 与 DB 同步
+    for (const storeId of affectedStoreIds) {
+      await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
+    }
+  }
+
+  private async reconcileOne(partnerId: number): Promise<number | null> {
+    const [allLogs, partner] = await Promise.all([
+      this.prisma.storePartnerBeanLog.findMany({
+        where: { partnerId },
         select: { changeAmount: true, source: true },
-      });
-
-      const correctTotalEarned = allLogs
-        .filter((l) => l.source === 'promo_reward' && l.changeAmount > 0)
-        .reduce((sum, l) => sum + l.changeAmount, 0);
-
-      const correctBalance = Math.max(
-        0,
-        allLogs.reduce((sum, l) => sum + l.changeAmount, 0),
-      );
-
-      const partner = await this.prisma.storePartner.findUnique({
-        where: { id: entry.partnerId },
+      }),
+      this.prisma.storePartner.findUnique({
+        where: { id: partnerId },
         select: {
           beanBalance: true,
           totalEarnedBeans: true,
           storeId: true,
         },
+      }),
+    ]);
+    if (!partner) return null;
+
+    const loggedBalance = Math.max(
+      0,
+      allLogs.reduce((sum, log) => sum + log.changeAmount, 0),
+    );
+    const balanceDiff = loggedBalance - partner.beanBalance;
+
+    if (balanceDiff !== 0) {
+      // 带条件的增量修正：只有余额仍等于读到的快照时才生效。
+      // 若期间有发豆 / 提现 / 管理端调整写入，条件不命中即跳过本轮，
+      // 绝不能用旧日志快照覆盖在线写入（原实现会凭空增减用户豆）。
+      const result = await this.prisma.storePartner.updateMany({
+        where: { id: partnerId, beanBalance: partner.beanBalance },
+        data: { beanBalance: { increment: balanceDiff } },
       });
-      if (!partner) continue;
-
-      // 无论余额是否一致，都强制清缓存（确保 Redis 缓存与 DB 同步）
-      affectedStoreIds.add(partner.storeId);
-
-      if (
-        partner.beanBalance !== correctBalance ||
-        partner.totalEarnedBeans !== correctTotalEarned
-      ) {
-        this.logger.debug(
-          `[reconcile] 合伙人 #${entry.partnerId} 余额不一致: ` +
-            `db_balance=${partner.beanBalance}→${correctBalance}, ` +
-            `db_earned=${partner.totalEarnedBeans}→${correctTotalEarned}`,
+      if (result.count === 0) {
+        this.logger.warn(
+          `[reconcile] 合伙人 #${partnerId} 余额在校正期间被并发修改，本轮跳过`,
         );
-
-        await this.prisma.storePartner.update({
-          where: { id: entry.partnerId },
-          data: {
-            beanBalance: correctBalance,
-            totalEarnedBeans: correctTotalEarned,
-          },
-        });
-
-        _correctedCount++;
       } else {
-        // 余额正确，无需处理
+        this.logger.log(
+          `[reconcile] 合伙人 #${partnerId} 余额已按日志增量校正: diff=${balanceDiff}`,
+        );
       }
     }
 
-    for (const storeId of affectedStoreIds) {
+    // totalEarnedBeans 的写入侧口径尚未统一（管理端正向调豆计入、提现退回不计入），
+    // 因此只告警、不覆盖，避免抹掉管理端累计（原实现只统计 promo_reward 会回退累计值）。
+    const promoRewardEarned = allLogs
+      .filter((log) => log.source === 'promo_reward' && log.changeAmount > 0)
+      .reduce((sum, log) => sum + log.changeAmount, 0);
+    if (partner.totalEarnedBeans < promoRewardEarned) {
+      this.logger.warn(
+        `[reconcile] 合伙人 #${partnerId} 累计获得纯利豆低于推广奖励日志合计: ` +
+          `db=${partner.totalEarnedBeans}, promoReward=${promoRewardEarned}，` +
+          `不自动覆盖（累计口径由写入侧负责）`,
+      );
+    }
+
+    return partner.storeId;
+  }
+
+  private async invalidatePartners(partnerIds: Set<number>): Promise<void> {
+    const storeIds = new Set<number>();
+    for (const partnerId of partnerIds) {
+      const partner = await this.prisma.storePartner.findUnique({
+        where: { id: partnerId },
+        select: { storeId: true },
+      });
+      if (partner) storeIds.add(partner.storeId);
+    }
+
+    for (const storeId of storeIds) {
       await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
     }
   }

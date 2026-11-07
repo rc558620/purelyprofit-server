@@ -63,6 +63,23 @@ describe('buildBeanOverview pendingBeans', () => {
       pendingBeans: 0, // 500 - 200 - 400 = -100 → clamped to 0
     });
   });
+
+  it('传入 withdrawals 域的待结算豆时优先使用权威口径，不再按恒等式推导', () => {
+    const result = buildBeanOverview(
+      {
+        status: 'approved',
+        beanBalance: 300,
+        totalEarnedBeans: 500,
+        totalWithdrawnBeans: 200,
+      },
+      200,
+    );
+
+    expect(result.pendingBeans).toBe(200);
+    expect(result.beanBalance).toBe(300);
+    expect(result.totalEarnedBeans).toBe(500);
+    expect(result.totalWithdrawnBeans).toBe(200);
+  });
 });
 
 describe('buildPointsOverview deductibleAmount & canUsePoints', () => {

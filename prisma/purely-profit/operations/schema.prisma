@@ -44,7 +44,7 @@ model ScanOrderingTable {
   serviceCalls ScanOrderServiceCall[]
   sessions     ScanOrderingSession[]
   qrCodes      ScanOrderingTableQrCode?
-  saleOrders   SaleOrder[]             @relation("SaleOrderDiningTable")
+  saleOrders   SaleOrder[]              @relation("SaleOrderDiningTable")
   area         ScanOrderingArea?        @relation(fields: [areaId], references: [id])
   type         ScanOrderingType?        @relation(fields: [typeId], references: [id])
   orders       ScanOrders[]
@@ -55,25 +55,25 @@ model ScanOrderingTable {
 }
 
 model ScanOrderingSession {
-  id               Int                       @id @default(autoincrement()) @map("id")
-  storeId          Int                       @map("store_id")
-  tableId          Int?                      @map("table_id")
-  clubUserId       Int?                      @map("club_user_id")
-  diningRoundId    String                    @map("dining_round_id") @db.Uuid
-  session          String                    @map("session")
-  sessionTokenHash String?                   @map("session_token_hash") @db.VarChar(128)
-  guestCount       Int                       @default(0) @map("guest_count")
-  status           ScanOrderingSessionStatus @default(active) @map("status")
-  expiresAt        DateTime                  @map("expires_at")
-  lastActiveAt     DateTime                  @default(now()) @map("last_active_at")
-  endedAt          DateTime?                 @map("ended_at")
+  id               Int                        @id @default(autoincrement()) @map("id")
+  storeId          Int                        @map("store_id")
+  tableId          Int?                       @map("table_id")
+  clubUserId       Int?                       @map("club_user_id")
+  diningRoundId    String                     @map("dining_round_id") @db.Uuid
+  session          String                     @map("session")
+  sessionTokenHash String?                    @map("session_token_hash") @db.VarChar(128)
+  guestCount       Int                        @default(0) @map("guest_count")
+  status           ScanOrderingSessionStatus  @default(active) @map("status")
+  expiresAt        DateTime                   @map("expires_at")
+  lastActiveAt     DateTime                   @default(now()) @map("last_active_at")
+  endedAt          DateTime?                  @map("ended_at")
   archiveReason    ScanOrderingArchiveReason? @map("archive_reason")
-  deletedAt        DateTime?                 @map("deleted_at")
-  createdAt        DateTime                  @default(now()) @map("created_at")
-  updatedAt        DateTime                  @updatedAt @map("updated_at")
+  deletedAt        DateTime?                  @map("deleted_at")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
   serviceCalls     ScanOrderServiceCall[]
   cartItems        ScanOrderingCartItem[]
-  table            ScanOrderingTable?        @relation(fields: [tableId], references: [id])
+  table            ScanOrderingTable?         @relation(fields: [tableId], references: [id])
   orders           ScanOrders[]
 
   @@unique([clubUserId, tableId], map: "uq_scan_ordering_sessions_user_table_active", where: raw("((status = 'active'::\"ScanOrderingSessionStatus\") AND (deleted_at IS NULL))"))
@@ -123,68 +123,68 @@ model ScanOrderingCartItemSpec {
 }
 
 model ScanOrders {
-  id                       Int                        @id @default(autoincrement()) @map("id")
-  storeId                  Int                        @map("store_id")
-  orderNo                  String                     @map("order_no")
-  tableId                  Int?                       @map("table_id")
-  sessionId                Int?                       @map("session_id")
+  id                       Int                           @id @default(autoincrement()) @map("id")
+  storeId                  Int                           @map("store_id")
+  orderNo                  String                        @map("order_no")
+  tableId                  Int?                          @map("table_id")
+  sessionId                Int?                          @map("session_id")
   /// 是否为手工补录单（录入订单）
-  manualEntry              Boolean                    @default(false) @map("manual_entry")
+  manualEntry              Boolean                       @default(false) @map("manual_entry")
   /// 手工补录单元数据快照（diningMode/paymentMethod/sourceChannel/externalOrderNo/guestCount/customerPhone/voucherAmount）
-  manualEntryMetadata      Json?                      @map("manual_entry_metadata")
-  clubUserId               Int?                       @map("club_user_id")
-  diningRoundId            String                     @map("dining_round_id") @db.Uuid
-  guestCount               Int?                       @map("guest_count")
-  remark                   String?                    @map("remark") @db.VarChar(500)
-  idempotencyKey           String?                    @map("idempotency_key") @db.VarChar(128)
-  pricingVersion           String?                    @map("pricing_version") @db.VarChar(128)
-  couponId                 Int?                       @map("coupon_id")
-  marketingSnapshot        Json?                      @map("marketing_snapshot")
-  currency                 String                     @default("CNY") @map("currency") @db.Char(3)
-  itemOriginalAmount       Int                        @default(0) @map("item_original_amount")
-  specificationExtraAmount Int                        @default(0) @map("specification_extra_amount")
-  productDiscountAmount    Int                        @default(0) @map("product_discount_amount")
-  orderDiscountAmount      Int                        @default(0) @map("order_discount_amount")
-  serviceFeeAmount         Int                        @default(0) @map("service_fee_amount")
-  taxAmount                Int                        @default(0) @map("tax_amount")
-  payableAmount            Int                        @default(0) @map("payable_amount")
-  paidAmount               Int                        @default(0) @map("paid_amount")
-  status                   ScanOrderStatus            @default(pending_payment) @map("status")
-  paymentStatus            ScanOrderPaymentStatus     @default(unpaid) @map("payment_status")
-  fulfillmentStatus        ScanOrderFulfillmentStatus @default(preparing) @map("fulfillment_status")
-  version                  Int                        @default(0) @map("version")
-  paymentExpiresAt         DateTime?                  @map("payment_expires_at")
-  paidAt                   DateTime?                  @map("paid_at")
-  acceptedAt               DateTime?                  @map("accepted_at")
-  servedAt                 DateTime?                  @map("served_at")
-  completedAt              DateTime?                  @map("completed_at")
-  cancelledAt              DateTime?                  @map("cancelled_at")
+  manualEntryMetadata      Json?                         @map("manual_entry_metadata")
+  clubUserId               Int?                          @map("club_user_id")
+  diningRoundId            String                        @map("dining_round_id") @db.Uuid
+  guestCount               Int?                          @map("guest_count")
+  remark                   String?                       @map("remark") @db.VarChar(500)
+  idempotencyKey           String?                       @map("idempotency_key") @db.VarChar(128)
+  pricingVersion           String?                       @map("pricing_version") @db.VarChar(128)
+  couponId                 Int?                          @map("coupon_id")
+  marketingSnapshot        Json?                         @map("marketing_snapshot")
+  currency                 String                        @default("CNY") @map("currency") @db.Char(3)
+  itemOriginalAmount       Int                           @default(0) @map("item_original_amount")
+  specificationExtraAmount Int                           @default(0) @map("specification_extra_amount")
+  productDiscountAmount    Int                           @default(0) @map("product_discount_amount")
+  orderDiscountAmount      Int                           @default(0) @map("order_discount_amount")
+  serviceFeeAmount         Int                           @default(0) @map("service_fee_amount")
+  taxAmount                Int                           @default(0) @map("tax_amount")
+  payableAmount            Int                           @default(0) @map("payable_amount")
+  paidAmount               Int                           @default(0) @map("paid_amount")
+  status                   ScanOrderStatus               @default(pending_payment) @map("status")
+  paymentStatus            ScanOrderPaymentStatus        @default(unpaid) @map("payment_status")
+  fulfillmentStatus        ScanOrderFulfillmentStatus    @default(preparing) @map("fulfillment_status")
+  version                  Int                           @default(0) @map("version")
+  paymentExpiresAt         DateTime?                     @map("payment_expires_at")
+  paidAt                   DateTime?                     @map("paid_at")
+  acceptedAt               DateTime?                     @map("accepted_at")
+  servedAt                 DateTime?                     @map("served_at")
+  completedAt              DateTime?                     @map("completed_at")
+  cancelledAt              DateTime?                     @map("cancelled_at")
   /// 取餐号（门店 + 上海业务日维度递增，001 起）
-  pickupNumber             Int?                       @map("pickup_number")
+  pickupNumber             Int?                          @map("pickup_number")
   /// 取餐号所属上海业务日（Asia/Shanghai 00:00）
-  pickupBusinessDate       DateTime?                  @map("pickup_business_date") @db.Date
+  pickupBusinessDate       DateTime?                     @map("pickup_business_date") @db.Date
   /// 取餐号分配时间（支付成功后分配）
-  pickupAssignedAt         DateTime?                  @map("pickup_assigned_at")
+  pickupAssignedAt         DateTime?                     @map("pickup_assigned_at")
   /// 叫号时间（商家出餐时写入）
-  pickupCalledAt           DateTime?                  @map("pickup_called_at")
+  pickupCalledAt           DateTime?                     @map("pickup_called_at")
   /// 取餐完成时间
-  pickupCompletedAt        DateTime?                  @map("pickup_completed_at")
+  pickupCompletedAt        DateTime?                     @map("pickup_completed_at")
   /// 取餐号状态
-  pickupNumberStatus       ScanOrderPickupNumberStatus? @map("pickup_number_status")
-  deletedAt                DateTime?                  @map("deleted_at")
-  createdAt                DateTime                   @default(now()) @map("created_at")
-  updatedAt                DateTime                   @updatedAt @map("updated_at")
-  rejectReason             String?                    @map("reject_reason")
-  cancelReason             String?                    @map("cancel_reason")
+  pickupNumberStatus       ScanOrderPickupNumberStatus?  @map("pickup_number_status")
+  deletedAt                DateTime?                     @map("deleted_at")
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  updatedAt                DateTime                      @updatedAt @map("updated_at")
+  rejectReason             String?                       @map("reject_reason")
+  cancelReason             String?                       @map("cancel_reason")
   couponUsages             ScanOrderCouponUsage[]
   items                    ScanOrderItem[]
   paymentAttempts          ScanOrderPaymentAttempt[]
   refundTasks              ScanOrderRefundTask[]
   balanceTransactions      ScanOrderBalanceTransaction[]
   histories                ScanOrderStatusHistory[]
-  saleOrder                SaleOrder?                @relation("ScanOrderSaleOrder")
-  session                  ScanOrderingSession?       @relation(fields: [sessionId], references: [id])
-  table                    ScanOrderingTable?         @relation(fields: [tableId], references: [id])
+  saleOrder                SaleOrder?                    @relation("ScanOrderSaleOrder")
+  session                  ScanOrderingSession?          @relation(fields: [sessionId], references: [id])
+  table                    ScanOrderingTable?            @relation(fields: [tableId], references: [id])
 
   @@unique([storeId, orderNo])
   @@unique([storeId, idempotencyKey], map: "uq_scan_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
@@ -220,7 +220,7 @@ model ScanOrders {
 model ScanOrderingPickupSequence {
   id           Int      @id @default(autoincrement())
   storeId      Int      @map("store_id")
-  businessDate DateTime @db.Date @map("business_date")
+  businessDate DateTime @map("business_date") @db.Date
   nextNumber   Int      @default(1) @map("next_number")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -230,23 +230,23 @@ model ScanOrderingPickupSequence {
 }
 
 model ScanOrderItem {
-  id                      Int                 @id @default(autoincrement()) @map("id")
-  orderId                 Int                 @map("order_id")
-  storeId                 Int                 @map("store_id")
-  menuProductId           Int                 @map("menu_product_id")
-  productNameSnapshot     String              @map("product_name_snapshot")
-  productImageUrlSnapshot String?             @map("product_image_url_snapshot")
-  categoryNameSnapshot    String?             @map("category_name_snapshot")
-  specSignature           String?             @map("spec_signature") @db.Char(64)
-  quantity                Int                 @map("quantity")
-  basePriceSnapshot       Int                 @map("base_price_snapshot")
-  unitPriceAmount         Int                 @default(0) @map("unit_price_amount")
-  discountAmount          Int                 @default(0) @map("discount_amount")
-  lineTotalAmount         Int                 @map("line_total_amount")
-  payableLineAmount       Int                 @default(0) @map("payable_line_amount")
-  sortOrder               Int                 @default(0) @map("sort_order")
+  id                      Int                     @id @default(autoincrement()) @map("id")
+  orderId                 Int                     @map("order_id")
+  storeId                 Int                     @map("store_id")
+  menuProductId           Int                     @map("menu_product_id")
+  productNameSnapshot     String                  @map("product_name_snapshot")
+  productImageUrlSnapshot String?                 @map("product_image_url_snapshot")
+  categoryNameSnapshot    String?                 @map("category_name_snapshot")
+  specSignature           String?                 @map("spec_signature") @db.Char(64)
+  quantity                Int                     @map("quantity")
+  basePriceSnapshot       Int                     @map("base_price_snapshot")
+  unitPriceAmount         Int                     @default(0) @map("unit_price_amount")
+  discountAmount          Int                     @default(0) @map("discount_amount")
+  lineTotalAmount         Int                     @map("line_total_amount")
+  payableLineAmount       Int                     @default(0) @map("payable_line_amount")
+  sortOrder               Int                     @default(0) @map("sort_order")
   specs                   ScanOrderItemSpec[]
-  order                   ScanOrders          @relation(fields: [orderId], references: [id])
+  order                   ScanOrders              @relation(fields: [orderId], references: [id])
   menuProduct             ScanOrderingMenuProduct @relation(fields: [menuProductId], references: [id])
 
   @@index([orderId, id])
@@ -301,33 +301,33 @@ model ScanOrderingMenuCategory {
 }
 
 model ScanOrderingMenuProduct {
-  id            Int                      @id @default(autoincrement()) @map("id")
-  storeId       Int                      @map("store_id")
-  categoryId    Int                      @map("category_id")
-  name          String                   @map("name")
-  description   String?                  @map("description") @db.VarChar(500)
-  imageUrl      String?                  @map("image_url")
-  basePrice     Int                      @map("base_price")
-  stockMode     ScanOrderingStockMode    @default(unlimited) @map("stock_mode")
-  stockQuantity Int?                     @map("stock_quantity")
+  id               Int                      @id @default(autoincrement()) @map("id")
+  storeId          Int                      @map("store_id")
+  categoryId       Int                      @map("category_id")
+  name             String                   @map("name")
+  description      String?                  @map("description") @db.VarChar(500)
+  imageUrl         String?                  @map("image_url")
+  basePrice        Int                      @map("base_price")
+  stockMode        ScanOrderingStockMode    @default(unlimited) @map("stock_mode")
+  stockQuantity    Int?                     @map("stock_quantity")
   /// 已下单未接单的预留库存数量（接单确认后扣减，取消/拒单时释放）
-  reservedQuantity Int                  @default(0) @map("reserved_quantity")
-  salesCount    Int                      @default(0) @map("sales_count")
-  isRecommended Boolean                  @default(false) @map("is_recommended")
-  availableFrom String?                  @map("available_from") @db.VarChar(5)
-  availableTo   String?                  @map("available_to") @db.VarChar(5)
-  sortOrder     Int                      @default(0) @map("sort_order")
-  isActive      Boolean                  @default(true) @map("is_active")
-  version       Int                      @default(0) @map("version")
-  createdAt     DateTime                 @default(now()) @map("created_at")
-  updatedAt     DateTime                 @updatedAt @map("updated_at")
-  deletedAt     DateTime?                @map("deleted_at")
+  reservedQuantity Int                      @default(0) @map("reserved_quantity")
+  salesCount       Int                      @default(0) @map("sales_count")
+  isRecommended    Boolean                  @default(false) @map("is_recommended")
+  availableFrom    String?                  @map("available_from") @db.VarChar(5)
+  availableTo      String?                  @map("available_to") @db.VarChar(5)
+  sortOrder        Int                      @default(0) @map("sort_order")
+  isActive         Boolean                  @default(true) @map("is_active")
+  version          Int                      @default(0) @map("version")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  deletedAt        DateTime?                @map("deleted_at")
   /// 关联的普通商品 ID（可选，为 null 表示独立创建的菜单商品）
-  productId     Int?                     @map("product_id")
-  category      ScanOrderingMenuCategory @relation(fields: [categoryId], references: [id])
-  product       Product?                 @relation(fields: [productId], references: [id])
-  specGroups    ScanOrderingSpecGroup[]
-  orderItems    ScanOrderItem[]
+  productId        Int?                     @map("product_id")
+  category         ScanOrderingMenuCategory @relation(fields: [categoryId], references: [id])
+  product          Product?                 @relation(fields: [productId], references: [id])
+  specGroups       ScanOrderingSpecGroup[]
+  orderItems       ScanOrderItem[]
 
   @@unique([storeId, name], map: "uq_menu_product_store_name_active", where: raw("(deleted_at IS NULL)"))
   @@unique([storeId, productId], map: "uq_scan_ordering_menu_product_store_product_active", where: raw("(product_id IS NOT NULL AND deleted_at IS NULL)"))
@@ -358,20 +358,20 @@ model ScanOrderingSpecGroup {
 }
 
 model ScanOrderingSpecOption {
-  id            Int                   @id @default(autoincrement()) @map("id")
-  groupId       Int                   @map("group_id")
-  name          String                @map("name")
-  extraPrice    Int                   @map("extra_price")
-  stockQuantity Int?                  @map("stock_quantity")
+  id               Int                   @id @default(autoincrement()) @map("id")
+  groupId          Int                   @map("group_id")
+  name             String                @map("name")
+  extraPrice       Int                   @map("extra_price")
+  stockQuantity    Int?                  @map("stock_quantity")
   /// 已下单未接单的预留库存数量（接单确认后扣减，取消/拒单时释放）
-  reservedQuantity Int                @default(0) @map("reserved_quantity")
-  sortOrder     Int                   @default(0) @map("sort_order")
-  isDefault     Boolean               @default(false) @map("is_default")
-  isActive      Boolean               @default(true) @map("is_active")
-  version       Int                   @default(0) @map("version")
-  createdAt     DateTime              @default(now()) @map("created_at")
-  updatedAt     DateTime              @updatedAt @map("updated_at")
-  group         ScanOrderingSpecGroup @relation(fields: [groupId], references: [id])
+  reservedQuantity Int                   @default(0) @map("reserved_quantity")
+  sortOrder        Int                   @default(0) @map("sort_order")
+  isDefault        Boolean               @default(false) @map("is_default")
+  isActive         Boolean               @default(true) @map("is_active")
+  version          Int                   @default(0) @map("version")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  group            ScanOrderingSpecGroup @relation(fields: [groupId], references: [id])
 
   @@index([groupId, isActive])
   @@map("scan_ordering_spec_options")
@@ -399,13 +399,13 @@ model ScanOrderingTableQrCode {
 }
 
 model ScanOrderBalanceTransaction {
-  id          Int      @id @default(autoincrement()) @map("id")
-  orderId     Int      @map("order_id")
-  customerId  Int      @map("customer_id")
-  amount      Int
-  type        ScanOrderBalanceTransactionType @map("type")
-  createdAt   DateTime @default(now()) @map("created_at")
-  order       ScanOrders @relation(fields: [orderId], references: [id])
+  id         Int                             @id @default(autoincrement()) @map("id")
+  orderId    Int                             @map("order_id")
+  customerId Int                             @map("customer_id")
+  amount     Int
+  type       ScanOrderBalanceTransactionType @map("type")
+  createdAt  DateTime                        @default(now()) @map("created_at")
+  order      ScanOrders                      @relation(fields: [orderId], references: [id])
 
   @@unique([orderId, type])
   @@index([customerId, createdAt(sort: Desc)])
@@ -484,6 +484,7 @@ model ServiceCall {
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
 
+  @@unique([clubUserId, storeId, type], map: "uq_service_calls_club_user_store_type_open", where: raw("(\"status\" IN ('pending', 'processing'))"))
   @@index([storeId, status, requestedAt])
   @@index([spaceId])
   @@index([clubUserId, storeId, type, requestedAt(sort: Desc)])
@@ -492,7 +493,6 @@ model ServiceCall {
   // 会吞掉 ARRAY 的闭合 `]`，生成语法错误的 SQL，并让 diff 永远判定索引不一致。
   // 两者在 Postgres 中语义等价。
   @@index([storeId, status, requestedAt], map: "idx_service_calls_store_open", where: raw("(\"status\" IN ('pending', 'processing'))"))
-  @@unique([clubUserId, storeId, type], map: "uq_service_calls_club_user_store_type_open", where: raw("(\"status\" IN ('pending', 'processing'))"))
   @@map("service_calls")
 }
 
@@ -548,12 +548,12 @@ model ScanOrderRefundTask {
   updatedAt             DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   order                 ScanOrders                @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  // 同 service_calls：用 IN 规避 prisma migrate diff 对 `= ANY (ARRAY[...])` 的渲染缺陷
+  @@unique([orderId], map: "uq_scan_order_refund_task_active", where: raw("(\"status\" IN ('pending', 'refunding', 'manual_pending'))"))
   @@index([orderId])
   @@index([storeId, status])
   @@index([triggerType, status])
   @@index([customerId, createdAt(sort: Desc)])
-  // 同 service_calls：用 IN 规避 prisma migrate diff 对 `= ANY (ARRAY[...])` 的渲染缺陷
-  @@unique([orderId], map: "uq_scan_order_refund_task_active", where: raw("(\"status\" IN ('pending', 'refunding', 'manual_pending'))"))
   @@map("scan_order_refund_tasks")
 }
 
@@ -753,32 +753,32 @@ enum ScanOrderRefundTrigger {
 
 /// 自助下单订单：归属到空间会话，支付成功后自动录入 SpaceSessionItem
 model SelfOrder {
-  id             Int    @id @default(autoincrement()) @map("id")
-  storeId        Int    @map("store_id")
+  id              Int                    @id @default(autoincrement()) @map("id")
+  storeId         Int                    @map("store_id")
   /// 业务订单号（SF 前缀）
-  orderNo        String @map("order_no") @db.VarChar(64)
+  orderNo         String                 @map("order_no") @db.VarChar(64)
   /// 空间会话 ID：订单归属基准，也是自动录入 SpaceSessionItem 的依据
-  sessionId      Int    @map("session_id")
-  spaceId        Int    @map("space_id")
-  clubUserId     Int    @map("club_user_id")
-  remark         String? @map("remark") @db.VarChar(500)
-  idempotencyKey String? @map("idempotency_key") @db.VarChar(128)
-  currency       String @default("CNY") @map("currency") @db.Char(3)
+  sessionId       Int                    @map("session_id")
+  spaceId         Int                    @map("space_id")
+  clubUserId      Int                    @map("club_user_id")
+  remark          String?                @map("remark") @db.VarChar(500)
+  idempotencyKey  String?                @map("idempotency_key") @db.VarChar(128)
+  currency        String                 @default("CNY") @map("currency") @db.Char(3)
   /// 商品合计（分）；无优惠场景下恒等于应付金额
-  itemTotalAmount Int    @default(0) @map("item_total_amount")
+  itemTotalAmount Int                    @default(0) @map("item_total_amount")
   /// 应付金额（分）
-  payableAmount  Int    @default(0) @map("payable_amount")
-  paidAmount     Int    @default(0) @map("paid_amount")
-  status         SelfOrderStatus        @default(pending_payment) @map("status")
-  paymentStatus  SelfOrderPaymentStatus @default(unpaid) @map("payment_status")
+  payableAmount   Int                    @default(0) @map("payable_amount")
+  paidAmount      Int                    @default(0) @map("paid_amount")
+  status          SelfOrderStatus        @default(pending_payment) @map("status")
+  paymentStatus   SelfOrderPaymentStatus @default(unpaid) @map("payment_status")
   /// 乐观锁版本号：并发支付/取消时防重复落账
-  version        Int       @default(0) @map("version")
-  paidAt         DateTime? @map("paid_at")
-  cancelledAt    DateTime? @map("cancelled_at")
-  cancelReason   String?   @map("cancel_reason")
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  version         Int                    @default(0) @map("version")
+  paidAt          DateTime?              @map("paid_at")
+  cancelledAt     DateTime?              @map("cancelled_at")
+  cancelReason    String?                @map("cancel_reason")
+  deletedAt       DateTime?              @map("deleted_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
 
   items               SelfOrderItem[]
   paymentAttempts     SelfOrderPaymentAttempt[]
@@ -795,24 +795,24 @@ model SelfOrder {
 
 /// 自助下单订单行：字段与 SpaceSessionItem 同构，便于支付成功后 1:1 录入空间账单
 model SelfOrderItem {
-  id           Int      @id @default(autoincrement()) @map("id")
-  orderId      Int      @map("order_id")
+  id            Int                 @id @default(autoincrement()) @map("id")
+  orderId       Int                 @map("order_id")
   /// 商品 ID（弱引用 Product.id，字符串存储；与 SpaceSessionItem.productId 同构）
-  productId    String   @map("product_id") @db.VarChar(64)
+  productId     String              @map("product_id") @db.VarChar(64)
   /// 商品名称快照
-  productName  String   @map("product_name") @db.VarChar(200)
+  productName   String              @map("product_name") @db.VarChar(200)
   /// 商品分类快照
-  categoryName String?  @map("category_name") @db.VarChar(100)
+  categoryName  String?             @map("category_name") @db.VarChar(100)
   /// 销售单价快照（分）
-  salePrice    Int      @map("sale_price")
+  salePrice     Int                 @map("sale_price")
   /// 成本单价快照（分）；录入 SpaceSessionItem 时用于计算 profit
-  costPrice    Int      @default(0) @map("cost_price")
-  quantity     Int      @map("quantity")
+  costPrice     Int                 @default(0) @map("cost_price")
+  quantity      Int                 @map("quantity")
   /// 规格签名（选项 ID 升序 sha256）；无规格时为 null
   /// 合并键与幂等指纹的一部分：同商品不同规格必须生成不同订单行
-  specSignature String? @map("spec_signature") @db.Char(64)
-  createdAt    DateTime @default(now()) @map("created_at")
-  specs        SelfOrderItemSpec[]
+  specSignature String?             @map("spec_signature") @db.Char(64)
+  createdAt     DateTime            @default(now()) @map("created_at")
+  specs         SelfOrderItemSpec[]
 
   order SelfOrder @relation(fields: [orderId], references: [id])
 

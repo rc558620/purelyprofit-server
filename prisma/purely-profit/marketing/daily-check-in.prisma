@@ -25,7 +25,7 @@ model ClubDailyCheckInRecord {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   store     Store               @relation(fields: [storeId], references: [id])
-  customer  MarketingCustomer  @relation(fields: [customerId], references: [id])
+  customer  MarketingCustomer   @relation(fields: [customerId], references: [id])
   promotion MarketingPromotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
 
   /// 幂等最终兜底：同店同顾客同一上海自然日只允许一条签到

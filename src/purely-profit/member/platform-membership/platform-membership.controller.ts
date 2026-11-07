@@ -243,6 +243,7 @@ export class PlatformMembershipController {
   }
 
   @Get('beans/logs')
+  @RequirePermissions('partner:view')
   @ApiOperation({ summary: '获取平台会员纯利豆明细' })
   @ApiOkResponse({
     description: '返回 beanCenter 页面所需的纯利豆汇总和明细列表',

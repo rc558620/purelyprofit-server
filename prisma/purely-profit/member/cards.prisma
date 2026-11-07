@@ -13,8 +13,8 @@
 
 /// 卡模板：商家定义的一档可售卡（月/季/年三类时长卡 + 次数卡）。
 model MemberCardPlan {
-  id               Int                @id @default(autoincrement())
-  storeId          Int                @map("store_id")
+  id               Int               @id @default(autoincrement())
+  storeId          Int               @map("store_id")
   /// 卡名称，如「年度畅练卡」；同一门店未删除的模板内唯一
   name             String
   /// 卡类型：monthly/quarterly/yearly 为时长卡（有效期内不限次），times 为次数卡
@@ -22,27 +22,27 @@ model MemberCardPlan {
   /// 售价（分）
   price            Int
   /// 划线价（分，选填，仅用于展示优惠感）
-  originalPrice    Int?               @map("original_price")
+  originalPrice    Int?              @map("original_price")
   /// 有效天数：时长卡为有效期内不限次；次数卡为次数未用完时的兜底期限
-  validDays        Int                @map("valid_days")
+  validDays        Int               @map("valid_days")
   /// 总次数（仅次数卡有值；时长卡为 null）
-  totalTimes       Int?               @map("total_times")
+  totalTimes       Int?              @map("total_times")
   /// 一次开台扣减次数，默认 1（为「按人头扣次」预留）
-  perUseTimes      Int                @default(1) @map("per_use_times")
+  perUseTimes      Int               @default(1) @map("per_use_times")
   /// 可用空间类型编码；空数组表示不限空间类型
-  usableSpaceTypes String[]           @default([]) @map("usable_space_types")
+  usableSpaceTypes String[]          @default([]) @map("usable_space_types")
   /// 可用星期（1-7）；空数组表示不限星期
-  usableWeekdays   Int[]              @default([]) @map("usable_weekdays")
+  usableWeekdays   Int[]             @default([]) @map("usable_weekdays")
   /// 单次开台最多人数（null 表示不限）
-  maxGuestPerUse   Int?               @map("max_guest_per_use")
+  maxGuestPerUse   Int?              @map("max_guest_per_use")
   /// 每人限购张数（null 表示不限）
-  purchaseLimit    Int?               @map("purchase_limit")
+  purchaseLimit    Int?              @map("purchase_limit")
   /// 是否上架（false 表示下架，已售出的卡不受影响）
-  isActive         Boolean            @default(true) @map("is_active")
+  isActive         Boolean           @default(true) @map("is_active")
   /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt        DateTime?          @map("deleted_at")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+  deletedAt        DateTime?         @map("deleted_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
   /// 由本模板售出的持卡实例
   cards            MemberCard[]
   /// 售卡订单（下单时对模板做名称 / 类型 / 单价快照，模板改名不影响历史单据）
