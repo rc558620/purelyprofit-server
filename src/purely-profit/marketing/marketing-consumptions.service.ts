@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -39,6 +40,8 @@ import {
 
 @Injectable()
 export class MarketingConsumptionsService {
+  private readonly logger = new Logger(MarketingConsumptionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
@@ -143,7 +146,7 @@ export class MarketingConsumptionsService {
       throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
-    const [consumptionRecord] = await this.prisma.$transaction(
+    const transactionResult = this.prisma.$transaction(
       async (tx) => {
         const consumption = await tx.marketingConsumption.create({
           data: {
@@ -239,10 +242,25 @@ export class MarketingConsumptionsService {
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
-    const row = await queryConsumptionRowById(
-      this.prisma,
-      consumptionRecord.id,
-    );
+    let consumptionRecordId: number;
+    try {
+      const [created] = await transactionResult;
+      consumptionRecordId = created.id;
+    } catch (error: unknown) {
+      // 事务失败（并发余额/积分不足等）立刻释放 5s 幂等占位，让修正后的
+      // 重试畅通；事务提交成功后不释放，避免同一笔消费重复扣款。
+      try {
+        await this.redisService.del(idempotencyKey);
+      } catch (releaseError: unknown) {
+        // 清理动作失败不能覆盖事务本身的业务异常；占位带 5s TTL 会自行失效
+        this.logger.warn(
+          `释放消费幂等占位失败：${releaseError instanceof Error ? releaseError.message : '未知错误'}`,
+        );
+      }
+      throw error;
+    }
+
+    const row = await queryConsumptionRowById(this.prisma, consumptionRecordId);
     if (!row) {
       throw new NotFoundException('消费记录不存在');
     }
@@ -263,6 +281,8 @@ export class MarketingConsumptionsService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // C 端会员快照同样缓存了积分与等级，B 端写操作必须一并失效
+      this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 消费会改 marketing_customers 的 points / tier / lastVisitAt，
       // 而这三项正是会员列表「可用积分 / 等级 / 最近活跃」的事实源，必须连带失效，
       // 否则会员中心要等 TTL 到期才看到积分与等级变化。

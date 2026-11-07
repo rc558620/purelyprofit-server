@@ -327,9 +327,9 @@ export class ClubPointsRatioDto {
   redeemRatioPoints: number;
 
   @ApiProperty({
-    example: 0.5,
+    example: 0.1,
     description:
-      '单次消费最大积分抵扣比例（0-1）；例如 0.5 表示最多抵扣折后价的 50%',
+      '单次消费最大积分抵扣比例（0-1）；例如 0.1 表示最多抵扣折后价的 10%',
   })
   @IsNumber({}, { message: 'maxRedeemRatio 必须是数字' })
   maxRedeemRatio: number;

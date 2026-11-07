@@ -393,6 +393,10 @@ describe('MarketingService recharges', () => {
         where: expect.objectContaining({ balance: { gte: 3000 } }),
       }),
     );
+    // 业务失败必须释放 5s 幂等占位，否则用户修正金额后重试会被误判重复提交
+    expect(context.redisService.del).toHaveBeenCalledWith(
+      expect.stringContaining('recharge:dedup:18:9:refund:3000'),
+    );
   });
 
   it('createRecharge 退款 + clearRemainingGift：balanceDelta 包含赠送金额', async () => {

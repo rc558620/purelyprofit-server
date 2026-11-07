@@ -32,9 +32,9 @@ export interface MarketingPointsRatioConfigValue {
   /** API 响应/入参字段：每消费多少元得 1 积分 */
   earnRatioYuan: number;
   redeemRatioPoints: number;
-  /** 内部抵扣比例 0~1（如 0.5 = 50%），仅用于存储与内部计算 */
+  /** 内部抵扣比例 0~1（如 0.1 = 10%），仅用于存储与内部计算 */
   maxRedeemRatio: number;
-  /** API 响应/入参字段：最大抵扣百分比 1~100（如 50 = 50%） */
+  /** API 响应/入参字段：最大抵扣百分比 1~100（如 10 = 10%） */
   maxRedeemPct: number;
   enabled: boolean;
   updatedAt: number;
@@ -83,8 +83,8 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
       earnRatioCents: 100,
       earnRatioYuan: 100,
       redeemRatioPoints: 1,
-      maxRedeemRatio: 0.5,
-      maxRedeemPct: 50,
+      maxRedeemRatio: 0.1,
+      maxRedeemPct: 10,
       enabled: false,
       updatedAt: 0,
     },

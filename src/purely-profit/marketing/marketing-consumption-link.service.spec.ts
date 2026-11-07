@@ -30,6 +30,8 @@ describe('MarketingConsumptionLinkService', () => {
   };
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn().mockResolvedValue(undefined),
+    invalidateMarketingCustomerDerived: jest.fn().mockResolvedValue(undefined),
+    invalidateMembersDerived: jest.fn().mockResolvedValue(undefined),
   };
 
   const baseParams = {
@@ -254,5 +256,38 @@ describe('MarketingConsumptionLinkService', () => {
     expect(redisService.delByPattern).toHaveBeenCalledWith(
       'profit:marketing:customer:detail:store:18:*',
     );
+    // 联动会写 totalSpent / visitCount / lastVisitAt / tier，会员快照与会员中心
+    // 派生缓存必须一并失效，否则等级与最近活跃读数陈旧到 TTL 到期
+    expect(
+      cacheInvalidatorService.invalidateMarketingCustomerDerived,
+    ).toHaveBeenCalledWith(18);
+    expect(
+      cacheInvalidatorService.invalidateMembersDerived,
+    ).toHaveBeenCalledWith(18);
+  });
+
+  it('带国家码/连字符的手机号先归一化，命中已有会员而不重复建档', async () => {
+    tx.marketingCustomer.findFirst.mockResolvedValue({ id: 9, totalSpent: 0 });
+
+    await service.linkSpaceSettlementConsumption(tx as never, {
+      ...baseParams,
+      guestPhone: '+86 139-0000-1111',
+    });
+
+    expect(tx.marketingCustomer.findFirst).toHaveBeenCalledWith({
+      where: { storeId: 18, phone: '13900001111', deletedAt: null },
+      select: { id: true },
+    });
+    expect(tx.marketingCustomer.create).not.toHaveBeenCalled();
+  });
+
+  it('无法归一化的手机号跳过联动，避免写入脏档案', async () => {
+    await service.linkSpaceSettlementConsumption(tx as never, {
+      ...baseParams,
+      guestPhone: '12345',
+    });
+
+    expect(tx.marketingCustomer.findFirst).not.toHaveBeenCalled();
+    expect(tx.marketingCustomer.create).not.toHaveBeenCalled();
   });
 });

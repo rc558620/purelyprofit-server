@@ -286,7 +286,7 @@ describe('MarketingService promotions', () => {
       expect.objectContaining({
         earnRatioYuan: 100,
         redeemRatioPoints: 1,
-        maxRedeemPct: 50,
+        maxRedeemPct: 10,
         enabled: false,
       }),
     );

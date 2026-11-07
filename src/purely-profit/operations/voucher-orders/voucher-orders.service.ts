@@ -75,6 +75,10 @@ export class VoucherOrdersService {
       'space:view',
       '无权查看该门店团购券订单',
     );
+    // 惰性过期放在查询之前且覆盖整个门店：只翻当前页会让「已过期」Tab 系统性漏单，
+    // 并且 count 与结果集状态口径不一致、下一页 offset 因状态漂移跳过记录。
+    // 条件更新带 status:'pending'，并发重复执行天然幂等。
+    await this.expireOverdueStoreOrders(storeId);
     const timeRange = this.buildTimeRange(query);
     const where: Prisma.ClubVoucherOrderWhereInput = {
       storeId,
@@ -106,17 +110,8 @@ export class VoucherOrdersService {
       }),
       this.prisma.clubVoucherOrder.count({ where }),
     ]);
-    // 惰性过期：pending 且已过效期的订单就地转 expired（与用户端列表口径一致，
-    // 避免商家端仍把它们当「未确认」并允许确认/退款）
-    const expiredIds = await this.expireOverdueOrders(rows);
-
     return {
-      items: rows.map((row) =>
-        this.toListItem({
-          ...row,
-          status: expiredIds.includes(row.id) ? 'expired' : row.status,
-        }),
-      ),
+      items: rows.map((row) => this.toListItem(row)),
       total,
     };
   }
@@ -138,7 +133,7 @@ export class VoucherOrdersService {
     if (!order) {
       throw new NotFoundException('团购券订单不存在');
     }
-    this.assertPendingStatus(order.status, '确认');
+    this.assertPendingStatus(order, '确认');
 
     // 幂等：已确认过直接返回当前确认信息，不重复写入
     if (order.confirmedAt !== null) {
@@ -291,13 +286,20 @@ export class VoucherOrdersService {
     return 'staff';
   }
 
-  private assertPendingStatus(status: string, action: '确认' | '拒绝'): void {
+  private assertPendingStatus(
+    order: { status: string; expiresAt: Date | null },
+    action: '确认' | '拒绝',
+  ): void {
     if (
       !CONFIRMABLE_STATUS.includes(
-        status as (typeof CONFIRMABLE_STATUS)[number],
+        order.status as (typeof CONFIRMABLE_STATUS)[number],
       )
     ) {
       throw new BadRequestException(`该订单当前状态不可${action}`);
+    }
+    // 列表惰性翻转尚未跑过时 DB 状态仍是 pending，按有效期兜底拦截已失效券
+    if (order.expiresAt !== null && order.expiresAt < new Date()) {
+      throw new BadRequestException(`团购券已过有效期，不可${action}`);
     }
   }
 
@@ -356,28 +358,19 @@ export class VoucherOrdersService {
   }
 
   /**
-   * 惰性过期：pending 且有效期已过的订单就地转 expired，返回本次被转的订单 ID 列表。
-   * 与用户端列表口径一致，避免商家端把已过期订单当「未确认」并允许确认/退款。
+   * 惰性过期（门店维度）：把本门店所有 pending 且已过有效期的订单一次性翻转。
+   * 必须在列表查询之前执行，让 where / count / findMany 共用同一份稳定状态；
+   * 与用户端「按 expiresAt 取并集」是同一问题的两种收敛方式。
    */
-  private async expireOverdueOrders(
-    rows: Array<{ id: number; status: string; expiresAt: Date | null }>,
-  ): Promise<number[]> {
-    const now = new Date();
-    const overdueIds = rows
-      .filter(
-        (row) =>
-          row.status === 'pending' &&
-          row.expiresAt !== null &&
-          row.expiresAt < now,
-      )
-      .map((row) => row.id);
-    if (overdueIds.length === 0) return [];
-
+  private async expireOverdueStoreOrders(storeId: number): Promise<void> {
     await this.prisma.clubVoucherOrder.updateMany({
-      where: { id: { in: overdueIds }, status: 'pending' },
+      where: {
+        storeId,
+        status: 'pending',
+        expiresAt: { lt: new Date() },
+      },
       data: { status: 'expired' },
     });
-    return overdueIds;
   }
 
   /** 订单实体 → 列表项（时间为 ISO 字符串，金额保持分单位） */

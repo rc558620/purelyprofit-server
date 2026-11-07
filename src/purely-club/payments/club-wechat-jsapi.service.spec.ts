@@ -52,7 +52,7 @@ describe('ClubWechatJsapiService 下单口径', () => {
       mchName: '示例门店',
       apiV3Key: 'plain-key',
       subMchId: 'SUB0001',
-      bindStatus: 'pending',
+      bindStatus: 'verified',
       configuredAt: null,
     });
     httpService.loadPrivateKeyPem.mockResolvedValue('PEM');
@@ -130,7 +130,7 @@ describe('ClubWechatJsapiService 下单口径', () => {
       mchName: '示例门店',
       apiV3Key: null,
       subMchId: 'SUB0001',
-      bindStatus: 'pending',
+      bindStatus: 'verified',
       configuredAt: null,
     });
 
@@ -154,5 +154,22 @@ describe('ClubWechatJsapiService 下单口径', () => {
     await expect(buildService().assertStorePayConfigured(1)).rejects.toThrow(
       '该门店暂不支持在线充值',
     );
+  });
+
+  it('服务商模式：绑定未校验通过时拒绝下单，不向微信发请求', async () => {
+    configState['wechat.partner.enabled'] = true;
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      mchId: 'STORE_MCH',
+      mchName: '示例门店',
+      apiV3Key: null,
+      subMchId: 'SUB0001',
+      bindStatus: 'pending',
+      configuredAt: null,
+    });
+
+    await expect(
+      buildService().createJsapiPaymentParams(orderRequest),
+    ).rejects.toThrow('该门店暂不支持在线充值');
+    expect(httpService.request).not.toHaveBeenCalled();
   });
 });

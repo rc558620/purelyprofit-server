@@ -48,6 +48,16 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+/**
+ * 扣费事务结果。
+ * - created：本次新建了任务，由当前请求负责派发
+ * - duplicate：并发下唯一索引命中了首次请求的任务，只能复用首次结果，
+ *   绝不能再派发一次，否则同一批收件人会收到两条短信
+ */
+type SmsChargeResult =
+  | { kind: 'created'; taskId: number }
+  | { kind: 'duplicate'; result: SmsBroadcastResponseDto };
+
 /** 扣费事务入参 */
 interface SmsChargeParams {
   storeId: number;
@@ -222,7 +232,7 @@ export class SmsBroadcastService {
 
     const broadcastId = buildSmsBroadcastId();
 
-    const task = await this.chargeAndCreateTask({
+    const chargeResult = await this.chargeAndCreateTask({
       storeId,
       operatorStaffId,
       broadcastId,
@@ -236,9 +246,14 @@ export class SmsBroadcastService {
       recipients,
     });
 
+    // 并发幂等冲突：首次请求已建任务并负责派发，本次直接复用首次结果
+    if (chargeResult.kind === 'duplicate') {
+      return chargeResult.result;
+    }
+
     // 发送不在事务内：事务只保证「钱扣对了」，通道结果单独记录
     await this.runDispatch({
-      taskId: task.id,
+      taskId: chargeResult.taskId,
       storeId,
       content: snapshot.content,
       targets: recipients,
@@ -316,7 +331,7 @@ export class SmsBroadcastService {
    */
   private async chargeAndCreateTask(
     params: SmsChargeParams,
-  ): Promise<{ id: number }> {
+  ): Promise<SmsChargeResult> {
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await this.chargeOnce(params);
@@ -335,7 +350,7 @@ export class SmsBroadcastService {
     }
   }
 
-  private async chargeOnce(params: SmsChargeParams): Promise<{ id: number }> {
+  private async chargeOnce(params: SmsChargeParams): Promise<SmsChargeResult> {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
@@ -407,22 +422,40 @@ export class SmsBroadcastService {
             })),
           });
 
-          return task;
+          return { kind: 'created', taskId: task.id } as const;
         },
         { isolationLevel: CHARGE_ISOLATION_LEVEL },
       );
     } catch (error) {
-      // 并发下唯一索引兜底：另一个请求刚用同一个 key 建了任务，返回它的结果
+      // 并发下唯一索引兜底：另一个请求刚用同一个 key 建了任务。
+      // 此时只能复用首次结果返回，绝不能让本次请求再派发一轮短信。
       if (this.isUniqueViolation(error)) {
         const duplicate = await this.prisma.smsBroadcastTask.findUnique({
           where: { idempotencyKey: params.idempotencyKey },
-          select: { id: true },
+          select: {
+            id: true,
+            storeId: true,
+            broadcastId: true,
+            recipientCount: true,
+            chargedAmountFen: true,
+          },
         });
         if (duplicate) {
+          // 幂等键是全局唯一索引：不能把 A 门店的任务结果返回给 B 门店
+          if (duplicate.storeId !== params.storeId) {
+            throw new BadRequestException('本次发送请求已失效，请重新发起群发');
+          }
           this.logger.warn(
-            `群发幂等竞争命中，返回已存在任务 idempotencyKey=${params.idempotencyKey}`,
+            `群发幂等竞争命中，复用首次任务且不重复派发 idempotencyKey=${params.idempotencyKey}`,
           );
-          return duplicate;
+          return {
+            kind: 'duplicate',
+            result: {
+              broadcastId: duplicate.broadcastId,
+              recipientCount: duplicate.recipientCount,
+              chargedAmountFen: duplicate.chargedAmountFen,
+            },
+          } as const;
         }
       }
       throw error;

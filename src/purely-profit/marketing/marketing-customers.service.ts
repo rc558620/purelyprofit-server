@@ -364,6 +364,9 @@ export class MarketingCustomersService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // C 端会员快照（club:member-snapshot:*）同样以 marketing_customers 为事实源，
+      // B 端写操作必须连带失效，否则会员中心要等 TTL 到期才看到余额变化
+      this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 会员中心的余额/积分/等级事实源同为 marketing_customers，建档、改档、
       // 删档都必须连带失效，否则会员列表/详情读数会陈旧到 TTL 自然过期
       this.cacheInvalidatorService.invalidateMembersDerived(storeId),

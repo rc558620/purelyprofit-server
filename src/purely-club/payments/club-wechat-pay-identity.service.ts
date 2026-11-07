@@ -79,6 +79,26 @@ export class ClubWechatPayIdentityService {
     const mchId = config.mchId;
 
     if (this.isPartnerMode()) {
+      /*
+       * 「保存过子商户号」不等于「可以收款」：绑定关系未校验通过时，
+       * 微信侧不保证该子商户受理本平台订单。这里必须在唯一真相源拦住，
+       * 否则下单 / 查单 / 关单 / 退款四个调用点都会带着无效身份继续请求，
+       * 表现为用户能发起支付却收不到钱。
+       *
+       * 开关默认开启且「漏配即收紧」：只有显式配置为 false 才走灰度放行，
+       * 避免运维漏配变量导致安全边界悄悄失效。
+       */
+      const requireVerifiedBind =
+        this.configService.get<boolean>(
+          'wechat.partner.requireVerifiedBind',
+        ) !== false;
+      if (requireVerifiedBind && config.bindStatus !== 'verified') {
+        this.logger.warn(
+          `门店 ${storeId} 子商户绑定状态为 ${config.bindStatus ?? 'EMPTY'}，` +
+            '未通过绑定校验，拒绝解析收款身份',
+        );
+        return null;
+      }
       return this.resolvePartnerTarget(storeId, {
         mchId,
         subMchId: config.subMchId,

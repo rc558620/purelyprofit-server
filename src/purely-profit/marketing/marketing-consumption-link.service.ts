@@ -11,6 +11,7 @@ import {
 import { queryCustomerTierThresholds } from './marketing.query';
 import {
   calcCustomerTier,
+  normalizePhone,
   type MarketingPayTypeValue,
 } from './marketing.utils';
 
@@ -76,7 +77,9 @@ export class MarketingConsumptionLinkService {
     tx: Prisma.TransactionClient,
     params: LinkSpaceSettlementConsumptionParams,
   ): Promise<void> {
-    const phone = params.guestPhone?.trim();
+    // 与营销建档口径一致：+86 / 空格 / 连字符先归一化，否则会匹配不到已有
+    // 顾客并新建重复档案，绕过门店内手机号唯一约束。
+    const phone = normalizePhone(params.guestPhone);
     if (!phone) return;
 
     const amountCents = Money.fromInputYuan(
@@ -161,6 +164,10 @@ export class MarketingConsumptionLinkService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // 该联动会写 totalSpent / visitCount / lastVisitAt / tier，C 端会员快照
+      // 与会员中心列表同以这些字段为事实源，漏删会导致等级与活跃读数陈旧
+      this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
+      this.cacheInvalidatorService.invalidateMembersDerived(storeId),
     ]);
   }
 

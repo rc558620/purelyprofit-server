@@ -145,4 +145,21 @@ describe('production-config 服务商模式校验', () => {
       'wechat.partner.notifyUrl 必须是可访问的 HTTPS 正式地址',
     );
   });
+
+  it('服务商模式下不要求门店密钥加密主密钥（子商户没有 APIv3 密钥）', () => {
+    const state = { ...buildBaseState(), ...buildPartnerState() };
+    delete state.WECHAT_PAY_KEY_ENCRYPTION_SECRET;
+
+    // 回归 B8：按 .env.example 省略该变量的生产部署不应在启动期被拒
+    expect(collectErrors(state)).toEqual([]);
+  });
+
+  it('直连模式缺少门店密钥加密主密钥时仍报错', () => {
+    const state = { ...buildBaseState() };
+    delete state.WECHAT_PAY_KEY_ENCRYPTION_SECRET;
+
+    expect(collectErrors(state).join('\n')).toContain(
+      'WECHAT_PAY_KEY_ENCRYPTION_SECRET 未配置',
+    );
+  });
 });

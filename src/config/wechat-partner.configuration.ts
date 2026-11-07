@@ -44,6 +44,13 @@ export interface WechatPartnerConfig {
   allowSharedPlatformMchId: boolean;
   /** 豁免原因留档（配合 allowSharedPlatformMchId 使用），空值视为未留档 */
   sharedMchIdReason: string;
+  /**
+   * 是否要求子商户绑定校验通过才允许收款。
+   * true（默认）：未校验 / 校验失败 / 结果未知的门店一律拒绝下单，
+   * 杜绝「界面显示已配置、实际收不到钱」的资金链路静默故障。
+   * false：仅供存量门店灰度迁移期临时回滚，不作为长期配置。
+   */
+  requireVerifiedBind: boolean;
 }
 
 /** 解析 `wechat.partner` 配置块。 */
@@ -148,5 +155,16 @@ export function resolveWechatPartnerConfig(): WechatPartnerConfig {
      * 对应环境变量：WECHAT_PARTNER_SHARED_MCH_ID_REASON
      */
     sharedMchIdReason: process.env.WECHAT_PARTNER_SHARED_MCH_ID_REASON ?? '',
+
+    /**
+     * 子商户绑定校验准入开关，默认开启。
+     *
+     * 存量门店尚未全部完成绑定校验时，可临时设为 false 保持旧行为作为灰度回滚，
+     * 但必须随后把门店 bindStatus 补齐为 verified 并恢复 true —— 长期关闭会让
+     * 「配置了却收不到钱」的静默故障重新出现。
+     * 对应环境变量：WECHAT_PARTNER_REQUIRE_VERIFIED_BIND
+     */
+    requireVerifiedBind:
+      (process.env.WECHAT_PARTNER_REQUIRE_VERIFIED_BIND ?? 'true') === 'true',
   };
 }

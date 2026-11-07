@@ -135,6 +135,7 @@ export interface MarketingServiceTestingContext {
   platformMembershipAccessService: MarketingPlatformMembershipAccessServiceMock;
   clubMemberProfileService: MarketingClubMemberProfileServiceMock;
   clubMemberLevelsService: MarketingClubMemberLevelsServiceMock;
+  redisService: ReturnType<typeof createRedisServiceMock>;
   user: AuthenticatedUser;
 }
 
@@ -316,6 +317,7 @@ function createAuthenticatedUser(): AuthenticatedUser {
 
 export async function createMarketingServiceTestingContext(): Promise<MarketingServiceTestingContext> {
   const prismaService = createPrismaServiceMock();
+  const redisService = createRedisServiceMock();
   const accessService = createAccessServiceMock();
   const platformMembershipAccessService =
     createPlatformMembershipAccessServiceMock();
@@ -345,7 +347,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       MarketingProductsService,
       StoreInviteQrImageService,
       { provide: PrismaService, useValue: prismaService },
-      { provide: RedisService, useValue: createRedisServiceMock() },
+      { provide: RedisService, useValue: redisService },
       {
         provide: CacheInvalidatorService,
         useValue: createCacheInvalidatorServiceMock(),
@@ -379,6 +381,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
   return {
     service: module.get<MarketingService>(MarketingService),
     prismaService,
+    redisService,
     accessService,
     platformMembershipAccessService,
     clubMemberProfileService,

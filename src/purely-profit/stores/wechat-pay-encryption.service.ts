@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   createCipheriv,
@@ -100,7 +104,9 @@ export class WechatPayEncryptionService {
 
   private requireKey(): Buffer {
     if (!this.masterKey) {
-      throw new Error(
+      // 必须是 HttpException：普通 Error 会被全局过滤器当成未处理异常，
+      // 既不携带稳定错误码，也无法让调用方按语义分支处理。
+      throw new InternalServerErrorException(
         'WECHAT_PAY_KEY_ENCRYPTION_SECRET 未配置，无法执行加密/解密操作。' +
           '请在环境变量中设置 WECHAT_PAY_KEY_ENCRYPTION_SECRET（32 字节密钥）.',
       );

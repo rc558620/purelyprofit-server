@@ -41,13 +41,14 @@ describe('ClubWechatPayIdentityService', () => {
     mchName: '示例门店',
     apiV3Key: 'plain-key',
     subMchId: 'SUB0001',
-    bindStatus: 'pending',
+    bindStatus: 'verified',
     configuredAt: null,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     configState['wechat.partner.enabled'] = false;
+    configState['wechat.partner.requireVerifiedBind'] = true;
     storesService.getWechatPayConfigForStore.mockResolvedValue(storeConfig);
   });
 
@@ -109,5 +110,57 @@ describe('ClubWechatPayIdentityService', () => {
     );
 
     configState['wechat.partner.spMchId'] = spMchId;
+  });
+
+  it('服务商模式：绑定状态为 pending 时拒绝解析收款身份', async () => {
+    configState['wechat.partner.enabled'] = true;
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      bindStatus: 'pending',
+    });
+
+    // 回归 B2：保存过子商户号不等于可以收款
+    expect(await buildService().resolveTarget(1)).toBeNull();
+  });
+
+  it('服务商模式：校验失败或状态为空时同样拒绝解析收款身份', async () => {
+    configState['wechat.partner.enabled'] = true;
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      bindStatus: 'failed',
+    });
+    expect(await buildService().resolveTarget(1)).toBeNull();
+
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      bindStatus: null,
+    });
+    expect(await buildService().resolveTarget(1)).toBeNull();
+  });
+
+  it('灰度开关显式关闭时允许 pending 门店维持旧行为', async () => {
+    configState['wechat.partner.enabled'] = true;
+    configState['wechat.partner.requireVerifiedBind'] = false;
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      bindStatus: 'pending',
+    });
+
+    expect(await buildService().resolveTarget(1)).toMatchObject({
+      mode: 'partner',
+      settleMchId: 'SUB0001',
+    });
+  });
+
+  it('直连模式不受绑定状态影响（灰度回滚链路零变化）', async () => {
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      bindStatus: 'failed',
+    });
+
+    expect(await buildService().resolveTarget(1)).toMatchObject({
+      mode: 'store',
+      settleMchId: 'SUB_STORE_MCH',
+    });
   });
 });

@@ -559,6 +559,39 @@ describe('SmsBroadcastService', () => {
     expect(provider.sendMarketingBatch).not.toHaveBeenCalled();
   });
 
+  it('并发幂等冲突（P2002）：复用首次任务结果且不重复派发', async () => {
+    prisma.marketingCustomer.findMany.mockResolvedValue(buildCustomers(3));
+    // 第一次是幂等查询（未命中），第二次是唯一冲突后回读首次任务
+    prisma.smsBroadcastTask.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 888,
+        storeId: STORE_ID,
+        broadcastId: 'bc_first',
+        recipientCount: 3,
+        chargedAmountFen: 15,
+      });
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+
+    const { result } = await quoteAndBroadcast(
+      ['1', '2', '3'],
+      '老顾客回馈',
+      'idem_concurrent',
+    );
+
+    expect(result).toEqual({
+      broadcastId: 'bc_first',
+      recipientCount: 3,
+      chargedAmountFen: 15,
+    });
+    expect(provider.sendMarketingBatch).not.toHaveBeenCalled();
+  });
+
   it('sentSmsCount 只累加真实送达条数，不按计费条数虚高', async () => {
     prisma.marketingCustomer.findMany.mockResolvedValue(buildCustomers(4));
     provider.sendMarketingBatch.mockImplementation((phones: string[]) =>

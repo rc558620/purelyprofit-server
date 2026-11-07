@@ -158,9 +158,12 @@ export function validateProductionConfiguration(
     errors.push('wechat.privateKeyPath 指向的文件不存在');
   }
 
-  if (!wechatPayKeyEncryptionSecret) {
+  // 服务商模式下子商户不存在自己的 APIv3 密钥：商家后台不写密钥，回调也统一由
+  // 服务商密钥解密，该变量在链路 a 上完全无用。无条件强制会让「按 .env.example
+  // 省略该变量」的生产部署在启动期被拒，与文档口径互斥。仅旧直连链路必填。
+  if (!wechatPartnerEnabled && !wechatPayKeyEncryptionSecret) {
     errors.push(
-      'WECHAT_PAY_KEY_ENCRYPTION_SECRET 未配置，门店微信收款配置无法加密落库且回调无法解密',
+      'WECHAT_PAY_KEY_ENCRYPTION_SECRET 未配置，旧直连门店收款配置无法加密落库且回调无法解密',
     );
   }
 

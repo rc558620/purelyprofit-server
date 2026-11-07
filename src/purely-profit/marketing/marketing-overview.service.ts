@@ -15,6 +15,7 @@ import {
 } from '../stores/store-invite-code-qr.utils';
 import { StoreInviteQrImageService } from '../stores/store-invite-qr-image.service';
 import { Money } from '../../shared/money.utils';
+import { isWechatPayConfigured } from '../../shared/wechat-pay/wechat-pay-config-status';
 import {
   getShanghaiDayStartMs,
   getShanghaiMonthStartMs,
@@ -49,6 +50,9 @@ const MARKETING_OVERVIEW_REFRESH_AFTER_MS = 30_000;
 type MarketingOverviewWechatPayRecord = {
   mchId: string | null;
   mchName: string | null;
+  apiV3KeyEnc: string | null;
+  subMchId: string | null;
+  bindStatus: string | null;
   configuredAt: Date | null;
 };
 
@@ -212,9 +216,14 @@ export class MarketingOverviewService {
     const currentYear = getShanghaiYear(nowMs);
     const inviteCode = activeInviteCodeRecord?.code ?? null;
 
-    const wechatConfigured = !!(
-      storeRecord?.mchId && storeRecord?.configuredAt
-    );
+    // 与设置页共用同一「可收款」判定：服务商模式下仅「保存过子商户号」
+    // 并不代表能收款，必须绑定校验通过，否则营销中心会误显示「已配置」。
+    const wechatConfigured = storeRecord
+      ? isWechatPayConfigured(
+          storeRecord,
+          this.configService.get<boolean>('wechat.partner.enabled') === true,
+        )
+      : false;
 
     // 本地生成二维码载荷与图片：配置了公共域名时产出 v1 稳定 URL，否则回退 legacy 裸码
     // 空载荷（邀请码形态非法）必须拦成显式异常，否则 qrcode 抛 No input text → 500
@@ -316,6 +325,9 @@ export class MarketingOverviewService {
       select: {
         mchId: true,
         mchName: true,
+        apiV3KeyEnc: true,
+        subMchId: true,
+        bindStatus: true,
         configuredAt: true,
       },
     });

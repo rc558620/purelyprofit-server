@@ -34,7 +34,7 @@ describe('ClubWechatTransactionService 服务商模式口径', () => {
       mchName: '示例门店',
       apiV3Key: 'plain-key',
       subMchId: 'SUB0001',
-      bindStatus: 'pending',
+      bindStatus: 'verified',
       configuredAt: null,
     });
     httpService.request.mockResolvedValue({
@@ -104,6 +104,22 @@ describe('ClubWechatTransactionService 服务商模式口径', () => {
       apiV3Key: null,
       subMchId: null,
       bindStatus: null,
+      configuredAt: null,
+    });
+
+    await expect(
+      buildService().queryByOutTradeNo({ storeId: 1, orderNo: 'RC001' }),
+    ).resolves.toEqual({ found: false, code: 'STORE_MCH_NOT_CONFIGURED' });
+    expect(httpService.request).not.toHaveBeenCalled();
+  });
+
+  it('绑定未校验通过时查单按未配置处理，不向微信发请求', async () => {
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      mchId: 'STORE_MCH',
+      mchName: '示例门店',
+      apiV3Key: 'plain-key',
+      subMchId: 'SUB0001',
+      bindStatus: 'pending',
       configuredAt: null,
     });
 

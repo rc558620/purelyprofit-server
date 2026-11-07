@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -40,6 +41,8 @@ import {
 
 @Injectable()
 export class MarketingRechargesService {
+  private readonly logger = new Logger(MarketingRechargesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
@@ -230,7 +233,7 @@ export class MarketingRechargesService {
     }
 
     let giftClearedAmountCents = 0;
-    const [rechargeRecord] = await this.prisma.$transaction(
+    const transactionResult = this.prisma.$transaction(
       async (tx) => {
         // 事务内重新校验退款金额，防止并发退款导致超额退款
         let actualBalanceDeltaCents: number;
@@ -356,7 +359,26 @@ export class MarketingRechargesService {
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
-    const row = await queryRechargeRowById(this.prisma, rechargeRecord.id);
+    let rechargeRecordId: number;
+    try {
+      const [created] = await transactionResult;
+      rechargeRecordId = created.id;
+    } catch (error: unknown) {
+      // 事务失败（余额不足、活动不属于门店、并发余额条件不满足等）必须立刻
+      // 释放 5s 幂等占位，让用户修正参数后能重试；事务提交成功后绝不释放，
+      // 否则同一笔充值/退款的重试会重复入账。
+      try {
+        await this.redisService.del(idempotencyKey);
+      } catch (releaseError: unknown) {
+        // 清理动作失败不能覆盖事务本身的业务异常；占位带 5s TTL 会自行失效
+        this.logger.warn(
+          `释放充值幂等占位失败：${releaseError instanceof Error ? releaseError.message : '未知错误'}`,
+        );
+      }
+      throw error;
+    }
+
+    const row = await queryRechargeRowById(this.prisma, rechargeRecordId);
     if (!row) {
       throw new NotFoundException('充值记录不存在');
     }
@@ -384,6 +406,10 @@ export class MarketingRechargesService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // 充值/退款改的是 marketing_customers.balance：C 端会员快照与会员中心
+      // 列表/详情都以它为事实源，必须一并失效，否则余额读数陈旧到 TTL 到期
+      this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
+      this.cacheInvalidatorService.invalidateMembersDerived(storeId),
     ]);
   }
 }

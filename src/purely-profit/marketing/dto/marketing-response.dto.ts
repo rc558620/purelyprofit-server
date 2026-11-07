@@ -7,6 +7,7 @@
 // 手机号在响应中返回完整号码（商家需联系顾客）
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNumber, Max, Min } from 'class-validator';
 import {
   CLUB_MEMBER_LEVEL_VALUES,
   type ClubMemberLevelValue,
@@ -306,9 +307,12 @@ export class MarketingPointsRatioDto {
   redeemRatioPoints: number;
 
   @ApiProperty({
-    example: 50,
-    description: '单次消费最大积分抵扣百分比，1~100，如 50 表示最多抵扣 50%',
+    example: 10,
+    description: '单次消费最大积分抵扣百分比，1~100，如 10 表示最多抵扣 10%',
   })
+  @IsNumber({}, { message: 'maxRedeemPct 必须是数字' })
+  @Min(1, { message: 'maxRedeemPct 必须大于等于 1' })
+  @Max(100, { message: 'maxRedeemPct 必须小于等于 100' })
   maxRedeemPct: number;
 
   @ApiProperty({ example: true })

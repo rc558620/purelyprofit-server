@@ -85,15 +85,39 @@ export class StoresWechatPayBindService {
         ` subMchId=${record.subMchId} 结论=${outcome} 微信码=${result.code ?? 'EMPTY'}`,
     );
 
-    const updated = await this.prisma.storeWechatPayConfig.update({
-      where: { storeId: store.id },
+    /*
+     * 状态流转必须带前置条件：checkBind 是网络 IO，在途期间商家可能改了子商户号
+     * （updateWechatPayConfig 会同步改 subMchId 并把 bindStatus 重置为 pending）。
+     * 若仍无条件按 storeId 回写，基于旧号得到的 verified 会盖到新号上，
+     * 使未经校验的结算商户号直接变成「已生效」。用 updateMany 带上 subMchId
+     * 作为前置条件，影响行数为 0 即判定本次校验被并发抢占，结论作废。
+     */
+    const { count } = await this.prisma.storeWechatPayConfig.updateMany({
+      where: { storeId: store.id, subMchId: record.subMchId },
       data: {
         bindStatus: outcome,
         bindCheckedAt: new Date(),
         bindFailReason: outcome === 'verified' ? null : result.message,
       },
+    });
+
+    if (count === 0) {
+      this.logger.warn(
+        `门店 ${store.id} 子商户号在绑定校验期间被改动（原 ${record.subMchId}），本次校验结论作废`,
+      );
+      throw new BadRequestException(
+        '子商户号在校验期间已变更，请重新发起绑定校验',
+      );
+    }
+
+    const updated = await this.prisma.storeWechatPayConfig.findUnique({
+      where: { storeId: store.id },
       select: RECORD_SELECT,
     });
+
+    if (!updated) {
+      throw new BadRequestException('收款配置已不存在，请重新保存后再校验');
+    }
 
     return { record: updated, outcome };
   }

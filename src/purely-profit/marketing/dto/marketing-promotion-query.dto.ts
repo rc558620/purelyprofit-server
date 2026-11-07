@@ -216,8 +216,8 @@ export class UpdateMarketingPointsRatioDto {
   redeemRatioPoints?: number;
 
   @ApiPropertyOptional({
-    example: 50,
-    description: '单次消费最大积分抵扣百分比，1~100，如 50 表示最多抵扣 50%',
+    example: 10,
+    description: '单次消费最大积分抵扣百分比，1~100，如 10 表示最多抵扣 10%',
   })
   @IsOptional()
   @Type(() => Number)

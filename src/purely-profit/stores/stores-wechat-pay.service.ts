@@ -4,6 +4,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { StoresWechatPayBindService } from './stores-wechat-pay-bind.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isWechatPayConfigured } from '../../shared/wechat-pay/wechat-pay-config-status';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type { UpdateWechatPayConfigDto } from './dto/wechat-pay-config.dto';
 import type { WechatPayConfigResponseDto } from './dto/wechat-pay-config.dto';
@@ -66,8 +67,7 @@ export class StoresWechatPayService {
      * 加密服务只在「本次请求确实要存密钥」时才必需。
      *
      * ⚠️ 不能写成「非服务商模式才检查」：DTO 的 apiV3Key 仍保留（灰度回滚窗口内需要），
-     * 任何携带它的请求都会走 encrypt()，而 encrypt 抛的是**普通 Error**而非
-     * HttpException，Nest 会直接返回 500。
+     * 任何携带它的请求都会走 encrypt()，而密钥缺失时 encrypt 会抛系统异常（500）。
      * 服务商模式下运维按文档不会配 WECHAT_PAY_KEY_ENCRYPTION_SECRET，
      * 那种写法会让「旧端/脚本仍带 apiV3Key」的保存请求变成 500，
      * 商家看到的是「保存失败」而不是「请先配置加密密钥」。
@@ -354,9 +354,9 @@ export class StoresWechatPayService {
   private toWechatPayConfigResponse(
     record: WechatPayConfigRecord,
   ): WechatPayConfigResponseDto {
-    const configured = this.isPartnerMode()
-      ? !!record.subMchId && record.bindStatus === 'verified'
-      : !!(record.mchId && record.apiV3KeyEnc);
+    // 判定必须走共享函数：营销概览若另写一套，会出现「设置页显示待校验、
+    // 营销中心却显示已配置」的资金链路静默故障。
+    const configured = isWechatPayConfigured(record, this.isPartnerMode());
 
     return {
       configured,

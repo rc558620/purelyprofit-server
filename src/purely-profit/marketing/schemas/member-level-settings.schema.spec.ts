@@ -185,7 +185,7 @@ describe('pointsRatioSchema', () => {
     if (result.success) {
       expect(result.data.earnRatioCents).toBe(100);
       expect(result.data.earnRatioYuan).toBe(100);
-      expect(result.data.maxRedeemPct).toBe(50);
+      expect(result.data.maxRedeemPct).toBe(10);
     }
   });
 });
@@ -322,7 +322,7 @@ describe('safeParseMemberLevelSettings', () => {
     expect(result.levels).toHaveLength(3);
     expect(result.pointsRatio.earnRatioCents).toBe(100);
     expect(result.pointsRatio.earnRatioYuan).toBe(100);
-    expect(result.pointsRatio.maxRedeemPct).toBe(50);
+    expect(result.pointsRatio.maxRedeemPct).toBe(10);
   });
 
   it('returns default for null input', () => {

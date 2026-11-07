@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsOptional,
@@ -26,8 +27,14 @@ export class UpdateWechatPayConfigDto {
     description: '微信商户名称，用于收款页展示',
   })
   @IsOptional()
+  // 前端会 trim 后再提交，但脚本 / 旧端可能直接传首尾空格；在入口统一归一化，
+  // 避免「纯空格名称」通过 @Length 落库后污染收款主体展示。
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: 'mchName 必须是字符串' })
   @Length(1, 64, { message: '商户名称长度应在 1~64 个字符之间' })
+  @Matches(/\S/, { message: '商户名称不能只包含空白字符' })
   mchName?: string;
 
   /**

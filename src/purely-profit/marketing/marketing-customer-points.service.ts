@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
@@ -13,6 +13,8 @@ import {
 
 @Injectable()
 export class MarketingCustomerPointsService {
+  private readonly logger = new Logger(MarketingCustomerPointsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -109,7 +111,14 @@ export class MarketingCustomerPointsService {
       // 占位在事务之前写入，用于拦截并发重复提交；但业务失败（如并发扣减时
       // 积分不足）不应占用它，否则用户修正数值后 5 秒内重试会被误判为重复
       // 提交。失败即释放占位，让重试畅通。
-      await this.redisService.del(idempotencyKey).catch(() => undefined);
+      try {
+        await this.redisService.del(idempotencyKey);
+      } catch (releaseError: unknown) {
+        // 清理动作失败不能覆盖原始业务异常；占位带 5s TTL 会自行失效
+        this.logger.warn(
+          `释放积分调整幂等占位失败：${releaseError instanceof Error ? releaseError.message : '未知错误'}`,
+        );
+      }
       throw error;
     }
   }
@@ -123,6 +132,8 @@ export class MarketingCustomerPointsService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // C 端会员快照也缓存了积分，写入后必须一并失效
+      this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 会员中心的可用积分事实源是 marketing_customers.points，改完必须连带失效，
       // 否则会员列表/详情的积分读数会陈旧到 TTL 到期（最长 90s）
       this.cacheInvalidatorService.invalidateMembersDerived(storeId),

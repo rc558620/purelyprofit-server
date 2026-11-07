@@ -84,13 +84,29 @@ export class SpaceSessionReadService {
     requestId?: string,
   ): Promise<SpaceSessionResponseDto | null> {
     void requestId;
+    // 先按登录态解析门店归属，再用 storeId 限定后续查询：越权访问与「不存在」
+    // 统一落到 404，不产生 404/403 差异，也不会泄露他店空间/会话是否存在。
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
+
     // B1 fix: 软删除空间不可查看会话，与 listSpaces 的 deletedAt: null 口径一致
-    // 性能：空间存在性校验与会话查询合并为一次 findFirst（relation filter 保证
-    // 只命中未删除空间上的 active 会话）。查不到时再补一次轻量空间校验，
-    // 用于区分「空间不存在（404）」与「无活跃会话（返回 null）」。
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, storeId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!space) {
+      throw new NotFoundException('空间不存在');
+    }
+
     const session = await this.prisma.spaceSession.findFirst({
       where: {
         spaceId,
+        storeId,
         status: PrismaSpaceSessionStatus.active,
         space: { deletedAt: null },
       },
@@ -98,36 +114,7 @@ export class SpaceSessionReadService {
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
 
-    if (!session) {
-      const space = await this.prisma.space.findFirst({
-        where: { id: spaceId, deletedAt: null },
-        select: { id: true, storeId: true },
-      });
-
-      if (!space) {
-        throw new NotFoundException('空间不存在');
-      }
-
-      // 与原顺序一致：空间存在但无活跃会话时，仍先鉴权再返回 null，
-      // 避免越权请求通过 null/404 差异探测其他门店空间
-      await this.commerceAccessService.ensureCanAccessStore(
-        user,
-        space.storeId,
-        'space:view',
-        '无权查看该门店空间会话',
-      );
-
-      return null;
-    }
-
-    await this.commerceAccessService.ensureCanAccessStore(
-      user,
-      session.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
-
-    return toSpaceSessionResponse(session);
+    return session ? toSpaceSessionResponse(session) : null;
   }
 
   async listSpaceSessions(
@@ -197,12 +184,19 @@ export class SpaceSessionReadService {
     requestId?: string,
   ): Promise<SpaceSessionResponseDto> {
     void requestId;
-    // P3 fix: 先鉴权后查询，与 getActiveSpaceSession / listSpaceSessions 的鉴权顺序一致
-    // 性能：存在性检查与完整加载合并为一次 findFirst（relation filter 已保证
-    // 只命中未删除空间上的会话），省掉一次串行往返。
+    // 先鉴权后查询：把当前登录门店直接作为查询条件，越权与不存在统一返回 404，
+    // 避免通过 404/403 差异枚举他店会话 ID。
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
+
     const session = await this.prisma.spaceSession.findFirst({
       where: {
         id: sessionId,
+        storeId,
         space: { deletedAt: null },
       },
       include: SPACE_SESSION_FULL_INCLUDE,
@@ -211,13 +205,6 @@ export class SpaceSessionReadService {
     if (!session) {
       throw new NotFoundException('空间会话不存在');
     }
-
-    await this.commerceAccessService.ensureCanAccessStore(
-      user,
-      session.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
 
     return toSpaceSessionResponse(session);
   }
