@@ -166,6 +166,8 @@ describe('HandoverRecordsService - 写操作', () => {
 
       expect(result.status).toBe('completed');
       expect(result.handoverAt).toBeGreaterThan(0);
+      // 事务级 advisory lock 与 confirm 路径共用，防止两条写入链路并发双写
+      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
       // 条件更新必须带 status: pending，防止并发 complete/cancel 双写
       expect(prismaService.storeHandoverRecord.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({

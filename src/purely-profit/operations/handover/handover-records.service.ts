@@ -25,6 +25,10 @@ import type {
 import { HandoverRecordsQueryService } from './handover-records-query.service';
 import type { ShiftRecordRow } from './handover.types';
 import {
+  buildHandoverAdvisoryLockKeys,
+  buildHandoverShiftLockResource,
+} from './handover.utils';
+import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
   buildShiftDateRange,
@@ -139,6 +143,14 @@ export class HandoverRecordsService {
                 record.createdAt,
               )
             : null;
+
+        // 与 confirm 路径共用事务级 advisory lock：两条写入链路并发时仍串行，
+        // 避免不同 pending 记录在同一班次被同时置为 completed。
+        // 找不到所属班次时用记录 ID 兜底，仅保护本记录的 complete/cancel 互斥。
+        const [key1, key2] = buildHandoverAdvisoryLockKeys(
+          buildHandoverShiftLockResource(storeId, ownedShift?.id ?? recordId),
+        );
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key1}, ${key2})`;
 
         if (ownedShift) {
           const shiftRange = buildShiftDateRange(

@@ -74,20 +74,26 @@ export class HandoverRecordsQueryService {
     const filter = this.buildSummaryFilter(query);
     const take = Math.min(Math.max(query.limit ?? 20, 1), 100);
     const skip = Math.max(query.offset ?? 0, 0);
+    // 交班历史按「实际交班时间」筛选与排序：pending 跨天补完成的记录
+    // 应出现在交班日而非创建日。历史脏数据无 handoverAt 时用 createdAt 兜底。
+    const dateRange = { gte: filter.startAt, lte: filter.endAt };
     const where: Prisma.StoreHandoverRecordWhereInput = {
       storeId,
       status: HandoverStatus.completed,
-      createdAt: {
-        gte: filter.startAt,
-        lte: filter.endAt,
-      },
+      OR: [
+        { handoverAt: dateRange },
+        { handoverAt: null, createdAt: dateRange },
+      ],
     };
 
     const [records, total] = await Promise.all([
       this.prisma.storeHandoverRecord.findMany({
         where,
         include: HANDOVER_RECORD_INCLUDE,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: [
+          { handoverAt: { sort: 'desc', nulls: 'last' } },
+          { id: 'desc' },
+        ],
         take,
         skip,
       }),

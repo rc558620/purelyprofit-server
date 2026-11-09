@@ -29,6 +29,10 @@ import {
   type HandoverRecordRow,
   type ShiftRecordRow,
 } from './handover.shared';
+import {
+  buildHandoverAdvisoryLockKeys,
+  buildHandoverShiftLockResource,
+} from './handover.utils';
 
 /** 交班确认分布式锁 TTL（秒）：单次交班事务上限 + 冗余 */
 const CONFIRM_HANDOVER_LOCK_TTL_SECONDS = 20;
@@ -50,10 +54,15 @@ export class HandoverConfirmService {
   ): Promise<HandoverRecordListItemDto> {
     const membership = ensureMembershipContext(user);
     const note = normalizeOptionalText(dto.note, HANDOVER_NOTE_MAX_LENGTH);
+    // 客户端声明的交班时刻：仅用于合法性校验与班次匹配，不作为落库口径。
     const handoverAt = new Date(dto.confirmedAt);
     if (Number.isNaN(handoverAt.getTime())) {
       throw new BadRequestException('交班时间不正确');
     }
+    // 服务器权威交班时刻：营收统计起点（findShiftInitializedStartAt）与
+    // 附加项最近填写值排序都依赖 handoverAt 落库值，必须由服务器时钟决定，
+    // 避免设备时钟错误或伪造请求把统计切分点推到过去造成营收重复/漏算。
+    const serverHandoverAt = new Date();
 
     const sourceShiftRecord =
       await this.handoverConfirmShiftService.findSourceShiftRecord(
@@ -107,23 +116,22 @@ export class HandoverConfirmService {
         dto.additionalItems,
       );
 
-    // 分布式锁：防止多 worker 并发对同一门店+班次重复交班
-    // 替代原有 pg_advisory_xact_lock（后者仅在单库单连接有效，多 worker 集群失效）
+    // 分布式锁：防止多 worker 并发对同一门店+班次重复交班。
+    // Redis 锁只承担快速失败；真正的互斥由事务级 pg_advisory_xact_lock 保证：
+    // 它与 Redis TTL 无关、事务结束自动释放，且 Redis 不可用降级时仍能与其它
+    // 实例（无论是否降级）在同一数据库上串行化，避免两套锁机制互不互通。
     const lockResource = this.buildConfirmLockResource(
       membership.storeId,
       sourceShiftRecord,
     );
-    // Redis 不可用（连接失败等）时 acquireLock 会抛错。此时降级为
-    // pg_advisory_xact_lock：事务级行锁，事务结束自动释放，
-    // 保证"同一班次串行交班"的互斥语义不依赖 Redis 可用性。
     let lock: DistributedLock | null = null;
-    let usePgAdvisoryLock = false;
+    let redisUnavailable = false;
     try {
       lock = await this.redisLockService.acquireLock(lockResource, {
         ttlSeconds: CONFIRM_HANDOVER_LOCK_TTL_SECONDS,
       });
     } catch (error) {
-      usePgAdvisoryLock = true;
+      redisUnavailable = true;
       this.logger.warn(
         `[handover] redis_lock_unavailable fallback=pg_advisory_xact_lock resource=${lockResource} reason=${
           error instanceof Error ? error.message : 'UnknownError'
@@ -131,17 +139,17 @@ export class HandoverConfirmService {
       );
     }
 
-    if (!lock && !usePgAdvisoryLock) {
+    if (!lock && !redisUnavailable) {
       throw new ConflictException('当前班次正在进行交班操作，请稍后重试');
     }
 
     try {
       const record = (await this.prisma.$transaction(
         async (tx) => {
-          if (usePgAdvisoryLock) {
-            const [key1, key2] = this.buildAdvisoryLockKeys(lockResource);
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key1}, ${key2})`;
-          }
+          // 事务级互斥：与 Redis 锁 TTL 无关，事务结束自动释放；
+          // Redis 不可用降级时仍能与其它实例在同一数据库上串行化。
+          const [key1, key2] = buildHandoverAdvisoryLockKeys(lockResource);
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key1}, ${key2})`;
 
           await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
             tx,
@@ -172,7 +180,7 @@ export class HandoverConfirmService {
               shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
               handoverMode,
               status: HandoverStatus.completed,
-              handoverAt,
+              handoverAt: serverHandoverAt,
               note,
               ...(validAdditionalItems.length > 0
                 ? {
@@ -201,41 +209,25 @@ export class HandoverConfirmService {
   }
 
   /**
-   * 把锁资源标识映射为 pg_advisory_xact_lock 的两个 int4 key。
-   * 使用 FNV-1a 变体生成两个独立 32 位哈希，保证同一资源跨进程得到相同 key。
-   */
-  private buildAdvisoryLockKeys(resource: string): [number, number] {
-    let hash1 = 0x811c9dc5;
-    let hash2 = 0x01000193;
-
-    for (let i = 0; i < resource.length; i += 1) {
-      const charCode = resource.charCodeAt(i);
-      hash1 = Math.imul(hash1 ^ charCode, 0x01000193) >>> 0;
-      hash2 = Math.imul(hash2 + charCode, 0x85ebca6b) >>> 0;
-    }
-
-    return [hash1 | 0, hash2 | 0];
-  }
-
-  /**
-   * 构建交班确认分布式锁资源标识
-   *
-   * 锁粒度：门店 + 班次维度，同一班次同时只允许一个交班操作
+   * 构建交班写入链路共用的锁资源标识。
+   * 锁粒度：门店 + 班次维度；必须与 completeHandoverRecord 路径生成同一标识。
    */
   private buildConfirmLockResource(
     storeId: number,
     shiftRecord: ShiftRecordRow,
   ): string {
+    if (shiftRecord.id) {
+      return buildHandoverShiftLockResource(storeId, shiftRecord.id);
+    }
+
     const shiftRange = buildShiftDateRange(
       shiftRecord.startTime,
       shiftRecord.endTime,
       shiftRecord.date,
     );
     const scopeSeed =
-      shiftRecord.id ??
-      shiftRecord.employeeId ??
-      Math.floor(shiftRange.startAt.getTime() / 1000);
+      shiftRecord.employeeId ?? Math.floor(shiftRange.startAt.getTime() / 1000);
 
-    return `handover:confirm:store:${storeId}:scope:${Math.abs(scopeSeed)}`;
+    return buildHandoverShiftLockResource(storeId, scopeSeed);
   }
 }

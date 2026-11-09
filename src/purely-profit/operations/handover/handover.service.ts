@@ -257,13 +257,9 @@ export class HandoverService {
     user: AuthenticatedUser,
     trigger: string,
   ): void {
-    void this.autoCheckoutCurrentStoreSessions(user, trigger).catch((error) => {
-      this.logger.warn(
-        `[handover] auto_checkout_background_failed trigger=${trigger} reason=${
-          error instanceof Error ? error.message : 'UnknownError'
-        }`,
-      );
-    });
+    // autoCheckoutCurrentStoreSessions 内部已捕获并记录全部异常，
+    // 这里直接以 void 启动后台任务，不使用 Promise 链式回调。
+    void this.autoCheckoutCurrentStoreSessions(user, trigger);
   }
 
   private async autoCheckoutCurrentStoreSessions(
@@ -273,11 +269,11 @@ export class HandoverService {
     // 自动结账必须使用系统用户（无 membership），使 SaleOrder.operatorStaffId 为 null，
     // 交班页兜底展示"空间自动结账"，而非当前登录用户的姓名。
     void user;
-    const systemUser = createAutoCheckoutSystemUser();
     // 自动结账只是交班前的尽力而为步骤：其分布式锁依赖 Redis，
     // Redis 不可用时应降级跳过（记录告警），而不是让交班的读接口一并 500。
     // 结账本身由 scheduler:auto-checkout 定时任务兜底。
     try {
+      const systemUser = createAutoCheckoutSystemUser();
       await this.spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions(
         systemUser,
         ensureMembershipStoreId(user),

@@ -144,6 +144,8 @@ describe('HandoverConfirmService', () => {
         { ttlSeconds: 20 },
       );
       expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
+      // 事务级 advisory lock 始终启用，互斥不依赖 Redis 锁 TTL
+      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
       expect(
         handoverConfirmShiftService.ensureShiftNotHandedOver,
       ).toHaveBeenCalledWith(
@@ -364,6 +366,54 @@ describe('HandoverConfirmService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
       expect(redisLockService.acquireLock).not.toHaveBeenCalled();
+    });
+
+    it('落库交班时间由服务器时钟决定，不受客户端 confirmedAt 影响', async () => {
+      handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
+        [],
+      );
+      const clientDeclaredAt = new Date(2026, 4, 13, 18, 0, 0);
+      const before = Date.now();
+      prismaService.storeHandoverRecord.create.mockResolvedValue({
+        id: 9,
+        storeId: 100,
+        fromEmployeeId: 20,
+        toEmployeeId: 30,
+        fromSubAccountId: 5,
+        toSubAccountId: 6,
+        actorStaffId: 2,
+        fromEmployeeNameSnapshot: '员工A',
+        shiftTypeSnapshot: EmployeeShiftType.morning,
+        shiftNameSnapshot: null,
+        shiftStartTimeSnapshot: '09:00',
+        shiftEndTimeSnapshot: '17:00',
+        handoverMode: HandoverMode.sub_account,
+        status: HandoverStatus.completed,
+        handoverAt: clientDeclaredAt,
+        note: null,
+        reason: null,
+        createdAt: new Date(2026, 4, 13, 10, 0, 0),
+        updatedAt: new Date(2026, 4, 13, 10, 0, 0),
+        fromEmployee: { id: 20, name: '员工A' },
+        toEmployee: { id: 30, name: '经理' },
+        additionalValues: [],
+      });
+
+      await service.confirmHandover(subAccountUser, {
+        shiftType: 'morning',
+        confirmedAt: clientDeclaredAt.getTime(),
+        additionalItems: [],
+      });
+
+      const calls = prismaService.storeHandoverRecord.create.mock.calls;
+      const createArgs = calls[calls.length - 1]?.[0] as unknown as
+        | { data: { handoverAt: Date } }
+        | undefined;
+      const persistedAt = createArgs?.data.handoverAt;
+      expect(persistedAt).toBeInstanceOf(Date);
+      expect(persistedAt?.getTime()).toBeGreaterThanOrEqual(before);
+      expect(persistedAt?.getTime()).toBeLessThanOrEqual(Date.now());
+      expect(persistedAt?.getTime()).not.toBe(clientDeclaredAt.getTime());
     });
   });
 });

@@ -213,6 +213,7 @@ export class HandoverAdditionalItemsService {
       JOIN store_handover_records r ON r.id = v.record_id
       WHERE v.item_id = ANY(${itemIds}::int[])
         AND i.store_id = ${storeId}
+        AND r.store_id = ${storeId}
         AND r.status::text = ${HandoverStatus.completed}::text
       ORDER BY v.item_id,
         r.handover_at DESC,

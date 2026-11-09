@@ -57,11 +57,22 @@ describe('HandoverRecordsService - 查询接口', () => {
       expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            createdAt: {
-              // 上海 2026-06-04 00:00 ~ 23:59:59.999（旧实现为进程本地时区/UTC 零点）
-              gte: new Date(makeShanghaiMs(2026, 5, 4)),
-              lte: new Date(makeShanghaiMs(2026, 5, 4, 23, 59, 59, 999)),
-            },
+            // 交班历史按实际交班时间筛选；无 handoverAt 的脏数据按创建时间兜底
+            OR: [
+              {
+                handoverAt: {
+                  gte: new Date(makeShanghaiMs(2026, 5, 4)),
+                  lte: new Date(makeShanghaiMs(2026, 5, 4, 23, 59, 59, 999)),
+                },
+              },
+              {
+                handoverAt: null,
+                createdAt: {
+                  gte: new Date(makeShanghaiMs(2026, 5, 4)),
+                  lte: new Date(makeShanghaiMs(2026, 5, 4, 23, 59, 59, 999)),
+                },
+              },
+            ],
           }),
         }),
       );

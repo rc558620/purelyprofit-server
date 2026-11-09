@@ -237,6 +237,31 @@ export const buildShiftMatchConditions = (
   return conditions;
 };
 
+/**
+ * 交班写入链路共用的锁资源标识：门店 + 班次维度。
+ * confirm 与 complete 两条路径必须生成同一标识，否则并发下互不互斥。
+ */
+export const buildHandoverShiftLockResource = (
+  storeId: number,
+  shiftScope: number,
+): string => `handover:confirm:store:${storeId}:scope:${Math.abs(shiftScope)}`;
+
+/** 把锁资源标识映射为 pg_advisory_xact_lock 的两个 int4 key（FNV-1a 变体）。 */
+export const buildHandoverAdvisoryLockKeys = (
+  resource: string,
+): [number, number] => {
+  let hash1 = 0x811c9dc5;
+  let hash2 = 0x01000193;
+
+  for (let i = 0; i < resource.length; i += 1) {
+    const charCode = resource.charCodeAt(i);
+    hash1 = Math.imul(hash1 ^ charCode, 0x01000193) >>> 0;
+    hash2 = Math.imul(hash2 + charCode, 0x85ebca6b) >>> 0;
+  }
+
+  return [hash1 | 0, hash2 | 0];
+};
+
 export const extendShiftRangeToReference = (
   shiftRange: ShiftDateRange,
   referenceDate = new Date(),

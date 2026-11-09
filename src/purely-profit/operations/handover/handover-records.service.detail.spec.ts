@@ -514,7 +514,9 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           where: expect.objectContaining({
             storeId: 100,
             status: HandoverStatus.completed,
-            createdAt: aDateOrObject,
+            OR: expect.arrayContaining([
+              expect.objectContaining({ handoverAt: aDateOrObject }),
+            ]),
           }),
           take: 20,
           skip: 0,
@@ -701,10 +703,22 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            createdAt: expect.objectContaining({
-              gte: new Date(2026, 5, 2, 0, 0, 0, 0),
-              lte: new Date(2026, 5, 2, 23, 59, 59, 999),
-            }),
+            // 交班历史按实际交班时间筛选；无 handoverAt 的脏数据按创建时间兜底
+            OR: [
+              {
+                handoverAt: {
+                  gte: new Date(2026, 5, 2, 0, 0, 0, 0),
+                  lte: new Date(2026, 5, 2, 23, 59, 59, 999),
+                },
+              },
+              {
+                handoverAt: null,
+                createdAt: {
+                  gte: new Date(2026, 5, 2, 0, 0, 0, 0),
+                  lte: new Date(2026, 5, 2, 23, 59, 59, 999),
+                },
+              },
+            ],
           }),
         }),
       );
