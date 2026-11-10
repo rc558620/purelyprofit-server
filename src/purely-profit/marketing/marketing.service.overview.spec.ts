@@ -95,11 +95,14 @@ describe('MarketingService overview', () => {
     context.prismaService.marketingCustomer.aggregate.mockResolvedValue({
       _sum: { balance: 88000 },
     });
+    // 总充值额与笔数由同一次 aggregate 返回
     context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { totalAmount: 110000 } })
+      .mockResolvedValueOnce({
+        _sum: { totalAmount: 110000 },
+        _count: { _all: 7 },
+      })
       .mockResolvedValueOnce({ _sum: { totalAmount: 23000 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 55000 } });
-    context.prismaService.marketingRecharge.count.mockResolvedValue(7);
     // F9: 活跃会员数以 marketing_consumptions 实时聚合为准。
     // COUNT(DISTINCT customer_id) 下推后走 $queryRaw，是本次请求的第 1 个原生查询，
     // 其后依次是 30 日趋势、月度趋势。
@@ -222,10 +225,9 @@ describe('MarketingService overview', () => {
       _sum: { balance: 0 },
     });
     context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 }, _count: { _all: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
-    context.prismaService.marketingRecharge.count.mockResolvedValue(0);
     // 第 1 个原生查询：活跃会员数 COUNT(DISTINCT customer_id)
     context.prismaService.$queryRaw
       .mockResolvedValueOnce([{ activeMemberCount: 0 }])
@@ -255,10 +257,9 @@ describe('MarketingService overview', () => {
       _sum: { balance: 0 },
     });
     context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 }, _count: { _all: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
-    context.prismaService.marketingRecharge.count.mockResolvedValue(0);
     // 第 1 个原生查询：活跃会员数 COUNT(DISTINCT customer_id)
     context.prismaService.$queryRaw
       .mockResolvedValueOnce([{ activeMemberCount: 0 }])

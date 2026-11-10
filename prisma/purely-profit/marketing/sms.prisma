@@ -137,6 +137,8 @@ model SmsBroadcastRecipient {
   updatedAt         DateTime                    @updatedAt @map("updated_at")
 
   @@index([taskId, status])
+  // 群发结果逐条写回按 (taskId, phone) 定位；缺此索引时万人任务退化为 O(N²) 扫描
+  @@index([taskId, phone], map: "sms_broadcast_recipients_task_id_phone_idx")
   // 回执只带流水号，必须能按 serialNo 快速定位明细
   @@index([serialNo])
   @@index([taskId, deliveryStatus])

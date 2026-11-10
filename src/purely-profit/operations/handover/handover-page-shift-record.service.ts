@@ -11,11 +11,21 @@ import {
 } from './handover-shift-selection';
 
 /**
- * 班次查询回溯天数上限（B2 fix）。
- * 业务取舍：规则 1 要求“不交班就一直存在”，但无下界查询会随门店年龄线性膨胀。
- * 超过该天数的未交班班次视为异常（应人工处理），不纳入自动查询范围。
+ * 班次查询的可选边界。
+ * 默认不设日期下界：业务规则要求「不点交班则班次一直存在」，
+ * 任何固定回溯天数都会让未交班班次随日历推进被静默丢弃。
  */
-const SHIFT_LOOKUP_LOOKBACK_DAYS = 90;
+type ShiftLookupOptions = {
+  /** 从基准日向前查看的天数，用于查找后续班次 */
+  forwardDays?: number;
+  /** 明确的下界日期，仅用于查找某班次之后的班次等前向查询 */
+  lowerBoundDate?: Date;
+};
+
+type ShiftLookupRange = {
+  gte?: Date;
+  lte: Date;
+};
 
 @Injectable()
 export class HandoverPageShiftRecordService {
@@ -115,11 +125,15 @@ export class HandoverPageShiftRecordService {
       return null;
     }
 
+    // 后续班次只需要当前班次日期之后的数据：显式给下界，避免把门店全部历史排班拉进内存。
     const allShifts = await this.loadShifts(
       storeId,
       employeeId ?? null,
       currentShiftRecord.date,
-      7, // B1 fix: 向前查看 7 天，覆盖跨天/多天排班场景
+      {
+        forwardDays: 7, // B1 fix: 向前查看 7 天，覆盖跨天/多天排班场景
+        lowerBoundDate: currentShiftRecord.date,
+      },
     );
     if (allShifts.length === 0) {
       return null;
@@ -136,7 +150,7 @@ export class HandoverPageShiftRecordService {
   }
 
   /**
-   * 查找今日最后一个班次（不区分是否已交班）。
+   * 查找日期上界内最后一个班次（不区分是否已交班）。
    * employeeId 为具体员工 ID 时只查该员工；为 null 时查全店。
    */
   async findLastShiftRecord(
@@ -156,17 +170,21 @@ export class HandoverPageShiftRecordService {
     return allShifts[0] ?? null;
   }
 
+  /**
+   * 加载候选班次。默认不设日期下界，使「未交班班次一直存在」不受门店年龄影响；
+   * 查询依赖 EmployeeShift 的 @@index([storeId, date])，按门店 + 日期上界命中索引。
+   */
   private async loadShifts(
     storeId: number,
     employeeId: number | null,
     referenceDate: Date,
-    forwardDays = 0,
+    options: ShiftLookupOptions = {},
   ): Promise<ShiftRecordRow[]> {
     return this.prisma.employeeShift.findMany({
       where: {
         storeId,
         ...(employeeId ? { employeeId } : {}),
-        date: this.buildShiftLookupRange(referenceDate, forwardDays),
+        date: this.buildShiftLookupRange(referenceDate, options),
       },
       select: this.shiftRecordSelect,
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
@@ -175,23 +193,22 @@ export class HandoverPageShiftRecordService {
 
   /**
    * 构建班次查询日期范围。
-   * - 下界：baseDate 前 SHIFT_LOOKUP_LOOKBACK_DAYS 天（B2 fix：防止历史班次无限膨胀）
+   * - 下界：默认不设；仅在显式传入 lowerBoundDate 时收敛（后续班次查询）
    * - 上界：baseDate + forwardDays 天（B1 fix：支持跨天查找后续班次）
    */
-  private buildShiftLookupRange(baseDate = new Date(), forwardDays = 0) {
-    const lower = new Date(
-      addShanghaiDays(
-        startOfDay(baseDate).getTime(),
-        -SHIFT_LOOKUP_LOOKBACK_DAYS,
-      ),
-    );
+  private buildShiftLookupRange(
+    baseDate = new Date(),
+    options: ShiftLookupOptions = {},
+  ): ShiftLookupRange {
+    const { forwardDays = 0, lowerBoundDate } = options;
     const upperBase = endOfDay(baseDate).getTime();
-    const upper = new Date(
+    const lte = new Date(
       forwardDays > 0 ? addShanghaiDays(upperBase, forwardDays) : upperBase,
     );
+
     return {
-      gte: lower,
-      lte: upper,
+      ...(lowerBoundDate ? { gte: startOfDay(lowerBoundDate) } : {}),
+      lte,
     };
   }
 

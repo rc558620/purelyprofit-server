@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -34,6 +35,33 @@ const TASK_LIST_SELECT = {
   createdAt: true,
 } as const;
 
+/** 任务列表分页行：_total 由 COUNT(*) OVER() 在同一条 SQL 中带回。 */
+interface SmsBroadcastTaskPageRow {
+  broadcastId: string;
+  content: string;
+  status: string;
+  recipientCount: number;
+  validMobileCount: number;
+  smsSegments: number;
+  successCount: number;
+  failedCount: number;
+  chargedAmountFen: number;
+  refundedAmountFen: number;
+  createdAt: Date;
+  _total: number;
+}
+
+/** 收件人明细分页行：_total 同上。 */
+interface SmsBroadcastRecipientPageRow {
+  id: number;
+  customerId: number | null;
+  phone: string;
+  status: string;
+  providerCode: string | null;
+  providerMessage: string | null;
+  _total: number;
+}
+
 /**
  * 群发任务查询服务（商家端）。
  *
@@ -55,25 +83,33 @@ export class SmsBroadcastQueryService {
       SMS_BROADCAST_DEFAULT_PAGE_SIZE,
     );
 
-    const where = {
-      storeId,
-      ...(query.status ? { status: query.status } : {}),
-    };
-
-    const [rows, total] = await Promise.all([
-      this.prisma.smsBroadcastTask.findMany({
-        where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip,
-        take,
-        select: TASK_LIST_SELECT,
-      }),
-      this.prisma.smsBroadcastTask.count({ where }),
-    ]);
+    // 分页与总数一次查询：COUNT(*) OVER() 在 LIMIT 之前对全量匹配行计数，
+    // 与 findMany + count 语义等价，省一次数据库往返。
+    // 范式与 marketing.query.ts 的 queryRechargePage / queryPointsRecordPage 一致。
+    const rows = await this.prisma.$queryRaw<SmsBroadcastTaskPageRow[]>`
+      SELECT
+        t.broadcast_id AS "broadcastId",
+        t.content,
+        t.status::text AS "status",
+        t.recipient_count AS "recipientCount",
+        t.valid_mobile_count AS "validMobileCount",
+        t.sms_segments AS "smsSegments",
+        t.success_count AS "successCount",
+        t.failed_count AS "failedCount",
+        t.charged_amount_fen AS "chargedAmountFen",
+        t.refunded_amount_fen AS "refundedAmountFen",
+        t.created_at AS "createdAt",
+        COUNT(*) OVER()::int AS _total
+      FROM sms_broadcast_tasks t
+      WHERE t.store_id = ${storeId}
+        ${query.status ? Prisma.sql`AND t.status = ${query.status}::"SmsBroadcastTaskStatus"` : Prisma.empty}
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT ${take} OFFSET ${skip}
+    `;
 
     return {
       items: rows.map((row) => this.toTaskItem(row)),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      meta: buildMarketingPaginationMeta(rows[0]?._total ?? 0, page, take),
     };
   }
 
@@ -116,32 +152,25 @@ export class SmsBroadcastQueryService {
       SMS_BROADCAST_DEFAULT_PAGE_SIZE,
     );
 
-    const where = {
-      taskId: task.id,
-      ...(query.status ? { status: query.status } : {}),
-    };
-
-    const [rows, total] = await Promise.all([
-      this.prisma.smsBroadcastRecipient.findMany({
-        where,
-        orderBy: [{ id: 'asc' }],
-        skip,
-        take,
-        select: {
-          id: true,
-          customerId: true,
-          phone: true,
-          status: true,
-          providerCode: true,
-          providerMessage: true,
-        },
-      }),
-      this.prisma.smsBroadcastRecipient.count({ where }),
-    ]);
+    const rows = await this.prisma.$queryRaw<SmsBroadcastRecipientPageRow[]>`
+      SELECT
+        r.id,
+        r.customer_id AS "customerId",
+        r.phone,
+        r.status::text AS "status",
+        r.provider_code AS "providerCode",
+        r.provider_message AS "providerMessage",
+        COUNT(*) OVER()::int AS _total
+      FROM sms_broadcast_recipients r
+      WHERE r.task_id = ${task.id}
+        ${query.status ? Prisma.sql`AND r.status = ${query.status}::"SmsBroadcastRecipientStatus"` : Prisma.empty}
+      ORDER BY r.id ASC
+      LIMIT ${take} OFFSET ${skip}
+    `;
 
     return {
       items: rows.map((row) => this.toRecipientItem(row)),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      meta: buildMarketingPaginationMeta(rows[0]?._total ?? 0, page, take),
     };
   }
 

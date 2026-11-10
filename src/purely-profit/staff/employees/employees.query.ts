@@ -75,54 +75,51 @@ export async function queryEmployeesOverviewMetrics(
     ),
   );
 
-  const [
-    activeCount,
-    resignedCount,
-    leaveRows,
-    pendingPayrollCount,
-    resignedThisMonth,
-  ] = await Promise.all([
-    prisma.employee.count({
-      where: {
-        storeId: params.storeId,
-        deletedAt: null,
-        status: EmployeeStatus.active,
-      },
-    }),
-    prisma.employee.count({
-      where: {
-        storeId: params.storeId,
-        deletedAt: null,
-        status: EmployeeStatus.resigned,
-      },
-    }),
-    // 筛选与本月有交集的请假（含跨月），并在应用层按本月实际天数重算
-    prisma.employeeLeave.findMany({
-      where: {
-        storeId: params.storeId,
-        endDate: { gte: ms },
-        startDate: { lt: nextMonthStart },
-      },
-      select: { days: true, startDate: true, endDate: true },
-    }),
-    prisma.employeePayroll.count({
-      where: {
-        storeId: params.storeId,
-        // 上海月界范围匹配：EmployeePayroll.month 存储为 UTC 月初零点（上海墙钟在同月），
-        // 范围匹配与精确匹配结果一致，同时保证概览的「本月」判定按上海时区。
-        month: { gte: ms, lt: nextMonthStart },
-        status: EmployeePayrollStatus.draft,
-      },
-    }),
-    prisma.employee.count({
-      where: {
-        storeId: params.storeId,
-        deletedAt: null,
-        status: EmployeeStatus.resigned,
-        resignDate: { gte: params.monthStart },
-      },
-    }),
-  ]);
+  const [statusGroups, leaveRows, pendingPayrollCount, resignedThisMonth] =
+    await Promise.all([
+      // 在职 / 离职人数同表同条件，一次 groupBy 取回，省掉一次全店 count
+      prisma.employee.groupBy({
+        by: ['status'],
+        where: {
+          storeId: params.storeId,
+          deletedAt: null,
+        },
+        _count: { _all: true },
+      }),
+      // 筛选与本月有交集的请假（含跨月），并在应用层按本月实际天数重算
+      prisma.employeeLeave.findMany({
+        where: {
+          storeId: params.storeId,
+          endDate: { gte: ms },
+          startDate: { lt: nextMonthStart },
+        },
+        select: { days: true, startDate: true, endDate: true },
+      }),
+      prisma.employeePayroll.count({
+        where: {
+          storeId: params.storeId,
+          // 上海月界范围匹配：EmployeePayroll.month 存储为 UTC 月初零点（上海墙钟在同月），
+          // 范围匹配与精确匹配结果一致，同时保证概览的「本月」判定按上海时区。
+          month: { gte: ms, lt: nextMonthStart },
+          status: EmployeePayrollStatus.draft,
+        },
+      }),
+      prisma.employee.count({
+        where: {
+          storeId: params.storeId,
+          deletedAt: null,
+          status: EmployeeStatus.resigned,
+          resignDate: { gte: params.monthStart },
+        },
+      }),
+    ]);
+
+  const activeCount =
+    statusGroups.find((group) => group.status === EmployeeStatus.active)?._count
+      ._all ?? 0;
+  const resignedCount =
+    statusGroups.find((group) => group.status === EmployeeStatus.resigned)
+      ?._count._all ?? 0;
 
   return {
     activeCount,

@@ -58,7 +58,12 @@ model SaleOrder {
   @@index([storeId, date(sort: Desc), id(sort: Desc)])
   @@index([storeId, createdAt])
   @@index([operatorStaffId, createdAt])
-  @@index([storeId, manualEntry, createdAt])
+  /// 建单时 queryMaxSerial 在 pg_advisory_xact_lock 持锁期内按
+  /// store + manual_entry + 业务日期(date) 取当日最大序号。第三列用 created_at
+  /// 时该索引对 date 范围无用，planner 通常改走 [storeId, date, id] 扫描当日
+  /// 全部订单并回表过滤 manual_entry；换成 date 后三个过滤列都收敛在索引内，
+  /// 只回表取 order_no，缩短同店同营业日建单串行锁的持锁时间。
+  @@index([storeId, manualEntry, date])
   @@map("sale_orders")
 }
 

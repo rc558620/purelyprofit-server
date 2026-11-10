@@ -99,9 +99,14 @@ export class SalesRecordListService {
     const scanOrderIds = orders
       .map((order) => order.scanOrderId)
       .filter((id): id is number => id !== null && id !== undefined);
-    // 收集非扫码订单 ID（空间会话结账订单：自助下单 / 追加点单，用于规格展示）
+    // 收集非扫码订单 ID（空间会话结账订单：自助下单 / 追加点单，用于规格展示）。
+    // querySaleOrders 已把 spaceSession 一并查出，只有存在会话的订单才可能在
+    // space_sessions / session_items 中命中规格行；先收窄再查，避免把整页
+    // 普通销售单 ID 塞进 IN 列表做无谓的索引扫描与关联行读取。
     const nonScanSaleOrderIds = orders
-      .filter((order) => order.scanOrderId === null)
+      .filter(
+        (order) => order.scanOrderId === null && order.spaceSession !== null,
+      )
       .map((order) => order.id);
     const [total, stats, scanOrderingDetails, spaceSessionSpecs] =
       await Promise.all([

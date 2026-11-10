@@ -182,7 +182,6 @@ export class MarketingOverviewService {
       totalRechargeAgg,
       todayRechargeAgg,
       thisMonthRechargeAgg,
-      rechargeCount,
       dailyTotals,
       monthlyTotals,
       storeRecord,
@@ -195,12 +194,15 @@ export class MarketingOverviewService {
         where: { storeId, deletedAt: null },
         _sum: { balance: true },
       }),
+      // 总充值额与充值笔数的 where 完全一致，一次 aggregate 同时取回，
+      // 省掉单独一次 count 往返（Prisma 原生能力，无 raw SQL、无口径变化）。
       this.prisma.marketingRecharge.aggregate({
         where: {
           storeId,
           type: { in: ['recharge', 'gift'] },
         },
         _sum: { totalAmount: true },
+        _count: { _all: true },
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
@@ -218,15 +220,13 @@ export class MarketingOverviewService {
         },
         _sum: { totalAmount: true },
       }),
-      this.prisma.marketingRecharge.count({
-        where: { storeId, type: { in: ['recharge', 'gift'] } },
-      }),
       queryOverviewDailyTrend(this.prisma, storeId),
       queryOverviewMonthlyTrend(this.prisma, storeId, previousYearStart),
       this.findStoreWechatPayConfig(storeId),
       this.findStoreActiveInviteCode(storeId),
     ]);
 
+    const rechargeCount = totalRechargeAgg._count._all;
     const totalRecharge = Money.fromDbCents(
       totalRechargeAgg._sum.totalAmount ?? 0,
     ).toOutputYuan();

@@ -50,6 +50,7 @@ export interface MarketingPrismaServiceMock {
   };
   marketingRecharge: {
     aggregate: jest.Mock;
+    groupBy: jest.Mock;
     count: jest.Mock;
     findMany: jest.Mock;
     create: jest.Mock;
@@ -154,6 +155,7 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     },
     marketingRecharge: {
       aggregate: jest.fn(),
+      groupBy: jest.fn().mockResolvedValue([]),
       count: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),

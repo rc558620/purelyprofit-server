@@ -26,6 +26,7 @@ import { mapRechargeRow } from './marketing.mapper';
 import {
   queryCustomerGiftBalanceCents,
   queryCustomerRechargePage,
+  queryCustomerRechargeRefundSums,
   queryCustomerRefundPage,
   queryRechargePage,
   queryRechargeRowById,
@@ -215,20 +216,9 @@ export class MarketingRechargesService {
 
     // ── 退款预校验：退款金额不能超过可退本金，且不能超过当前实际余额 ──
     if (rechargeType === 'refund') {
-      const [rechargeAgg, refundAgg] = await Promise.all([
-        this.prisma.marketingRecharge.aggregate({
-          where: { customerId: dto.customerId, type: 'recharge' },
-          _sum: { amount: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { customerId: dto.customerId, type: 'refund' },
-          _sum: { amount: true },
-        }),
-      ]);
-      const refundableCents = Math.max(
-        0,
-        (rechargeAgg._sum.amount ?? 0) - (refundAgg._sum.amount ?? 0),
-      );
+      const { rechargeCents, refundCents } =
+        await queryCustomerRechargeRefundSums(this.prisma, dto.customerId);
+      const refundableCents = Math.max(0, rechargeCents - refundCents);
       if (Money.fromDbCents(refundableCents).lessThan(totalMoney)) {
         throw new BadRequestException('退款金额不能超过最大可退本金');
       }
@@ -257,20 +247,11 @@ export class MarketingRechargesService {
           if (!freshCustomer) {
             throw new BadRequestException('顾客不存在');
           }
-          const [rechargeAgg, refundAgg] = await Promise.all([
-            tx.marketingRecharge.aggregate({
-              where: { customerId: dto.customerId, type: 'recharge' },
-              _sum: { amount: true },
-            }),
-            tx.marketingRecharge.aggregate({
-              where: { customerId: dto.customerId, type: 'refund' },
-              _sum: { amount: true },
-            }),
-          ]);
-          const refundableCents = Math.max(
-            0,
-            (rechargeAgg._sum.amount ?? 0) - (refundAgg._sum.amount ?? 0),
-          );
+          // 事务内复核仍必须保留（防止并发超额退款），但只发一次聚合查询，
+          // 缩短余额行锁的持有时间。
+          const { rechargeCents, refundCents } =
+            await queryCustomerRechargeRefundSums(tx, dto.customerId);
+          const refundableCents = Math.max(0, rechargeCents - refundCents);
           if (Money.fromDbCents(refundableCents).lessThan(totalMoney)) {
             throw new BadRequestException('退款金额不能超过最大可退本金');
           }

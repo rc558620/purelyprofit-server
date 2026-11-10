@@ -15,9 +15,9 @@ import {
 } from './sales-record-item-aggregation';
 import {
   resolveReportProductName,
-  type SaleOrderWithItems,
   type SalesRecordOrderAmounts,
 } from './sales-record.domain';
+import type { SalesReportOrder } from './sales-record-report.query';
 
 export interface SalesReportAggregationRow {
   id: string;
@@ -37,7 +37,7 @@ function getDayStart(timestamp: number): number {
 
 function buildReportRowId(
   dayStart: number,
-  item: SaleOrderWithItems['items'][number],
+  item: SalesReportOrder['items'][number],
   displayName: string,
 ): string {
   if (displayName !== item.productName) {
@@ -65,7 +65,7 @@ function getReportRowDayStart(rowId: string): number {
  * 出现「商品明细营业额合计 > 总营业额」的自相矛盾。
  */
 function resolveTableFeeRevenueScale(
-  order: SaleOrderWithItems,
+  order: SalesReportOrder,
   amounts: SalesRecordOrderAmounts | undefined,
 ): number {
   const breakdown = amounts?.grouponVoucherBreakdown;
@@ -87,7 +87,7 @@ function resolveTableFeeRevenueScale(
 }
 
 export function aggregateReportRows(
-  orders: SaleOrderWithItems[],
+  orders: SalesReportOrder[],
   amountsByOrderId: Map<number, SalesRecordOrderAmounts> = new Map(),
 ): SalesDailyRowDto[] {
   const rows = new Map<string, SalesReportAggregationRow>();

@@ -207,13 +207,13 @@ export class EmployeesProfileWriteService {
       return nextEmployee;
     });
 
-    // #16 修复：离职后触发首页缓存失效
-    await this.invalidateDashboardCaches(employee.storeId);
-
-    // H-03 修复：离职后失效关联 User 的认证缓存，避免已禁用账号在缓存 TTL 窗口内仍可访问 API
-    if (employee.linkedStaffId) {
-      await this.invalidateLinkedUserAuthCache(employee.linkedStaffId);
-    }
+    // #16 / H-03 修复：两类缓存失效互不依赖，并行执行省一次串行 RTT
+    await Promise.all([
+      this.invalidateDashboardCaches(employee.storeId),
+      employee.linkedStaffId
+        ? this.invalidateLinkedUserAuthCache(employee.linkedStaffId)
+        : Promise.resolve(),
+    ]);
 
     return toEmployeeResponse(resigned);
   }
@@ -246,13 +246,13 @@ export class EmployeesProfileWriteService {
       });
     });
 
-    // #15 修复：删除员工后触发首页缓存失效
-    await this.invalidateDashboardCaches(storeId);
-
-    // H-03 修复：删除员工后失效关联 User 的认证缓存，避免已禁用账号在缓存 TTL 窗口内仍可访问 API
-    if (employee.linkedStaffId) {
-      await this.invalidateLinkedUserAuthCache(employee.linkedStaffId);
-    }
+    // #15 / H-03 修复：两类缓存失效互不依赖，并行执行省一次串行 RTT
+    await Promise.all([
+      this.invalidateDashboardCaches(storeId),
+      employee.linkedStaffId
+        ? this.invalidateLinkedUserAuthCache(employee.linkedStaffId)
+        : Promise.resolve(),
+    ]);
   }
 
   private async resolveManageableStoreId(

@@ -113,6 +113,42 @@ export async function queryCustomerGiftBalanceCents(
   return trackedGift;
 }
 
+/** 顾客本金累计（分），一次聚合同时取回充值与退款合计。 */
+export interface CustomerRechargeRefundSums {
+  rechargeCents: number;
+  refundCents: number;
+}
+
+/**
+ * 按顾客聚合充值 / 退款本金（分）。
+ *
+ * 原实现「充值合计」「退款合计」各发一次 aggregate，退款链路在事务外预校验
+ * 与事务内复核各做一遍，单次退款共 4 次往返。改为一次 groupBy 后减半，
+ * 事务内少一次往返也缩短了余额行锁的持有时间。
+ */
+export async function queryCustomerRechargeRefundSums(
+  prisma: PrismaQueryRunner,
+  customerId: number,
+): Promise<CustomerRechargeRefundSums> {
+  const rows = await prisma.marketingRecharge.groupBy({
+    by: ['type'],
+    where: { customerId, type: { in: ['recharge', 'refund'] } },
+    _sum: { amount: true },
+  });
+
+  let rechargeCents = 0;
+  let refundCents = 0;
+  for (const row of rows) {
+    if (row.type === 'recharge') {
+      rechargeCents = row._sum.amount ?? 0;
+    } else if (row.type === 'refund') {
+      refundCents = row._sum.amount ?? 0;
+    }
+  }
+
+  return { rechargeCents, refundCents };
+}
+
 export async function queryCustomerRowById(
   prisma: PrismaService,
   customerId: number,

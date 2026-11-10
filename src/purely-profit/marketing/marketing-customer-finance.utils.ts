@@ -2,6 +2,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import {
   queryCustomerGiftBalanceCents,
+  queryCustomerRechargeRefundSums,
   queryCustomerRecentConsumptions,
   queryCustomerRecentRecharges,
 } from './marketing.query';
@@ -18,37 +19,24 @@ export async function computeCustomerFinance(
   const [
     recentRecharges,
     recentConsumptions,
-    rechargeSummary,
-    refundSummary,
+    { rechargeCents, refundCents },
     consumptionPointsSummary,
     giftBalanceCents,
   ] = await Promise.all([
     queryCustomerRecentRecharges(prisma, customerId, 5),
     queryCustomerRecentConsumptions(prisma, customerId, 5),
-    prisma.marketingRecharge.aggregate({
-      where: { customerId, type: 'recharge' },
-      _sum: { amount: true },
-    }),
-    prisma.marketingRecharge.aggregate({
-      where: { customerId, type: 'refund' },
-      _sum: { amount: true },
-    }),
+    // 充值 / 退款本金一次 groupBy 取回，替代原先两次 aggregate
+    queryCustomerRechargeRefundSums(prisma, customerId),
     prisma.marketingConsumption.aggregate({
       where: { customerId },
       _sum: { pointsDeducted: true },
     }),
-    // 与上面 5 个查询无依赖，并行发起省 1 次往返（原实现串行 await）
+    // 与上面 4 个查询无依赖，并行发起省 1 次往返（原实现串行 await）
     queryCustomerGiftBalanceCents(prisma, customerId),
   ]);
 
-  const totalRechargeCents = rechargeSummary._sum.amount ?? 0;
-  const totalRefundCents = refundSummary._sum.amount ?? 0;
-
   // B2: 最大可退金额受当前实际余额约束
-  const principalRefundableCents = Math.max(
-    0,
-    totalRechargeCents - totalRefundCents,
-  );
+  const principalRefundableCents = Math.max(0, rechargeCents - refundCents);
   const balanceConstrainedCents = Math.max(0, balanceCents - giftBalanceCents);
   const refundableCents = Math.min(
     principalRefundableCents,
@@ -56,7 +44,7 @@ export async function computeCustomerFinance(
   );
 
   return {
-    totalRecharge: Money.fromDbCents(totalRechargeCents).toOutputYuan(),
+    totalRecharge: Money.fromDbCents(rechargeCents).toOutputYuan(),
     refundableAmount: Money.fromDbCents(refundableCents).toOutputYuan(),
     giftBalance: Money.fromDbCents(giftBalanceCents).toOutputYuan(),
     totalPointsDeducted: Money.fromDbCents(

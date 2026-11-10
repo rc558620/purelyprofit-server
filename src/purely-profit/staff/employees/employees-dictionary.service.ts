@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  Prisma,
+  type EmployeeDepartment,
+  type EmployeePosition,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -35,12 +39,14 @@ export class EmployeesDictionaryService {
       query.storeId,
       'staff:view',
     );
-    // #21 修复：先查询是否已有默认部门，没有时才创建，避免每次都触发写操作
-    await this.ensureDefaultDepartment(storeId);
-    const rows = await this.prisma.employeeDepartment.findMany({
-      where: { storeId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
+    const rows = await this.findDepartmentRows(storeId);
+    if (rows.length === 0) {
+      // 首次访问才补建默认部门：用列表结果判断，省掉每次列表的 count 查询
+      await this.ensureDepartment(storeId, '综合部');
+      return (await this.findDepartmentRows(storeId)).map(
+        toEmployeeDepartmentResponse,
+      );
+    }
     return rows.map(toEmployeeDepartmentResponse);
   }
 
@@ -134,12 +140,14 @@ export class EmployeesDictionaryService {
       query.storeId,
       'staff:view',
     );
-    // #22 修复：确保默认职位存在
-    await this.ensureDefaultPosition(storeId);
-    const rows = await this.prisma.employeePosition.findMany({
-      where: { storeId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
+    const rows = await this.findPositionRows(storeId);
+    if (rows.length === 0) {
+      // 首次访问才补建默认职位：用列表结果判断，省掉每次列表的 count 查询
+      await this.ensurePosition(storeId, '默认职位');
+      return (await this.findPositionRows(storeId)).map(
+        toEmployeePositionResponse,
+      );
+    }
     return rows.map(toEmployeePositionResponse);
   }
 
@@ -232,26 +240,18 @@ export class EmployeesDictionaryService {
     return this.ensureDictionaryRecord('position', storeId, name);
   }
 
-  private async ensureDefaultDepartment(storeId: number): Promise<void> {
-    // #21 修复：先查询是否已有记录，避免不必要的写操作
-    const count = await this.prisma.employeeDepartment.count({
+  private findDepartmentRows(storeId: number): Promise<EmployeeDepartment[]> {
+    return this.prisma.employeeDepartment.findMany({
       where: { storeId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    if (count > 0) {
-      return;
-    }
-    await this.ensureDepartment(storeId, '综合部');
   }
 
-  // #22 新增：确保默认职位存在
-  private async ensureDefaultPosition(storeId: number): Promise<void> {
-    const count = await this.prisma.employeePosition.count({
+  private findPositionRows(storeId: number): Promise<EmployeePosition[]> {
+    return this.prisma.employeePosition.findMany({
       where: { storeId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    if (count > 0) {
-      return;
-    }
-    await this.ensurePosition(storeId, '默认职位');
   }
 
   private async ensureDictionaryNameAvailable(

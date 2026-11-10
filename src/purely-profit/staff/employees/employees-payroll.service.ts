@@ -155,6 +155,8 @@ export class EmployeesPayrollService {
             month,
           },
         },
+        // 此处只用于判断已确认状态，不拉整行字段
+        select: { status: true },
       });
 
       if (existing?.status === EmployeePayrollStatus.confirmed) {

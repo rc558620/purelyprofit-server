@@ -1159,8 +1159,7 @@ describe('EmployeesService', () => {
     const updatedAt = new Date('2026-05-13T10:20:00.000Z');
 
     employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
-    // #21 修复：ensureDefaultDepartment 现在先 count 再创建
-    prismaService.employeeDepartment.count.mockResolvedValue(0);
+    // 优化后列表直接用 findMany 结果判断：首次为空才补建默认部门，不再额外 count
     prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
     prismaService.employeeDepartment.create.mockResolvedValue({
       id: 1,
@@ -1169,15 +1168,17 @@ describe('EmployeesService', () => {
       createdAt,
       updatedAt,
     });
-    prismaService.employeeDepartment.findMany.mockResolvedValue([
-      {
-        id: 1,
-        storeId: 2,
-        name: '综合部',
-        createdAt,
-        updatedAt,
-      },
-    ]);
+    prismaService.employeeDepartment.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          storeId: 2,
+          name: '综合部',
+          createdAt,
+          updatedAt,
+        },
+      ]);
 
     const result = await service.listDepartments(user, {});
 
@@ -1189,6 +1190,7 @@ describe('EmployeesService', () => {
     expect(prismaService.employeeDepartment.create).toHaveBeenCalledWith({
       data: { storeId: 2, name: '综合部' },
     });
+    expect(prismaService.employeeDepartment.count).not.toHaveBeenCalled();
     expect(result).toEqual([
       {
         id: '1',
@@ -2402,6 +2404,20 @@ describe('EmployeesService', () => {
         },
       },
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        employeeName: true,
+        month: true,
+        baseSalary: true,
+        leaveDeduction: true,
+        otherDeduction: true,
+        bonus: true,
+        actualSalary: true,
+        socialInsurance: true,
+        housingFund: true,
+        totalLaborCost: true,
+        confirmedAt: true,
+      },
     });
   });
 });

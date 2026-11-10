@@ -4,12 +4,12 @@ import {
   isDeductionProductName,
   SELF_ORDER_DEDUCTION_PRODUCT_NAME,
 } from '../../commerce/commerce.utils';
-import type { SaleOrderWithItems } from './sales-record.domain';
+import type { SalesReportOrder } from './sales-record-report.query';
 import type { SalesRecordAmountsSnapshot } from './sales-record-amounts.domain';
 
 /** 销售明细行：原始商品项 + 与订单 items 原始顺序对齐的规格/原价 */
 export interface SalesRecordItemRow {
-  item: SaleOrderWithItems['items'][number];
+  item: SalesReportOrder['items'][number];
   specs: string[];
   originalUnitPrice?: number;
 }
@@ -47,8 +47,8 @@ export const isSelfOrderDeductionRow = (productName: string): boolean =>
  * （本单营业额被多扣 N 元），此处必须成对保留。
  */
 export function listVisibleSaleOrderItems(
-  order: SaleOrderWithItems,
-): Array<{ item: SaleOrderWithItems['items'][number]; index: number }> {
+  order: SalesReportOrder,
+): Array<{ item: SalesReportOrder['items'][number]; index: number }> {
   return order.items
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => !isDeductionProductName(item.productName));
@@ -61,7 +61,7 @@ export function listVisibleSaleOrderItems(
  * 2. 过滤抵扣行与自助下单已在线支付的商品行，销售记录只展示实际消费。
  */
 export function buildVisibleSalesRecordRows(
-  order: SaleOrderWithItems,
+  order: SalesReportOrder,
   enrichment?: SalesRecordSpecsEnrichment,
 ): SalesRecordItemRow[] {
   return listVisibleSaleOrderItems(order).map(({ item, index }) => ({

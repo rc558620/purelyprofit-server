@@ -40,6 +40,7 @@ import {
   queryScanOrderingDetails,
   querySpaceSessionSpecDetails,
 } from './sales-record.query';
+import { queryReportOrders } from './sales-record-report.query';
 import {
   buildEmptySalesReport,
   buildSalesCurrentRange,
@@ -129,7 +130,11 @@ export class SalesRecordReportService {
       return buildEmptySalesReport();
     }
 
-    const orders = await querySaleOrders(this.prisma, {
+    // 报表只做金额与按天商品聚合，走精简字段查询：
+    // 不加载 operatorStaff / groupon* / sessionRenewRecords 等报表不读的关联，
+    // 避免缓存未命中时按整个周期全量取数放大 join 与反序列化成本。
+    // where / orderBy / 金额口径与列表、CSV 完全一致（见 queryReportOrders）。
+    const orders = await queryReportOrders(this.prisma, {
       storeId,
       range: { start: range.start, end: range.end },
     });
@@ -137,9 +142,11 @@ export class SalesRecordReportService {
     // 订单级金额统一口径（与列表 / CSV 导出完全一致）：
     // 台位费计入金额、团购券订单按券面 + 超时 + 点单计收。
     // 已退款订单不计入（与列表卡片 +¥0、CSV 汇总、统计卡同口径）。
+    // 退款单不参与金额与明细聚合，先一次性收敛；否则后续金额计算与行聚合
+    // 会对同一批退款单重复走一遍可见行展开 / 券面折损计算。
+    const activeOrders = orders.filter((order) => !order.refund);
     const amountsByOrderId = new Map<number, SalesRecordOrderAmounts>();
-    for (const order of orders) {
-      if (order.refund) continue;
+    for (const order of activeOrders) {
       amountsByOrderId.set(
         Number(order.id),
         resolveSalesRecordAmountsFromOrder(order),
@@ -158,7 +165,7 @@ export class SalesRecordReportService {
       0,
     );
     // 商品明细沿用同一份订单级金额，保证明细营业额合计 = 汇总营业额
-    const dailySales = aggregateReportRows(orders, amountsByOrderId);
+    const dailySales = aggregateReportRows(activeOrders, amountsByOrderId);
     // orderCount 应为原始订单笔数，而非按 (日期+商品) 聚合后的行数
     const orderCount = orders.length;
 
@@ -327,8 +334,12 @@ export class SalesRecordReportService {
     const scanOrderIds = orders
       .map((order) => order.scanOrderId)
       .filter((id): id is number => id !== null && id !== undefined);
+    // 与列表接口同口径：已加载的 spaceSession 为空时不可能命中会话规格行，
+    // 收窄 IN 集合可避免每批导出都把整批普通订单 ID 带进 space_sessions 查询。
     const nonScanSaleOrderIds = orders
-      .filter((order) => order.scanOrderId === null)
+      .filter(
+        (order) => order.scanOrderId === null && order.spaceSession !== null,
+      )
       .map((order) => order.id);
 
     const [scanDetails, spaceSessionSpecs] = await Promise.all([

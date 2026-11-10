@@ -199,11 +199,11 @@ describe('MarketingService customers', () => {
           type: 'recharge',
         },
       ]);
-    context.prismaService.marketingRecharge.aggregate
-      // 1. recharge aggregate: _sum.amount
-      .mockResolvedValueOnce({ _sum: { amount: 35000 } })
-      // 2. refund aggregate: _sum.amount
-      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    // 充值 / 退款本金一次 groupBy 取回
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 35000 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
     context.prismaService.marketingConsumption.aggregate
       // 1. computeCustomerFinance: totalPointsDeducted
       .mockResolvedValueOnce({ _sum: { pointsDeducted: 0 } })
@@ -323,9 +323,10 @@ describe('MarketingService customers', () => {
       .mockResolvedValueOnce([]) // recentRecharges: 空
       .mockResolvedValueOnce([]) // recentConsumptions: 空
       .mockResolvedValueOnce([]); // queryCustomerGiftBalanceCents: 空
-    context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 0 } }) // recharge
-      .mockResolvedValueOnce({ _sum: { amount: 0 } }); // refund
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 0 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
     context.prismaService.marketingConsumption.aggregate
       // 1. computeCustomerFinance: totalPointsDeducted
       .mockResolvedValueOnce({ _sum: { pointsDeducted: 0 } })

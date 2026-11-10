@@ -67,6 +67,21 @@ export class EmployeesPayrollReportService {
           : {}),
       },
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
+      // 报表只消费下列字段；按年导出时避免把 note / commission 等无关列全部拉回内存
+      select: {
+        id: true,
+        employeeName: true,
+        month: true,
+        baseSalary: true,
+        leaveDeduction: true,
+        otherDeduction: true,
+        bonus: true,
+        actualSalary: true,
+        socialInsurance: true,
+        housingFund: true,
+        totalLaborCost: true,
+        confirmedAt: true,
+      },
     });
 
     // socialInsurance/housingFund 已改为 Int（分），直接传入 buildPayrollReport 内部调用 Money.fromDbCents().toOutputYuan() 转换

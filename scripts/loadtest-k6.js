@@ -236,7 +236,7 @@ function doCheck(res, scenarioName) {
 export function s1_sales_record() {
   group('S1 sales-record list', () => {
     const res = http.get(
-      `${BASE_URL}/profit/sales-record/list?storeId=${STORE_ID}&page=1&pageSize=20`,
+      `${BASE_URL}/sales/orders?storeId=${STORE_ID}&page=1&pageSize=20`,
       { headers: bHeaders() },
     );
     doCheck(res, 's1_sales_record');
@@ -348,7 +348,7 @@ export function s8_mixed_peak() {
     // B 端销售记录 ~15%
     group('S8-mixed sales-record', () => {
       const res = http.get(
-        `${BASE_URL}/profit/sales-record/list?storeId=${STORE_ID}&page=1&pageSize=20`,
+        `${BASE_URL}/sales/orders?storeId=${STORE_ID}&page=1&pageSize=20`,
         { headers: bHeaders() },
       );
       doCheck(res, 's8_mixed_sales_record');

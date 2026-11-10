@@ -74,6 +74,10 @@ model Employee {
   @@index([storeId, joinDate])
   @@index([departmentId])
   @@index([positionId])
+  // 员工列表「全部 / 在职」视图按 status、created_at、id 排序
+  @@index([storeId, status, createdAt, id], map: "employees_store_id_status_created_at_id_idx")
+  // 离职视图按 resign_date 排序，概览同时按 resign_date 统计本月离职
+  @@index([storeId, status, resignDate, createdAt, id], map: "employees_store_id_status_resign_date_created_at_id_idx")
   @@map("employees")
 }
 
@@ -134,6 +138,8 @@ model EmployeeShift {
   @@unique([employeeId, date])
   @@index([storeId, date])
   @@index([shiftDefinitionId, date])
+  // 排班列表按 date、id 排序，补 id 兜底列避免二次排序
+  @@index([storeId, date, id], map: "employee_shifts_store_id_date_id_idx")
   @@map("employee_shifts")
 }
 
@@ -166,6 +172,8 @@ model EmployeePayroll {
   @@unique([employeeId, month])
   @@index([storeId, month])
   @@index([storeId, status, month])
+  // 工资单列表按 created_at、id 排序，现有索引均以 month 为前导排序列
+  @@index([storeId, createdAt, id], map: "employee_payrolls_store_id_created_at_id_idx")
   @@map("employee_payrolls")
 }
 

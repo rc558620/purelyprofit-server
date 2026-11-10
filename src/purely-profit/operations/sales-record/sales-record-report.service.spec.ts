@@ -740,6 +740,57 @@ describe('SalesRecordReportService', () => {
     );
   });
 
+  it('getReport 只查报表聚合所需字段，不加载列表专用关联', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+
+    await service.getReport(user, { storeId: 18, period: 'month' });
+
+    // 金额 / 明细口径字段必须齐全：少查一个字段不会抛错，只会让报表静默
+    // 少算金额，因此这条断言是「精简 select」不可回退的安全边界。
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ storeId: 18 }),
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        select: expect.objectContaining({
+          id: true,
+          date: true,
+          scanOrderId: true,
+          paymentMethod: true,
+          customerPaymentMethod: true,
+          voucherFaceAmount: true,
+          refund: { select: { refundedAt: true } },
+          items: expect.objectContaining({
+            select: expect.objectContaining({
+              id: true,
+              productId: true,
+              productName: true,
+              categoryName: true,
+              salePrice: true,
+              profit: true,
+              quantity: true,
+            }),
+          }),
+          spaceSession: {
+            select: { hourlyRate: true, space: { select: { name: true } } },
+          },
+        }),
+      }),
+    );
+
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({
+          operatorStaff: expect.anything(),
+          grouponCode: expect.anything(),
+          orderNo: expect.anything(),
+          note: expect.anything(),
+          createdAt: expect.anything(),
+        }),
+      }),
+    );
+  });
+
   /*
    * 导出走 keyset 游标分批：先扫一遍算汇总（汇总行在文件头部），再扫一遍边取边写。
    * 这两条用例锁住「分批不漏单、不重复、金额与一次性导出同源」。

@@ -32,6 +32,7 @@ import {
   type SalesRecordSpecsEnrichment,
 } from './sales-record-item-aggregation';
 import type { ScanOrderingEnrichment } from './sales-record-enrichment';
+import type { SalesReportOrder } from './sales-record-report.query';
 
 // ---------------------------------------------------------------------------
 // 订单查询形态
@@ -271,9 +272,7 @@ function buildAmountsPreparedItems(
  * 这类订单的券面金额 = 顾客买券实付 = 门店券结算收入，
  * 金额口径见 SalesRecordAmountsDomain.resolveGrouponVoucherAmounts。
  */
-export function isGrouponVoucherSettledOrder(
-  order: SaleOrderWithItems,
-): boolean {
+export function isGrouponVoucherSettledOrder(order: SalesReportOrder): boolean {
   // 扫码点餐 / 手工补录订单走 amountSummary，不适用券程台位费口径
   if (order.scanOrderId !== null) return false;
   const isGrouponPayment =
@@ -309,7 +308,7 @@ export interface GrouponVoucherBreakdown {
  * 超时台位费由顾客到店另付，点单全额计入；其余订单沿用商品行聚合结果。
  */
 export function resolveSalesRecordAmounts(
-  order: SaleOrderWithItems,
+  order: SalesReportOrder,
   visibleRows: SalesRecordItemRow[],
   amountsSnapshot: SalesRecordAmountsSnapshot,
 ): SalesRecordOrderAmounts {
@@ -532,7 +531,7 @@ export function buildSalesRecordPaymentEvents(
 
 /** 便于 CSV / 报表调用：内部构建可见行并完成金额聚合。 */
 export function resolveSalesRecordAmountsFromOrder(
-  order: SaleOrderWithItems,
+  order: SalesReportOrder,
 ): SalesRecordOrderAmounts {
   const visibleRows = buildVisibleSalesRecordRows(order);
   const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(
@@ -687,8 +686,8 @@ export function prefixSpaceName(
 
 /** 台位费商品展示名：从订单空间会话取空间名并拼接前缀（报表/CSV 复用）。 */
 export function resolveReportProductName(
-  order: SaleOrderWithItems,
-  item: SaleOrderWithItems['items'][number],
+  order: SalesReportOrder,
+  item: SalesReportOrder['items'][number],
 ): string {
   return prefixSpaceName(
     toOptionalText(order.spaceSession?.space?.name),

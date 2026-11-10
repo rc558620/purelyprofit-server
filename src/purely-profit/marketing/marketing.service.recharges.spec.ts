@@ -156,10 +156,11 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
-    // 预校验 aggregate：累计充值 2000 分（20 元），累计退款 0
-    context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    // 预校验：累计充值 2000 分（20 元），累计退款 0
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 2000 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
 
     await expect(
       context.service.createRecharge(context.user, 18, {
@@ -271,10 +272,11 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
-    // 预校验 aggregate：累计充值 50000（500 元），累计退款 0
-    context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 50000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    // 预校验：累计充值 50000（500 元），累计退款 0
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 50000 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
 
     const createdRecharge = {
       id: 102,
@@ -293,10 +295,10 @@ describe('MarketingService recharges', () => {
       const txMock = {
         marketingRecharge: {
           create: jest.fn().mockResolvedValue(createdRecharge),
-          aggregate: jest
-            .fn()
-            .mockResolvedValueOnce({ _sum: { amount: 50000 } })
-            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+          groupBy: jest.fn().mockResolvedValue([
+            { type: 'recharge', _sum: { amount: 50000 } },
+            { type: 'refund', _sum: { amount: 0 } },
+          ]),
         },
         marketingCustomer: {
           updateMany: txUpdateMock,
@@ -379,19 +381,20 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
-    context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 50000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 50000 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
 
     const txUpdateMock = jest.fn().mockResolvedValue({ count: 0 });
     context.prismaService.$transaction.mockImplementation((fn) => {
       const txMock = {
         marketingRecharge: {
           create: jest.fn().mockResolvedValue({ id: 104 }),
-          aggregate: jest
-            .fn()
-            .mockResolvedValueOnce({ _sum: { amount: 50000 } })
-            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+          groupBy: jest.fn().mockResolvedValue([
+            { type: 'recharge', _sum: { amount: 50000 } },
+            { type: 'refund', _sum: { amount: 0 } },
+          ]),
         },
         marketingCustomer: {
           // 并发的另一笔退款已把余额扣走，条件更新命中 0 行
@@ -448,10 +451,11 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-04-01T10:00:00.000Z'),
       },
     ]);
-    // 预校验 aggregate：累计充值 40000（400 元），累计退款 0
-    context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 40000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    // 预校验：累计充值 40000（400 元），累计退款 0
+    context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
+      { type: 'recharge', _sum: { amount: 40000 } },
+      { type: 'refund', _sum: { amount: 0 } },
+    ]);
 
     const createdRecharge = {
       id: 103,
@@ -470,10 +474,10 @@ describe('MarketingService recharges', () => {
       const txMock = {
         marketingRecharge: {
           create: jest.fn().mockResolvedValue(createdRecharge),
-          aggregate: jest
-            .fn()
-            .mockResolvedValueOnce({ _sum: { amount: 40000 } })
-            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+          groupBy: jest.fn().mockResolvedValue([
+            { type: 'recharge', _sum: { amount: 40000 } },
+            { type: 'refund', _sum: { amount: 0 } },
+          ]),
         },
         marketingCustomer: {
           updateMany: txUpdateMock,
