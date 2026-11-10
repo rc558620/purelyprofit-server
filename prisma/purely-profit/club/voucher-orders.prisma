@@ -103,6 +103,14 @@ model ClubVoucherOrder {
   @@index([storeId, status, createdAt(sort: Desc)])
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([usedSessionId])
+  /// 商家端列表每次请求先做门店惰性过期：storeId/status 等值后按 expiresAt 范围
+  /// 直接在索引内定位已过期行，避免扫描该店全部 pending 历史订单。谓词排除
+  /// 未支付草稿（草稿无有效期），索引体积与写放大都收敛在已支付订单。
+  @@index([storeId, status, expiresAt], map: "club_voucher_orders_store_status_expires_idx", where: raw("(expires_at IS NOT NULL)"))
+  /// 营销顾客列表 groupBy 与消费统计 aggregate 的「已退款余额支付订单」口径：
+  /// 按 customerId 定位后再按 status/paymentChannel 收敛，避免按 customerId 批量
+  /// 查询时全表扫描。谓词只纳入有退款金额的订单，占比极小。
+  @@index([customerId, status, paymentChannel], map: "club_voucher_orders_customer_refund_balance_idx", where: raw("(refund_amount_fen IS NOT NULL)"))
   @@map("club_voucher_orders")
 }
 

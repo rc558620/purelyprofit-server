@@ -49,14 +49,18 @@ export class VoucherOrderVoiceSettingsService {
     updates: Partial<VoucherOrderVoiceSettings>,
   ): Promise<VoucherOrderVoiceSettings> {
     const storeId = await this.resolveMerchantStoreId(user);
-    await this.prisma.store.update({
+    // 直接用 update 返回值构造响应，省掉更新后的二次 findUnique 读回
+    const store = await this.prisma.store.update({
       where: { id: storeId },
       data: updates,
+      select: { voucherOrderVoiceEnabled: true },
     });
     console.info(
       `[voucher-order-voice] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,
     );
-    return this.getByStoreId(storeId);
+    return {
+      voucherOrderVoiceEnabled: store.voucherOrderVoiceEnabled,
+    };
   }
 
   private async resolveMerchantStoreId(

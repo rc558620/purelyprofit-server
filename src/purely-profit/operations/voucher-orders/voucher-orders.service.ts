@@ -53,6 +53,34 @@ export interface VoucherOrderRejectResult {
 /** 可操作状态：确认/拒绝仅对 pending 订单开放 */
 const CONFIRMABLE_STATUS = ['pending'] as const;
 
+/**
+ * 商家端列表字段白名单：按 VoucherOrderListItemDto 实际消费字段裁剪，避免高频
+ * 列表回读 breakdownItems Json 与微信/积分等无关快照列；商品图仍按当前商品实时取。
+ */
+const VOUCHER_ORDER_MANAGE_LIST_SELECT = {
+  orderNo: true,
+  voucherCode: true,
+  guestName: true,
+  guestPhone: true,
+  categoryName: true,
+  productName: true,
+  quantity: true,
+  remark: true,
+  paidAmountFen: true,
+  status: true,
+  usedSessionId: true,
+  createdAt: true,
+  confirmedAt: true,
+  verifyAt: true,
+  confirmedByStaffName: true,
+  confirmedByStaffRole: true,
+  rejectedAt: true,
+  refundAt: true,
+  rejectedByStaffName: true,
+  rejectedByStaffRole: true,
+  product: { select: { image: true } },
+} satisfies Prisma.ClubVoucherOrderSelect;
+
 @Injectable()
 export class VoucherOrdersService {
   private readonly logger = new Logger(VoucherOrdersService.name);
@@ -105,8 +133,8 @@ export class VoucherOrdersService {
         orderBy: { createdAt: 'desc' },
         skip: query.offset ?? 0,
         take: query.limit ?? 20,
-        // 商品图片：取营销商品当前图（商品被删后为 null，前端占位展示）
-        include: { product: { select: { image: true } } },
+        // 字段裁剪 + 商品图（取营销商品当前图，商品被删后为 null，前端占位展示）
+        select: VOUCHER_ORDER_MANAGE_LIST_SELECT,
       }),
       this.prisma.clubVoucherOrder.count({ where }),
     ]);

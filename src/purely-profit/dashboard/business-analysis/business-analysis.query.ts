@@ -159,6 +159,37 @@ function compareText(a: string, b: string): number {
 }
 
 /**
+ * 与 buildRankOrderSql 的三种排序维度严格一致，用于把排行截断从 SQL 侧
+ * 移到应用层后仍保持「先按维度排序、再截断」的原有语义。
+ */
+function compareRankRows(
+  a: BusinessAnalysisRankRow,
+  b: BusinessAnalysisRankRow,
+  rankSort: BusinessAnalysisRankSort,
+): number {
+  switch (rankSort) {
+    case 'revenue':
+      return (
+        b.totalRevenue - a.totalRevenue ||
+        b.totalProfit - a.totalProfit ||
+        compareText(a.productName, b.productName)
+      );
+    case 'quantity':
+      return (
+        b.quantity - a.quantity ||
+        b.totalProfit - a.totalProfit ||
+        compareText(a.productName, b.productName)
+      );
+    default:
+      return (
+        b.totalProfit - a.totalProfit ||
+        b.totalRevenue - a.totalRevenue ||
+        compareText(a.productName, b.productName)
+      );
+  }
+}
+
+/**
  * 商品利润排行查询。抽成独立函数，供完整分析与 CSV 导出（只需排行）两条路径共用。
  */
 async function executeRankQuery(
@@ -225,20 +256,14 @@ export async function fetchBusinessAnalysisMetrics(
   rankSort: BusinessAnalysisRankSort = DEFAULT_BUSINESS_ANALYSIS_RANK_SORT,
 ): Promise<BusinessAnalysisMetricsRows> {
   const queryRange = buildQueryRange(currentRange, previousRange);
-  const rankOrderSql = buildRankOrderSql(rankSort);
   const salesPreviousRevenueSql = buildSalesPreviousRevenueSql(previousRange);
   const salesPreviousCountSql = buildSalesPreviousCountSql(previousRange);
   const salesPreviousProfitSql = buildSalesPreviousProfitSql(previousRange);
   const costPreviousTotalSql = buildCostPreviousTotalSql(previousRange);
 
-  const [
-    salesSummaryRows,
-    salesGroupedRows,
-    salesRankRows,
-    costSummaryRows,
-    costGroupedRows,
-  ] = await Promise.all([
-    prisma.$queryRaw<BusinessAnalysisSalesSummaryRow[]>`
+  const [salesSummaryRows, salesGroupedRows, costSummaryRows, costGroupedRows] =
+    await Promise.all([
+      prisma.$queryRaw<BusinessAnalysisSalesSummaryRow[]>`
       SELECT
         COALESCE(
           SUM(
@@ -276,16 +301,19 @@ export async function fetchBusinessAnalysisMetrics(
         AND so.date <= ${new Date(queryRange.end)}
         AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     `,
-    // 日趋势与品类分布共享一次表扫描：GROUPING SETS 一次产出两种粒度，
-    // 替代原先两条 WHERE 完全相同、各扫一遍 sale_order_items 的查询。
-    // 两种粒度的 ORDER BY 不同，统一在应用层分流后排序。
-    prisma.$queryRaw<BusinessAnalysisSalesGroupedRow[]>`
+      // 日趋势 / 品类分布 / 商品排行共享一次 sale_order_items 扫描：
+      // GROUPING SETS 一次产出三种粒度，替代原先两条 WHERE 高度重叠的查询
+      // 外加独立的排行查询。三种粒度的 ORDER BY 不同，统一在应用层分流后排序。
+      prisma.$queryRaw<BusinessAnalysisSalesGroupedRow[]>`
       SELECT
         date_trunc('day', so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
         soi.category_name AS "categoryName",
+        soi.product_id AS "productId",
+        soi.product_name AS "productName",
         COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
         COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
-        COALESCE(SUM(soi.quantity), 0)::int AS quantity
+        COALESCE(SUM(soi.quantity), 0)::int AS quantity,
+        MAX(NULLIF(soi.image, '')) AS image
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
       WHERE soi.store_id = ${storeId}
@@ -295,11 +323,11 @@ export async function fetchBusinessAnalysisMetrics(
         ${EXCLUDE_VOUCHER_ITEM_SQL}
       GROUP BY GROUPING SETS (
         (date_trunc('day', so.date + interval '8 hours') - interval '8 hours'),
-        (soi.category_name)
+        (soi.category_name),
+        (soi.product_id, soi.product_name, soi.category_name)
       )
     `,
-    executeRankQuery(prisma, storeId, currentRange, rankOrderSql),
-    prisma.$queryRaw<BusinessAnalysisCostSummaryRow[]>`
+      prisma.$queryRaw<BusinessAnalysisCostSummaryRow[]>`
       SELECT
         COALESCE(
           SUM(
@@ -318,8 +346,8 @@ export async function fetchBusinessAnalysisMetrics(
         AND cr.date >= ${new Date(queryRange.start)}
         AND cr.date <= ${new Date(queryRange.end)}
     `,
-    // 同上：成本日趋势与成本构成共享一次 cost_records 扫描
-    prisma.$queryRaw<BusinessAnalysisCostGroupedRow[]>`
+      // 同上：成本日趋势与成本构成共享一次 cost_records 扫描
+      prisma.$queryRaw<BusinessAnalysisCostGroupedRow[]>`
       SELECT
         date_trunc('day', cr.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
         cr.category AS category,
@@ -333,13 +361,25 @@ export async function fetchBusinessAnalysisMetrics(
         (cr.category)
       )
     `,
-  ]);
+    ]);
 
-  // 把 GROUPING SETS 的两种粒度分流还原成原来的两组行：
-  // 日趋势行 bucketAt 非空、品类行 categoryName 非空。
+  // 三种粒度分流：product_name 为 NOT NULL，只有商品排行分组带 productName。
   const salesDailyRows: BusinessAnalysisDailyRevenueRow[] = [];
   const salesCategoryRows: BusinessAnalysisCategoryRow[] = [];
+  const salesRankRows: BusinessAnalysisRankRow[] = [];
   for (const row of salesGroupedRows) {
+    if (typeof row.productName === 'string') {
+      salesRankRows.push({
+        productId: row.productId,
+        productName: row.productName,
+        categoryName: row.categoryName ?? '',
+        totalRevenue: Number(row.revenue ?? 0),
+        totalProfit: Number(row.profit ?? 0),
+        quantity: row.quantity,
+        image: row.image,
+      });
+      continue;
+    }
     if (row.bucketAt !== null) {
       salesDailyRows.push({
         bucketAt: row.bucketAt,
@@ -357,7 +397,10 @@ export async function fetchBusinessAnalysisMetrics(
       });
     }
   }
-  // 还原被合并掉的两条 SQL 各自的排序：日趋势按时间升序、品类按收入降序
+  // 还原被合并掉的各条 SQL 的排序：先按 rankSort 排序再截断，与原先
+  // ORDER BY + LIMIT 语义一致；日趋势按时间升序、品类按收入降序。
+  salesRankRows.sort((a, b) => compareRankRows(a, b, rankSort));
+  const rankedProducts = salesRankRows.slice(0, BUSINESS_ANALYSIS_RANK_LIMIT);
   salesDailyRows.sort((a, b) => a.bucketAt.getTime() - b.bucketAt.getTime());
   salesCategoryRows.sort(
     (a, b) =>
@@ -397,7 +440,7 @@ export async function fetchBusinessAnalysisMetrics(
     },
     salesDailyRows,
     salesCategoryRows,
-    salesRankRows,
+    salesRankRows: rankedProducts,
     costSummaryRow: {
       currentTotalCost: Number(costSummaryRows[0]?.currentTotalCost ?? 0),
       previousTotalCost: Number(costSummaryRows[0]?.previousTotalCost ?? 0),

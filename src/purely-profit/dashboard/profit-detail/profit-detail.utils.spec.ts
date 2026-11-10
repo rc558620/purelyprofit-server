@@ -7,6 +7,7 @@ import {
   aggregateCostsTotal,
   aggregateSales,
   aggregateSalesTotals,
+  buildPreviousAggregations,
   createEmptySalesAggregation,
 } from './profit-detail.domain';
 import {
@@ -26,6 +27,7 @@ import {
   buildCostRecordQuery,
   buildSaleOrderItemQuery,
   fetchProfitRows,
+  PROFIT_DETAIL_PAGE_SIZE,
 } from './profit-detail.query';
 import {
   PROFIT_DETAIL_COST_RECORD_SELECT,
@@ -41,7 +43,6 @@ import {
   buildCurrentRange,
   buildPreviousRange,
   buildQueryInput,
-  resolveProfitQueryRange,
 } from './profit-detail.utils';
 
 describe('profit-detail.utils', () => {
@@ -156,42 +157,31 @@ describe('profit-detail.utils', () => {
     });
   });
 
-  it('查询 helper 会统一组装区间与 Prisma 查询参数', () => {
+  it('查询 helper 只按当期区间组装 Prisma 查询参数', () => {
     const currentRange: ProfitAccessibleRange = {
       start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
       end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
       clamped: false,
       empty: false,
     };
-    const previousRange: ProfitAccessibleRange = {
-      start: new Date(2026, 4, 10, 0, 0, 0, 0).getTime(),
-      end: new Date(2026, 4, 11, 23, 59, 59, 999).getTime(),
-      clamped: false,
-      empty: false,
-    };
-    const queryRange = resolveProfitQueryRange(currentRange, previousRange);
 
-    expect(queryRange).toEqual({
-      start: previousRange.start,
-      end: currentRange.end,
-    });
-    expect(buildSaleOrderItemQuery(18, queryRange)).toEqual({
+    expect(buildSaleOrderItemQuery(18, currentRange)).toEqual({
       where: {
         storeId: 18,
         order: {
           date: {
-            gte: new Date(previousRange.start),
+            gte: new Date(currentRange.start),
             lte: new Date(currentRange.end),
           },
         },
       },
       orderBy: [{ order: { date: 'asc' } }, { id: 'asc' }],
     });
-    expect(buildCostRecordQuery(18, queryRange)).toEqual({
+    expect(buildCostRecordQuery(18, currentRange)).toEqual({
       where: {
         storeId: 18,
         date: {
-          gte: new Date(previousRange.start),
+          gte: new Date(currentRange.start),
           lte: new Date(currentRange.end),
         },
       },
@@ -199,23 +189,24 @@ describe('profit-detail.utils', () => {
     });
   });
 
-  it('buildClampedRanges 会并发调用会员历史裁剪能力', async () => {
-    const clampHistoryRange = jest
+  it('buildClampedRanges 复用一次会员档案读取完成两段区间裁剪', async () => {
+    const clamp = jest
       .fn()
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce({
         start: 10,
         end: 20,
         clamped: true,
         empty: false,
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce({
         start: 1,
         end: 9,
         clamped: false,
         empty: true,
       });
+    const createHistoryRangeClamper = jest.fn().mockResolvedValue({ clamp });
     const platformMembershipAccessService = {
-      clampHistoryRange,
+      createHistoryRangeClamper,
     } as unknown as PlatformMembershipAccessService;
 
     await expect(
@@ -229,30 +220,24 @@ describe('profit-detail.utils', () => {
       currentRange: { start: 10, end: 20, clamped: true, empty: false },
       previousRange: { start: 1, end: 9, clamped: false, empty: true },
     });
-    expect(clampHistoryRange).toHaveBeenNthCalledWith(
-      1,
-      18,
-      {
-        start: 10,
-        end: 20,
-      },
-      false,
-    );
-    expect(clampHistoryRange).toHaveBeenNthCalledWith(
-      2,
-      18,
-      {
-        start: 1,
-        end: 9,
-      },
-      false,
-    );
+    expect(createHistoryRangeClamper).toHaveBeenCalledWith(18, false);
+    expect(clamp).toHaveBeenNthCalledWith(1, { start: 10, end: 20 });
+    expect(clamp).toHaveBeenNthCalledWith(2, { start: 1, end: 9 });
   });
 
   it('fetchProfitRows 会统一复用 query helper 与 select 常量', async () => {
     const saleFindMany = jest.fn().mockResolvedValue([{ id: 'sale' }]);
     const costFindMany = jest.fn().mockResolvedValue([{ id: 'cost' }]);
     const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          revenue: 0,
+          profit: 0,
+          goods_cost: 0,
+          order_count: BigInt(0),
+          total_cost: 0,
+        },
+      ]),
       saleOrderItem: { findMany: saleFindMany },
       costRecord: { findMany: costFindMany },
     } as unknown as PrismaService;
@@ -274,23 +259,24 @@ describe('profit-detail.utils', () => {
     ).resolves.toEqual({
       saleRows: [{ id: 'sale' }],
       costRows: [{ id: 'cost' }],
+      previousTotals: {
+        revenueCents: 0,
+        profitCents: 0,
+        goodsCostCents: 0,
+        orderCount: 0,
+        totalCostCents: 0,
+      },
     });
-    // 首页不带游标条件（cursor 为 null 时游标 where 展开为空对象），也不再传 skip
+    // 明细只按当期范围拉取，上一周期改由 $queryRaw 标量聚合
     expect(saleFindMany).toHaveBeenCalledWith({
-      ...buildSaleOrderItemQuery(18, {
-        start: previousRange.start,
-        end: currentRange.end,
-      }),
+      ...buildSaleOrderItemQuery(18, currentRange),
       select: PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT,
-      take: 5000,
+      take: PROFIT_DETAIL_PAGE_SIZE,
     });
     expect(costFindMany).toHaveBeenCalledWith({
-      ...buildCostRecordQuery(18, {
-        start: previousRange.start,
-        end: currentRange.end,
-      }),
+      ...buildCostRecordQuery(18, currentRange),
       select: PROFIT_DETAIL_COST_RECORD_SELECT,
-      take: 5000,
+      take: PROFIT_DETAIL_PAGE_SIZE,
     });
   });
 
@@ -303,6 +289,15 @@ describe('profit-detail.utils', () => {
       .mockResolvedValueOnce([]);
     const costFindMany = jest.fn().mockResolvedValueOnce([]);
     const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          revenue: 0,
+          profit: 0,
+          goods_cost: 0,
+          order_count: BigInt(0),
+          total_cost: 0,
+        },
+      ]),
       saleOrderItem: { findMany: saleFindMany },
       costRecord: { findMany: costFindMany },
     } as unknown as PrismaService;
@@ -1060,5 +1055,139 @@ describe('profit-detail.utils', () => {
     expect(totals.dailyCostMap.size).toBe(0);
     expect(totals.categoryCostMap.size).toBe(0);
     expect(full.categoryCostMap.size).toBeGreaterThan(0);
+  });
+
+  it('SQL 下推的上一周期标量与原先 JS 聚合逐项对账一致', () => {
+    const previousRange = {
+      start: new Date(2026, 4, 11, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 11, 23, 59, 59, 999).getTime(),
+    };
+    const saleRows: SaleOrderItemRow[] = [
+      {
+        id: 1,
+        productId: 1,
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 1000,
+        profit: 400,
+        quantity: 2,
+        image: null,
+        order: {
+          id: 1,
+          date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 2,
+        productId: 1,
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 800,
+        profit: 300,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 2,
+          date: new Date(2026, 4, 11, 10, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 3,
+        productId: null,
+        productName: '续费抵扣',
+        categoryName: '场地费',
+        salePrice: -500,
+        profit: -500,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 3,
+          date: new Date(2026, 4, 12, 11, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+      {
+        id: 4,
+        productId: 3,
+        productName: '区间外商品',
+        categoryName: '饮品',
+        salePrice: 900,
+        profit: 400,
+        quantity: 1,
+        image: null,
+        order: {
+          id: 4,
+          date: new Date(2026, 4, 20, 10, 0, 0, 0),
+          spaceSession: null,
+        },
+      },
+    ];
+    const costRows: CostRecordRow[] = [
+      {
+        id: 1,
+        category: 'rent',
+        amount: 800,
+        date: new Date(2026, 4, 12, 9, 0, 0, 0),
+      },
+      {
+        id: 2,
+        category: 'purchase',
+        amount: 300,
+        date: new Date(2026, 4, 11, 9, 0, 0, 0),
+      },
+      {
+        id: 3,
+        category: 'rent',
+        amount: 150,
+        date: new Date(2026, 4, 20, 9, 0, 0, 0),
+      },
+    ];
+
+    // 基准：原先在内存里对上一周期明细做的标量聚合
+    const baselineSales = aggregateSalesTotals(
+      saleRows,
+      previousRange.start,
+      previousRange.end,
+    );
+    const baselineCosts = aggregateCostsTotal(
+      costRows,
+      previousRange.start,
+      previousRange.end,
+    );
+
+    // 模拟 fetchProfitPreviousTotals 的 SQL 输出：只有 id=2 的销售行（800/300/1）
+    // 与 id=2 的费用行（300）落在上一周期，抵扣行与区间外行均不计入
+    const { sales, costs } = buildPreviousAggregations({
+      revenueCents: 800,
+      profitCents: 300,
+      goodsCostCents: 500,
+      orderCount: 1,
+      totalCostCents: 300,
+    });
+
+    expect(sales.revenue.equals(baselineSales.revenue)).toBe(true);
+    expect(sales.totalProfit.equals(baselineSales.totalProfit)).toBe(true);
+    expect(sales.goodsCost.equals(baselineSales.goodsCost)).toBe(true);
+    expect(sales.orderCount).toBe(baselineSales.orderCount);
+    expect(sales.dailyRevenueMap.size).toBe(0);
+    expect(sales.dailyProfitMap.size).toBe(0);
+    expect(sales.dailyGoodsCostMap.size).toBe(0);
+    expect(sales.rankMap.size).toBe(0);
+    expect(costs.totalCost.equals(baselineCosts.totalCost)).toBe(true);
+    expect(costs.dailyCostMap.size).toBe(0);
+    expect(costs.categoryCostMap.size).toBe(0);
+
+    // 上一周期为空（历史窗口裁剪）时返回稳定的空聚合
+    const empty = buildPreviousAggregations({
+      revenueCents: 0,
+      profitCents: 0,
+      goodsCostCents: 0,
+      orderCount: 0,
+      totalCostCents: 0,
+    });
+    expect(empty.sales).toEqual(createEmptySalesAggregation());
+    expect(empty.costs.totalCost.equals(Money.zero())).toBe(true);
   });
 });

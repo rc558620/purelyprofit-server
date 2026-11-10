@@ -46,6 +46,18 @@ export interface ProfitDateRange {
   end: number;
 }
 
+/**
+ * 上一周期由 SQL 下推得到的标量汇总，单位统一为「分」。
+ * 上一周期只用于环比，日维度 / 商品排行 / 成本分类等明细容器无需下推。
+ */
+export interface ProfitPreviousTotals {
+  revenueCents: number;
+  profitCents: number;
+  goodsCostCents: number;
+  orderCount: number;
+  totalCostCents: number;
+}
+
 export interface ProfitAccessibleRange extends ProfitDateRange {
   clamped: boolean;
   empty: boolean;

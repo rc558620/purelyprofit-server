@@ -14,6 +14,60 @@ import type {
   ClubVoucherOrderListResponseDto,
 } from './dto/club-voucher-order.dto';
 
+/**
+ * 读路径字段白名单：订单表含 breakdownItems Json 与多处文本快照，全字段查询会在
+ * 高频列表上产生大量无效回表与反序列化开销。按各出口 DTO 实际消费字段裁剪，
+ * 增删 DTO 字段时必须同步维护这里（列表页与商详页共用基础字段）。
+ */
+const VOUCHER_ORDER_LIST_SELECT = {
+  id: true,
+  storeId: true,
+  productId: true,
+  orderNo: true,
+  voucherCode: true,
+  platform: true,
+  productName: true,
+  quantity: true,
+  personCount: true,
+  originalAmountFen: true,
+  discountAmountFen: true,
+  paidAmountFen: true,
+  status: true,
+  expiresAt: true,
+  createdAt: true,
+} satisfies Prisma.ClubVoucherOrderSelect;
+
+/** 详情在列表字段基础上补齐支付/核销/退款信息（breakdownItems 仅详情需要） */
+const VOUCHER_ORDER_DETAIL_SELECT = {
+  ...VOUCHER_ORDER_LIST_SELECT,
+  paymentChannel: true,
+  verifyAt: true,
+  usedAt: true,
+  usedStoreId: true,
+  refundAt: true,
+  refundAmountFen: true,
+  pointsDeductFen: true,
+  pointsUsed: true,
+  remark: true,
+  breakdownItems: true,
+} satisfies Prisma.ClubVoucherOrderSelect;
+
+/** 按券码读取（商家开台/核销共用）：只取调用方契约中的字段 */
+const VOUCHER_ORDER_CODE_SELECT = {
+  id: true,
+  storeId: true,
+  productName: true,
+  personCount: true,
+  guestName: true,
+  guestPhone: true,
+  guestType: true,
+  paidAmountFen: true,
+  status: true,
+  expiresAt: true,
+  usedSessionId: true,
+  quantity: true,
+} satisfies Prisma.ClubVoucherOrderSelect;
+
 @Injectable()
 export class ClubVoucherOrderQueryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -67,19 +121,17 @@ export class ClubVoucherOrderQueryService {
       orderBy,
       skip: offset,
       take: limit + 1,
+      select: VOUCHER_ORDER_LIST_SELECT,
     });
 
     // 惰性过期：pending 且已过期的订单就地转 expired
     const normalized = await this.expireOverdueOrders(orders);
 
-    // 批量补门店名（订单表无外键关系，按 storeId 一次性查询映射）
-    const storeNameMap = await this.loadStoreNameMap(
-      normalized.map((order) => order.storeId),
-    );
-    // 批量补商品图片（按 productId 回查营销商品当前图）
-    const productImageMap = await this.loadProductImageMap(
-      normalized.map((order) => order.productId),
-    );
+    // 两次批量补映射互不依赖（仍各自 in 批量查询，避免 N+1），并行发出省一次往返
+    const [storeNameMap, productImageMap] = await Promise.all([
+      this.loadStoreNameMap(normalized.map((order) => order.storeId)),
+      this.loadProductImageMap(normalized.map((order) => order.productId)),
+    ]);
 
     const items = normalized
       .slice(0, limit)
@@ -136,13 +188,16 @@ export class ClubVoucherOrderQueryService {
   ): Promise<ClubVoucherOrderDetailDto> {
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { orderNo: orderId, userId: currentContext.user.id },
+      select: VOUCHER_ORDER_DETAIL_SELECT,
     });
     if (!order) {
       throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
     }
     const normalized = await this.expireIfOverdue(order);
-    const storeNameMap = await this.loadStoreNameMap([order.storeId]);
-    const productImageMap = await this.loadProductImageMap([order.productId]);
+    const [storeNameMap, productImageMap] = await Promise.all([
+      this.loadStoreNameMap([order.storeId]),
+      this.loadProductImageMap([order.productId]),
+    ]);
     return toDetailDto(
       normalized,
       storeNameMap.get(order.storeId) ?? '',
@@ -169,6 +224,7 @@ export class ClubVoucherOrderQueryService {
   } | null> {
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { voucherCode, storeId },
+      select: VOUCHER_ORDER_CODE_SELECT,
     });
     if (!order) {
       return null;
@@ -207,8 +263,9 @@ export class ClubVoucherOrderQueryService {
         where: { id: { in: overdueIds }, status: 'pending' },
         data: { status: 'expired' },
       });
+      const overdueIdSet = new Set(overdueIds);
       return orders.map((order) =>
-        overdueIds.includes(order.id) ? { ...order, status: 'expired' } : order,
+        overdueIdSet.has(order.id) ? { ...order, status: 'expired' } : order,
       );
     }
     return orders;

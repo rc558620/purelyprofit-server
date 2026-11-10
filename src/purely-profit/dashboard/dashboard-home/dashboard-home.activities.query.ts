@@ -55,7 +55,11 @@ export async function loadRecentDailyRevenue(
 
 /**
  * 加载最近订单，用于首页动态。
- * 优先取最近 2 小时内订单；若不足 RECENT_ORDER_MIN_COUNT 条，则补今日内最近订单，并去重。
+ * 优先展示最近 2 小时内订单；不足 RECENT_ORDER_MIN_COUNT 条时，补今日内更早的订单。
+ *
+ * 两个窗口取并集一次查完：2 小时窗口是 [windowStart, now]，今日窗口是
+ * [todayStart, now]，取下界较小者即可覆盖两者。结果天然按 createdAt/id 倒序且
+ * 无重复，省掉「先查 2 小时、不够再串行补查今日」的第二次往返与 JS 去重排序。
  */
 export async function loadRecentOrders(
   prisma: PrismaService,
@@ -64,13 +68,11 @@ export async function loadRecentOrders(
   now: number,
 ): Promise<RecentOrderRow[]> {
   const windowStart = now - RECENT_ORDER_WINDOW_HOURS * 60 * 60 * 1000;
-
-  // 1) 优先查最近 2 小时内的订单
-  const recentOrders = await prisma.saleOrder.findMany({
+  const rows = await prisma.saleOrder.findMany({
     where: {
       storeId,
       createdAt: {
-        gte: new Date(windowStart),
+        gte: new Date(Math.min(windowStart, todayStart)),
         lte: new Date(now),
       },
     },
@@ -79,38 +81,19 @@ export async function loadRecentOrders(
     take: MAX_RECENT_ORDER_COUNT,
   });
 
-  if (recentOrders.length >= RECENT_ORDER_MIN_COUNT) {
-    return recentOrders;
+  // 倒序结果里 2 小时内的订单必然排在最前面，数出条数即可还原原分支语义：
+  // 够数时只展示这段时间的动态，不够时保留补齐后的整页。
+  let recentCount = 0;
+  for (const row of rows) {
+    if (row.createdAt.getTime() < windowStart) {
+      break;
+    }
+    recentCount += 1;
   }
 
-  // 2) 2 小时内不足，补今日内最近订单，去重
-  const existingIds = new Set(recentOrders.map((o) => o.id));
-  const remaining = MAX_RECENT_ORDER_COUNT - recentOrders.length;
-
-  const todayOrders = await prisma.saleOrder.findMany({
-    where: {
-      storeId,
-      createdAt: {
-        gte: new Date(todayStart),
-        lte: new Date(now),
-      },
-      id: { notIn: [...existingIds] },
-    },
-    select: DASHBOARD_HOME_RECENT_ORDER_SELECT,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: remaining,
-  });
-
-  // 合并后按 createdAt 倒序
-  const merged = [...recentOrders, ...todayOrders];
-  merged.sort((a, b) => {
-    const aTs = a.createdAt.getTime();
-    const bTs = b.createdAt.getTime();
-    if (bTs !== aTs) return bTs - aTs;
-    return b.id - a.id;
-  });
-
-  return merged;
+  return recentCount >= RECENT_ORDER_MIN_COUNT
+    ? rows.slice(0, recentCount)
+    : rows;
 }
 
 /**

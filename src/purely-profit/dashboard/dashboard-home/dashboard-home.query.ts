@@ -100,91 +100,119 @@ function resolveTrendSqlGranularity(
   return 'day';
 }
 
+interface DashboardHomeSalesCompareRow {
+  current_revenue: Prisma.Decimal | null;
+  current_profit: Prisma.Decimal | null;
+  current_order_count: bigint;
+  compare_revenue: Prisma.Decimal | null;
+  compare_profit: Prisma.Decimal | null;
+  compare_order_count: bigint;
+}
+
+/**
+ * 当期与对比期的销售汇总共用一次 sale_order_items 扫描。
+ *
+ * 原先两条 SELECT 完全相同、仅时间范围不同的 SQL 各扫一遍大表；这里把 WHERE
+ * 放宽到两期并集，再用 CASE / FILTER 分别还原各自的聚合。两个范围条件彼此独立，
+ * 所以即使将来两期出现重叠，结果仍与两次独立查询一致；抵扣行的排除条件不变。
+ */
+async function loadDashboardHomeSalesCompare(
+  prisma: PrismaService,
+  storeId: number,
+  currentRange: TimeRange,
+  compareRange: TimeRange,
+): Promise<DashboardHomeSalesCompareRow | undefined> {
+  const queryRange: TimeRange = {
+    start: Math.min(currentRange.start, compareRange.start),
+    end: Math.max(currentRange.end, compareRange.end),
+  };
+  const currentStart = new Date(currentRange.start);
+  const currentEnd = new Date(currentRange.end);
+  const compareStart = new Date(compareRange.start);
+  const compareEnd = new Date(compareRange.end);
+
+  const rows = await prisma.$queryRaw<DashboardHomeSalesCompareRow[]>`
+    SELECT
+      COALESCE(SUM(
+        CASE WHEN so.date >= ${currentStart} AND so.date <= ${currentEnd}
+        THEN soi.sale_price * soi.quantity ELSE 0 END
+      ), 0) AS current_revenue,
+      COALESCE(SUM(
+        CASE WHEN so.date >= ${currentStart} AND so.date <= ${currentEnd}
+        THEN soi.profit * soi.quantity ELSE 0 END
+      ), 0) AS current_profit,
+      COUNT(DISTINCT so.id) FILTER (
+        WHERE so.date >= ${currentStart} AND so.date <= ${currentEnd}
+      ) AS current_order_count,
+      COALESCE(SUM(
+        CASE WHEN so.date >= ${compareStart} AND so.date <= ${compareEnd}
+        THEN soi.sale_price * soi.quantity ELSE 0 END
+      ), 0) AS compare_revenue,
+      COALESCE(SUM(
+        CASE WHEN so.date >= ${compareStart} AND so.date <= ${compareEnd}
+        THEN soi.profit * soi.quantity ELSE 0 END
+      ), 0) AS compare_profit,
+      COUNT(DISTINCT so.id) FILTER (
+        WHERE so.date >= ${compareStart} AND so.date <= ${compareEnd}
+      ) AS compare_order_count
+    FROM sale_order_items soi
+    INNER JOIN sale_orders so ON so.id = soi.order_id
+    WHERE so.store_id = ${storeId}
+      AND so.date >= ${new Date(queryRange.start)}
+      AND so.date <= ${new Date(queryRange.end)}
+      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+  `;
+
+  return rows[0];
+}
+
 export async function loadDashboardHomeStatsData(
   prisma: PrismaService,
   params: LoadDashboardHomeStatsDataParams,
 ): Promise<DashboardHomeStatsData> {
   const { storeId, currentRange, compareRange } = params;
-  const [
-    store,
-    currentSalesAgg,
-    compareSalesAgg,
-    currentCostsAgg,
-    compareCostsAgg,
-  ] = await Promise.all([
-    prisma.store.findUnique({
-      where: { id: storeId },
-      select: DASHBOARD_HOME_STORE_SELECT,
-    }),
-    prisma.$queryRaw<
-      [
-        {
-          revenue: Prisma.Decimal | null;
-          profit: Prisma.Decimal | null;
-          order_count: bigint;
-        },
-      ]
-    >`
-      SELECT
-        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
-        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
-        COUNT(DISTINCT so.id) AS order_count
-      FROM sale_order_items soi
-      INNER JOIN sale_orders so ON so.id = soi.order_id
-      WHERE so.store_id = ${storeId}
-        AND so.date >= ${new Date(currentRange.start)}
-        AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
-    `,
-    prisma.$queryRaw<
-      [
-        {
-          revenue: Prisma.Decimal | null;
-          profit: Prisma.Decimal | null;
-          order_count: bigint;
-        },
-      ]
-    >`
-      SELECT
-        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
-        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
-        COUNT(DISTINCT so.id) AS order_count
-      FROM sale_order_items soi
-      INNER JOIN sale_orders so ON so.id = soi.order_id
-      WHERE so.store_id = ${storeId}
-        AND so.date >= ${new Date(compareRange.start)}
-        AND so.date <= ${new Date(compareRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
-    `,
-    prisma.costRecord.aggregate({
-      where: buildRangeWhere(storeId, currentRange),
-      _sum: { amount: true },
-    }),
-    prisma.costRecord.aggregate({
-      where: buildRangeWhere(storeId, compareRange),
-      _sum: { amount: true },
-    }),
-  ]);
+  const [store, salesRow, currentCostsAgg, compareCostsAgg] = await Promise.all(
+    [
+      prisma.store.findUnique({
+        where: { id: storeId },
+        select: DASHBOARD_HOME_STORE_SELECT,
+      }),
+      loadDashboardHomeSalesCompare(
+        prisma,
+        storeId,
+        currentRange,
+        compareRange,
+      ),
+      prisma.costRecord.aggregate({
+        where: buildRangeWhere(storeId, currentRange),
+        _sum: { amount: true },
+      }),
+      prisma.costRecord.aggregate({
+        where: buildRangeWhere(storeId, compareRange),
+        _sum: { amount: true },
+      }),
+    ],
+  );
 
   return {
     store,
     currentSales: {
       revenue: Money.fromDbCents(
-        Number(currentSalesAgg[0]?.revenue ?? 0),
+        Number(salesRow?.current_revenue ?? 0),
       ).toOutputYuan(),
       profit: Money.fromDbCents(
-        Number(currentSalesAgg[0]?.profit ?? 0),
+        Number(salesRow?.current_profit ?? 0),
       ).toOutputYuan(),
-      orderCount: Number(currentSalesAgg[0]?.order_count ?? 0),
+      orderCount: Number(salesRow?.current_order_count ?? 0),
     },
     compareSales: {
       revenue: Money.fromDbCents(
-        Number(compareSalesAgg[0]?.revenue ?? 0),
+        Number(salesRow?.compare_revenue ?? 0),
       ).toOutputYuan(),
       profit: Money.fromDbCents(
-        Number(compareSalesAgg[0]?.profit ?? 0),
+        Number(salesRow?.compare_profit ?? 0),
       ).toOutputYuan(),
-      orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
+      orderCount: Number(salesRow?.compare_order_count ?? 0),
     },
     currentCosts: {
       totalCost: Money.fromDbCents(

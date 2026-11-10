@@ -8,12 +8,16 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import type { RefreshableCacheLoadOptions } from '../../../redis/refreshable-cache.types';
 import { ProfitDetailService } from './profit-detail.service';
-import { fetchProfitRows } from './profit-detail.query';
+import {
+  fetchProfitRows,
+  PROFIT_DETAIL_PAGE_SIZE,
+} from './profit-detail.query';
 
 describe('ProfitDetailService', () => {
   let service: ProfitDetailService;
 
   const prismaService = {
+    $queryRaw: jest.fn(),
     saleOrderItem: {
       findMany: jest.fn(),
     },
@@ -22,12 +26,30 @@ describe('ProfitDetailService', () => {
     },
   };
 
+  /** 与两个契约测试里「上期商品 / 上期费用」明细等价的 SQL 下推标量（分） */
+  const previousTotalsRow = {
+    revenue: new Prisma.Decimal('2400'),
+    profit: new Prisma.Decimal('600'),
+    goods_cost: new Prisma.Decimal('1800'),
+    order_count: BigInt(1),
+    total_cost: new Prisma.Decimal('400'),
+  };
+
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
   };
 
+  const historyRangeClamper = {
+    clamp: jest.fn((range: { start: number; end: number }) => ({
+      ...range,
+      clamped: false,
+      empty: false,
+    })),
+  };
+
   const platformMembershipAccessService = {
     clampHistoryRange: jest.fn(),
+    createHistoryRangeClamper: jest.fn(),
     ensureReportExportEnabled: jest.fn(),
   };
 
@@ -66,6 +88,16 @@ describe('ProfitDetailService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 12, 0, 0, 0));
     jest.clearAllMocks();
+    // 上一周期由 SQL 下推提供标量，默认零值；个别用例按需覆盖
+    prismaService.$queryRaw.mockResolvedValue([
+      {
+        revenue: new Prisma.Decimal('0'),
+        profit: new Prisma.Decimal('0'),
+        goods_cost: new Prisma.Decimal('0'),
+        order_count: BigInt(0),
+        total_cost: new Prisma.Decimal('0'),
+      },
+    ]);
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
       (_storeId: number, range: { start: number; end: number }) => ({
         start: range.start,
@@ -73,6 +105,17 @@ describe('ProfitDetailService', () => {
         clamped: false,
         empty: false,
       }),
+    );
+    historyRangeClamper.clamp.mockImplementation(
+      (range: { start: number; end: number }) => ({
+        start: range.start,
+        end: range.end,
+        clamped: false,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.createHistoryRangeClamper.mockResolvedValue(
+      historyRangeClamper,
     );
     platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
       undefined,
@@ -102,6 +145,7 @@ describe('ProfitDetailService', () => {
 
   it('getProfitDetail 按前端利润详情字段聚合返回', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw.mockResolvedValue([previousTotalsRow]);
     prismaService.saleOrderItem.findMany.mockResolvedValue([
       {
         productId: 1,
@@ -223,6 +267,7 @@ describe('ProfitDetailService', () => {
 
   it('getReport 返回报表中心可直接消费的 summary + products 契约', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw.mockResolvedValue([previousTotalsRow]);
     prismaService.saleOrderItem.findMany.mockResolvedValue([
       {
         productId: 1,
@@ -443,13 +488,14 @@ describe('ProfitDetailService', () => {
     expect(yearResult.dailyProfits[0].dateLabel).toBe('1月');
     expect(yearResult.dailyProfits[11].dateLabel).toBe('12月');
 
+    // 明细只按当期（2025 年）拉取，上一周期改由 SQL 标量聚合
     expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 18,
           order: {
             date: {
-              gte: new Date(2024, 0, 1, 0, 0, 0, 0),
+              gte: new Date(2025, 0, 1, 0, 0, 0, 0),
               lte: new Date(2025, 11, 31, 23, 59, 59, 999),
             },
           },
@@ -461,7 +507,7 @@ describe('ProfitDetailService', () => {
         where: expect.objectContaining({
           storeId: 18,
           date: {
-            gte: new Date(2024, 0, 1, 0, 0, 0, 0),
+            gte: new Date(2025, 0, 1, 0, 0, 0, 0),
             lte: new Date(2025, 11, 31, 23, 59, 59, 999),
           },
         }),
@@ -534,14 +580,14 @@ describe('ProfitDetailService', () => {
 
   it('getProfitDetail 会按会员历史窗口裁剪查询范围', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    platformMembershipAccessService.clampHistoryRange
-      .mockResolvedValueOnce({
+    historyRangeClamper.clamp
+      .mockReturnValueOnce({
         start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
         end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
         clamped: true,
         empty: false,
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce({
         start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
         end: new Date(2026, 4, 7, 23, 59, 59, 999).getTime(),
         clamped: true,
@@ -572,14 +618,14 @@ describe('ProfitDetailService', () => {
 
   it('getProfitDetail 在历史窗口裁剪后仅返回可见天数趋势', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    platformMembershipAccessService.clampHistoryRange
-      .mockResolvedValueOnce({
+    historyRangeClamper.clamp
+      .mockReturnValueOnce({
         start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
         end: new Date(2026, 4, 14, 12, 0, 0, 0).getTime(),
         clamped: true,
         empty: false,
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce({
         start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
         end: new Date(2026, 4, 7, 23, 59, 59, 999).getTime(),
         clamped: true,
@@ -729,7 +775,7 @@ describe('ProfitDetailService', () => {
         where?: { OR?: Array<{ id?: { gt?: number } }> };
         take?: number;
       }) => {
-        const take = args?.take ?? 5000;
+        const take = args?.take ?? PROFIT_DETAIL_PAGE_SIZE;
         const cursorId = args?.where?.OR?.[1]?.id?.gt ?? 0;
         return Promise.resolve(
           allRows.filter((row) => row.id > cursorId).slice(0, take),

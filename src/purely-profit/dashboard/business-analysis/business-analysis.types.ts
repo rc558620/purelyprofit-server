@@ -85,9 +85,13 @@ export interface BusinessAnalysisRankRow {
 export interface BusinessAnalysisSalesGroupedRow {
   bucketAt: Date | null;
   categoryName: string | null;
+  /** 仅商品排行分组有值；日趋势 / 品类分组为 NULL */
+  productId: number | null;
+  productName: string | null;
   revenue: number;
   profit: number;
   quantity: number;
+  image: string | null;
 }
 
 /** 成本日趋势与成本构成同样由一条 GROUPING SETS 查询返回 */

@@ -10,7 +10,6 @@ import {
   buildProfitReportCacheKey,
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
-import { Money } from '../../../shared/money.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
   ProfitDetailResponseDto,
@@ -23,10 +22,8 @@ import type {
 } from './profit-detail.types';
 import {
   aggregateCosts,
-  aggregateCostsTotal,
   aggregateSales,
-  aggregateSalesTotals,
-  createEmptySalesAggregation,
+  buildPreviousAggregations,
 } from './profit-detail.domain';
 import {
   buildEmptyProfitDetailResponse,
@@ -292,42 +289,25 @@ export class ProfitDetailService {
       return null;
     }
 
-    const { saleRows, costRows } = await fetchProfitRows(
+    const { saleRows, costRows, previousTotals } = await fetchProfitRows(
       this.prisma,
       storeId,
       clampedCurrentRange,
-      clampedPreviousRange,
+      clampedPreviousRange.empty ? null : clampedPreviousRange,
     );
+    // 当期明细在内存里做完整聚合；上一周期只由 SQL 提供 5 个标量，不再拉明细。
     const currentSales = aggregateSales(
       saleRows,
       clampedCurrentRange.start,
       clampedCurrentRange.end,
     );
-    // 上一周期只用于环比，走标量聚合：不建日维度与排行 Map（下游从未读取）
-    const previousSales = clampedPreviousRange.empty
-      ? createEmptySalesAggregation()
-      : aggregateSalesTotals(
-          saleRows,
-          clampedPreviousRange.start,
-          clampedPreviousRange.end,
-        );
     const currentCosts = aggregateCosts(
       costRows,
       clampedCurrentRange.start,
       clampedCurrentRange.end,
     );
-    // 同上：上一周期成本只消费 totalCost
-    const previousCosts = clampedPreviousRange.empty
-      ? {
-          totalCost: Money.zero(),
-          dailyCostMap: new Map<number, Money>(),
-          categoryCostMap: new Map(),
-        }
-      : aggregateCostsTotal(
-          costRows,
-          clampedPreviousRange.start,
-          clampedPreviousRange.end,
-        );
+    const { sales: previousSales, costs: previousCosts } =
+      buildPreviousAggregations(previousTotals);
     // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 费用记录（成本管理），
     // 修复此前仅用「收入 − 费用记录」导致商品成本未被扣除、利润虚高的问题
     const netProfit = currentSales.totalProfit.subtract(currentCosts.totalCost);

@@ -6,9 +6,38 @@ import {
   type CostRecordRow,
   type ProfitAccessibleRange,
   type ProfitDateRange,
+  type ProfitPreviousTotals,
   type SaleOrderItemRow,
 } from './profit-detail.types';
-import { resolveProfitQueryRange } from './profit-detail.utils';
+
+/**
+ * 游标翻页单页行数。窗口内数据最终仍全量载入内存聚合，页大小只决定往返次数：
+ * 从 5000 提到 10000 可让大店 / 年维度的 DB 往返减半，且不改变行序与聚合口径。
+ * 不再放大是为了避免单页查询逼近 statement_timeout（默认 10s）与单次结果集过大。
+ */
+export const PROFIT_DETAIL_PAGE_SIZE = 10_000;
+
+export interface ProfitRowsSnapshot {
+  saleRows: SaleOrderItemRow[];
+  costRows: CostRecordRow[];
+  previousTotals: ProfitPreviousTotals;
+}
+
+interface ProfitPreviousTotalsRow {
+  revenue: Prisma.Decimal | null;
+  profit: Prisma.Decimal | null;
+  goods_cost: Prisma.Decimal | null;
+  order_count: bigint;
+  total_cost: Prisma.Decimal | null;
+}
+
+const EMPTY_PROFIT_PREVIOUS_TOTALS: ProfitPreviousTotals = {
+  revenueCents: 0,
+  profitCents: 0,
+  goodsCostCents: 0,
+  orderCount: 0,
+  totalCostCents: 0,
+};
 
 export function buildSaleOrderItemQuery(
   storeId: number,
@@ -44,20 +73,83 @@ export function buildCostRecordQuery(
   };
 }
 
+/**
+ * 上一周期只用于环比，仅需要 5 个标量，因此不再把上一周期明细拉进内存。
+ *
+ * SQL 口径与 JS 聚合严格对齐：
+ * - 抵扣行排除列表与 isDeductionItem 的 productName 回退分支一致（4 个名称）；
+ * - goodsCost = Σ(售价 − 利润) × 数量，对应逐行 itemRevenue.subtract(itemProfit) 累加；
+ * - orderCount 为区间内独立订单数，对应 seenOrderIds.size；
+ * - 券面消费行不排除（金额侧计入），与 aggregateSales 一致。
+ */
+async function fetchProfitPreviousTotals(
+  prisma: PrismaService,
+  storeId: number,
+  previousRange: ProfitDateRange | null,
+): Promise<ProfitPreviousTotals> {
+  if (previousRange === null) {
+    return EMPTY_PROFIT_PREVIOUS_TOTALS;
+  }
+
+  const start = new Date(previousRange.start);
+  const end = new Date(previousRange.end);
+  const rows = await prisma.$queryRaw<ProfitPreviousTotalsRow[]>`
+    SELECT
+      sales.revenue,
+      sales.profit,
+      sales.goods_cost,
+      sales.order_count,
+      costs.total_cost
+    FROM (
+      SELECT
+        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
+        COALESCE(SUM((soi.sale_price - soi.profit) * soi.quantity), 0) AS goods_cost,
+        COUNT(DISTINCT so.id) AS order_count
+      FROM sale_order_items soi
+      INNER JOIN sale_orders so ON so.id = soi.order_id
+      WHERE soi.store_id = ${storeId}
+        AND so.date >= ${start}
+        AND so.date <= ${end}
+        AND soi.product_name NOT IN ('预付款', '预付抵扣', '续费抵扣', '自助下单抵扣')
+    ) sales
+    CROSS JOIN (
+      SELECT COALESCE(SUM(cr.amount), 0) AS total_cost
+      FROM cost_records cr
+      WHERE cr.store_id = ${storeId}
+        AND cr.date >= ${start}
+        AND cr.date <= ${end}
+    ) costs
+  `;
+
+  const row = rows[0];
+  return {
+    revenueCents: Number(row?.revenue ?? 0),
+    profitCents: Number(row?.profit ?? 0),
+    goodsCostCents: Number(row?.goods_cost ?? 0),
+    orderCount: Number(row?.order_count ?? 0),
+    totalCostCents: Number(row?.total_cost ?? 0),
+  };
+}
+
+/**
+ * 只拉取当期明细；上一周期改为一条 SQL 标量聚合，三路并发。
+ * 这样行数、DB 传输量与后续 JS 聚合量都不再随「上一周期」翻倍。
+ */
 export async function fetchProfitRows(
   prisma: PrismaService,
   storeId: number,
   currentRange: ProfitAccessibleRange,
-  previousRange: ProfitAccessibleRange,
-  pageSize = 5000,
-): Promise<{ saleRows: SaleOrderItemRow[]; costRows: CostRecordRow[] }> {
-  const queryRange = resolveProfitQueryRange(currentRange, previousRange);
-  const [saleRows, costRows] = await Promise.all([
-    fetchAllSaleOrderItems(prisma, storeId, queryRange, pageSize),
-    fetchAllCostRecords(prisma, storeId, queryRange, pageSize),
+  previousRange: ProfitAccessibleRange | null,
+  pageSize = PROFIT_DETAIL_PAGE_SIZE,
+): Promise<ProfitRowsSnapshot> {
+  const [saleRows, costRows, previousTotals] = await Promise.all([
+    fetchAllSaleOrderItems(prisma, storeId, currentRange, pageSize),
+    fetchAllCostRecords(prisma, storeId, currentRange, pageSize),
+    fetchProfitPreviousTotals(prisma, storeId, previousRange),
   ]);
 
-  return { saleRows, costRows };
+  return { saleRows, costRows, previousTotals };
 }
 
 /** 翻页游标：取上一页末行的排序键，与各自 orderBy 严格对齐 */

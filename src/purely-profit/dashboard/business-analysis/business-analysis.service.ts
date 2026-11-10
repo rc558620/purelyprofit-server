@@ -144,13 +144,15 @@ export class BusinessAnalysisService {
     callerIsSubAccount: boolean,
   ): Promise<BusinessAnalysisResponseDto> {
     const rawCurrentRange = resolveCurrentRange(query);
-    // 先按会员历史窗口裁剪当前区间（老板受窗口限制，子账号不受限）。
-    const windowClampedCurrentRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
+    // 当前区间与上一区间共用一次会员档案读取：上一区间必须基于裁剪后的
+    // 当前区间推算，两次裁剪天然串行，若各自回表会多一次串行 DB 往返。
+    const clamper =
+      await this.platformMembershipAccessService.createHistoryRangeClamper(
         storeId,
-        rawCurrentRange,
         callerIsSubAccount,
       );
+    // 先按会员历史窗口裁剪当前区间（老板受窗口限制，子账号不受限）。
+    const windowClampedCurrentRange = clamper.clamp(rawCurrentRange);
 
     if (windowClampedCurrentRange.empty) {
       return buildEmptyAnalysisResponse();
@@ -167,12 +169,7 @@ export class BusinessAnalysisService {
       effectiveCurrentRange.start,
       effectiveCurrentRange.end,
     );
-    const clampedPreviousRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        rawPreviousRange,
-        callerIsSubAccount,
-      );
+    const clampedPreviousRange = clamper.clamp(rawPreviousRange);
 
     const rankSort: BusinessAnalysisRankSort =
       query.rankSort ?? DEFAULT_BUSINESS_ANALYSIS_RANK_SORT;

@@ -67,6 +67,11 @@ type EnsureFeatureEnabledParams = {
   errorMessage: string;
 };
 
+/** 一次读档后可在本次请求内复用的历史区间裁剪器 */
+export interface HistoryRangeClamper {
+  clamp(range: HistoryRange): ClampedHistoryRange;
+}
+
 @Injectable()
 export class PlatformMembershipAccessService {
   private readonly logger = new Logger(PlatformMembershipAccessService.name);
@@ -165,16 +170,37 @@ export class PlatformMembershipAccessService {
     return getHistoryWindowStartFromDays(snapshot.historyDays);
   }
 
+  /**
+   * 一次读取门店会员历史窗口，返回可在本次请求内复用的区间裁剪器。
+   *
+   * 报表类接口通常要裁剪「当前 + 上一」两个区间，且上一区间必须基于裁剪后的
+   * 当前区间推算（两步天然串行）。逐次调用 clampHistoryRange 会重复读取同一行
+   * 会员档案；把读档与裁剪拆开后，同一请求只读一次，裁剪本身仍是同步纯计算。
+   */
+  async createHistoryRangeClamper(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<HistoryRangeClamper> {
+    const historyWindowStart = await this.getHistoryWindowStart(
+      storeId,
+      callerIsSubAccount,
+    );
+    return {
+      clamp: (range: HistoryRange): ClampedHistoryRange =>
+        clampHistoryRangeByWindow(range, historyWindowStart),
+    };
+  }
+
   async clampHistoryRange(
     storeId: number,
     range: HistoryRange,
     callerIsSubAccount = false,
   ): Promise<ClampedHistoryRange> {
-    const historyWindowStart = await this.getHistoryWindowStart(
+    const clamper = await this.createHistoryRangeClamper(
       storeId,
       callerIsSubAccount,
     );
-    return clampHistoryRangeByWindow(range, historyWindowStart);
+    return clamper.clamp(range);
   }
 
   /**

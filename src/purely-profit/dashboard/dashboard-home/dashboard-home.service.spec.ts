@@ -206,14 +206,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('220.00'),
-          order_count: BigInt(2),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('80.00'),
-          order_count: BigInt(1),
+          current_revenue: new Prisma.Decimal('220.00'),
+          current_order_count: BigInt(2),
+          compare_revenue: new Prisma.Decimal('80.00'),
+          compare_order_count: BigInt(1),
         },
       ])
       // trend rows
@@ -291,14 +287,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('220.00'),
-          order_count: BigInt(2),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('80.00'),
-          order_count: BigInt(1),
+          current_revenue: new Prisma.Decimal('220.00'),
+          current_order_count: BigInt(2),
+          compare_revenue: new Prisma.Decimal('80.00'),
+          compare_order_count: BigInt(1),
         },
       ])
       .mockResolvedValueOnce([
@@ -437,14 +429,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -590,14 +578,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -651,14 +635,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -708,14 +688,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -769,14 +745,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -834,14 +806,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -892,14 +860,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -957,14 +921,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -1021,14 +981,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -1077,14 +1033,10 @@ describe('DashboardHomeService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          revenue: new Prisma.Decimal('0.00'),
-          order_count: BigInt(0),
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
         },
       ])
       .mockResolvedValueOnce([])
@@ -1140,10 +1092,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+        {
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1235,10 +1189,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+        {
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1258,37 +1214,33 @@ describe('DashboardHomeService', () => {
     prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     prismaService.employeePayroll.findMany.mockResolvedValue([]);
-    // 最近 2 小时内只有 1 笔订单
-    prismaService.saleOrder.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 201,
-          totalRevenue: new Prisma.Decimal('88.00'),
-          date: new Date(2026, 4, 14, 14, 0, 0, 0),
-          createdAt: new Date(2026, 4, 14, 14, 0, 0, 0),
-        },
-      ])
-      // 补今日订单（不含 id=201）
-      .mockResolvedValueOnce([
-        {
-          id: 202,
-          totalRevenue: new Prisma.Decimal('156.00'),
-          date: new Date(2026, 4, 14, 10, 30, 0, 0),
-          createdAt: new Date(2026, 4, 14, 10, 30, 0, 0),
-        },
-        {
-          id: 203,
-          totalRevenue: new Prisma.Decimal('72.00'),
-          date: new Date(2026, 4, 14, 9, 15, 0, 0),
-          createdAt: new Date(2026, 4, 14, 9, 15, 0, 0),
-        },
-        {
-          id: 204,
-          totalRevenue: new Prisma.Decimal('200.00'),
-          date: new Date(2026, 4, 14, 8, 30, 0, 0),
-          createdAt: new Date(2026, 4, 14, 8, 30, 0, 0),
-        },
-      ]);
+    // 单次查询按倒序返回：2 小时内 1 笔 + 今日更早 3 笔
+    prismaService.saleOrder.findMany.mockResolvedValueOnce([
+      {
+        id: 201,
+        totalRevenue: new Prisma.Decimal('88.00'),
+        date: new Date(2026, 4, 14, 14, 0, 0, 0),
+        createdAt: new Date(2026, 4, 14, 14, 0, 0, 0),
+      },
+      {
+        id: 202,
+        totalRevenue: new Prisma.Decimal('156.00'),
+        date: new Date(2026, 4, 14, 10, 30, 0, 0),
+        createdAt: new Date(2026, 4, 14, 10, 30, 0, 0),
+      },
+      {
+        id: 203,
+        totalRevenue: new Prisma.Decimal('72.00'),
+        date: new Date(2026, 4, 14, 9, 15, 0, 0),
+        createdAt: new Date(2026, 4, 14, 9, 15, 0, 0),
+      },
+      {
+        id: 204,
+        totalRevenue: new Prisma.Decimal('200.00'),
+        date: new Date(2026, 4, 14, 8, 30, 0, 0),
+        createdAt: new Date(2026, 4, 14, 8, 30, 0, 0),
+      },
+    ]);
 
     const result = await service.getOverview(user, { period: 'today' });
 
@@ -1302,11 +1254,11 @@ describe('DashboardHomeService', () => {
     const ids = orderActivities.map((a) => a.bizId);
     expect(new Set(ids).size).toBe(ids.length);
 
-    // 补今日时排除了已取到的 id=201
-    expect(prismaService.saleOrder.findMany).toHaveBeenCalledTimes(2);
-    const secondCallWhere =
-      prismaService.saleOrder.findMany.mock.calls[1][0].where;
-    expect(secondCallWhere.id.notIn).toContain(201);
+    // 一次查询覆盖两个窗口的并集，不再补查、也不再用 notIn 去重
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(
+      prismaService.saleOrder.findMany.mock.calls[0][0].where.id,
+    ).toBeUndefined();
 
     // 合并后按 createdAt 倒序
     const createdAtValues = orderActivities.map((a) => a.createdAt);
@@ -1322,10 +1274,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+        {
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1345,11 +1299,8 @@ describe('DashboardHomeService', () => {
     prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     prismaService.employeePayroll.findMany.mockResolvedValue([]);
-    // 2 小时内无订单
-    prismaService.saleOrder.findMany
-      .mockResolvedValueOnce([])
-      // 补今日也无订单
-      .mockResolvedValueOnce([]);
+    // 并集窗口内无订单
+    prismaService.saleOrder.findMany.mockResolvedValueOnce([]);
 
     const result = await service.getOverview(user, { period: 'today' });
 
@@ -1368,10 +1319,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('100.00'), order_count: BigInt(1) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('50.00'), order_count: BigInt(1) },
+        {
+          current_revenue: new Prisma.Decimal('100.00'),
+          current_order_count: BigInt(1),
+          compare_revenue: new Prisma.Decimal('50.00'),
+          compare_order_count: BigInt(1),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1432,10 +1385,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('100.00'), order_count: BigInt(1) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('50.00'), order_count: BigInt(1) },
+        {
+          current_revenue: new Prisma.Decimal('100.00'),
+          current_order_count: BigInt(1),
+          compare_revenue: new Prisma.Decimal('50.00'),
+          compare_order_count: BigInt(1),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1546,10 +1501,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+        {
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
@@ -1596,10 +1553,12 @@ describe('DashboardHomeService', () => {
     });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
-      ])
-      .mockResolvedValueOnce([
-        { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
+        {
+          current_revenue: new Prisma.Decimal('0.00'),
+          current_order_count: BigInt(0),
+          compare_revenue: new Prisma.Decimal('0.00'),
+          compare_order_count: BigInt(0),
+        },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips

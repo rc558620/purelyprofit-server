@@ -13,7 +13,6 @@ import {
 } from '../../../shared/shanghai-time.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
-  ProfitAccessibleRange,
   ProfitClampedRanges,
   ProfitDateRange,
   ProfitDetailQueryInput,
@@ -117,23 +116,6 @@ export function buildPreviousRange(
   return buildPreviousRangeByDuration(currentRange.start, currentRange.end);
 }
 
-export function resolveProfitQueryRange(
-  currentRange: ProfitAccessibleRange,
-  previousRange: ProfitAccessibleRange,
-): ProfitDateRange {
-  // end 取两侧最大值（与 business-analysis 的 resolveAnalysisQueryRange 对齐）：
-  // 仅取 currentRange.end 时，一旦历史裁剪让上期末端超出当期，上期尾部的销售/成本行
-  // 会被整体漏查，导致 previousRevenue/previousCost 偏小、环比虚高。
-  return {
-    start: previousRange.empty
-      ? currentRange.start
-      : Math.min(currentRange.start, previousRange.start),
-    end: previousRange.empty
-      ? currentRange.end
-      : Math.max(currentRange.end, previousRange.end),
-  };
-}
-
 export async function buildClampedRanges(
   platformMembershipAccessService: PlatformMembershipAccessService,
   storeId: number,
@@ -141,21 +123,15 @@ export async function buildClampedRanges(
   previousRange: ProfitDateRange,
   callerIsSubAccount = false,
 ): Promise<ProfitClampedRanges> {
-  const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
-    platformMembershipAccessService.clampHistoryRange(
+  // 两个区间共用一次会员档案读取，避免同一请求回表两次。
+  const clamper =
+    await platformMembershipAccessService.createHistoryRangeClamper(
       storeId,
-      currentRange,
       callerIsSubAccount,
-    ),
-    platformMembershipAccessService.clampHistoryRange(
-      storeId,
-      previousRange,
-      callerIsSubAccount,
-    ),
-  ]);
+    );
 
   return {
-    currentRange: clampedCurrentRange,
-    previousRange: clampedPreviousRange,
+    currentRange: clamper.clamp(currentRange),
+    previousRange: clamper.clamp(previousRange),
   };
 }

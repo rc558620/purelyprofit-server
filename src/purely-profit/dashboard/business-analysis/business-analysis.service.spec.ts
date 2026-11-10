@@ -28,8 +28,17 @@ describe('BusinessAnalysisService', () => {
     resolveSingleStoreId: jest.fn(),
   };
 
+  const historyRangeClamper = {
+    clamp: jest.fn((range: { start: number; end: number }) => ({
+      ...range,
+      clamped: false,
+      empty: false,
+    })),
+  };
+
   const platformMembershipAccessService = {
     clampHistoryRange: jest.fn(),
+    createHistoryRangeClamper: jest.fn(),
     ensureReportExportEnabled: jest.fn(),
   };
 
@@ -70,6 +79,16 @@ describe('BusinessAnalysisService', () => {
         ...range,
         empty: false,
       }),
+    );
+    historyRangeClamper.clamp.mockImplementation(
+      (range: { start: number; end: number }) => ({
+        ...range,
+        clamped: false,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.createHistoryRangeClamper.mockResolvedValue(
+      historyRangeClamper,
     );
     platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
       undefined,
@@ -139,14 +158,12 @@ describe('BusinessAnalysisService', () => {
           profit: new Prisma.Decimal('300'),
           quantity: 1,
         },
-      ])
-      .mockResolvedValueOnce([
         {
           productId: 1,
           productName: '可口可乐 330ml',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('1300'),
-          totalProfit: new Prisma.Decimal('500'),
+          revenue: new Prisma.Decimal('1300'),
+          profit: new Prisma.Decimal('500'),
           quantity: 2,
           image: 'https://example.com/coke.png',
         },
@@ -154,8 +171,8 @@ describe('BusinessAnalysisService', () => {
           productId: 2,
           productName: '奥利奥',
           categoryName: '零食',
-          totalRevenue: new Prisma.Decimal('900'),
-          totalProfit: new Prisma.Decimal('300'),
+          revenue: new Prisma.Decimal('900'),
+          profit: new Prisma.Decimal('300'),
           quantity: 1,
           image: null,
         },
@@ -257,7 +274,7 @@ describe('BusinessAnalysisService', () => {
         },
       ],
     });
-    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(4);
   });
 
   it('getAnalysis 会把同一商品的不同名称分组累加，避免改名导致排行数据丢失', async () => {
@@ -274,15 +291,13 @@ describe('BusinessAnalysisService', () => {
         },
       ])
       // 日趋势 + 品类分布（已合并为一条查询）
-      .mockResolvedValueOnce([])
-      // 同一 productId=1 的商品改过名，SQL 返回两行
       .mockResolvedValueOnce([
         {
           productId: 1,
           productName: '可口可乐 330ml',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('1300'),
-          totalProfit: new Prisma.Decimal('500'),
+          revenue: new Prisma.Decimal('1300'),
+          profit: new Prisma.Decimal('500'),
           quantity: 2,
           image: null,
         },
@@ -290,8 +305,8 @@ describe('BusinessAnalysisService', () => {
           productId: 1,
           productName: '可乐 330ml',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('900'),
-          totalProfit: new Prisma.Decimal('300'),
+          revenue: new Prisma.Decimal('900'),
+          profit: new Prisma.Decimal('300'),
           quantity: 1,
           image: 'https://example.com/coke.png',
         },
@@ -340,15 +355,13 @@ describe('BusinessAnalysisService', () => {
         },
       ])
       // 日趋势 + 品类分布（已合并为一条查询）
-      .mockResolvedValueOnce([])
-      // 模拟 SQL 按销量维度排序后的返回顺序（销量 9 > 3，但利润 2 < 3）
       .mockResolvedValueOnce([
         {
           productId: 2,
           productName: '雪碧',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('120'),
-          totalProfit: new Prisma.Decimal('20'),
+          revenue: new Prisma.Decimal('120'),
+          profit: new Prisma.Decimal('20'),
           quantity: 9,
           image: null,
         },
@@ -356,8 +369,8 @@ describe('BusinessAnalysisService', () => {
           productId: 1,
           productName: '可乐',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('80'),
-          totalProfit: new Prisma.Decimal('30'),
+          revenue: new Prisma.Decimal('80'),
+          profit: new Prisma.Decimal('30'),
           quantity: 3,
           image: null,
         },
@@ -402,7 +415,6 @@ describe('BusinessAnalysisService', () => {
       ])
       // 日趋势 + 品类分布（已合并为一条查询）
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           currentTotalCost: new Prisma.Decimal('0'),
@@ -437,15 +449,17 @@ describe('BusinessAnalysisService', () => {
 
   it('month 周期会根据会员历史窗口裁剪查询范围', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    platformMembershipAccessService.clampHistoryRange
-      .mockResolvedValueOnce({
+    historyRangeClamper.clamp
+      .mockReturnValueOnce({
         start: new Date('2026-05-08T00:00:00.000Z').getTime(),
         end: new Date('2026-05-13T12:00:00.000Z').getTime(),
+        clamped: true,
         empty: false,
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce({
         start: new Date('2026-05-02T12:00:00.000Z').getTime(),
         end: new Date('2026-05-07T23:59:59.999Z').getTime(),
+        clamped: true,
         empty: true,
       });
     prismaService.$queryRaw
@@ -458,7 +472,6 @@ describe('BusinessAnalysisService', () => {
         },
       ])
       // 日趋势 + 品类分布（已合并为一条查询）
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -474,18 +487,17 @@ describe('BusinessAnalysisService', () => {
     });
 
     expect(
-      platformMembershipAccessService.clampHistoryRange,
-    ).toHaveBeenNthCalledWith(
+      platformMembershipAccessService.createHistoryRangeClamper,
+    ).toHaveBeenCalledWith(18, false);
+    expect(historyRangeClamper.clamp).toHaveBeenNthCalledWith(
       1,
-      18,
       expect.objectContaining({
         start: getShanghaiMonthStartMs(
           new Date('2026-05-13T12:00:00.000Z').getTime(),
         ),
       }),
-      false,
     );
-    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(4);
   });
 
   it('year 周期不会再被 90 天旧上限截断，6 月趋势点仍会返回', async () => {
@@ -518,14 +530,12 @@ describe('BusinessAnalysisService', () => {
           profit: new Prisma.Decimal('8000'),
           quantity: 1,
         },
-      ])
-      .mockResolvedValueOnce([
         {
           productId: 11,
           productName: '六月商品',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('10000'),
-          totalProfit: new Prisma.Decimal('8000'),
+          revenue: new Prisma.Decimal('10000'),
+          profit: new Prisma.Decimal('8000'),
           quantity: 1,
           image: null,
         },
@@ -565,16 +575,19 @@ describe('BusinessAnalysisService', () => {
 
   it('today 周期显式传入 startTime/endTime 时按前端边界查询并返回当天成本趋势', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
-      start: new Date(2026, 4, 27, 0, 0, 0, 0).getTime(),
-      end: new Date(2026, 4, 27, 18, 0, 0, 0).getTime(),
-      empty: false,
-    });
-    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
-      start: new Date(2026, 4, 26, 6, 0, 0, 0).getTime(),
-      end: new Date(2026, 4, 26, 23, 59, 59, 999).getTime(),
-      empty: true,
-    });
+    historyRangeClamper.clamp
+      .mockReturnValueOnce({
+        start: new Date(2026, 4, 27, 0, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 27, 18, 0, 0, 0).getTime(),
+        clamped: false,
+        empty: false,
+      })
+      .mockReturnValueOnce({
+        start: new Date(2026, 4, 26, 6, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 26, 23, 59, 59, 999).getTime(),
+        clamped: false,
+        empty: true,
+      });
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
@@ -603,14 +616,12 @@ describe('BusinessAnalysisService', () => {
           profit: new Prisma.Decimal('2829334'),
           quantity: 2,
         },
-      ])
-      .mockResolvedValueOnce([
         {
           productId: 11,
           productName: '今日商品',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('2829334'),
-          totalProfit: new Prisma.Decimal('2829334'),
+          revenue: new Prisma.Decimal('2829334'),
+          profit: new Prisma.Decimal('2829334'),
           quantity: 2,
           image: null,
         },
