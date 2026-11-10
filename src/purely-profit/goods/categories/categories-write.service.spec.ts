@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -44,6 +45,7 @@ describe('CategoriesWriteService', () => {
     // 分类写操作会连带同步扫码点餐菜单分类（scanOrderingMenu*）
     scanOrderingMenuCategory: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -119,6 +121,10 @@ describe('CategoriesWriteService', () => {
       async (callback: (tx: unknown) => Promise<unknown>) =>
         callback(transactionMock),
     );
+    // 默认场景：源分类存在、目标名称不存在，改名单次查询即可完成
+    transactionMock.scanOrderingMenuCategory.findMany.mockResolvedValue([
+      { id: 1, name: '饮品' },
+    ]);
     transactionMock.scanOrderingMenuCategory.findFirst.mockResolvedValue({
       id: 1,
     });
@@ -188,6 +194,26 @@ describe('CategoriesWriteService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(mockedCreateCategoryRecord).not.toHaveBeenCalled();
+  });
+
+  it('create 并发触发 P2002 时转 409，非冲突异常原样抛出', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    mockedFindCategoryDuplicateByName.mockResolvedValue(null);
+    prismaService.$transaction.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '7.8.0',
+      }),
+    );
+    await expect(
+      service.create(user, { storeId: 18, name: '饮品' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    const failure = new Error('db down');
+    prismaService.$transaction.mockRejectedValue(failure);
+    await expect(
+      service.create(user, { storeId: 18, name: '饮品' }),
+    ).rejects.toBe(failure);
   });
 
   it('update 在分类不存在时抛出 NotFoundException', async () => {
@@ -260,6 +286,12 @@ describe('CategoriesWriteService', () => {
       categoryId: 11,
       name: '酒水',
     });
+    expect(
+      transactionMock.scanOrderingMenuCategory.findMany,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      transactionMock.scanOrderingMenuCategory.findFirst,
+    ).not.toHaveBeenCalled();
   });
 
   it('update 在不修改名称时不触发重命名商品', async () => {
@@ -326,5 +358,55 @@ describe('CategoriesWriteService', () => {
       transactionMock,
       11,
     );
+  });
+
+  it('update 在无字段变更时直接返回，不开启事务也不写库', async () => {
+    const response = { id: '11', name: '饮品', createdAt: 1, updatedAt: 2 };
+    mockedFindCategoryById.mockResolvedValue(createCategoryRecordFixture());
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    mockedBuildCategoryResponse.mockReturnValue(response);
+
+    await expect(service.update(user, 11, {})).resolves.toEqual(response);
+
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+    expect(mockedUpdateCategoryRecord).not.toHaveBeenCalled();
+  });
+
+  it('update 改名遇到同名菜单分类时合并商品并停用源分类', async () => {
+    const response = { id: '11', name: '酒水', createdAt: 1, updatedAt: 2 };
+    mockedFindCategoryById.mockResolvedValue(createCategoryRecordFixture());
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    mockedFindCategoryDuplicateByName.mockResolvedValue(null);
+    mockedUpdateCategoryRecord.mockResolvedValue(
+      createCategoryRecordFixture({ name: '酒水' }),
+    );
+    transactionMock.scanOrderingMenuCategory.findMany.mockResolvedValue([
+      { id: 1, name: '饮品' },
+      { id: 2, name: '酒水' },
+    ]);
+    mockedBuildCategoryResponse.mockReturnValue(response);
+
+    await expect(service.update(user, 11, { name: '酒水' })).resolves.toEqual(
+      response,
+    );
+
+    expect(
+      transactionMock.scanOrderingMenuCategory.findMany,
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18, deletedAt: null, name: { in: ['饮品', '酒水'] } },
+      select: { id: true, name: true },
+    });
+    expect(
+      transactionMock.scanOrderingMenuProduct.updateMany,
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18, categoryId: 1, deletedAt: null },
+      data: { categoryId: 2 },
+    });
+    expect(
+      transactionMock.scanOrderingMenuCategory.update,
+    ).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { isActive: false, deletedAt: expect.any(Date) },
+    });
   });
 });

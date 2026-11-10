@@ -17,7 +17,7 @@ import {
   renameCategoryProducts,
   updateCategoryRecord,
 } from './categories.query';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type {
   CategoryClearProductsInput,
   CategoryCreateInput,
@@ -52,16 +52,28 @@ export class CategoriesWriteService {
 
     await this.ensureUniqueName(storeId, dto.name);
 
-    const category = await this.prisma.$transaction(async (tx) => {
-      const created = await createCategoryRecord(
-        tx,
-        this.toCreateInput(storeId, dto),
-      );
-      await this.ensureScanOrderingCategory(tx, storeId, created.name);
-      return created;
-    });
+    try {
+      const category = await this.prisma.$transaction(async (tx) => {
+        const created = await createCategoryRecord(
+          tx,
+          this.toCreateInput(storeId, dto),
+        );
+        await this.ensureScanOrderingCategory(tx, storeId, created.name);
+        return created;
+      });
 
-    return buildCategoryResponse(category);
+      return buildCategoryResponse(category);
+    } catch (error: unknown) {
+      // 并发创建时应用层查重可能同时放行，由数据库唯一约束兜底；统一转为 409，
+      // 避免把 Prisma 原始异常泄漏成 500（与 ensureUniqueName 保持同一文案口径）。
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('分类名称已存在');
+      }
+      throw error;
+    }
   }
 
   async update(
@@ -85,12 +97,15 @@ export class CategoriesWriteService {
       await this.ensureUniqueName(category.storeId, nextName, category.id);
     }
 
+    const changes = this.toUpdateInput(dto, nextName);
+    // 无字段变更时不开启事务、不触发一次空 UPDATE：Prisma 的空 update 仍会
+    // 刷新 @updatedAt，既产生无谓写，又会让分类跳到列表首位并使列表缓存失效。
+    if (Object.keys(changes).length === 0) {
+      return buildCategoryResponse(category);
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await updateCategoryRecord(
-        tx,
-        category.id,
-        this.toUpdateInput(dto, nextName),
-      );
+      const result = await updateCategoryRecord(tx, category.id, changes);
 
       if (shouldRename) {
         await renameCategoryProducts(
@@ -158,19 +173,30 @@ export class CategoriesWriteService {
     previousName: string,
     nextName: string,
   ): Promise<void> {
-    const sourceCategory = await tx.scanOrderingMenuCategory.findFirst({
-      where: { storeId, name: previousName, deletedAt: null },
-      select: { id: true },
+    // 有效行上有 (storeId, name) 部分唯一约束，一次查询即可同时拿到
+    // 源分类与目标分类，替代原先两次串行 findFirst，缩短事务持锁时间。
+    const menuCategories = await tx.scanOrderingMenuCategory.findMany({
+      where: {
+        storeId,
+        deletedAt: null,
+        name: { in: [previousName, nextName] },
+      },
+      select: { id: true, name: true },
     });
+    const sourceCategory = menuCategories.find(
+      (category) => category.name === previousName,
+    );
+    const targetCategory = menuCategories.find(
+      (category) => category.name === nextName,
+    );
+
     if (!sourceCategory) {
+      // 目标分类已存在时无需再走 ensureScanOrderingCategory 的查重
+      if (targetCategory) return;
       await this.ensureScanOrderingCategory(tx, storeId, nextName);
       return;
     }
 
-    const targetCategory = await tx.scanOrderingMenuCategory.findFirst({
-      where: { storeId, name: nextName, deletedAt: null },
-      select: { id: true },
-    });
     if (targetCategory && targetCategory.id !== sourceCategory.id) {
       await tx.scanOrderingMenuProduct.updateMany({
         where: { storeId, categoryId: sourceCategory.id, deletedAt: null },

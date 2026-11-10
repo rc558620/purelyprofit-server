@@ -44,6 +44,12 @@ export {
   buildClubPromotionListCacheKey,
 } from './club-cache-keys';
 
+// Redis 域级键 — 商家端商品分类列表
+export {
+  buildCategoriesListCacheKey,
+  buildCategoriesListPattern,
+} from './categories.cache-keys';
+
 // Redis 域级键 — Marketing
 export {
   buildMarketingOverviewCacheKey,

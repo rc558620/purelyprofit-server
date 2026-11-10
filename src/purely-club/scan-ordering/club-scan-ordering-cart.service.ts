@@ -224,15 +224,15 @@ export class ClubScanOrderingCartService {
     this.ensureSessionOwner(user, item.session);
     // 改量同样要校验库存：否则用户把步进器点到大数量也能成功，直到提交订单才被
     // 库存预留打回。口径＝本行新数量 + 该商品其它规格行已占数量。
-    const product = await this.loadProduct(
-      item.session.storeId,
-      item.menuProductId,
-    );
-    const otherLineQuantity = await this.resolveCartProductQuantity(
-      item.sessionId,
-      item.menuProductId,
-      item.id,
-    );
+    // 商品快照与其它购物车行数量互不依赖，并行发起省一次数据库往返。
+    const [product, otherLineQuantity] = await Promise.all([
+      this.loadProduct(item.session.storeId, item.menuProductId),
+      this.resolveCartProductQuantity(
+        item.sessionId,
+        item.menuProductId,
+        item.id,
+      ),
+    ]);
     this.assertPurchasable(product, otherLineQuantity + dto.quantity);
     const result = await this.prisma.scanOrderingCartItem.updateMany({
       where: { id: itemId, version: dto.version, status: 'active' },

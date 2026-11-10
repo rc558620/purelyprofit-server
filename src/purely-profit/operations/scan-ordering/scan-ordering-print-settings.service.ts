@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { buildCacheRefreshTaskKey } from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 
 /** 打印通道：浏览器系统打印 / 飞鹅云打印 / 服务器本地 USB 打印 / 关闭。 */
 export type PrintChannel = 'browser' | 'cloud' | 'usb' | 'off';
@@ -37,19 +40,60 @@ export interface ScanOrderingPrintSettingsUpdate {
 }
 
 /**
+ * 门店打印配置读缓存：打印链路与设置页会反复读同一份配置。
+ *
+ * 复用 RefreshableCacheService 的 singleflight / TTL 抖动 / 后台刷新，
+ * 写路径写穿透立即覆盖；Redis 异常时降级查库，缓存不是唯一数据源。
+ */
+const PRINT_SETTINGS_CACHE_TTL_SECONDS = 30;
+const PRINT_SETTINGS_CACHE_REFRESH_AFTER_MS = 10_000;
+
+function buildPrintSettingsCacheKey(storeId: number): string {
+  return `scanordering:print-settings:store:${storeId}`;
+}
+
+/**
  * 扫码点餐打印配置服务。
  * 事实源为后端 stores 的打印通道字段，purelyProfit 商家端读写，
  * 供浏览器打印通道与飞鹅云打印通道共用。
  */
 @Injectable()
 export class ScanOrderingPrintSettingsService {
+  private readonly logger = new Logger(ScanOrderingPrintSettingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   /** 按门店 ID 读取打印配置。 */
   async getByStoreId(storeId: number): Promise<ScanOrderingPrintSettings> {
+    const cacheKey = buildPrintSettingsCacheKey(storeId);
+    try {
+      return await this.refreshableCache.getOrLoadRefreshableJson<ScanOrderingPrintSettings>(
+        {
+          cacheKey,
+          taskKey: buildCacheRefreshTaskKey(cacheKey),
+          ttlSeconds: PRINT_SETTINGS_CACHE_TTL_SECONDS,
+          refreshAfterMs: PRINT_SETTINGS_CACHE_REFRESH_AFTER_MS,
+          loadValue: () => this.fetchByStoreId(storeId),
+        },
+      );
+    } catch (error) {
+      // 业务异常不能被缓存降级吞掉；其余异常按缓存不可用处理，回退查库
+      if (error instanceof NotFoundException) throw error;
+      this.logger.warn(
+        `读取打印配置缓存失败 storeId=${storeId}，回退查库: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return this.fetchByStoreId(storeId);
+    }
+  }
+
+  /** 配置事实源：缓存回源与写穿透共用同一份字段口径。 */
+  private async fetchByStoreId(
+    storeId: number,
+  ): Promise<ScanOrderingPrintSettings> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: {
@@ -95,8 +139,30 @@ export class ScanOrderingPrintSettingsService {
       where: { id: storeId },
       data: updates,
     });
+    const settings = await this.fetchByStoreId(storeId);
+    await this.writeThrough(storeId, settings);
     this.logUpdate(storeId, updates);
-    return this.getByStoreId(storeId);
+    return settings;
+  }
+
+  /** 写穿透：配置变更后立即覆盖缓存，不留下失效窗口。 */
+  private async writeThrough(
+    storeId: number,
+    settings: ScanOrderingPrintSettings,
+  ): Promise<void> {
+    try {
+      await this.refreshableCache.writeRefreshableJson(
+        buildPrintSettingsCacheKey(storeId),
+        settings,
+        PRINT_SETTINGS_CACHE_TTL_SECONDS,
+        PRINT_SETTINGS_CACHE_REFRESH_AFTER_MS,
+      );
+    } catch (error) {
+      // 写回失败只影响缓存新鲜度，由 TTL 兜底，不阻断配置更新
+      this.logger.warn(
+        `写回打印配置缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async resolveMerchantStoreId(

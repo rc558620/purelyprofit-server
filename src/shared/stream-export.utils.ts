@@ -77,8 +77,8 @@ export function setCsvDownloadHeaders(
 export function streamCsvRows(
   res: ServerResponse,
   headers: string[],
-  rows: unknown[][],
-  prefixRows?: unknown[][],
+  rows: Iterable<unknown[]>,
+  prefixRows?: Iterable<unknown[]>,
 ): void {
   if (prefixRows) {
     for (const row of prefixRows) {
@@ -113,8 +113,8 @@ export function safeStreamCsvExport(
   res: ServerResponse,
   filename: string,
   headers: string[],
-  rows: unknown[][],
-  prefixRows?: unknown[][],
+  rows: Iterable<unknown[]>,
+  prefixRows?: Iterable<unknown[]>,
 ): void {
   try {
     setCsvDownloadHeaders(res, filename);

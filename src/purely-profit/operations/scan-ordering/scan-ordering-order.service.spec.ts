@@ -371,6 +371,11 @@ describe('ScanOrderingOrderService', () => {
 
       const result = await service.listOrders(mockUser, { limit: 20 } as never);
 
+      // 序号回查必须限定在当前门店，避免 OR 展开后跨门店扫描历史订单
+      const sequenceQuery =
+        prismaService.scanOrders.findMany.mock.calls[1]?.[0];
+      expect(sequenceQuery.where.storeId).toBe(11);
+
       const byId = new Map(result.items.map((item) => [item.id, item]));
       // 同一 diningRound 内累加：第一笔=1（首单），第二笔=2（加餐）
       expect(byId.get(11)?.sessionOrderSequence).toBe(1);

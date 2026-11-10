@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { buildCacheRefreshTaskKey } from '../../redis/cache-keys';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 
 /** 扫码点餐取餐相关门店配置。 */
 export interface ScanOrderingPickupSettings {
@@ -16,6 +18,20 @@ export interface ScanOrderingPickupSettings {
 }
 
 /**
+ * 门店配置读缓存：顾客进店必调，原本每次请求都要读一次 stores 表。
+ *
+ * 复用 RefreshableCacheService 获得未命中并发去重（singleflight）、TTL 抖动
+ * 与后台刷新；写路径采用写穿透立即覆盖，避免失效瞬间的并发回源。
+ * 缓存只是加速层：Redis 异常时静默降级为查库，不改变接口可用性。
+ */
+const PICKUP_SETTINGS_CACHE_TTL_SECONDS = 30;
+const PICKUP_SETTINGS_CACHE_REFRESH_AFTER_MS = 10_000;
+
+function buildPickupSettingsCacheKey(storeId: number): string {
+  return `scanordering:pickup-settings:store:${storeId}`;
+}
+
+/**
  * 扫码点餐取餐相关门店配置服务。
  *
  * 事实源为后端 stores.pickup_voice_enabled，purelyProfit 商家端读写，
@@ -23,13 +39,41 @@ export interface ScanOrderingPickupSettings {
  */
 @Injectable()
 export class ScanOrderingPickupSettingsService {
+  private readonly logger = new Logger(ScanOrderingPickupSettingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   /** 按门店 ID 读取配置（顾客端使用）。 */
   async getByStoreId(storeId: number): Promise<ScanOrderingPickupSettings> {
+    const cacheKey = buildPickupSettingsCacheKey(storeId);
+    try {
+      return await this.refreshableCache.getOrLoadRefreshableJson<ScanOrderingPickupSettings>(
+        {
+          cacheKey,
+          taskKey: buildCacheRefreshTaskKey(cacheKey),
+          ttlSeconds: PICKUP_SETTINGS_CACHE_TTL_SECONDS,
+          refreshAfterMs: PICKUP_SETTINGS_CACHE_REFRESH_AFTER_MS,
+          loadValue: () => this.fetchByStoreId(storeId),
+        },
+      );
+    } catch (error) {
+      // 业务异常不能被缓存降级吞掉；其余异常按缓存不可用处理，回退查库
+      if (error instanceof NotFoundException) throw error;
+      this.logger.warn(
+        `读取取餐配置缓存失败 storeId=${storeId}，回退查库: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return this.fetchByStoreId(storeId);
+    }
+  }
+
+  /** 配置事实源：缓存回源与写穿透共用同一份字段口径。 */
+  private async fetchByStoreId(
+    storeId: number,
+  ): Promise<ScanOrderingPickupSettings> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: {
@@ -66,8 +110,30 @@ export class ScanOrderingPickupSettingsService {
       where: { id: storeId },
       data: updates,
     });
+    const settings = await this.fetchByStoreId(storeId);
+    await this.writeThrough(storeId, settings);
     this.logUpdate(storeId, updates);
-    return this.getByStoreId(storeId);
+    return settings;
+  }
+
+  /** 写穿透：配置变更后立即覆盖缓存，不留下失效窗口。 */
+  private async writeThrough(
+    storeId: number,
+    settings: ScanOrderingPickupSettings,
+  ): Promise<void> {
+    try {
+      await this.refreshableCache.writeRefreshableJson(
+        buildPickupSettingsCacheKey(storeId),
+        settings,
+        PICKUP_SETTINGS_CACHE_TTL_SECONDS,
+        PICKUP_SETTINGS_CACHE_REFRESH_AFTER_MS,
+      );
+    } catch (error) {
+      // 写回失败只影响缓存新鲜度，由 TTL 兜底，不阻断配置更新
+      this.logger.warn(
+        `写回取餐配置缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async resolveMerchantStoreId(

@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import type { PermissionCode } from '../../access-control/access-control.constants';
 import type {
   CreateScanOrderingSpecGroupDto,
@@ -21,6 +22,7 @@ export class ScanOrderingMenuSpecService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly menuQueryService: ScanOrderingMenuQueryService,
   ) {}
 
   async createSpecGroup(
@@ -48,6 +50,7 @@ export class ScanOrderingMenuSpecService {
       },
       select: { id: true },
     });
+    await this.menuQueryService.invalidateMenuCache(storeId);
 
     return group.id;
   }
@@ -78,6 +81,7 @@ export class ScanOrderingMenuSpecService {
       },
       select: { id: true },
     });
+    await this.menuQueryService.invalidateMenuCache(storeId);
 
     return option.id;
   }
@@ -98,6 +102,7 @@ export class ScanOrderingMenuSpecService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐规格组不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async removeSpecGroup(
@@ -114,6 +119,7 @@ export class ScanOrderingMenuSpecService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐规格组不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async updateSpecOption(
@@ -144,6 +150,7 @@ export class ScanOrderingMenuSpecService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐规格项不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async removeSpecOption(
@@ -163,6 +170,7 @@ export class ScanOrderingMenuSpecService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐规格项不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   private async resolveStoreId(

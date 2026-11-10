@@ -68,3 +68,84 @@ describe('SpaceDashboardSummaryService.buildTodaySettledSessionStats', () => {
     expect(result).toEqual({ todaySettled: 0, todayRevenue: 0 });
   });
 });
+
+describe('SpaceDashboardSummaryService.buildDashboardSpaceSummaryBundle', () => {
+  const sessionFindMany = jest.fn();
+  const reservationFindMany = jest.fn();
+  let service: SpaceDashboardSummaryService;
+
+  const buildActiveSessionRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 7,
+    spaceId: 3,
+    guestName: '张三',
+    guestPhone: null,
+    guestCount: 2,
+    billingMode: 'countdown',
+    startTime: new Date('2026-11-10T10:00:00+08:00'),
+    hourlyRate: null,
+    countdownMinutes: 120,
+    itemsCost: 0,
+    _count: { sessionRenewRecords: 2 },
+    autoCheckout: true,
+    prepaidPaymentMethod: 'cash',
+    prepaidGrouponCode: null,
+    prepaidNote: null,
+    prepaidAmount: null,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    reservationFindMany.mockResolvedValue([]);
+    service = new SpaceDashboardSummaryService({
+      spaceSession: { findMany: sessionFindMany },
+      spaceReservation: { findMany: reservationFindMany },
+    } as never);
+  });
+
+  it('active 会话只取续费计数，renewCount 与续费行数等价', async () => {
+    sessionFindMany.mockResolvedValue([buildActiveSessionRow()]);
+
+    const bundle = await service.buildDashboardSpaceSummaryBundle(42);
+
+    expect(sessionFindMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ storeId: 42 }),
+      select: {
+        id: true,
+        spaceId: true,
+        guestName: true,
+        guestPhone: true,
+        guestCount: true,
+        billingMode: true,
+        startTime: true,
+        hourlyRate: true,
+        countdownMinutes: true,
+        itemsCost: true,
+        _count: { select: { sessionRenewRecords: true } },
+        autoCheckout: true,
+        prepaidPaymentMethod: true,
+        prepaidGrouponCode: true,
+        prepaidNote: true,
+        prepaidAmount: true,
+      },
+      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+    });
+    expect(bundle.activeSessionSummaryBySpaceId.get(3)).toEqual(
+      expect.objectContaining({ sessionId: '7', renewCount: 2 }),
+    );
+  });
+
+  it('同一空间多个 active 会话仍只保留首个，续费计数为 0 时原样返回 0', async () => {
+    sessionFindMany.mockResolvedValue([
+      buildActiveSessionRow({ id: 9, _count: { sessionRenewRecords: 0 } }),
+      buildActiveSessionRow({ id: 8, _count: { sessionRenewRecords: 5 } }),
+    ]);
+
+    const bundle = await service.buildDashboardSpaceSummaryBundle(42);
+
+    expect(bundle.activeSessionSummaryBySpaceId.size).toBe(1);
+    expect(bundle.activeSessionSummaryBySpaceId.get(3)).toEqual(
+      expect.objectContaining({ sessionId: '9', renewCount: 0 }),
+    );
+  });
+});

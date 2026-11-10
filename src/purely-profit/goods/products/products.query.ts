@@ -6,6 +6,7 @@ import type {
   ProductListQueryInput,
   ProductPageResult,
   ProductRecord,
+  ProductScalarRecord,
   ProductStoreRecord,
   ProductUpdateInput,
 } from './products.types';
@@ -58,6 +59,18 @@ export const productSelect = {
       },
     },
   },
+} satisfies Prisma.ProductSelect;
+
+/** 写路径前置校验专用：只取标量，不带三层规格关系 */
+export const productScalarSelect = {
+  id: true,
+  storeId: true,
+  name: true,
+  category: true,
+  code: true,
+  price: true,
+  costPrice: true,
+  image: true,
 } satisfies Prisma.ProductSelect;
 
 function buildProductListWhere(
@@ -158,6 +171,20 @@ export async function findProductById(
   return prisma.product.findUnique({
     where: { id: productId },
     select: productSelect,
+  });
+}
+
+/**
+ * 写路径前置校验：只取标量快照，跳过规格组与选项三层关系取数。
+ * 查询条件与 findProductById 完全一致（按主键、不做软删除过滤）。
+ */
+export async function findProductScalarById(
+  prisma: PrismaService,
+  productId: number,
+): Promise<ProductScalarRecord | null> {
+  return prisma.product.findUnique({
+    where: { id: productId },
+    select: productScalarSelect,
   });
 }
 

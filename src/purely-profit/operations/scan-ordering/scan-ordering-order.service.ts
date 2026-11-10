@@ -113,7 +113,7 @@ export class ScanOrderingOrderService {
     // 昵称与序号都只依赖订单页、互不依赖，并行发起省一次往返。
     const [guestNameMap, sequences] = await Promise.all([
       this.fetchGuestNameMap(orders),
-      this.fetchDiningRoundSequences(pageOrders),
+      this.fetchDiningRoundSequences(pageOrders, storeId),
     ]);
     return {
       items: pageOrders.map((order) =>
@@ -317,6 +317,7 @@ export class ScanOrderingOrderService {
    */
   private async fetchDiningRoundSequences(
     orders: ScanOrderListItemSource[],
+    storeId: number,
   ): Promise<Map<number, number>> {
     const diningRoundUserKeys = orders
       .filter((order) => order.diningRoundId && order.clubUserId)
@@ -326,8 +327,11 @@ export class ScanOrderingOrderService {
       }));
     const sequences = new Map<number, number>();
     if (diningRoundUserKeys.length === 0) return sequences;
+    // 按当前门店收敛：diningRoundId 虽是全局 UUID，但 OR 展开后若不限制 storeId，
+    // 优化器用不上门店前缀索引，还会跨门店扫描历史订单。序号计算口径保持不变。
     const priorOrders = await this.prisma.scanOrders.findMany({
       where: {
+        storeId,
         OR: diningRoundUserKeys.map(({ diningRoundId, clubUserId }) => ({
           diningRoundId,
           clubUserId,

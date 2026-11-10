@@ -337,27 +337,47 @@ export class ScanOrderingTableQueryService {
     // 新链路：scan_orders 手工单（走状态机，显示真实状态）。
     // 进行中录入单不限时间（跨天未处理的录入单须占用桌台）；
     // 已完结（completed）录入单仅取轮次窗口内，供桌台抽屉展示履约记录。
-    const newManualOrders = await this.prisma.scanOrders.findMany({
-      where: {
-        storeId,
-        manualEntry: true,
-        tableId: { in: tableIds },
-        OR: [
-          { status: { in: ['pending_acceptance', 'preparing', 'served'] } },
-          { status: 'completed', createdAt: { gte: earliestStart } },
-        ],
-      },
-      select: {
-        id: true,
-        orderNo: true,
-        status: true,
-        fulfillmentStatus: true,
-        payableAmount: true,
-        guestCount: true,
-        createdAt: true,
-        tableId: true,
-      },
-    });
+    // 老数据兜底走 saleOrder，两者互不依赖，并行发起省一次往返；
+    // 结果处理仍保持原有顺序：老数据要按 orderNo 对新链路结果去重。
+    const [newManualOrders, oldManualOrders] = await Promise.all([
+      this.prisma.scanOrders.findMany({
+        where: {
+          storeId,
+          manualEntry: true,
+          tableId: { in: tableIds },
+          OR: [
+            { status: { in: ['pending_acceptance', 'preparing', 'served'] } },
+            { status: 'completed', createdAt: { gte: earliestStart } },
+          ],
+        },
+        select: {
+          id: true,
+          orderNo: true,
+          status: true,
+          fulfillmentStatus: true,
+          payableAmount: true,
+          guestCount: true,
+          createdAt: true,
+          tableId: true,
+        },
+      }),
+      this.prisma.saleOrder.findMany({
+        where: {
+          storeId,
+          manualEntry: true,
+          diningTableId: { in: tableIds },
+          createdAt: { gte: earliestStart },
+        },
+        select: {
+          id: true,
+          orderNo: true,
+          totalRevenue: true,
+          guestCount: true,
+          createdAt: true,
+          diningTableId: true,
+        },
+      }),
+    ]);
     for (const order of newManualOrders) {
       if (order.tableId === null) continue;
       const list = grouped.get(order.tableId) ?? [];
@@ -374,22 +394,6 @@ export class ScanOrderingTableQueryService {
     }
 
     // 老数据兜底：改造前已落 SaleOrder 的手工补录单（状态固定为 completed）
-    const oldManualOrders = await this.prisma.saleOrder.findMany({
-      where: {
-        storeId,
-        manualEntry: true,
-        diningTableId: { in: tableIds },
-        createdAt: { gte: earliestStart },
-      },
-      select: {
-        id: true,
-        orderNo: true,
-        totalRevenue: true,
-        guestCount: true,
-        createdAt: true,
-        diningTableId: true,
-      },
-    });
     for (const order of oldManualOrders) {
       if (order.diningTableId === null) continue;
       // 避免新老数据重复（以 orderNo 去重）

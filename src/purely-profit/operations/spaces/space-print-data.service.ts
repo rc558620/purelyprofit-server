@@ -152,8 +152,24 @@ export class SpacePrintDataService {
       include: {
         spaceSession: {
           include: {
-            space: { include: { type: true } },
-            sessionItems: { orderBy: { sortOrder: 'asc' } },
+            space: {
+              select: {
+                name: true,
+                type: { select: { name: true } },
+              },
+            },
+            sessionItems: {
+              select: {
+                productId: true,
+                productName: true,
+                salePrice: true,
+                quantity: true,
+                specNames: true,
+                sourceType: true,
+                sourceChannel: true,
+              },
+              orderBy: { sortOrder: 'asc' },
+            },
           },
         },
       },
@@ -167,10 +183,22 @@ export class SpacePrintDataService {
     }
 
     const toYuan = (fen: number): number => fen / 100;
-    const deductionOf = (productId: string): number =>
-      session.sessionItems
-        .filter((item) => item.productId === productId)
-        .reduce((sum, item) => sum + item.salePrice * item.quantity, 0);
+    const deductionTotals = session.sessionItems.reduce(
+      (totals, item) => {
+        const cents = item.salePrice * item.quantity;
+        if (item.productId === SYS_RENEW_DEDUCTION_ID) {
+          totals.renew += cents;
+        } else if (item.productId === SYS_PREPAID_DEDUCTION_ID) {
+          totals.prepaid += cents;
+        } else if (item.productId === SYS_SELF_ORDER_DEDUCTION_ID) {
+          totals.selfOrder += cents;
+        } else if (item.productId === SYS_GROUPON_VOUCHER_ID) {
+          totals.voucher += cents;
+        }
+        return totals;
+      },
+      { renew: 0, prepaid: 0, selfOrder: 0, voucher: 0 },
+    );
 
     const endTime = session.endTime ?? saleOrder.createdAt;
     // 台位费标签：从台位费行商品名提取（固定 / 按单价 / 2小时30分钟）
@@ -213,14 +241,10 @@ export class SpacePrintDataService {
           };
         }),
       itemsCost: toYuan(session.itemsCost),
-      renewDeduction: toYuan(deductionOf(SYS_RENEW_DEDUCTION_ID)),
-      prepaidDeduction: toYuan(deductionOf(SYS_PREPAID_DEDUCTION_ID)),
-      selfOrderDeduction: toYuan(deductionOf(SYS_SELF_ORDER_DEDUCTION_ID)),
-      voucherConsumption: toYuan(
-        session.sessionItems
-          .filter((item) => item.productId === SYS_GROUPON_VOUCHER_ID)
-          .reduce((sum, item) => sum + item.salePrice * item.quantity, 0),
-      ),
+      renewDeduction: toYuan(deductionTotals.renew),
+      prepaidDeduction: toYuan(deductionTotals.prepaid),
+      selfOrderDeduction: toYuan(deductionTotals.selfOrder),
+      voucherConsumption: toYuan(deductionTotals.voucher),
       // 客人本次实付 = 消费 − 已付抵扣（净额）。
       // ⚠️ 不能直接用 saleOrder.totalRevenue：该列是营业额口径，纯消费券单已
       // 把券面计入（券面是门店营收但客人已在 purelyClub 付过），用它当合计会让

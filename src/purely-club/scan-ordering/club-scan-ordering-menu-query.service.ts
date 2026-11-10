@@ -45,6 +45,8 @@ type MenuVersionCategory = [number, number, MenuVersionProduct[]];
 @Injectable()
 export class ClubScanOrderingMenuQueryService {
   private readonly logger = new Logger(ClubScanOrderingMenuQueryService.name);
+  /** 未命中路径的进程内并发去重：同一缓存 key 共用一次回源。 */
+  private readonly inflightMenuLoads = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -80,17 +82,51 @@ export class ClubScanOrderingMenuQueryService {
     // （口径见 resolveMenuVersion / computeMenuVersion）
     const menuVersion = await this.resolveMenuVersion(session.storeId);
 
-    // 缓存命中检查：menuVersion 不变即命中
+    // 缓存命中检查：menuVersion 不变即命中。
+    // Redis 异常时降级回源，缓存只是加速层，不能让菜单接口因此不可用。
     const cacheKey = buildClubMenuCacheKey(session.storeId, menuVersion);
-    const cached = await this.redisService.getJson<unknown>(cacheKey);
+    let cached: unknown = null;
+    try {
+      cached = await this.redisService.getJson<unknown>(cacheKey);
+    } catch (error) {
+      this.logger.warn(
+        `读取菜单缓存失败 cacheKey=${cacheKey}，回退实时菜单: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     if (cached) {
       return cached;
     }
 
-    // 未命中：查完整 categories 数据
+    // 未命中：菜单变更或缓存过期时，同一 key 的并发请求共用一次回源，
+    // 避免四层 JOIN 被放大 N 倍。进程内去重，集群下最多放大到 worker 数。
+    return this.loadMenuOnce(cacheKey, () =>
+      this.buildMenu(session.storeId, menuVersion, cacheKey),
+    );
+  }
+
+  /** 未命中路径的并发去重（singleflight）；不改变既有缓存 value 格式。 */
+  private loadMenuOnce(
+    cacheKey: string,
+    load: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const inflight = this.inflightMenuLoads.get(cacheKey);
+    if (inflight) return inflight;
+    const task = load().finally(() => {
+      this.inflightMenuLoads.delete(cacheKey);
+    });
+    this.inflightMenuLoads.set(cacheKey, task);
+    return task;
+  }
+
+  /** 未命中时回源组装完整菜单，并回填短 TTL 缓存。 */
+  private async buildMenu(
+    storeId: number,
+    menuVersion: string,
+    cacheKey: string,
+  ): Promise<unknown> {
     const categories = await this.prisma.scanOrderingMenuCategory.findMany({
       where: {
-        storeId: session.storeId,
+        storeId,
         isActive: true,
         deletedAt: null,
         products: { some: { deletedAt: null } },
@@ -160,14 +196,27 @@ export class ClubScanOrderingMenuQueryService {
       })),
     };
 
-    // 写缓存（TTL 30s，menuVersion 变更后旧 key 自然过期）
-    await this.redisService.setJson(
-      cacheKey,
-      result,
-      CLUB_MENU_CACHE_TTL_SECONDS,
-    );
+    await this.writeMenuCacheQuietly(cacheKey, result);
 
     return result;
+  }
+
+  /** 回填菜单缓存：写失败不影响本次返回，由短 TTL 与后续请求自愈。 */
+  private async writeMenuCacheQuietly(
+    cacheKey: string,
+    menu: unknown,
+  ): Promise<void> {
+    try {
+      await this.redisService.setJson(
+        cacheKey,
+        menu,
+        CLUB_MENU_CACHE_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `回填菜单缓存失败 cacheKey=${cacheKey}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

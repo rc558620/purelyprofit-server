@@ -6,7 +6,10 @@ import {
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_SHORT,
+} from '../../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import type {
   InventoryAdjustmentResponseDto,
@@ -100,17 +103,20 @@ export class InventoryService {
       throw new BadRequestException('报损类型必须填写备注说明');
     }
 
-    const adjustment = await this.prisma.$transaction((transaction) =>
-      executeInventoryManualAdjustment(transaction, {
-        storeId,
-        productId: dto.productId,
-        operatorStaffId,
-        delta: dto.delta,
-        targetStock: dto.targetStock,
-        mode,
-        adjustType: dto.adjustType,
-        note: dto.note?.trim() ? dto.note.trim() : undefined,
-      }),
+    const adjustment = await this.prisma.$transaction(
+      (transaction) =>
+        executeInventoryManualAdjustment(transaction, {
+          storeId,
+          productId: dto.productId,
+          operatorStaffId,
+          delta: dto.delta,
+          targetStock: dto.targetStock,
+          mode,
+          adjustType: dto.adjustType,
+          note: dto.note?.trim() ? dto.note.trim() : undefined,
+        }),
+      /* 库存写含 SELECT ... FOR UPDATE 行锁，显式约束事务时长避免长锁 */
+      { timeout: TX_TIMEOUT_SHORT },
     );
 
     return buildInventoryAdjustmentResponse(adjustment);

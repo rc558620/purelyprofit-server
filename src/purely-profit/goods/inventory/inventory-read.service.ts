@@ -27,9 +27,9 @@ import {
   buildPaginatedInventoryAdjustmentsResponse,
   buildPaginatedInventoryProductsResponse,
 } from './inventory.mapper';
+import { queryInventoryProductPage } from './inventory-product-page.query';
 import {
   queryInventoryAdjustmentPage,
-  queryInventoryAlertProducts,
   queryInventoryProducts,
   queryInventoryReportRows,
   queryInventoryStatsAggregate,
@@ -37,9 +37,29 @@ import {
 import type {
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
+  InventoryProductPageResult,
   InventoryReportQueryInput,
+  InventoryReportRow,
 } from './inventory.types';
 import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
+
+/**
+ * CSV 行惰性产出：导出时不再先 map 出一份完整的行数组，
+ * 让 safeStreamCsvExport 边迭代边写入，峰值内存少一份 O(n) 的中间数组。
+ */
+function* buildInventoryReportCsvRows(
+  rows: Iterable<InventoryReportRow>,
+): Generator<unknown[], void, unknown> {
+  for (const row of rows) {
+    yield [
+      row.name,
+      row.category,
+      row.stock,
+      row.alertThreshold,
+      resolveInventoryAlertLevel(row.stock, row.alertThreshold),
+    ];
+  }
+}
 
 @Injectable()
 export class InventoryReadService {
@@ -86,30 +106,22 @@ export class InventoryReadService {
       });
     }
 
-    /*
-     * D3 修复：不传分页参数时返回全量（保持向后兼容）。
-     * D4 优化：传分页参数时，若无域层筛选则下推 skip/take 到 DB 层；
-     * 若有域层筛选（alertOnly / alertLevel=warning，Prisma 无法表达跨字段比较），
-     * 则回退到内存分页以保证 total 与筛选结果一致。
-     */
+    /* D3 修复：不传分页参数时返回全量（保持向后兼容）。 */
     const hasPagination =
       query.page !== undefined || query.pageSize !== undefined;
-    const hasDomainFilter =
-      query.alertOnly === true || query.alertLevel === 'warning';
 
     if (hasPagination) {
       const { page, skip, take } = this.resolvePagination(
         query.page,
         query.pageSize,
       );
-      return this.listProductsByStoreId(
+      return this.listProductsByStoreId({
         storeId,
         query,
         page,
-        take,
+        pageSize: take,
         skip,
-        hasDomainFilter,
-      );
+      });
     }
 
     return this.listAllProductsByStoreId(storeId, query);
@@ -201,13 +213,7 @@ export class InventoryReadService {
       reply,
       'inventory-report.csv',
       ['商品名称', '分类', '当前库存', '预警阈值', '库存状态'],
-      sorted.map((row) => [
-        row.name,
-        row.category,
-        row.stock,
-        row.alertThreshold,
-        resolveInventoryAlertLevel(row.stock, row.alertThreshold),
-      ]),
+      buildInventoryReportCsvRows(sorted),
     );
   }
 
@@ -275,57 +281,58 @@ export class InventoryReadService {
   }
 
   /**
-   * 已通过门店权限校验后的内部查询方法，供 getReport 等场景复用，
-   * 避免重复执行 resolveViewStoreId 带来的冗余校验和不一致风险。
+   * 已通过门店权限校验后的分页查询。
+   *
+   * 默认路径走一次 raw SQL：筛选 / 排序 / COUNT / LIMIT 全部下推 DB，
+   * 只回传当前页，消除原先「预警分支全量拉回 + 内存 sort + slice」和
+   * 「普通分支无 orderBy 导致跨页重复 / 遗漏」两个问题。
+   *
+   * sortBy=name 例外：domain 用 localeCompare('zh-CN') 做中文拼音排序，
+   * PG 默认 collation 是码点序，下推会改变用户可见顺序；这条低频路径
+   * 暂留内存排序，待确认排序口径后再统一。
    */
-  private async listProductsByStoreId(
-    storeId: number,
-    query: InventoryProductListQueryInput,
-    page: number,
-    pageSize: number,
-    skip: number,
-    hasDomainFilter: boolean,
-  ): Promise<PaginatedInventoryProductsResponseDto> {
-    if (hasDomainFilter) {
-      /*
-       * 域层筛选（alertOnly / alertLevel=warning）涉及 stock <= alert_threshold 的
-       * 跨字段比较，Prisma 无法表达，但 raw SQL 可以：直接在库内过滤出预警行，
-       * 不再把全店在售商品拉回内存再 filter。
-       * 排序仍留在内存（预警级别/库存量/名称的排序规则在 domain 层，下推会复制一份口径）。
-       */
-      const alertProducts = await queryInventoryAlertProducts(this.prisma, {
-        storeId,
-        keyword: query.keyword,
-        category: query.category,
-        // 两者同时传入时，与 matchesInventoryFilters 一致：alertLevel 优先
-        mode: query.alertLevel === 'warning' ? 'warning' : 'alertOnly',
-      });
-      const sorted = sortInventoryProducts(alertProducts, query.sortBy);
-      const paginated = sorted.slice(skip, skip + pageSize);
-
-      return buildPaginatedInventoryProductsResponse({
-        items: paginated,
-        total: sorted.length,
-        page,
-        pageSize,
-      });
-    }
-
-    /*
-     * D4 优化：无域层筛选时，分页参数下推到 DB 层，
-     * 仅加载当前页数据 + COUNT，而非全量加载后内存切片。
-     */
-    const result = await queryInventoryProducts(this.prisma, storeId, query, {
-      skip,
-      take: pageSize,
-    });
+  private async listProductsByStoreId(params: {
+    storeId: number;
+    query: InventoryProductListQueryInput;
+    page: number;
+    pageSize: number;
+    skip: number;
+  }): Promise<PaginatedInventoryProductsResponseDto> {
+    const { storeId, query, page, pageSize, skip } = params;
+    const result =
+      query.sortBy === 'name'
+        ? await this.listProductPageByName(storeId, query, skip, pageSize)
+        : await queryInventoryProductPage(this.prisma, {
+            storeId,
+            query,
+            skip,
+            take: pageSize,
+          });
 
     return buildPaginatedInventoryProductsResponse({
       items: result.items,
-      total: result.total ?? result.items.length,
+      total: result.total,
       page,
       pageSize,
     });
+  }
+
+  /** sortBy=name 的兼容路径：复用 domain 的中文排序口径，全量后再切片 */
+  private async listProductPageByName(
+    storeId: number,
+    query: InventoryProductListQueryInput,
+    skip: number,
+    take: number,
+  ): Promise<Required<InventoryProductPageResult>> {
+    const result = await queryInventoryProducts(this.prisma, storeId, query);
+    const sorted = sortInventoryProducts(
+      result.items.filter((product) => matchesInventoryFilters(product, query)),
+      'name',
+    );
+    return {
+      items: sorted.slice(skip, skip + take),
+      total: sorted.length,
+    };
   }
 
   /**

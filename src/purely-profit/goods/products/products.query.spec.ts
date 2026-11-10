@@ -3,6 +3,7 @@ import {
   createProductRecord,
   deleteProductRecord,
   findProductById,
+  findProductScalarById,
   findProductCategoryByName,
   findProductCodeConflict,
   findProductStore,
@@ -10,6 +11,7 @@ import {
   resolveProductOrderBy,
   updateProductRecord,
   productSelect,
+  productScalarSelect,
 } from './products.query';
 import type { ProductRecord } from './products.types';
 import { aValidDate } from '../../../spec-matchers';
@@ -189,6 +191,33 @@ describe('products.query', () => {
         storeId: true,
       },
     });
+  });
+
+  it('findProductScalarById 只取标量字段，不带三层规格关系', async () => {
+    const { prisma, productFindUnique } = createPrismaMock();
+    const row = createProductRecordFixture();
+    productFindUnique.mockResolvedValue(row);
+
+    await expect(findProductScalarById(prisma as never, 11)).resolves.toEqual(
+      row,
+    );
+
+    expect(productFindUnique).toHaveBeenCalledWith({
+      where: { id: 11 },
+      select: productScalarSelect,
+    });
+    expect(Object.keys(productScalarSelect).sort()).toEqual(
+      [
+        'id',
+        'storeId',
+        'name',
+        'category',
+        'code',
+        'price',
+        'costPrice',
+        'image',
+      ].sort(),
+    );
   });
 
   it('分类与编号相关查询会限制在门店维度', async () => {

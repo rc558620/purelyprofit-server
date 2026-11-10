@@ -4,7 +4,6 @@ import type {
   InventoryAdjustmentPageResult,
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
-  InventoryProductPageResult,
   InventoryProductRecord,
   InventoryProductStoreRecord,
   InventoryReportRow,
@@ -71,34 +70,17 @@ export async function queryInventoryReportRows(
   });
 }
 
+/**
+ * 全量商品查询：供不传分页参数的列表、JSON 报表与 name 排序兼容路径使用。
+ * 分页场景已改走 queryInventoryProductPage（库内筛选 + 排序 + COUNT + LIMIT）。
+ */
 export async function queryInventoryProducts(
   prisma: PrismaService,
   storeId: number,
   query: InventoryProductListQueryInput,
-  pagination?: { skip: number; take: number },
-): Promise<InventoryProductPageResult> {
-  const where = buildInventoryProductWhere(storeId, query);
-
-  /*
-   * D4/D8 修复：
-   * 有分页参数时下推 skip/take 到数据库层，并并行执行 COUNT；
-   * 无分页参数时返回全量结果，跳过冗余 COUNT 查询。
-   */
-  if (pagination) {
-    const [items, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        skip: pagination.skip,
-        take: pagination.take,
-        select: productSelect,
-      }),
-      prisma.product.count({ where }),
-    ]);
-    return { items, total };
-  }
-
+): Promise<{ items: InventoryProductRecord[] }> {
   const items = await prisma.product.findMany({
-    where,
+    where: buildInventoryProductWhere(storeId, query),
     select: productSelect,
   });
   return { items };
@@ -234,87 +216,6 @@ interface InventoryStatsAggregateRow {
   warningCount: bigint | number;
   normalCount: bigint | number;
   totalStockValueCents: bigint | number | null;
-}
-
-/** raw 查询返回的库存商品行：列名与 products 表一致，仅做 snake_case → camelCase 别名 */
-interface InventoryAlertProductRow {
-  id: number;
-  name: string;
-  category: string;
-  code: string;
-  price: number;
-  profit: number;
-  costPrice: number | null;
-  unit: string;
-  stock: number;
-  alertThreshold: number;
-  image: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-/**
- * 转义 ILIKE 通配符，与 Prisma `contains` 的转义口径一致（反斜杠为转义符）。
- *
- * 不转义的话，搜索「50%」「A_B」会被当成通配符，与分页接口的 Prisma 查询行为不一致。
- */
-function escapeLikePattern(keyword: string): string {
-  return keyword.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
-/**
- * 预警商品查询：把「stock <= alert_threshold」这类跨字段比较下推到数据库。
- *
- * Prisma 无法表达列与列的比较，原来只能把全店在售商品拉回内存再过滤，
- * SKU 越多浪费越大；这里用 raw SQL 直接过滤，只返回预警行。
- *
- * 口径与 inventory.domain 的 resolveInventoryAlertLevel 对齐：
- * - alertOnly：stock <= alert_threshold（含 stock <= 0 的 danger 行）
- * - warning：0 < stock <= alert_threshold
- * danger 档（stock <= 0）Prisma 已能下推，仍走 queryInventoryProducts。
- */
-export async function queryInventoryAlertProducts(
-  prisma: PrismaService,
-  params: {
-    storeId: number;
-    keyword?: string;
-    category?: string;
-    mode: 'alertOnly' | 'warning';
-  },
-): Promise<InventoryProductRecord[]> {
-  const keyword = params.keyword?.trim();
-  const keywordPattern = keyword ? `%${escapeLikePattern(keyword)}%` : null;
-  // alertOnly 要带上 stock <= 0 的 danger 行；warning 档要求库存尚未耗尽
-  const includeDanger = params.mode === 'alertOnly';
-
-  return prisma.$queryRaw<InventoryAlertProductRow[]>`
-    SELECT
-      id,
-      name,
-      category,
-      code,
-      price,
-      profit,
-      cost_price AS "costPrice",
-      unit,
-      stock,
-      alert_threshold AS "alertThreshold",
-      image,
-      created_at AS "createdAt",
-      updated_at AS "updatedAt"
-    FROM products
-    WHERE store_id = ${params.storeId}
-      AND deleted_at IS NULL
-      AND is_active = true
-      AND stock <= alert_threshold
-      AND (${includeDanger}::boolean OR stock > 0)
-      AND (${params.category ?? null}::text IS NULL OR category = ${params.category ?? null})
-      AND (
-        ${keywordPattern}::text IS NULL
-        OR name ILIKE ${keywordPattern} ESCAPE '\'
-        OR code ILIKE ${keywordPattern} ESCAPE '\'
-      )
-  `;
 }
 
 /**

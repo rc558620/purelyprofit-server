@@ -177,25 +177,11 @@ describe('InventoryService', () => {
     ]);
     prismaService.product.count.mockResolvedValue(3);
     /*
-     * alertOnly 走 raw SQL 下推：库存 <= 阈值的行由数据库过滤后返回，
-     * 这里模拟「薯片（库存 20 > 阈值 5）已被库内过滤掉」的结果。
+     * 统一库内分页：库存 <= 阈值的行由数据库过滤、按预警级别排序后返回，
+     * COUNT(*) OVER() 随每行带回筛选后总数。这里模拟「薯片（库存 20 > 阈值 5）
+     * 已被库内过滤掉」且 danger 行排在 warning 行之前的结果。
      */
     prismaService.$queryRaw.mockResolvedValue([
-      {
-        id: 101,
-        name: '雪碧',
-        category: '饮品',
-        code: 'SP001',
-        price: 450,
-        profit: 150,
-        costPrice: 300,
-        unit: '瓶',
-        stock: 2,
-        alertThreshold: 3,
-        image: null,
-        createdAt,
-        updatedAt,
-      },
       {
         id: 102,
         name: '可乐',
@@ -210,6 +196,23 @@ describe('InventoryService', () => {
         image: 'https://img.example.com/cola.png',
         createdAt,
         updatedAt,
+        totalCount: 2,
+      },
+      {
+        id: 101,
+        name: '雪碧',
+        category: '饮品',
+        code: 'SP001',
+        price: 450,
+        profit: 150,
+        costPrice: 300,
+        unit: '瓶',
+        stock: 2,
+        alertThreshold: 3,
+        image: null,
+        createdAt,
+        updatedAt,
+        totalCount: 2,
       },
     ]);
 
@@ -263,10 +266,9 @@ describe('InventoryService', () => {
       },
     });
 
-    /* 预警筛选下推到 raw SQL，不再用 Prisma findMany 全量加载 */
-    expect(prismaService.$queryRaw).toHaveBeenCalled();
+    /* 筛选 / 排序 / 总数 / LIMIT 一次 raw SQL 完成，无 findMany 与 count 往返 */
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prismaService.product.findMany).not.toHaveBeenCalled();
-    /* D8 优化：有域层筛选时回退内存分页，不再执行冗余 COUNT 查询 */
     expect(prismaService.product.count).not.toHaveBeenCalled();
   });
 

@@ -7,6 +7,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import type {
   CreateScanOrderingMenuProductDto,
   UpdateScanOrderingMenuProductAvailabilityDto,
@@ -32,6 +33,7 @@ export class ScanOrderingMenuProductService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly menuQueryService: ScanOrderingMenuQueryService,
   ) {}
 
   async createProduct(
@@ -63,6 +65,7 @@ export class ScanOrderingMenuProductService {
         stockQuantity: dto.stockMode === 'finite' ? dto.stockQuantity : null,
       },
     });
+    await this.menuQueryService.invalidateMenuCache(storeId);
 
     return {
       id: product.id,
@@ -97,6 +100,7 @@ export class ScanOrderingMenuProductService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐商品不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async removeProduct(
@@ -118,6 +122,7 @@ export class ScanOrderingMenuProductService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐商品不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async updateAvailability(
@@ -136,6 +141,7 @@ export class ScanOrderingMenuProductService {
     });
 
     if (result.count === 0) throw new NotFoundException('扫码点餐商品不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   private async resolveEnabledStoreId(

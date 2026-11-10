@@ -12,8 +12,6 @@ import type {
   SpaceDashboardActiveSessionSummaryDto,
   SpaceDashboardReservationSummaryDto,
 } from './dto/space.dto';
-import { mapRenewRecordRows } from './space-sessions.mapper';
-import type { SpaceSessionRenewRecordRow } from './space-sessions.types';
 import { getTodayRange } from './space-reservations.shared';
 
 export interface DashboardSpaceSummaryBundle {
@@ -59,8 +57,8 @@ export class SpaceDashboardSummaryService {
           hourlyRate: true,
           countdownMinutes: true,
           itemsCost: true,
-          sessionRenewRecords: {
-            orderBy: { id: 'asc' },
+          _count: {
+            select: { sessionRenewRecords: true },
           },
           autoCheckout: true,
           prepaidPaymentMethod: true,
@@ -205,15 +203,13 @@ export class SpaceDashboardSummaryService {
     hourlyRate: number | null;
     countdownMinutes: number | null;
     itemsCost: number;
-    sessionRenewRecords: SpaceSessionRenewRecordRow[];
+    _count: { sessionRenewRecords: number };
     autoCheckout: boolean | null;
     prepaidPaymentMethod: SalesPaymentMethodValue | null;
     prepaidGrouponCode: string | null;
     prepaidNote: string | null;
     prepaidAmount: number | null;
   }): SpaceDashboardActiveSessionSummaryDto {
-    const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
-
     return {
       sessionId: String(session.id),
       ...(session.guestName ? { guestName: session.guestName } : {}),
@@ -230,7 +226,7 @@ export class SpaceDashboardSummaryService {
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
       itemsCost: Money.fromDbCents(session.itemsCost).toOutputYuan(),
-      renewCount: renewRecords.length,
+      renewCount: session._count.sessionRenewRecords,
       ...(session.autoCheckout !== null
         ? { autoCheckout: session.autoCheckout }
         : {}),

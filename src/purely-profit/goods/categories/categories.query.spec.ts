@@ -6,6 +6,7 @@ import {
   deleteCategoryRecord,
   findCategoryById,
   findCategoryDuplicateByName,
+  findCategoryListVersion,
   listCategoryRecords,
   renameCategoryProducts,
   updateCategoryRecord,
@@ -21,6 +22,7 @@ describe('categories.query', () => {
     const productCategoryCreate = jest.fn();
     const productCategoryUpdate = jest.fn();
     const productCategoryDelete = jest.fn();
+    const productCategoryAggregate = jest.fn();
     const productUpdateMany = jest.fn();
 
     return {
@@ -32,6 +34,7 @@ describe('categories.query', () => {
           create: productCategoryCreate,
           update: productCategoryUpdate,
           delete: productCategoryDelete,
+          aggregate: productCategoryAggregate,
         },
         product: {
           updateMany: productUpdateMany,
@@ -43,6 +46,7 @@ describe('categories.query', () => {
       productCategoryCreate,
       productCategoryUpdate,
       productCategoryDelete,
+      productCategoryAggregate,
       productUpdateMany,
     };
   }
@@ -60,6 +64,37 @@ describe('categories.query', () => {
       ...overrides,
     };
   }
+
+  it('findCategoryListVersion 用一次聚合覆盖增删改并生成稳定版本串', async () => {
+    const { prisma, productCategoryAggregate } = createPrismaMock();
+    const updatedAt = new Date('2026-05-23T10:05:00.000Z');
+    productCategoryAggregate.mockResolvedValue({
+      _max: { updatedAt, id: 11 },
+      _count: { _all: 3 },
+    });
+
+    await expect(findCategoryListVersion(prisma as never, 18)).resolves.toBe(
+      `${updatedAt.getTime()}-11-3`,
+    );
+
+    expect(productCategoryAggregate).toHaveBeenCalledWith({
+      where: { storeId: 18, deletedAt: null },
+      _max: { updatedAt: true, id: true },
+      _count: { _all: true },
+    });
+  });
+
+  it('findCategoryListVersion 在无有效分类时返回零值版本', async () => {
+    const { prisma, productCategoryAggregate } = createPrismaMock();
+    productCategoryAggregate.mockResolvedValue({
+      _max: { updatedAt: null, id: null },
+      _count: { _all: 0 },
+    });
+
+    await expect(findCategoryListVersion(prisma as never, 18)).resolves.toBe(
+      '0-0-0',
+    );
+  });
 
   it('listCategoryRecords 会按门店、关键词和统一 select 查询分类列表', async () => {
     const { prisma, productCategoryFindMany } = createPrismaMock();
@@ -87,15 +122,27 @@ describe('categories.query', () => {
     });
   });
 
-  it('findCategoryById 会按统一字段查询分类详情', async () => {
-    const { prisma, productCategoryFindUnique } = createPrismaMock();
+  it('findCategoryById 会按统一字段查询有效分类详情', async () => {
+    const { prisma, productCategoryFindFirst } = createPrismaMock();
     const row = createCategoryRecordFixture();
-    productCategoryFindUnique.mockResolvedValue(row);
+    productCategoryFindFirst.mockResolvedValue(row);
 
     await expect(findCategoryById(prisma as never, 11)).resolves.toEqual(row);
 
-    expect(productCategoryFindUnique).toHaveBeenCalledWith({
-      where: { id: 11 },
+    expect(productCategoryFindFirst).toHaveBeenCalledWith({
+      where: { id: 11, deletedAt: null },
+      select: CATEGORY_SELECT,
+    });
+  });
+
+  it('findCategoryById 会过滤已软删除的分类（BUG：软删除分类仍可被 update/remove）', async () => {
+    const { prisma, productCategoryFindFirst } = createPrismaMock();
+    productCategoryFindFirst.mockResolvedValue(null);
+
+    await expect(findCategoryById(prisma as never, 11)).resolves.toBeNull();
+
+    expect(productCategoryFindFirst).toHaveBeenCalledWith({
+      where: { id: 11, deletedAt: null },
       select: CATEGORY_SELECT,
     });
   });
@@ -188,6 +235,8 @@ describe('categories.query', () => {
       where: {
         storeId: 18,
         categoryId: 11,
+        deletedAt: null,
+        category: { not: '酒水' },
       },
       data: {
         category: '酒水',

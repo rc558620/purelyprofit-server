@@ -33,6 +33,7 @@ import {
   createProductRecord,
   deleteProductRecord,
   findProductById,
+  findProductScalarById,
   findProductStore,
   queryAllProducts,
   queryProductPage,
@@ -211,7 +212,8 @@ export class ProductsService {
     productId: number,
     dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
-    const product = await findProductById(this.prisma, productId);
+    // 前置校验只用到 storeId / code / price / costPrice，改用标量快照避免拉取三层规格
+    const product = await findProductScalarById(this.prisma, productId);
 
     if (!product) {
       throw new NotFoundException('商品不存在');
@@ -370,7 +372,7 @@ export class ProductsService {
     productId: number,
     dto: ToggleScanOrderingStatusDto,
   ): Promise<ScanOrderingStatusResponseDto> {
-    const product = await findProductById(this.prisma, productId);
+    const product = await findProductScalarById(this.prisma, productId);
     if (!product) {
       throw new NotFoundException('商品不存在');
     }

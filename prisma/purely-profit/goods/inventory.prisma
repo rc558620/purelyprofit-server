@@ -18,7 +18,11 @@ model InventoryAdjustmentLog {
   saleOrder       SaleOrder?          @relation(fields: [saleOrderId], references: [id])
   store           Store               @relation(fields: [storeId], references: [id])
 
-  @@index([storeId, createdAt])
+  // 库存流水列表恒按 createdAt DESC + id DESC 分页：把 id 纳入索引并显式声明
+  // 排序方向，PG 可直接按索引有序输出、取满 LIMIT 即终止，省掉 top-N sort。
+  // 该索引是旧 (storeId, createdAt) 的超集，旧索引已在
+  // 20261110120000_add_inventory_adjustment_log_indexes 中 DROP。
+  @@index([storeId, createdAt(sort: Desc), id(sort: Desc)], map: "idx_inventory_adjustment_logs_store_created_id_desc")
   @@index([productId, createdAt])
   @@index([purchaseOrderId, createdAt])
   @@index([saleOrderId, createdAt])

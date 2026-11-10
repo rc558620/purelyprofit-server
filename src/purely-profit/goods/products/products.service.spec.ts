@@ -20,6 +20,7 @@ import {
   createProductRecord,
   deleteProductRecord,
   findProductById,
+  findProductScalarById,
   findProductStore,
   queryAllProducts,
   queryProductPage,
@@ -61,6 +62,7 @@ jest.mock('./products.query', () => ({
   createProductRecord: jest.fn(),
   deleteProductRecord: jest.fn(),
   findProductById: jest.fn(),
+  findProductScalarById: jest.fn(),
   findProductStore: jest.fn(),
   queryAllProducts: jest.fn(),
   queryProductPage: jest.fn(),
@@ -97,6 +99,7 @@ describe('ProductsService', () => {
   const mockedCreateProductRecord = jest.mocked(createProductRecord);
   const mockedDeleteProductRecord = jest.mocked(deleteProductRecord);
   const mockedFindProductById = jest.mocked(findProductById);
+  const mockedFindProductScalarById = jest.mocked(findProductScalarById);
   const mockedFindProductStore = jest.mocked(findProductStore);
   const mockedQueryAllProducts = jest.mocked(queryAllProducts);
   const mockedQueryProductPage = jest.mocked(queryProductPage);
@@ -304,7 +307,7 @@ describe('ProductsService', () => {
     const categoryId = params?.categoryId ?? 9;
     const nextCode = params?.nextCode ?? 'SKU-002';
 
-    mockedFindProductById.mockResolvedValue(current);
+    mockedFindProductScalarById.mockResolvedValue(current);
     mockedEnsureUniqueProductCode.mockResolvedValue(undefined);
     mockedEnsureProductCategory.mockResolvedValue(
       categoryId === null ? null : { id: categoryId },
@@ -682,7 +685,7 @@ describe('ProductsService', () => {
       }),
     ).resolves.toEqual(response);
 
-    expect(mockedFindProductById).toHaveBeenCalledWith(prismaService, 11);
+    expect(mockedFindProductScalarById).toHaveBeenCalledWith(prismaService, 11);
     expect(commerceAccessService.ensureCanAccessStore).toHaveBeenCalledWith(
       user,
       18,
@@ -855,8 +858,9 @@ describe('ProductsService', () => {
       response,
     );
 
-    // 一次是 update 前置校验，一次是规格变更后的刷新
-    expect(mockedFindProductById).toHaveBeenCalledTimes(2);
+    // 前置校验走标量快照；规格变更后仍需一次完整查询拿最新规格 ID
+    expect(mockedFindProductScalarById).toHaveBeenCalledTimes(1);
+    expect(mockedFindProductById).toHaveBeenCalledTimes(1);
   });
 
   /*
@@ -872,6 +876,7 @@ describe('ProductsService', () => {
       response,
     );
 
-    expect(mockedFindProductById).toHaveBeenCalledTimes(1);
+    expect(mockedFindProductScalarById).toHaveBeenCalledTimes(1);
+    expect(mockedFindProductById).not.toHaveBeenCalled();
   });
 });

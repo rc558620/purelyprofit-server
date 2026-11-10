@@ -12,7 +12,7 @@ import {
 } from '../../../redis/keys/club-cache-keys';
 import { Money } from '../../../shared/money.utils';
 import type { ProductSpecGroupDto } from './dto/product.dto';
-import type { ProductRecord } from './products.types';
+import type { ProductScalarRecord } from './products.types';
 
 @Injectable()
 export class ProductsScanOrderingSyncService {
@@ -209,7 +209,11 @@ export class ProductsScanOrderingSyncService {
     });
   }
 
-  async enable(product: ProductRecord, categoryId?: number): Promise<void> {
+  /** 上架只依赖商品标量快照；完整规格由菜单商品自身承载，这里无需读取 */
+  async enable(
+    product: ProductScalarRecord,
+    categoryId?: number,
+  ): Promise<void> {
     const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
       where: {
         storeId: product.storeId,

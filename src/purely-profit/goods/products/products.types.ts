@@ -20,6 +20,23 @@ export interface ProductStoreRecord {
   storeId: number;
 }
 
+/**
+ * 写路径前置校验所需的商品标量快照（不含规格关系）。
+ *
+ * update 与扫码点餐上下架只需要这些标量；列表/详情/编辑响应仍使用
+ * 带三层规格的 ProductRecord，避免写路径无谓拉取规格组与选项。
+ */
+export interface ProductScalarRecord {
+  id: number;
+  storeId: number;
+  name: string;
+  category: string;
+  code: string;
+  price: number;
+  costPrice: number | null;
+  image: string | null;
+}
+
 export interface ProductRecord {
   id: number;
   storeId: number;

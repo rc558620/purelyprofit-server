@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingDashboardService } from './scan-ordering-dashboard.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 
 describe('ScanOrderingDashboardService', () => {
   let service: ScanOrderingDashboardService;
@@ -19,15 +20,24 @@ describe('ScanOrderingDashboardService', () => {
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
   };
+  const refreshableCache = {
+    getOrLoadRefreshableJson: jest.fn(),
+  };
   const user = { id: 1 } as AuthenticatedUser;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认透传 loadValue，保证原有统计口径断言仍走真实查询逻辑
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanOrderingDashboardService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
       ],
     }).compile();
     service = module.get<ScanOrderingDashboardService>(
@@ -120,5 +130,33 @@ describe('ScanOrderingDashboardService', () => {
     expect(refundingQuery.where.paymentStatus).toBe('refunding');
     // 已退款（rejected + refunded）不会被退款中统计查询命中
     expect(refundingQuery.where.status).not.toBe('rejected');
+  });
+
+  it('缓存命中时不再执行任何看板 SQL，且缓存 key 按门店隔离', async () => {
+    const cached = { businessDate: '2026-11-10', paidRevenue: 99 };
+    refreshableCache.getOrLoadRefreshableJson.mockResolvedValue(cached);
+
+    const result = await service.getDashboard(user);
+
+    expect(result).toBe(cached);
+    expect(prismaService.scanOrders.aggregate).not.toHaveBeenCalled();
+    expect(prismaService.scanOrders.count).not.toHaveBeenCalled();
+    const options =
+      refreshableCache.getOrLoadRefreshableJson.mock.calls[0]?.[0];
+    expect(options.cacheKey).toBe('profit:scan-ordering:dashboard:store:11');
+    expect(options.ttlSeconds).toBe(15);
+  });
+
+  it('Redis 异常时降级为实时查询，看板仍可用', async () => {
+    refreshableCache.getOrLoadRefreshableJson.mockRejectedValue(
+      new Error('redis unavailable'),
+    );
+    prismaService.scanOrders.count.mockReset();
+    prismaService.scanOrders.count.mockResolvedValue(0);
+
+    const result = await service.getDashboard(user);
+
+    expect(result.paidRevenue).toBe(125.5);
+    expect(prismaService.scanOrders.aggregate).toHaveBeenCalledTimes(1);
   });
 });

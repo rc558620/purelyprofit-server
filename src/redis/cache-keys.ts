@@ -159,3 +159,8 @@ export {
   buildClubPromotionsPattern,
   buildClubPromotionListCacheKey,
 } from './keys/club-cache-keys';
+
+export {
+  buildCategoriesListCacheKey,
+  buildCategoriesListPattern,
+} from './keys/categories.cache-keys';

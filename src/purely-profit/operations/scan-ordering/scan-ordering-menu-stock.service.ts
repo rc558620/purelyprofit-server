@@ -7,6 +7,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { PermissionCode } from '../../access-control/access-control.constants';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import type { UpdateScanOrderingProductStockDto } from './dto/scan-ordering-product-stock.dto';
 
 /**
@@ -17,6 +18,7 @@ export class ScanOrderingMenuStockService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly menuQueryService: ScanOrderingMenuQueryService,
   ) {}
 
   async updateProductStock(
@@ -60,6 +62,7 @@ export class ScanOrderingMenuStockService {
     if (result.count === 0) {
       throw new NotFoundException('扫码点餐商品不存在');
     }
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   private async resolveStoreId(

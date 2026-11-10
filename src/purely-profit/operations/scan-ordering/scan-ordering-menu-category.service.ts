@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import type { CreateScanOrderingMenuCategoryDto } from './dto/scan-ordering-menu.dto';
 
 /** 商家扫码点餐菜单分类响应。 */
@@ -35,6 +36,7 @@ export class ScanOrderingMenuCategoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly menuQueryService: ScanOrderingMenuQueryService,
   ) {}
 
   async createCategory(
@@ -58,6 +60,7 @@ export class ScanOrderingMenuCategoryService {
     const category = await this.prisma.scanOrderingMenuCategory.create({
       data: { storeId, name: dto.name, sortOrder: dto.sortOrder ?? 0 },
     });
+    await this.menuQueryService.invalidateMenuCache(storeId);
 
     return {
       id: category.id,
@@ -85,6 +88,7 @@ export class ScanOrderingMenuCategoryService {
 
     if (result.count === 0)
       throw new NotFoundException('扫码点餐菜单分类不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   async removeCategory(
@@ -109,6 +113,7 @@ export class ScanOrderingMenuCategoryService {
 
     if (result.count === 0)
       throw new NotFoundException('扫码点餐菜单分类不存在');
+    await this.menuQueryService.invalidateMenuCache(storeId);
   }
 
   private async resolveEnabledStoreId(
