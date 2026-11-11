@@ -9,6 +9,7 @@ import {
 } from './space-session.spec-helpers';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { loadVoucherFactsByCode } from './space-session-auto-checkout.query';
 import { aUuid } from '../../../spec-matchers';
 
 describe('SpaceSessionAutoCheckoutService', () => {
@@ -16,6 +17,9 @@ describe('SpaceSessionAutoCheckoutService', () => {
 
   const prismaService = {
     spaceSession: {
+      findMany: jest.fn(),
+    },
+    clubVoucherOrder: {
       findMany: jest.fn(),
     },
   };
@@ -42,6 +46,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.spaceSession.findMany.mockResolvedValue([]);
+    prismaService.clubVoucherOrder.findMany.mockResolvedValue([]);
     settlementService.settleSession.mockResolvedValue(undefined);
     // redisClient.set 被 RedisService.setIfAbsent 内部调用（'EX', ttl, 'NX'）
     redisClient.set.mockResolvedValue('OK');
@@ -359,5 +364,137 @@ describe('SpaceSessionAutoCheckoutService', () => {
       new Date(2026, 5, 4, 10, 0, 0).getTime(),
       'scheduler:auto-checkout',
     );
+  });
+
+  const makeCountdownSession = (id: number, voucherCode: string | null) => ({
+    ...createSpaceSessionRecord(),
+    id,
+    billingMode: 'countdown',
+    countdownMinutes: 60,
+    autoCheckout: true,
+    prepaidPaymentMethod: 'cash',
+    prepaidVoucherCode: voucherCode,
+    sessionItems: [],
+    sessionRenewRecords: [],
+  });
+
+  it('自动结账批量预取团购券事实，循环内不再逐条查券', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = new Date(2026, 5, 4, 10, 0, 0).getTime();
+
+    prismaService.spaceSession.findMany.mockResolvedValueOnce([
+      makeCountdownSession(9, ' V-1 '),
+      makeCountdownSession(10, 'V-2'),
+      makeCountdownSession(11, null),
+    ]);
+
+    const result = await service.autoCheckoutExpiredCountdownSessions(
+      user,
+      18,
+      checkoutAt,
+    );
+
+    expect(result).toBe(3);
+    expect(prismaService.clubVoucherOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.clubVoucherOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId: 18, voucherCode: { in: ['V-1', 'V-2'] } },
+      }),
+    );
+    expect(settlementService.settleSession).toHaveBeenCalledTimes(3);
+  });
+
+  it('会话均无券码时不额外查询券表', async () => {
+    prismaService.spaceSession.findMany.mockResolvedValueOnce([
+      makeCountdownSession(9, null),
+    ]);
+
+    const result = await service.autoCheckoutExpiredCountdownSessions(
+      createSpaceTestUser(),
+      18,
+      new Date(2026, 5, 4, 10, 0, 0).getTime(),
+    );
+
+    expect(result).toBe(1);
+    expect(prismaService.clubVoucherOrder.findMany).not.toHaveBeenCalled();
+  });
+
+  it('门店预扫描下推 DISTINCT 与到期粗筛条件', async () => {
+    const now = new Date(2026, 5, 4, 10, 0, 0).getTime();
+    prismaService.spaceSession.findMany
+      .mockResolvedValueOnce([{ storeId: 18 }])
+      .mockResolvedValueOnce([{ storeId: 19 }]);
+    jest
+      .spyOn(service, 'autoCheckoutExpiredCountdownSessions')
+      .mockResolvedValue(0);
+
+    const result = await service.autoCheckoutAllExpiredSessions(now);
+
+    expect(result).toBe(0);
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledTimes(2);
+    expect(prismaService.spaceSession.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        select: { storeId: true },
+        distinct: ['storeId'],
+        where: expect.objectContaining({
+          countdownMinutes: { gt: 0 },
+          startTime: { lt: new Date(now) },
+        }),
+      }),
+    );
+    expect(prismaService.spaceSession.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        select: { storeId: true },
+        distinct: ['storeId'],
+      }),
+    );
+  });
+
+  it('批量券反查按券码映射商品名与成本快照', async () => {
+    prismaService.clubVoucherOrder.findMany.mockResolvedValueOnce([
+      {
+        voucherCode: 'V-1',
+        productName: '泡浴盐护理',
+        productPrice: 12000,
+        productCostPrice: 3000,
+      },
+      {
+        voucherCode: 'V-2',
+        productName: '助眠疗愈',
+        productPrice: 20000,
+        productCostPrice: null,
+      },
+    ]);
+
+    const facts = await loadVoucherFactsByCode(
+      prismaService as unknown as PrismaService,
+      18,
+      [' V-1 ', 'V-2', null, ' V-1 '],
+    );
+
+    expect(prismaService.clubVoucherOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { storeId: 18, voucherCode: { in: ['V-1', 'V-2'] } },
+      }),
+    );
+    expect(facts.get('V-1')).toEqual({
+      productName: '泡浴盐护理',
+      unitPriceFen: 12000,
+      unitCostFen: 3000,
+    });
+    expect(facts.get('V-2')?.unitCostFen).toBeNull();
+  });
+
+  it('无券码时批量反查不访问数据库', async () => {
+    const facts = await loadVoucherFactsByCode(
+      prismaService as unknown as PrismaService,
+      18,
+      [null, undefined, '  '],
+    );
+
+    expect(facts.size).toBe(0);
+    expect(prismaService.clubVoucherOrder.findMany).not.toHaveBeenCalled();
   });
 });

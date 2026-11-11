@@ -214,16 +214,12 @@ export class ProductsScanOrderingSyncService {
     product: ProductScalarRecord,
     categoryId?: number,
   ): Promise<void> {
-    const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
-      where: {
-        storeId: product.storeId,
-        productId: product.id,
-        deletedAt: null,
-      },
-    });
-    const resolvedCategoryId =
-      categoryId ??
-      (await this.resolveCategory(product.storeId, product.category)).id;
+    // 「查已有宿主」与「解析分类」互不依赖，并行后少一次串行往返
+    const [existing, resolvedCategoryId] = await Promise.all([
+      this.findMenuProduct(product.storeId, product.id),
+      this.resolveMenuCategoryId(product, categoryId),
+    ]);
+
     if (existing) {
       await this.prisma.scanOrderingMenuProduct.update({
         where: { id: existing.id },
@@ -237,26 +233,55 @@ export class ProductsScanOrderingSyncService {
       });
       return;
     }
-    const category = await this.prisma.scanOrderingMenuCategory.findFirst({
-      where: {
-        id: resolvedCategoryId,
-        storeId: product.storeId,
-        deletedAt: null,
-      },
-    });
+
+    await this.createEnabledMenuProduct(product, resolvedCategoryId);
+  }
+
+  private async resolveMenuCategoryId(
+    product: ProductScalarRecord,
+    categoryId?: number,
+  ): Promise<number> {
+    if (categoryId !== undefined) return categoryId;
+    const resolved = await this.resolveCategory(
+      product.storeId,
+      product.category,
+    );
+    return resolved.id;
+  }
+
+  private async createEnabledMenuProduct(
+    product: ProductScalarRecord,
+    categoryId: number,
+  ): Promise<void> {
+    // 分类存在性校验与同名冲突查询互不依赖，并行后少一次串行往返
+    const [category, conflict] = await Promise.all([
+      this.prisma.scanOrderingMenuCategory.findFirst({
+        where: {
+          id: categoryId,
+          storeId: product.storeId,
+          deletedAt: null,
+        },
+      }),
+      this.prisma.scanOrderingMenuProduct.findFirst({
+        where: {
+          storeId: product.storeId,
+          name: product.name,
+          deletedAt: null,
+        },
+        select: { id: true, productId: true },
+      }),
+    ]);
+
     if (!category) throw new BadRequestException('扫码菜单分类不存在');
-    const conflict = await this.prisma.scanOrderingMenuProduct.findFirst({
-      where: { storeId: product.storeId, name: product.name, deletedAt: null },
-      select: { id: true, productId: true },
-    });
     if (conflict && conflict.productId !== product.id)
       throw new ConflictException('同一门店的扫码菜单商品名称不能重复');
+
     if (conflict) {
       await this.prisma.scanOrderingMenuProduct.update({
         where: { id: conflict.id },
         data: {
           productId: product.id,
-          categoryId: resolvedCategoryId,
+          categoryId,
           imageUrl: product.image,
           basePrice: product.price,
           isActive: true,
@@ -264,11 +289,12 @@ export class ProductsScanOrderingSyncService {
       });
       return;
     }
+
     await this.prisma.scanOrderingMenuProduct.create({
       data: {
         storeId: product.storeId,
         productId: product.id,
-        categoryId: resolvedCategoryId,
+        categoryId,
         name: product.name,
         imageUrl: product.image,
         basePrice: product.price,

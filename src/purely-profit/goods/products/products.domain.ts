@@ -61,8 +61,6 @@ export function validateDerivedProfit(profit: Money): void {
   }
 }
 
-const PRODUCT_CODE_GENERATE_ATTEMPTS = 5;
-
 function buildGeneratedProductCode(now: number, randomPart: number): string {
   return `PRD${now}${randomPart}`;
 }
@@ -134,6 +132,16 @@ export async function ensureUniqueProductCode(
   }
 }
 
+/**
+ * 解析商品编号。
+ *
+ * - 自定义编号：保留一次前置查重，给用户可读的中文冲突提示；
+ * - 自动生成编号：不再先查库。唯一性交给 uq_products_store_code_active
+ *   部分唯一索引兜底，createProductRecord 会把并发撞号的 P2002 转成中文冲突异常。
+ *
+ * 原先「最多 5 轮生成 + 每轮一次查库」既放大创建接口的读往返，
+ * 又无法阻止并发下的先查后写竞态；收敛为 0 次读往返 + 库内唯一约束。
+ */
 export async function resolveProductCode(
   prisma: PrismaService,
   params: {
@@ -152,22 +160,5 @@ export async function resolveProductCode(
   }
 
   const generateCode = params.generateCode ?? defaultGenerateProductCode;
-
-  for (
-    let attempt = 0;
-    attempt < PRODUCT_CODE_GENERATE_ATTEMPTS;
-    attempt += 1
-  ) {
-    const generated = generateCode();
-    const existing = await findProductCodeConflict(prisma, {
-      storeId: params.storeId,
-      code: generated,
-    });
-
-    if (!existing) {
-      return generated;
-    }
-  }
-
-  throw new ConflictException('商品编号生成失败，请重试');
+  return generateCode();
 }

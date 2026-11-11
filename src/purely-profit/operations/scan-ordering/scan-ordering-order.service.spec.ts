@@ -44,6 +44,8 @@ describe('ScanOrderingOrderService', () => {
     scanOrderingSpecOption: {
       updateMany: jest.fn(),
     },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn(),
   };
 
@@ -303,7 +305,7 @@ describe('ScanOrderingOrderService', () => {
       expect(result.nextCursor).toBeNull();
     });
 
-    it('sessionOrderSequence 按 diningRoundId + clubUserId 累计，跨 diningRound 重新计数', async () => {
+    it('sessionOrderSequence 消费数据库窗口函数结果，且不再全量回拉轮次历史', async () => {
       // 同一桌 + 同一用户 + 同一 diningRound = 累计加餐序号
       // 清桌后新 diningRound = 序号重置为 1
       const sameRound = '11111111-1111-1111-1111-111111111111';
@@ -364,24 +366,34 @@ describe('ScanOrderingOrderService', () => {
           paidAmount: 0,
         },
       ];
-      // 第一次 findMany = 列表查询；第二次 findMany = 查同 diningRound 历史
-      prismaService.scanOrders.findMany
-        .mockResolvedValueOnce(orders)
-        .mockResolvedValueOnce(orders);
+      prismaService.scanOrders.findMany.mockResolvedValueOnce(orders);
+      // 窗口函数只回传当前页订单的序号，不再把轮次历史订单拉回进程
+      prismaService.$queryRaw.mockResolvedValueOnce([
+        { id: 11, sequence: 1 },
+        { id: 12, sequence: 2 },
+        { id: 13, sequence: 1 },
+      ]);
 
       const result = await service.listOrders(mockUser, { limit: 20 } as never);
 
-      // 序号回查必须限定在当前门店，避免 OR 展开后跨门店扫描历史订单
-      const sequenceQuery =
-        prismaService.scanOrders.findMany.mock.calls[1]?.[0];
-      expect(sequenceQuery.where.storeId).toBe(11);
+      // 序号查询收敛为一次 raw SQL，列表查询不再被第二次全量 findMany 放大
+      expect(prismaService.scanOrders.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+      // 门店 ID 作为参数下推，避免跨门店扫描
+      expect(prismaService.$queryRaw.mock.calls[0].slice(1)).toContain(11);
 
       const byId = new Map(result.items.map((item) => [item.id, item]));
-      // 同一 diningRound 内累加：第一笔=1（首单），第二笔=2（加餐）
       expect(byId.get(11)?.sessionOrderSequence).toBe(1);
       expect(byId.get(12)?.sessionOrderSequence).toBe(2);
-      // 清桌后新 diningRound：从 1 重新计数（首单）
       expect(byId.get(13)?.sessionOrderSequence).toBe(1);
+    });
+
+    it('订单队列查询排除软删订单以命中门店 partial 索引', async () => {
+      prismaService.scanOrders.findMany.mockResolvedValue([]);
+      await service.listOrders(mockUser, {} as never);
+      expect(
+        prismaService.scanOrders.findMany.mock.calls[0][0].where.deletedAt,
+      ).toBeNull();
     });
   });
 

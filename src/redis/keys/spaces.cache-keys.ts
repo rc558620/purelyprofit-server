@@ -8,7 +8,6 @@ import { toCacheSegment } from '../cache-keys.shared';
  */
 
 type SpacesListCacheQuery = {
-  status?: string;
   type?: string;
   zone?: string;
 };
@@ -22,7 +21,11 @@ export function buildSpacesDashboardPattern(storeId: number): string {
   return `profit:spaces:dashboard:store:${storeId}`;
 }
 
-/** 空间列表：按门店 + 筛选参数（status/type/zone）分键。 */
+/**
+ * 空间列表：按门店 + 结构筛选（type/zone）分键。
+ * status 是运行态派生值，由读侧在缓存外过滤，不参与分键，
+ * 避免同一门店按 status 缓存多份全量结果、写失效时一并失效。
+ */
 export function buildSpacesListCacheKey(
   storeId: number,
   query: SpacesListCacheQuery,
@@ -30,7 +33,6 @@ export function buildSpacesListCacheKey(
   return [
     'profit:spaces:list',
     `store:${storeId}`,
-    `status:${toCacheSegment(query.status)}`,
     `type:${toCacheSegment(query.type)}`,
     `zone:${toCacheSegment(query.zone)}`,
   ].join(':');

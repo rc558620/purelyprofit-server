@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import {
   createProductCategory,
   createProductRecord,
@@ -342,5 +343,37 @@ describe('products.query', () => {
       where: { id: 11 },
       data: { deletedAt: aValidDate },
     });
+  });
+
+  it('商品编号撞唯一约束时创建与更新都会转成中文冲突异常', async () => {
+    const { prisma, productCreate, productUpdate } = createPrismaMock();
+    const uniqueViolation = Object.assign(
+      new Error('Unique constraint failed'),
+      { code: 'P2002' },
+    );
+    productCreate.mockRejectedValue(uniqueViolation);
+    productUpdate.mockRejectedValue(uniqueViolation);
+
+    await expect(
+      createProductRecord(prisma as never, {
+        storeId: 18,
+        categoryId: 7,
+        category: '饮品',
+        code: 'SKU-001',
+        name: '可乐',
+        price: 500,
+        profit: 200,
+        costPrice: 300,
+        unit: '瓶',
+        stock: 10,
+        alertThreshold: 3,
+        image: null,
+        description: null,
+      }),
+    ).rejects.toThrow(new ConflictException('商品编号已存在，请重试'));
+
+    await expect(
+      updateProductRecord(prisma as never, 11, { name: '雪碧' }),
+    ).rejects.toThrow(new ConflictException('商品编号已存在，请重试'));
   });
 });

@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -257,14 +258,36 @@ export async function findProductCodeConflict(
   });
 }
 
+/**
+ * 商品写路径的统一异常翻译：编号唯一约束冲突（P2002）转成中文业务冲突，
+ * 其余异常原样抛出交给全局过滤器。
+ *
+ * products 上唯一的业务唯一约束是 uq_products_store_code_active，
+ * 所以这里的 P2002 只可能是「同门店未删除商品编号重复」。
+ */
+function rethrowProductWriteError(error: unknown): never {
+  if (
+    error instanceof Error &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  ) {
+    throw new ConflictException('商品编号已存在，请重试');
+  }
+  throw error;
+}
+
 export async function createProductRecord(
   prisma: PrismaService,
   data: ProductCreateInput,
 ): Promise<ProductRecord> {
-  return prisma.product.create({
-    data,
-    select: productSelect,
-  });
+  try {
+    return await prisma.product.create({
+      data,
+      select: productSelect,
+    });
+  } catch (error: unknown) {
+    return rethrowProductWriteError(error);
+  }
 }
 
 export async function updateProductRecord(
@@ -272,11 +295,15 @@ export async function updateProductRecord(
   productId: number,
   data: ProductUpdateInput,
 ): Promise<ProductRecord> {
-  return prisma.product.update({
-    where: { id: productId },
-    data,
-    select: productSelect,
-  });
+  try {
+    return await prisma.product.update({
+      where: { id: productId },
+      data,
+      select: productSelect,
+    });
+  } catch (error: unknown) {
+    return rethrowProductWriteError(error);
+  }
 }
 
 export async function deleteProductRecord(

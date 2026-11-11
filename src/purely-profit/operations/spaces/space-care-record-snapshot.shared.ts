@@ -124,6 +124,21 @@ export interface GrouponVoucherFacts extends GrouponVoucherCostFacts {
 }
 
 /**
+ * 单条 / 批量反查共用的字段口径，避免结账利润快照出现两套映射。
+ */
+export function toGrouponVoucherFacts(order: {
+  productName: string;
+  productPrice: number | null;
+  productCostPrice: number | null;
+}): GrouponVoucherFacts {
+  return {
+    productName: order.productName ?? null,
+    unitPriceFen: order.productPrice ?? null,
+    unitCostFen: order.productCostPrice ?? null,
+  };
+}
+
+/**
  * 依开台绑定的纯利宝券码反查团购商品名与成本快照。
  *
  * 成本用于结账时把「券面消费行」的利润从「利润 = 券面」修正为「券面 - 成本」：
@@ -147,15 +162,7 @@ export async function resolveGrouponVoucherFacts(
       productCostPrice: true,
     },
   });
-  if (!order) {
-    return null;
-  }
-
-  return {
-    productName: order.productName ?? null,
-    unitPriceFen: order.productPrice ?? null,
-    unitCostFen: order.productCostPrice ?? null,
-  };
+  return order ? toGrouponVoucherFacts(order) : null;
 }
 
 /**

@@ -218,6 +218,32 @@ describe('SpacesReadService', () => {
       },
     ]);
   });
+
+  it('listSpaces 的 status 过滤在缓存外生效，缓存键不按 status 分裂', async () => {
+    prismaService.space.findMany.mockResolvedValueOnce([
+      makeSpace(),
+      makeSpace({
+        id: 12,
+        name: 'B台',
+        _count: { sessions: 1, reservations: 0 },
+      }),
+    ]);
+
+    const result = await service.listSpaces(user, {
+      storeId: 18,
+      status: 'idle',
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('11');
+    expect(
+      refreshableCacheService.getOrLoadRefreshableJson,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: expect.not.stringContaining('status'),
+      }),
+    );
+  });
 });
 
 describe('SpaceSessionReadService 状态修复', () => {
@@ -238,6 +264,7 @@ describe('SpaceSessionReadService 状态修复', () => {
   const commerceAccessService = {
     resolveViewStoreId: jest.fn(),
     ensureCanAccessStore: jest.fn(),
+    resolveSingleStoreId: jest.fn(),
   };
 
   const readStateService = {};
@@ -271,6 +298,7 @@ describe('SpaceSessionReadService 状态修复', () => {
     jest.clearAllMocks();
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     prismaService.spaceSession.count.mockResolvedValue(0);
 
     const module: TestingModule = await Test.createTestingModule({

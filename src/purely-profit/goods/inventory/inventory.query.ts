@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { escapeLikePattern } from './inventory-product-page.query';
 import type {
+  InventoryAdjustmentRecord,
   InventoryAdjustmentPageResult,
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
@@ -122,6 +124,23 @@ function buildAlertWhereCondition(
   return {};
 }
 
+/** raw 查询行：库存流水行 + 窗口函数算出的筛选后总数 */
+type InventoryAdjustmentPageRow = InventoryAdjustmentRecord & {
+  totalCount: number;
+};
+
+/**
+ * 库存流水分页：筛选 / 排序 / 总数 / LIMIT 全部在库内一次完成。
+ *
+ * 原先 findMany 与 count 是两条独立 SQL，带 keyword 时都要对流水表做一遍
+ * ILIKE 扫描；inventory_adjustment_logs 是 goods 域唯一持续追加的表
+ * （档 B 年增千万级），两次扫描会随数据量线性放大。这里改用
+ * COUNT(*) OVER() 一次往返拿当前页 + 总数，口径与
+ * inventory-product-page.query.ts 的库存商品分页保持一致。
+ *
+ * 关键字口径沿用 Prisma contains + insensitive 对应的 ILIKE '%kw%'，
+ * 并用同一个 escapeLikePattern 转义，避免「50%」「A_B」被当成通配符。
+ */
 export async function queryInventoryAdjustmentPage(
   prisma: PrismaService,
   params: {
@@ -131,45 +150,40 @@ export async function queryInventoryAdjustmentPage(
     take: number;
   },
 ): Promise<InventoryAdjustmentPageResult> {
-  const where: Prisma.InventoryAdjustmentLogWhereInput = {
-    storeId: params.storeId,
-    ...(params.query.productId ? { productId: params.query.productId } : {}),
-    ...(params.query.adjustType ? { adjustType: params.query.adjustType } : {}),
-    ...(params.query.keyword
-      ? {
-          productName: {
-            contains: params.query.keyword,
-            mode: 'insensitive' as const,
-          },
-        }
-      : {}),
-  };
+  const { storeId, query, skip, take } = params;
+  const productId = query.productId ?? null;
+  const adjustType = query.adjustType ?? null;
+  const keyword = query.keyword?.trim();
+  const keywordPattern = keyword ? `%${escapeLikePattern(keyword)}%` : null;
 
-  const [items, total] = await Promise.all([
-    prisma.inventoryAdjustmentLog.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: params.skip,
-      take: params.take,
-      select: {
-        id: true,
-        productId: true,
-        productName: true,
-        beforeStock: true,
-        afterStock: true,
-        delta: true,
-        adjustType: true,
-        note: true,
-        purchaseOrderId: true,
-        createdAt: true,
-      },
-    }),
-    prisma.inventoryAdjustmentLog.count({ where }),
-  ]);
+  const rows = await prisma.$queryRaw<InventoryAdjustmentPageRow[]>`
+    SELECT
+      id,
+      product_id AS "productId",
+      product_name AS "productName",
+      before_stock AS "beforeStock",
+      after_stock AS "afterStock",
+      delta,
+      adjust_type AS "adjustType",
+      note,
+      purchase_order_id AS "purchaseOrderId",
+      created_at AS "createdAt",
+      COUNT(*) OVER()::int AS "totalCount"
+    FROM inventory_adjustment_logs
+    WHERE store_id = ${storeId}
+      AND (${productId}::int IS NULL OR product_id = ${productId})
+      AND (${adjustType}::text IS NULL OR adjust_type::text = ${adjustType})
+      AND (
+        ${keywordPattern}::text IS NULL
+        OR product_name ILIKE ${keywordPattern} ESCAPE '\\'
+      )
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${take} OFFSET ${skip}
+  `;
 
   return {
-    items,
-    total,
+    items: rows.map(({ totalCount: _totalCount, ...row }) => row),
+    total: rows[0]?.totalCount ?? 0,
   };
 }
 

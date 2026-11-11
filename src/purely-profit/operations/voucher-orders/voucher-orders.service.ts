@@ -1,85 +1,44 @@
 // 商家端团购券订单管理服务：当前门店分页列表 / 确认（仅记录不改变状态）/ 拒绝（退款链路 + 广播）
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { resolveClubGuestDisplayName } from '../../auth/auth.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ClubVoucherOrderRefundService } from '../../../purely-club/voucher-orders/club-voucher-order-refund.service';
-import {
-  addShanghaiDays,
-  getShanghaiDayStartMs,
-  makeShanghaiMs,
-} from '../../../shared/shanghai-time.utils';
 import type {
   QueryVoucherOrdersDto,
-  VoucherOrderListItemDto,
   VoucherOrderListResponseDto,
 } from './dto/voucher-order-management.dto';
 import { VoucherOrderStatusFilter } from './dto/voucher-order-management.dto';
-import { VoucherOrderTimePreset } from './dto/voucher-order-management.dto';
+import {
+  buildTimeRange,
+  CONFIRMABLE_STATUS,
+  EXPIRE_SCAN_BATCH_SIZE,
+  EXPIRE_SCAN_MAX_BATCHES,
+  MERCHANT_VISIBLE_STATUSES,
+  toConfirmResult,
+  toListItem,
+  VOUCHER_ORDER_CONFIRM_SELECT,
+  VOUCHER_ORDER_MANAGE_LIST_SELECT,
+} from './voucher-order-management.helper';
+import type {
+  VoucherOrderConfirmResult,
+  VoucherOrderConfirmRow,
+  VoucherOrderRejectResult,
+} from './voucher-order-management.helper';
 
-/** 商家端确认操作结果 */
-export interface VoucherOrderConfirmResult {
-  orderNo: string;
-  /** 确认时间 ISO */
-  confirmedAt: string;
-  /** 确认操作员姓名 */
-  confirmedByStaffName: string | null;
-  /** 确认操作员角色快照（owner=主账号/manager=店长/staff=收银员） */
-  confirmedByStaffRole: 'owner' | 'manager' | 'staff' | null;
-  /** 当前订单状态（确认不改变状态，仍为 pending） */
-  status: 'pending';
-}
-
-/** 商家端拒绝操作结果 */
-export interface VoucherOrderRejectResult {
-  orderNo: string;
-  status: 'refunded';
-  refundAt: string;
-  rejectedAt: string;
-  /** 拒绝操作员姓名快照（未关联员工行时为 null） */
-  rejectedByStaffName: string | null;
-  /** 拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员） */
-  rejectedByStaffRole: 'owner' | 'manager' | 'staff' | null;
-}
-
-/** 可操作状态：确认/拒绝仅对 pending 订单开放 */
-const CONFIRMABLE_STATUS = ['pending'] as const;
-
-/**
- * 商家端列表字段白名单：按 VoucherOrderListItemDto 实际消费字段裁剪，避免高频
- * 列表回读 breakdownItems Json 与微信/积分等无关快照列；商品图仍按当前商品实时取。
- */
-const VOUCHER_ORDER_MANAGE_LIST_SELECT = {
-  orderNo: true,
-  voucherCode: true,
-  guestName: true,
-  guestPhone: true,
-  categoryName: true,
-  productName: true,
-  quantity: true,
-  remark: true,
-  paidAmountFen: true,
-  status: true,
-  usedSessionId: true,
-  createdAt: true,
-  confirmedAt: true,
-  verifyAt: true,
-  confirmedByStaffName: true,
-  confirmedByStaffRole: true,
-  rejectedAt: true,
-  refundAt: true,
-  rejectedByStaffName: true,
-  rejectedByStaffRole: true,
-  product: { select: { image: true } },
-} satisfies Prisma.ClubVoucherOrderSelect;
+// 结果类型继续从 service 导出，保持 controller 的既有引用不变
+export type {
+  VoucherOrderConfirmResult,
+  VoucherOrderRejectResult,
+} from './voucher-order-management.helper';
 
 @Injectable()
 export class VoucherOrdersService {
@@ -105,13 +64,12 @@ export class VoucherOrdersService {
     );
     // 惰性过期放在查询之前且覆盖整个门店：只翻当前页会让「已过期」Tab 系统性漏单，
     // 并且 count 与结果集状态口径不一致、下一页 offset 因状态漂移跳过记录。
-    // 条件更新带 status:'pending'，并发重复执行天然幂等。
     await this.expireOverdueStoreOrders(storeId);
-    const timeRange = this.buildTimeRange(query);
+    const timeRange = buildTimeRange(query);
     const where: Prisma.ClubVoucherOrderWhereInput = {
       storeId,
-      // 未支付草稿单（用户弃付）不进商家端列表：与用户端列表口径一致（status not unpaid）
-      status: { not: 'unpaid' },
+      // 未支付草稿单（用户弃付）不进商家端列表：与用户端列表口径一致
+      status: { in: [...MERCHANT_VISIBLE_STATUSES] },
       ...(query.status && query.status !== VoucherOrderStatusFilter.ALL
         ? { status: query.status }
         : {}),
@@ -139,7 +97,7 @@ export class VoucherOrdersService {
       this.prisma.clubVoucherOrder.count({ where }),
     ]);
     return {
-      items: rows.map((row) => this.toListItem(row)),
+      items: rows.map((row) => toListItem(row)),
       total,
     };
   }
@@ -157,6 +115,7 @@ export class VoucherOrdersService {
     );
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { orderNo, storeId },
+      select: VOUCHER_ORDER_CONFIRM_SELECT,
     });
     if (!order) {
       throw new NotFoundException('团购券订单不存在');
@@ -165,27 +124,32 @@ export class VoucherOrdersService {
 
     // 幂等：已确认过直接返回当前确认信息，不重复写入
     if (order.confirmedAt !== null) {
-      return {
-        orderNo: order.orderNo,
-        confirmedAt: order.confirmedAt.toISOString(),
-        confirmedByStaffName: order.confirmedByStaffName,
-        confirmedByStaffRole:
-          order.confirmedByStaffRole as VoucherOrderConfirmResult['confirmedByStaffRole'],
-        status: 'pending',
-      };
+      return toConfirmResult(order, order.confirmedAt);
     }
 
     const operatorSnapshot = await this.resolveOperatorSnapshot(user, storeId);
     const confirmedAt = new Date();
 
-    await this.prisma.clubVoucherOrder.update({
-      where: { id: order.id },
+    // 带前置状态条件的原子更新：并发双击只有一笔能落库，避免裸 read-modify-write
+    const updated = await this.prisma.clubVoucherOrder.updateMany({
+      where: { id: order.id, status: 'pending', confirmedAt: null },
       data: {
         confirmedAt,
         confirmedByStaffName: operatorSnapshot.name,
         confirmedByStaffRole: operatorSnapshot.role,
       },
     });
+    if (updated.count !== 1) {
+      // 被并发抢占：按幂等语义回读最新确认信息，重复提交仍返回成功而非 4xx
+      const latest = await this.prisma.clubVoucherOrder.findFirst({
+        where: { orderNo, storeId },
+        select: VOUCHER_ORDER_CONFIRM_SELECT,
+      });
+      if (!latest?.confirmedAt) {
+        throw new ConflictException('团购券订单确认状态已变更，请刷新后重试');
+      }
+      return toConfirmResult(latest, latest.confirmedAt);
+    }
 
     this.logger.log(
       `商家确认团购券订单: orderNo=${order.orderNo}, confirmedBy=${operatorSnapshot.name}, 状态保持 pending`,
@@ -221,7 +185,7 @@ export class VoucherOrdersService {
     const operatorSnapshot = await this.resolveOperatorSnapshot(user, storeId);
     const rejectedByStaffName = operatorSnapshot.name;
 
-    // 复用退款核心链路：微信原路退回 + 积分返还 + 库存回补 + 写 rejectedAt/rejectedByStaffName/rejectedByStaffRole（幂等）
+    // 复用退款核心链路：微信原路退回 + 积分返还 + 库存回补 + 写拒绝信息（幂等）
     const result = await this.refundService.rejectVoucherOrderByMerchant({
       storeId,
       orderNo,
@@ -271,39 +235,45 @@ export class VoucherOrdersService {
         storeId,
       );
     if (staffId == null) return { name: null, role: null };
-    const staff = await this.prisma.staff.findUnique({
-      where: { id: staffId },
-      select: {
-        name: true,
-        role: true,
-        employeeProfile: {
-          select: {
-            subAccounts: {
-              select: { role: true },
+
+    // 员工行与门店 owner 两处读取互不依赖，并行发出省一次串行往返
+    const [staff, store] = await Promise.all([
+      this.prisma.staff.findUnique({
+        where: { id: staffId },
+        select: {
+          name: true,
+          role: true,
+          employeeProfile: {
+            select: {
+              subAccounts: {
+                select: { role: true },
+              },
             },
           },
         },
-      },
-    });
-    const role = await this.resolveOperatorRole(user, storeId, staff);
-    return { name: staff?.name ?? null, role };
+      }),
+      this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { ownerId: true },
+      }),
+    ]);
+    return {
+      name: staff?.name ?? null,
+      role: this.resolveOperatorRole(user, store?.ownerId ?? null, staff),
+    };
   }
 
-  /** 操作员职位 → 颜色角色：门店 owner=主账号（紫），子账号店长=manager（绿），其余=staff（默认色） */
-  private async resolveOperatorRole(
+  /** 操作员职位 → 颜色角色：纯判定，不再在判定内部查库 */
+  private resolveOperatorRole(
     user: AuthenticatedUser,
-    storeId: number,
+    storeOwnerId: number | null,
     staff: {
       role: string;
       employeeProfile: { subAccounts: { role: string } | null } | null;
     } | null,
-  ): Promise<'owner' | 'manager' | 'staff' | null> {
+  ): 'owner' | 'manager' | 'staff' | null {
     // 当前登录用户即门店 owner → 主账号（store.ownerId 是权威主账号依据）
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { ownerId: true },
-    });
-    if (store?.ownerId === user.id) return 'owner';
+    if (storeOwnerId === user.id) return 'owner';
     // staff 行自身为 owner（老板员工行）→ 主账号
     if (staff?.role === 'owner') return 'owner';
     // 关联激活子账号角色为 manager → 店长
@@ -315,7 +285,7 @@ export class VoucherOrdersService {
   }
 
   private assertPendingStatus(
-    order: { status: string; expiresAt: Date | null },
+    order: Pick<VoucherOrderConfirmRow, 'status' | 'expiresAt'>,
     action: '确认' | '拒绝',
   ): void {
     if (
@@ -331,125 +301,40 @@ export class VoucherOrdersService {
     }
   }
 
-  /** 时间筛选：date（YYYY-MM-DD）优先，其次 preset（today/7d/30d，默认 today） */
-  private buildTimeRange(query: QueryVoucherOrdersDto): {
-    gte: Date;
-    lte: Date;
-  } | null {
-    if (query.date) {
-      const [yearText, monthText, dayText] = query.date.split('-');
-      const startAt = new Date(
-        makeShanghaiMs(
-          Number(yearText),
-          Number(monthText) - 1,
-          Number(dayText),
-        ),
-      );
-      if (Number.isNaN(startAt.getTime())) {
-        throw new BadRequestException('日期格式不正确');
-      }
-      return {
-        gte: startAt,
-        lte: new Date(
-          makeShanghaiMs(
-            Number(yearText),
-            Number(monthText) - 1,
-            Number(dayText),
-            23,
-            59,
-            59,
-            999,
-          ),
-        ),
-      };
-    }
-
-    const now = new Date();
-    const endAt = new Date(
-      getShanghaiDayStartMs(now.getTime()) + 86_400_000 - 1,
-    );
-    const startAt = new Date(getShanghaiDayStartMs(now.getTime()));
-    const preset = query.preset ?? VoucherOrderTimePreset.TODAY;
-    if (preset === VoucherOrderTimePreset.DAYS_7) {
-      return {
-        gte: new Date(addShanghaiDays(startAt.getTime(), -6)),
-        lte: endAt,
-      };
-    }
-    if (preset === VoucherOrderTimePreset.DAYS_30) {
-      return {
-        gte: new Date(addShanghaiDays(startAt.getTime(), -29)),
-        lte: endAt,
-      };
-    }
-    return { gte: startAt, lte: endAt };
-  }
-
   /**
-   * 惰性过期（门店维度）：把本门店所有 pending 且已过有效期的订单一次性翻转。
-   * 必须在列表查询之前执行，让 where / count / findMany 共用同一份稳定状态；
-   * 与用户端「按 expiresAt 取并集」是同一问题的两种收敛方式。
+   * 惰性过期（门店维度、分批）：把本门店所有 pending 且已过有效期的订单翻转，
+   * 必须在列表查询之前执行，让 where / count / findMany 共用同一份稳定状态。
+   *
+   * 与旧实现的差异：旧实现每次请求无条件发一条 updateMany，0 命中也产生写事务、
+   * WAL 与行锁竞争；这里先按 (store_id,status,expires_at) partial index 探测 id，
+   * 无命中直接返回（纯索引范围读），命中才按批翻转并限制单请求批次数，避免门店
+   * 长期未访问后首次请求一次性大批量 UPDATE 拉长持锁时间。
+   * 条件更新带 status:'pending'，并发重复执行天然幂等。
    */
   private async expireOverdueStoreOrders(storeId: number): Promise<void> {
-    await this.prisma.clubVoucherOrder.updateMany({
-      where: {
-        storeId,
-        status: 'pending',
-        expiresAt: { lt: new Date() },
-      },
-      data: { status: 'expired' },
-    });
-  }
-
-  /** 订单实体 → 列表项（时间为 ISO 字符串，金额保持分单位） */
-  private toListItem(row: {
-    orderNo: string;
-    voucherCode: string | null;
-    guestName: string | null;
-    guestPhone: string | null;
-    categoryName: string | null;
-    productName: string;
-    quantity: number;
-    remark: string | null;
-    paidAmountFen: number;
-    status: string;
-    usedSessionId: number | null;
-    createdAt: Date;
-    confirmedAt: Date | null;
-    verifyAt: Date | null;
-    confirmedByStaffName: string | null;
-    confirmedByStaffRole: string | null;
-    rejectedAt: Date | null;
-    refundAt: Date | null;
-    rejectedByStaffName: string | null;
-    rejectedByStaffRole: string | null;
-    product: { image: string | null };
-  }): VoucherOrderListItemDto {
-    return {
-      orderNo: row.orderNo,
-      voucherCode: row.voucherCode,
-      // 历史订单姓名快照可能为空（静默微信注册无昵称）：按快照手机号兜底派生展示名
-      guestName: resolveClubGuestDisplayName(row.guestName, row.guestPhone),
-      guestPhone: row.guestPhone,
-      categoryName: row.categoryName,
-      productName: row.productName,
-      productImage: row.product.image,
-      quantity: row.quantity,
-      remark: row.remark,
-      paidAmountFen: row.paidAmountFen,
-      status: row.status as VoucherOrderListItemDto['status'],
-      usedSessionId: row.usedSessionId,
-      createdAt: row.createdAt.toISOString(),
-      confirmedAt: row.confirmedAt?.toISOString() ?? null,
-      verifyAt: row.verifyAt?.toISOString() ?? null,
-      confirmedByStaffName: row.confirmedByStaffName,
-      confirmedByStaffRole:
-        row.confirmedByStaffRole as VoucherOrderListItemDto['confirmedByStaffRole'],
-      rejectedAt: row.rejectedAt?.toISOString() ?? null,
-      refundAt: row.refundAt?.toISOString() ?? null,
-      rejectedByStaffName: row.rejectedByStaffName,
-      rejectedByStaffRole:
-        row.rejectedByStaffRole as VoucherOrderListItemDto['rejectedByStaffRole'],
+    const where: Prisma.ClubVoucherOrderWhereInput = {
+      storeId,
+      status: 'pending',
+      expiresAt: { lt: new Date() },
     };
+    for (let batch = 0; batch < EXPIRE_SCAN_MAX_BATCHES; batch += 1) {
+      const overdue = await this.prisma.clubVoucherOrder.findMany({
+        where,
+        select: { id: true },
+        take: EXPIRE_SCAN_BATCH_SIZE,
+      });
+      if (overdue.length === 0) return;
+      await this.prisma.clubVoucherOrder.updateMany({
+        where: {
+          id: { in: overdue.map((row) => row.id) },
+          status: 'pending',
+        },
+        data: { status: 'expired' },
+      });
+      if (overdue.length < EXPIRE_SCAN_BATCH_SIZE) return;
+    }
+    this.logger.warn(
+      `团购券订单惰性过期达到单请求批次上限: storeId=${storeId}, 上限=${EXPIRE_SCAN_BATCH_SIZE * EXPIRE_SCAN_MAX_BATCHES}行，剩余留待下次请求`,
+    );
   }
 }

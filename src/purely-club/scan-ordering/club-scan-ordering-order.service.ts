@@ -9,7 +9,7 @@ import {
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
@@ -136,127 +136,130 @@ export class ClubScanOrderingOrderService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + PAYMENT_TIMEOUT_MS);
     try {
-      const result = await this.prisma.$transaction(async (tx) => {
-        await tx.idempotencyRecord.create({
-          data: {
-            scope: IDEMPOTENCY_SCOPE,
-            actorId: user.id,
-            idempotencyKey,
-            requestHash: hashScanOrderRequest(dto),
-            status: 'processing',
-            expiresAt,
-          },
-        });
-        await this.inventoryReservationService.reserveMenuProductStock(
-          tx,
-          pricedItems,
-          session.storeId,
-        );
-        await this.cartPricingService.reserveFiniteSpecStock(tx, pricedItems);
-        await tx.scanOrderingSession.update({
-          where: { id: session.id },
-          data: {
-            guestCount: Math.max(session.guestCount, dto.guestCount),
-            lastActiveAt: new Date(),
-          },
-        });
-        const order = await tx.scanOrders.create({
-          data: {
-            storeId: session.storeId,
-            tableId: session.tableId!,
-            sessionId: session.id,
-            clubUserId: user.id,
-            diningRoundId: session.diningRoundId,
-            orderNo: createScanOrderNo(),
-            guestCount: dto.guestCount,
-            remark: dto.remark,
-            idempotencyKey,
-            pricingVersion,
-            marketingSnapshot: {
-              memberBenefits: promotionResult.memberBenefits,
-              appliedPromotions: promotionResult.appliedPromotions,
-              breakdownItems: promotionResult.breakdownItems,
-              availableCoupons: promotionResult.availableCoupons.filter(
-                (coupon) => coupon.usable,
-              ),
-              productDiscountAmount: amounts.productDiscountAmount,
-              orderDiscountAmount: amounts.orderDiscountAmount,
-              usePoints: dto.usePoints === true,
-              pointsDeductAmount: promotionResult.pointsDeductAmount,
-              pointsUsed: promotionResult.pointsUsed,
-              redeemRatioPoints: promotionResult.redeemRatioPoints,
-              availablePoints: promotionResult.availablePoints,
-              pointsSettlementStatus: 'pending',
-            },
-            itemOriginalAmount: amounts.itemOriginalAmount,
-            specificationExtraAmount: amounts.specificationExtraAmount,
-            productDiscountAmount: amounts.productDiscountAmount,
-            orderDiscountAmount: amounts.orderDiscountAmount,
-            serviceFeeAmount: amounts.serviceFeeAmount,
-            taxAmount: amounts.taxAmount,
-            payableAmount: promotionResult.afterPointsPayableAmount,
-            paymentExpiresAt: expiresAt,
-            items: {
-              create: this.cartPricingService.buildOrderItemCreateData(
-                pricedItems,
-                amounts.productDiscountAmount,
-                session.storeId,
-              ),
-            },
-          },
-          select: {
-            id: true,
-            orderNo: true,
-            payableAmount: true,
-            paymentExpiresAt: true,
-            version: true,
-          },
-        });
-        await tx.scanOrderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            storeId: session.storeId,
-            fromStatus: 'pending_payment',
-            toStatus: 'pending_payment',
-            operatorType: 'club_user',
-            operatorId: user.id,
-            reason: '用户创建扫码点餐订单',
-          },
-        });
-        await tx.scanOrderingCartItem.updateMany({
-          where: { sessionId: session.id, status: 'active', deletedAt: null },
-          data: { status: 'ordered', version: { increment: 1 } },
-        });
-        // 新客额度扣减：与订单落库在同一个事务里提交。
-        // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
-        // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
-        await this.quotaService.consumeWithinOrderTransaction(
-          tx,
-          session.storeId,
-          user.id,
-          user.phone || null,
-        );
-        const response = {
-          ...order,
-          paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
-        };
-        await tx.idempotencyRecord.update({
-          where: {
-            scope_actorId_idempotencyKey: {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.idempotencyRecord.create({
+            data: {
               scope: IDEMPOTENCY_SCOPE,
               actorId: user.id,
               idempotencyKey,
+              requestHash: hashScanOrderRequest(dto),
+              status: 'processing',
+              expiresAt,
             },
-          },
-          data: {
-            status: 'succeeded',
-            resourceType: 'scan_order',
-            resourceId: order.id,
-            responseSnapshot: response,
-          },
-        });
-        return response;
-      });
+          });
+          await this.inventoryReservationService.reserveMenuProductStock(
+            tx,
+            pricedItems,
+            session.storeId,
+          );
+          await this.cartPricingService.reserveFiniteSpecStock(tx, pricedItems);
+          await tx.scanOrderingSession.update({
+            where: { id: session.id },
+            data: {
+              guestCount: Math.max(session.guestCount, dto.guestCount),
+              lastActiveAt: new Date(),
+            },
+          });
+          const order = await tx.scanOrders.create({
+            data: {
+              storeId: session.storeId,
+              tableId: session.tableId!,
+              sessionId: session.id,
+              clubUserId: user.id,
+              diningRoundId: session.diningRoundId,
+              orderNo: createScanOrderNo(),
+              guestCount: dto.guestCount,
+              remark: dto.remark,
+              idempotencyKey,
+              pricingVersion,
+              marketingSnapshot: {
+                memberBenefits: promotionResult.memberBenefits,
+                appliedPromotions: promotionResult.appliedPromotions,
+                breakdownItems: promotionResult.breakdownItems,
+                availableCoupons: promotionResult.availableCoupons.filter(
+                  (coupon) => coupon.usable,
+                ),
+                productDiscountAmount: amounts.productDiscountAmount,
+                orderDiscountAmount: amounts.orderDiscountAmount,
+                usePoints: dto.usePoints === true,
+                pointsDeductAmount: promotionResult.pointsDeductAmount,
+                pointsUsed: promotionResult.pointsUsed,
+                redeemRatioPoints: promotionResult.redeemRatioPoints,
+                availablePoints: promotionResult.availablePoints,
+                pointsSettlementStatus: 'pending',
+              },
+              itemOriginalAmount: amounts.itemOriginalAmount,
+              specificationExtraAmount: amounts.specificationExtraAmount,
+              productDiscountAmount: amounts.productDiscountAmount,
+              orderDiscountAmount: amounts.orderDiscountAmount,
+              serviceFeeAmount: amounts.serviceFeeAmount,
+              taxAmount: amounts.taxAmount,
+              payableAmount: promotionResult.afterPointsPayableAmount,
+              paymentExpiresAt: expiresAt,
+              items: {
+                create: this.cartPricingService.buildOrderItemCreateData(
+                  pricedItems,
+                  amounts.productDiscountAmount,
+                  session.storeId,
+                ),
+              },
+            },
+            select: {
+              id: true,
+              orderNo: true,
+              payableAmount: true,
+              paymentExpiresAt: true,
+              version: true,
+            },
+          });
+          await tx.scanOrderStatusHistory.create({
+            data: {
+              orderId: order.id,
+              storeId: session.storeId,
+              fromStatus: 'pending_payment',
+              toStatus: 'pending_payment',
+              operatorType: 'club_user',
+              operatorId: user.id,
+              reason: '用户创建扫码点餐订单',
+            },
+          });
+          await tx.scanOrderingCartItem.updateMany({
+            where: { sessionId: session.id, status: 'active', deletedAt: null },
+            data: { status: 'ordered', version: { increment: 1 } },
+          });
+          // 新客额度扣减：与订单落库在同一个事务里提交。
+          // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
+          // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
+          await this.quotaService.consumeWithinOrderTransaction(
+            tx,
+            session.storeId,
+            user.id,
+            user.phone || null,
+          );
+          const response = {
+            ...order,
+            paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
+          };
+          await tx.idempotencyRecord.update({
+            where: {
+              scope_actorId_idempotencyKey: {
+                scope: IDEMPOTENCY_SCOPE,
+                actorId: user.id,
+                idempotencyKey,
+              },
+            },
+            data: {
+              status: 'succeeded',
+              resourceType: 'scan_order',
+              resourceId: order.id,
+              responseSnapshot: response,
+            },
+          });
+          return response;
+        },
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
       this.logger.log(
         `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
       );

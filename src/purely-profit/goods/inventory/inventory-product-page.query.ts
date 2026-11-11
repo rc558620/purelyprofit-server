@@ -20,7 +20,7 @@ export interface InventoryProductPageParams {
  * 转义 ILIKE 通配符，与 Prisma `contains` 的转义口径一致（反斜杠为转义符）。
  * 不转义的话，搜索「50%」「A_B」会被当成通配符。
  */
-function escapeLikePattern(keyword: string): string {
+export function escapeLikePattern(keyword: string): string {
   return keyword.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 

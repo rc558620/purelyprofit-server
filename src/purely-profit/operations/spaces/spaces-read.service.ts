@@ -60,15 +60,24 @@ export class SpacesReadService {
       return [];
     }
 
-    // 列表按 storeId + status/type/zone 分键，命中即跳过 3~6 条关系查询 SQL
-    const cacheKey = buildSpacesListCacheKey(storeId, query);
-    return this.refreshableCache.getOrLoadRefreshableJson({
+    // 列表只按 storeId + 结构筛选（type/zone）分键，命中即跳过 3~6 条关系查询 SQL。
+    // status 是运行态派生值：缓存整店基础列表，在缓存外过滤，
+    // 一份缓存服务所有状态筛选，避免按 status 分裂导致缓存与回源放大。
+    const cacheKey = buildSpacesListCacheKey(storeId, {
+      type: query.type,
+      zone: query.zone,
+    });
+    const spaces = await this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: SPACES_LIST_CACHE_TTL_SECONDS,
       refreshAfterMs: SPACES_LIST_CACHE_REFRESH_AFTER_MS,
       loadValue: () => this.loadSpacesList(storeId, query),
     });
+
+    return query.status
+      ? spaces.filter((space) => space.status === query.status)
+      : spaces;
   }
 
   private async loadSpacesList(
@@ -116,11 +125,6 @@ export class SpacesReadService {
       });
       return toSpaceResponse({ ...space, status });
     });
-
-    // 如果 query 有 status 过滤，在内存中做过滤
-    if (query.status) {
-      return responses.filter((r) => r.status === query.status);
-    }
 
     return responses;
   }

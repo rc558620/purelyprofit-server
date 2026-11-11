@@ -297,10 +297,10 @@ describe('InventoryService', () => {
     const createdAt = new Date('2026-05-14T10:00:00.000Z');
 
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.inventoryAdjustmentLog.findMany.mockResolvedValue([
+    /* 流水分页已改为单次 raw 查询：COUNT(*) OVER() 直接带回 totalCount */
+    prismaService.$queryRaw.mockResolvedValueOnce([
       {
         id: 21,
-        storeId: 18,
         productId: 101,
         productName: '可口可乐 330ml',
         beforeStock: 10,
@@ -310,9 +310,9 @@ describe('InventoryService', () => {
         note: '补货入库',
         purchaseOrderId: 88,
         createdAt,
+        totalCount: 12,
       },
     ]);
-    prismaService.inventoryAdjustmentLog.count.mockResolvedValue(12);
 
     await expect(
       readService.listAdjustments(user, {

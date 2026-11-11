@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -15,6 +16,12 @@ import {
   toOrderListItem,
   type ScanOrderListItemSource,
 } from './scan-ordering-order.mapper';
+
+/** ROW_NUMBER 为 int8，驱动可能回传 bigint/string。 */
+type DiningRoundSequenceRow = {
+  id: number;
+  sequence: number | string | bigint;
+};
 
 /**
  * 商家扫码点餐订单服务（查询编排 + 状态流转代理）。
@@ -192,6 +199,9 @@ export class ScanOrderingOrderService {
   ): Record<string, unknown> {
     const where: Record<string, unknown> = {
       storeId,
+      // 软删订单不进入订单队列；同时让 scan_orders 上以 deleted_at IS NULL
+      // 为条件的 partial 索引（store_status_created / table_active）可被命中
+      deletedAt: null,
       ...(startOfDay !== null && endOfDay !== null
         ? {
             createdAt: {
@@ -312,47 +322,48 @@ export class ScanOrderingOrderService {
   }
 
   /**
-   * 计算“首单/加餐”序号：同一门店同一桌同一用户在同一 diningRound 内
-   * 的累计下单序号（含当前页之前的订单），>1 即视为加餐。
+   * 计算“首单/加餐”序号：同一 diningRound 内同一用户的累计下单序号。
+   * 由数据库窗口函数排名、只回传当前页序号，避免把轮次历史全量拉回进程。
    */
   private async fetchDiningRoundSequences(
     orders: ScanOrderListItemSource[],
     storeId: number,
   ): Promise<Map<number, number>> {
-    const diningRoundUserKeys = orders
-      .filter((order) => order.diningRoundId && order.clubUserId)
-      .map((order) => ({
-        diningRoundId: order.diningRoundId,
-        clubUserId: order.clubUserId!,
-      }));
     const sequences = new Map<number, number>();
-    if (diningRoundUserKeys.length === 0) return sequences;
-    // 按当前门店收敛：diningRoundId 虽是全局 UUID，但 OR 展开后若不限制 storeId，
-    // 优化器用不上门店前缀索引，还会跨门店扫描历史订单。序号计算口径保持不变。
-    const priorOrders = await this.prisma.scanOrders.findMany({
-      where: {
-        storeId,
-        OR: diningRoundUserKeys.map(({ diningRoundId, clubUserId }) => ({
-          diningRoundId,
-          clubUserId,
-        })),
-        deletedAt: null,
-      },
-      select: {
-        diningRoundId: true,
-        clubUserId: true,
-        id: true,
-        createdAt: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
-    const counters = new Map<string, number>();
-    priorOrders.forEach((order) => {
-      const key = `${order.diningRoundId}:${order.clubUserId}`;
-      const sequence = (counters.get(key) ?? 0) + 1;
-      counters.set(key, sequence);
-      sequences.set(order.id, sequence);
-    });
+    const keys = orders.flatMap((order) =>
+      order.diningRoundId && typeof order.clubUserId === 'number'
+        ? [{ diningRoundId: order.diningRoundId, clubUserId: order.clubUserId }]
+        : [],
+    );
+    if (keys.length === 0) return sequences;
+
+    const roundIds = Array.from(new Set(keys.map((key) => key.diningRoundId)));
+    const clubUserIds = Array.from(new Set(keys.map((key) => key.clubUserId)));
+    const orderIds = orders.map((order) => order.id);
+
+    // 笛卡尔积多扫的行落在别的分区不影响编号；门店前缀与全分区排名均不可省略。
+    const rows = await this.prisma.$queryRaw<DiningRoundSequenceRow[]>`
+      WITH ranked AS (
+        SELECT
+          "id",
+          ROW_NUMBER() OVER (
+            PARTITION BY "dining_round_id", "club_user_id"
+            ORDER BY "created_at" ASC, "id" ASC
+          ) AS "sequence"
+        FROM "scan_orders"
+        WHERE "store_id" = ${storeId}
+          AND "deleted_at" IS NULL
+          AND "dining_round_id" IN (${Prisma.join(
+            roundIds.map((id) => Prisma.sql`${id}::uuid`),
+          )})
+          AND "club_user_id" IN (${Prisma.join(clubUserIds)})
+      )
+      SELECT "id", "sequence" FROM ranked
+      WHERE "id" IN (${Prisma.join(orderIds)})
+    `;
+    for (const row of rows) {
+      sequences.set(Number(row.id), Number(row.sequence));
+    }
     return sequences;
   }
 

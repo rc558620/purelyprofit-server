@@ -113,12 +113,9 @@ describe('products.domain', () => {
     });
   });
 
-  it('resolveProductCode 会优先复用传入编号并在缺省时生成可用编号', async () => {
+  it('resolveProductCode 会校验自定义编号并直接返回归一化结果', async () => {
     const { prisma, productFindFirst } = createPrismaMock();
-    productFindFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 1 })
-      .mockResolvedValueOnce(null);
+    productFindFirst.mockResolvedValue(null);
 
     await expect(
       resolveProductCode(prisma as never, {
@@ -127,27 +124,20 @@ describe('products.domain', () => {
       }),
     ).resolves.toBe('SKU-001');
 
-    await expect(
-      resolveProductCode(prisma as never, {
-        storeId: 18,
-        generateCode: jest
-          .fn()
-          .mockReturnValueOnce('PRD-1')
-          .mockReturnValueOnce('PRD-2'),
-      }),
-    ).resolves.toBe('PRD-2');
+    expect(productFindFirst).toHaveBeenCalledTimes(1);
   });
 
-  it('resolveProductCode 会在连续生成冲突后抛错', async () => {
+  it('resolveProductCode 自动生成编号时零查库，唯一性交给数据库约束兜底', async () => {
     const { prisma, productFindFirst } = createPrismaMock();
-    productFindFirst.mockResolvedValue({ id: 1 });
 
     await expect(
       resolveProductCode(prisma as never, {
         storeId: 18,
         generateCode: jest.fn().mockReturnValue('PRD-1'),
       }),
-    ).rejects.toThrow(new ConflictException('商品编号生成失败，请重试'));
+    ).resolves.toBe('PRD-1');
+
+    expect(productFindFirst).not.toHaveBeenCalled();
   });
 
   describe('deriveProductProfit', () => {

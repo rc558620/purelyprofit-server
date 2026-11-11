@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
@@ -24,7 +23,11 @@ import {
 } from './space-session-settlement.shared';
 import { resolveSettlementChannelFromPlatformForRenew } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
-import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
+import {
+  findStoresWithPendingAutoCheckoutSessions,
+  loadVoucherFactsByCode,
+} from './space-session-auto-checkout.query';
+import { ConcurrencyLimiter } from '../../../redis/concurrency-limiter.util';
 import {
   buildAutoCheckoutLogContext,
   createAutoCheckoutSystemUser,
@@ -36,6 +39,12 @@ export { createAutoCheckoutSystemUser } from './space-session-auto-checkout.shar
 
 /** 自动结账分布式锁 TTL（秒）：处理单门店所有超时会话的最长耗时 */
 const AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS = 30;
+
+/**
+ * 调度按门店并发上限：每个门店各自持有独立分布式锁，门店间无写冲突；
+ * 但单个结账事务最长 30s，并发过高会长期占用 Prisma 连接，故保守限流。
+ */
+const AUTO_CHECKOUT_STORE_CONCURRENCY = 4;
 
 @Injectable()
 export class SpaceSessionAutoCheckoutService {
@@ -52,32 +61,42 @@ export class SpaceSessionAutoCheckoutService {
    * 由 SpaceAutoCheckoutSchedulerService 定时调用，无需前端访问触发。
    */
   async autoCheckoutAllExpiredSessions(now = Date.now()): Promise<number> {
-    const storeIds = await this.findStoresWithPendingAutoCheckoutSessions();
+    const storeIds = await findStoresWithPendingAutoCheckoutSessions(
+      this.prisma,
+      now,
+    );
     if (storeIds.length === 0) {
       return 0;
     }
 
     const systemUser = createAutoCheckoutSystemUser();
-    let totalSettled = 0;
-
-    for (const storeId of storeIds) {
-      try {
-        const settled = await this.autoCheckoutExpiredCountdownSessions(
-          systemUser,
-          storeId,
-          now,
-          'scheduler:auto-checkout',
-        );
-        totalSettled += settled;
-      } catch (error) {
-        this.logger.error(
-          `[space-auto-checkout] store_failed storeId=${storeId} reason=${
-            error instanceof Error ? error.name : 'UnknownError'
-          }`,
-          error instanceof Error ? error.stack : undefined,
-        );
-      }
-    }
+    const limiter = new ConcurrencyLimiter(AUTO_CHECKOUT_STORE_CONCURRENCY);
+    const settledPerStore = await Promise.all(
+      storeIds.map((storeId) =>
+        limiter.run(async (): Promise<number> => {
+          try {
+            return await this.autoCheckoutExpiredCountdownSessions(
+              systemUser,
+              storeId,
+              now,
+              'scheduler:auto-checkout',
+            );
+          } catch (error) {
+            this.logger.error(
+              `[space-auto-checkout] store_failed storeId=${storeId} reason=${
+                error instanceof Error ? error.name : 'UnknownError'
+              }`,
+              error instanceof Error ? error.stack : undefined,
+            );
+            return 0;
+          }
+        }),
+      ),
+    );
+    const totalSettled = settledPerStore.reduce(
+      (total, settled) => total + settled,
+      0,
+    );
 
     if (totalSettled > 0) {
       this.logger.log(
@@ -125,9 +144,12 @@ export class SpaceSessionAutoCheckoutService {
           endTime: null,
           billingMode: PrismaSpaceBillingMode.countdown,
           autoCheckout: true,
-          countdownMinutes: {
-            not: null,
-          },
+          // 到期时间 = startTime + countdownMinutes（见 resolveAutoCheckoutAt）：
+          // 两者都是表字段，故「startTime < now 且 countdownMinutes > 0」
+          // 是可下推的必要非充分条件，先在 SQL 侧裁掉未到期会话，
+          // 避免每 60s 把全店倒计时会话连同两个子表一起捞回内存。
+          startTime: { lt: new Date(now) },
+          countdownMinutes: { gt: 0 },
         },
         include: {
           space: {
@@ -151,6 +173,13 @@ export class SpaceSessionAutoCheckoutService {
         },
         orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
       });
+
+      // 券码在库侧唯一：一次 IN 查询替代循环内逐条 findFirst（N+1）
+      const voucherFactsByCode = await loadVoucherFactsByCode(
+        this.prisma,
+        storeId,
+        sessions.map((session) => session.prepaidVoucherCode),
+      );
 
       let settledCount = 0;
       let failedCount = 0;
@@ -207,11 +236,10 @@ export class SpaceSessionAutoCheckoutService {
 
         // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
         // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
-        const voucherFacts = await resolveGrouponVoucherFacts(
-          this.prisma,
-          session.storeId,
-          session.prepaidVoucherCode,
-        );
+        const voucherCode = session.prepaidVoucherCode?.trim();
+        const voucherFacts = voucherCode
+          ? (voucherFactsByCode.get(voucherCode) ?? null)
+          : null;
         const voucherProductName = voucherFacts?.productName ?? null;
         const settlement = buildSpaceSessionSettlement({
           session,
@@ -345,48 +373,5 @@ export class SpaceSessionAutoCheckoutService {
         );
       }
     }
-  }
-
-  private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {
-    // 索引列等值条件（命中 (status, autoCheckout, billingMode, endTime) 复合索引）
-    const baseWhere = {
-      status: PrismaSpaceSessionStatus.active,
-      endTime: null,
-      billingMode: PrismaSpaceBillingMode.countdown,
-      autoCheckout: true,
-      countdownMinutes: { not: null },
-    } satisfies Prisma.SpaceSessionWhereInput;
-
-    // 性能：原实现把「预付费/台位费」标量条件与「有续费记录」半连接塞进同一个 OR，
-    // 计划器难以同时利用复合索引与半连接。拆成两条形态简单的查询，
-    // 门店维度取并集 —— 与旧 OR 语义完全一致（BUG-1/2/4 的匹配范围不变）。
-    const [prepaidOrRatedSessions, renewedSessions] = await Promise.all([
-      this.prisma.spaceSession.findMany({
-        where: {
-          ...baseWhere,
-          OR: [
-            { prepaidPaymentMethod: { not: null } },
-            { prepaidCustomerPaymentMethod: { not: null } },
-            { prepaidVoucherFaceAmount: { not: null } },
-            { hourlyRate: { gt: 0 } },
-          ],
-        },
-        select: { storeId: true },
-      }),
-      this.prisma.spaceSession.findMany({
-        where: {
-          ...baseWhere,
-          sessionRenewRecords: { some: {} },
-        },
-        select: { storeId: true },
-      }),
-    ]);
-
-    return Array.from(
-      new Set([
-        ...prepaidOrRatedSessions.map((session) => session.storeId),
-        ...renewedSessions.map((session) => session.storeId),
-      ]),
-    ).sort((left, right) => left - right);
   }
 }

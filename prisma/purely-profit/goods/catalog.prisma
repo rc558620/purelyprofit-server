@@ -42,9 +42,17 @@ model Product {
   salesItems               SaleOrderItem[]
   scanOrderingMenuProducts ScanOrderingMenuProduct[]
 
-  @@index([storeId, code], where: raw("(deleted_at IS NULL)"))
-  @@index([storeId, category, updatedAt], where: raw("(deleted_at IS NULL)"))
-  @@index([storeId, isActive, updatedAt], where: raw("(deleted_at IS NULL)"))
-  @@index([categoryId, updatedAt])
+  // 编号唯一性由库内部分唯一索引兜底：只约束未软删除行，软删后编号可复用，
+  // 与 findProductCodeConflict 的 deletedAt: null 口径一致。
+  // 直接把原普通索引升级为唯一索引（索引总数不变），避免给高频库存扣减
+  // 额外增加一棵需要维护的 btree。
+  @@unique([storeId, code], map: "uq_products_store_code_active", where: raw("(deleted_at IS NULL)"))
+  // 库存扣减是 products 上最高频的写（stock + @updatedAt）。updatedAt 从未作为
+  // products 查询的筛选 / 排序前导列（仅两处预警列表以 stock 为首列排序），放进
+  // 索引只会让每次扣减维护 3 条 btree 并使 HOT 更新失效。这里只保留真正参与
+  // 过滤的前两列，让 updated_at 脱离索引：库存扣减可走 HOT，索引也更短。
+  @@index([storeId, category], where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, isActive], where: raw("(deleted_at IS NULL)"))
+  @@index([categoryId])
   @@map("products")
 }

@@ -34,6 +34,36 @@ export class ScanOrderingOrderStockService {
       },
     });
 
+    // 共用商品信息与销售单号对整笔订单是同一份数据，提到循环外各取一次。
+    // 原实现每个订单项都回查一次（N 次事务内往返，单事务连接上只能串行），
+    // 明细越多持锁越长；这里固定降为 2 次，扣减条件与流水口径保持不变。
+    const linkedProductIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.menuProduct.productId)
+          .filter((id): id is number => id !== null),
+      ),
+    );
+    type LinkedProduct = { id: number; name: string; stock: number };
+    const [products, saleOrder] = await Promise.all([
+      linkedProductIds.length === 0
+        ? Promise.resolve<LinkedProduct[]>([])
+        : tx.product.findMany({
+            where: { id: { in: linkedProductIds }, storeId, deletedAt: null },
+            select: { id: true, name: true, stock: true },
+          }),
+      linkedProductIds.length === 0
+        ? Promise.resolve(null)
+        : tx.saleOrder.findFirst({
+            where: { scanOrderId: orderId },
+            select: { id: true },
+          }),
+    ]);
+    const productById = new Map(
+      products.map((product) => [product.id, product]),
+    );
+    const saleOrderId = saleOrder?.id ?? null;
+
     await Promise.all(
       items.map(async (item) => {
         // 菜单商品：仅当存在预留时才扣减（新订单），历史订单（reserved=0）跳过
@@ -55,18 +85,11 @@ export class ScanOrderingOrderStockService {
         if (menuUpdated.count === 0) return;
 
         // 共用商品库存：仅在接单时扣减（Q1 决策），不足时阻止接单
-        if (item.menuProduct.productId !== null) {
-          const product = await tx.product.findFirst({
-            where: {
-              id: item.menuProduct.productId,
-              storeId,
-              deletedAt: null,
-            },
-            select: { name: true, stock: true },
-          });
+        const productId = item.menuProduct.productId;
+        if (productId !== null) {
           const productUpdated = await tx.product.updateMany({
             where: {
-              id: item.menuProduct.productId,
+              id: productId,
               storeId,
               deletedAt: null,
               stock: { gte: item.quantity },
@@ -79,16 +102,13 @@ export class ScanOrderingOrderStockService {
 
           // 销售扣减流水：与普通销售（recordInventorySaleDeduction）同构，
           // 挂上扫码订单对应的销售单号，供交班库存列回溯该笔销售后的库存
-          const saleOrder = await tx.saleOrder.findFirst({
-            where: { scanOrderId: orderId },
-            select: { id: true },
-          });
+          const product = productById.get(productId);
           await tx.inventoryAdjustmentLog.create({
             data: {
               storeId,
-              productId: item.menuProduct.productId,
+              productId,
               purchaseOrderId: null,
-              saleOrderId: saleOrder?.id ?? null,
+              saleOrderId,
               operatorStaffId: null,
               productName: product?.name ?? '',
               beforeStock: product?.stock ?? 0,
