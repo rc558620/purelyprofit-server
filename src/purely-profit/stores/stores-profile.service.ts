@@ -61,17 +61,7 @@ export class StoresProfileService {
         const metadata = normalizeStoreProfileMetadata(raw);
         // 异步回填 Redis 缓存（best-effort，不影响读取结果）
         if (Object.keys(metadata).length > 0) {
-          this.redisService
-            .set(
-              this.getStoreProfileKey(storeId),
-              JSON.stringify(metadata),
-              STORE_PROFILE_CACHE_TTL_SECONDS,
-            )
-            .catch((error: unknown) => {
-              this.logger.warn(
-                `回填门店 ${storeId} 扩展字段缓存失败: ${this.getErrorMessage(error)}`,
-              );
-            });
+          void this.backfillStoreProfileCache(storeId, metadata);
         }
         return metadata;
       }
@@ -100,6 +90,47 @@ export class StoresProfileService {
     }
 
     return normalizeStoreProfileMetadata(null);
+  }
+
+  /**
+   * C 端首页高频读取：Redis 优先，未命中回退 DB 事实源。
+   *
+   * readStoreProfileMetadata 采取「DB 优先」，7 天缓存只在 DB 异常或无值时
+   * 兜底，导致 C 端首页每次进入都有一条无法省掉的 store.findUnique。
+   * 本方法只供读多写极少的 C 端展示链路使用，不改变 B 端既有读取策略：
+   * 写路径 persistStoreProfileMetadata 已双写同一 key，缓存与事实源一致；
+   * Redis 读取 / 写入异常一律回退 DB，缓存仅作为加速层。
+   */
+  async readStoreProfileMetadataCached(
+    storeId: number,
+  ): Promise<StoreProfileMetadata> {
+    const cacheKey = this.getStoreProfileKey(storeId);
+    try {
+      const raw = await this.redisService.getJson<unknown>(cacheKey);
+      if (raw !== null) {
+        return normalizeStoreProfileMetadata(raw);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `读取门店 ${storeId} 扩展字段缓存失败，回退 DB：${this.getErrorMessage(error)}`,
+      );
+    }
+
+    const metadata = await this.readStoreProfileMetadata(storeId);
+    // 空扩展字段同样缓存：未配置 logo / 坐标的门店否则仍会每次回源 DB。
+    try {
+      await this.redisService.set(
+        cacheKey,
+        JSON.stringify(metadata),
+        STORE_PROFILE_CACHE_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `回填门店 ${storeId} 扩展字段缓存失败：${this.getErrorMessage(error)}`,
+      );
+    }
+
+    return metadata;
   }
 
   /**
@@ -221,6 +252,24 @@ export class StoresProfileService {
         `保存门店扩展字段到 DB 失败，storeId=${storeId}，门店扩展数据可能丢失：${this.getErrorMessage(error)}`,
       );
       // 不重新抛出：DB 写入失败不应阻断门店创建/更新主流程
+    }
+  }
+
+  /** DB 命中后异步回填缓存：不等待、失败只告警，不影响读取结果。 */
+  private async backfillStoreProfileCache(
+    storeId: number,
+    metadata: StoreProfileMetadata,
+  ): Promise<void> {
+    try {
+      await this.redisService.set(
+        this.getStoreProfileKey(storeId),
+        JSON.stringify(metadata),
+        STORE_PROFILE_CACHE_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `回填门店 ${storeId} 扩展字段缓存失败: ${this.getErrorMessage(error)}`,
+      );
     }
   }
 

@@ -25,6 +25,7 @@ describe('ClubOrderPreviewService', () => {
   };
 
   const clubOrderPromotionsService = {
+    preloadPricingContext: jest.fn(),
     resolvePricing: jest.fn(),
     resolveOrderReduceDetail: jest.fn(),
     resolveMemberDiscountRate: jest.fn().mockResolvedValue(null),
@@ -57,6 +58,11 @@ describe('ClubOrderPreviewService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 行级定价与订单级满减必须复用同一份活动快照
+    clubOrderPromotionsService.preloadPricingContext.mockResolvedValue({
+      promotions: [],
+      consumptionCount: 0,
+    });
     // 默认余额充足（¥1000），余额不足场景单独覆盖
     prismaService.marketingCustomer.findUnique.mockResolvedValue({
       balance: 100000,
@@ -137,6 +143,13 @@ describe('ClubOrderPreviewService', () => {
       (item) => item.id === 'price-before-points',
     );
     expect(priceBeforePoints?.value).toBe('¥280');
+    // 单次预加载 + 活动快照透传：同请求不会出现两套活动配置
+    expect(
+      clubOrderPromotionsService.preloadPricingContext,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      clubOrderPromotionsService.resolveOrderReduceDetail,
+    ).toHaveBeenCalledWith(11, 30000, []);
   });
 
   it('previewServiceOrder 数量>1 活动+满减时：活动按数量、满减单次、明细勾稽闭合', async () => {

@@ -53,6 +53,7 @@ describe('ClubStoresService', () => {
 
   const storesProfileService = {
     readStoreProfileMetadata: jest.fn(),
+    readStoreProfileMetadataCached: jest.fn(),
     batchReadStoreProfileMetadata: jest.fn(),
   };
 
@@ -112,6 +113,10 @@ describe('ClubStoresService', () => {
     });
     storesProfileService.readStoreProfileMetadata.mockResolvedValue(
       mockMetadata,
+    );
+    // C 端缓存优先读取与 DB 优先读取返回同一份扩展字段，代理到同一个 mock
+    storesProfileService.readStoreProfileMetadataCached.mockImplementation(() =>
+      storesProfileService.readStoreProfileMetadata(),
     );
     storesProfileService.batchReadStoreProfileMetadata.mockResolvedValue([]);
     // 默认邀请码映射缓存未命中

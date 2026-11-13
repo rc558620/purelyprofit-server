@@ -6,6 +6,7 @@
  */
 import type { ClubOrderBreakdownItemDto } from './dto/club-order.dto';
 import type { ClubServicePricingResolution } from './club-order-promotions.service';
+import type { ClubActivePromotionRecord } from '../shared/club-promotion.repository';
 
 /** 营销预览行（扫码点餐菜单行：单价分 + 数量） */
 export interface ClubMarketingPreviewLine {
@@ -81,6 +82,8 @@ export interface ClubResolveServiceOrderAmountsParams {
   quantity: number;
   pricing: ClubServicePricingResolution;
   memberDiscountRate: number | null;
+  /** 与行级定价共用的活动快照，避免订单级满减重复加载 */
+  promotions: ClubActivePromotionRecord[];
 }
 
 /** buildPreviewResponse 参数（预览响应组装） */

@@ -77,3 +77,40 @@ export function buildClubPromotionsPattern(storeId: number): string {
 export function buildClubPromotionListCacheKey(storeId: number): string {
   return `club:promotions:store:${storeId}:list`;
 }
+
+// ── Club 服务商品读缓存键 ──
+
+/**
+ * 商品版本缓存 key（门店粒度，短 TTL）。
+ *
+ * 版本由「上架商品数 + 最大 updatedAt」聚合得出，改价 / 上下架 / 库存变动
+ * 都会改变它，进而让列表与详情 key 自动切换，旧 key 自然过期。这样无需在
+ * B 端商品 CRUD 与 C 端下单 / 退款等写路径上逐一挂失效钩子。
+ */
+export function buildClubProductsVersionCacheKey(storeId: number): string {
+  return `club:products-version:store:${storeId}`;
+}
+
+/**
+ * 商品列表缓存 key：门店 + 版本 + 过滤 / 分页维度。
+ * 带 keyword 的查询不走缓存（用户输入使 key 空间无限且命中率低）。
+ */
+export function buildClubProductListCacheKey(
+  storeId: number,
+  version: string,
+  params: { categoryId?: number; cursor?: number; take?: number },
+): string {
+  const category = params.categoryId ?? 0;
+  const cursor = params.cursor ?? 0;
+  const take = params.take ?? 0;
+  return `club:products:store:${storeId}:v:${version}:cat:${category}:cursor:${cursor}:take:${take}`;
+}
+
+/** 商品详情缓存 key：门店 + 版本 + 商品 ID。 */
+export function buildClubProductDetailCacheKey(
+  storeId: number,
+  version: string,
+  productId: number,
+): string {
+  return `club:products:store:${storeId}:v:${version}:detail:${productId}`;
+}

@@ -85,6 +85,9 @@ model MarketingRecharge {
   @@unique([orderNo], map: "uq_marketing_recharges_order_no", where: raw("(order_no IS NOT NULL)"))
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
+  // C 端会员快照按 (customerId, type='recharge') 聚合累计充值；
+  // 原 [customerId, createdAt] 需扫描该顾客全部流水再过滤 type，随充值流水增长线性变慢。
+  @@index([customerId, type], map: "idx_marketing_recharges_customer_type")
   @@index([storeId, type, createdAt])
   @@index([promotionId])
   @@index([transactionId], where: raw("(transaction_id IS NOT NULL)"))

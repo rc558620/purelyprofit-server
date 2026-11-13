@@ -77,11 +77,17 @@ export class ClubOrderServiceCreationService {
       currentContext.user.id,
     );
 
+    // 整单只加载一次活动快照：行级定价与订单级满减共用，避免重复加载与口径漂移
+    const pricingContext =
+      await this.clubOrderPromotionsService.preloadPricingContext(
+        context.store.id,
+        context.customer.id,
+      );
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
       context.product.price,
-      { skipReduce: true },
+      { skipReduce: true, context: pricingContext },
     );
     const productName = context.product.name;
     const quantity = dto.quantity ?? 1;
@@ -94,6 +100,7 @@ export class ClubOrderServiceCreationService {
       await this.clubOrderPromotionsService.resolveOrderReduceFen(
         context.store.id,
         beforeReduceTotalFen,
+        pricingContext.promotions,
       );
 
     const afterReduceTotalFen = Math.max(

@@ -48,19 +48,13 @@ export class ClubProductPromotionService {
       snapshot?.customerId ??
       (await this.findCustomerId(storeId, clubUserId, phone));
 
-    const [memberDiscountRate, promotions, consumptionCount] =
-      await Promise.all([
-        this.resolveMemberDiscountRate(snapshot),
-        this.clubPromotionRepository.loadActivePromotions(storeId),
-        customerId !== null
-          ? this.prisma.marketingConsumption.count({
-              where: {
-                storeId,
-                customerId,
-              },
-            })
-          : Promise.resolve(0),
-      ]);
+    const [memberDiscountRate, promotions, hasConsumption] = await Promise.all([
+      this.resolveMemberDiscountRate(snapshot),
+      this.clubPromotionRepository.loadActivePromotions(storeId),
+      customerId !== null
+        ? this.hasConsumptionRecord(storeId, customerId)
+        : Promise.resolve(false),
+    ]);
 
     const firstOrderPromotions: ClubProductDiscountPromotion[] = [];
     const discountPromotions: ClubProductDiscountPromotion[] = [];
@@ -68,7 +62,7 @@ export class ClubProductPromotionService {
 
     promotions.forEach((promotion) => {
       if (promotion.type === 'first_order_discount') {
-        if (consumptionCount > 0) {
+        if (hasConsumption) {
           return;
         }
         const discountRate = this.resolvePromotionDiscountRate(
@@ -135,7 +129,7 @@ export class ClubProductPromotionService {
 
     return {
       memberDiscountRate,
-      isFirstOrderBuyer: consumptionCount === 0,
+      isFirstOrderBuyer: !hasConsumption,
       firstOrderPromotions,
       discountPromotions,
       reducePromotions,
@@ -165,6 +159,22 @@ export class ClubProductPromotionService {
     });
 
     return customer?.id ?? null;
+  }
+
+  /**
+   * 首单资格只需要「是否存在消费记录」这个布尔值，不需要精确条数。
+   * findFirst 在 (store_id, customer_id, created_at) 索引上取到第一行即停，
+   * 避免老顾客消费流水增长后 count 逐行累加。
+   */
+  private async hasConsumptionRecord(
+    storeId: number,
+    customerId: number,
+  ): Promise<boolean> {
+    const record = await this.prisma.marketingConsumption.findFirst({
+      where: { storeId, customerId },
+      select: { id: true },
+    });
+    return record !== null;
   }
 
   private async resolveMemberDiscountRate(

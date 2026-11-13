@@ -38,15 +38,22 @@ export class ClubRecordsService {
     // 构建分页游标
     const cursor = this.buildCursor(query);
 
-    const entries = await this.clubRecordQueryService.listLedgerEntries(
-      currentContext.store.id,
-      customer.id,
-      {
-        limit: query.limit,
-        cursor,
-        filterType: query.type ?? 'all',
-      },
-    );
+    // 汇总为全量聚合，与分页列表互不依赖：并行发出，省掉一次串行 DB 往返
+    const [entries, summary] = await Promise.all([
+      this.clubRecordQueryService.listLedgerEntries(
+        currentContext.store.id,
+        customer.id,
+        {
+          limit: query.limit,
+          cursor,
+          filterType: query.type ?? 'all',
+        },
+      ),
+      this.clubRecordQueryService.calculateSummary(
+        currentContext.store.id,
+        customer.id,
+      ),
+    ]);
 
     const filterType = query.type ?? 'all';
     const items = this.clubRecordViewService.buildRecordItems({
@@ -66,12 +73,6 @@ export class ClubRecordsService {
     const nextCursor = lastItem
       ? this.encodeCursor(lastItem.createdAt, lastItem.id)
       : null;
-
-    // 计算汇总：基于数据库聚合而非前端遍历，保证精度
-    const summary = await this.clubRecordQueryService.calculateSummary(
-      currentContext.store.id,
-      customer.id,
-    );
 
     return {
       items,

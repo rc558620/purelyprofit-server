@@ -28,9 +28,10 @@ export class ClubStoreViewService {
   async toSummary(
     store: ClubAccessibleStoreRecord,
   ): Promise<ClubStoreSummaryDto> {
-    const metadata = await this.storesProfileService.readStoreProfileMetadata(
-      store.id,
-    );
+    // 首页单店摘要是每次进入必读的高频路径，走缓存优先版本；
+    // 批量接口仍用 DB 优先的 batchReadStoreProfileMetadata，语义不变。
+    const metadata =
+      await this.storesProfileService.readStoreProfileMetadataCached(store.id);
 
     return this.toSummaryFromMetadata(store, metadata);
   }

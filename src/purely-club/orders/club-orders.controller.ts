@@ -9,6 +9,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -39,6 +40,8 @@ export class ClubOrdersController {
   constructor(private readonly clubOrdersService: ClubOrdersService) {}
 
   @Post('service/preview')
+  // 算价含活动/会员/积分多路查询，无限制时会被反复调用放大 DB 压力
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '预计算 purely-club 服务订单价格',
     description:
@@ -53,6 +56,8 @@ export class ClubOrdersController {
   }
 
   @Post('service')
+  // 下单会调用微信 JSAPI 预支付，与充值下单同一口径（60s/20 次）
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({
     summary: '创建 purely-club 服务购买订单',
     description:

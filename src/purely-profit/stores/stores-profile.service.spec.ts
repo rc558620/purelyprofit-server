@@ -12,6 +12,7 @@ describe('StoresProfileService', () => {
   const redis = {
     get: jest.fn(),
     set: jest.fn(),
+    getJson: jest.fn(),
     mgetJson: jest.fn(),
   };
 
@@ -21,6 +22,7 @@ describe('StoresProfileService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     redis.set.mockResolvedValue(undefined);
+    redis.getJson.mockResolvedValue(null);
     redis.mgetJson.mockResolvedValue([]);
   });
 
@@ -161,5 +163,69 @@ describe('StoresProfileService', () => {
       }),
       604800,
     );
+  });
+
+  it('C 端缓存优先读取命中时不再查 DB', async () => {
+    redis.getJson.mockResolvedValue({
+      storeType: '零售',
+      region: ['北京市', '北京市', '朝阳区'],
+      storeLogo: 'https://img.test/store.png',
+    });
+
+    const service = createService();
+    const metadata = await service.readStoreProfileMetadataCached(9);
+
+    expect(metadata).toEqual({
+      storeType: '零售',
+      region: ['北京市', '北京市', '朝阳区'],
+      storeLogo: 'https://img.test/store.png',
+    });
+    expect(prisma.store.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('C 端缓存未命中时回退 DB 并回填缓存', async () => {
+    prisma.store.findUnique.mockResolvedValue({
+      profileMetadata: { storeType: '零售', region: ['a', 'b', 'c'] },
+    });
+
+    const service = createService();
+    const metadata = await service.readStoreProfileMetadataCached(9);
+
+    expect(metadata).toEqual({ storeType: '零售', region: ['a', 'b', 'c'] });
+    expect(redis.set).toHaveBeenCalledWith(
+      'stores:profile:9',
+      JSON.stringify({ storeType: '零售', region: ['a', 'b', 'c'] }),
+      604800,
+    );
+  });
+
+  it('未配置扩展字段的门店同样缓存空结果，避免每次回源 DB', async () => {
+    prisma.store.findUnique.mockResolvedValue(null);
+    redis.get.mockResolvedValue(null);
+
+    const service = createService();
+    const metadata = await service.readStoreProfileMetadataCached(9);
+
+    expect(metadata).toEqual({ storeType: '', region: [] });
+    expect(redis.set).toHaveBeenCalledWith(
+      'stores:profile:9',
+      JSON.stringify({ storeType: '', region: [] }),
+      604800,
+    );
+  });
+
+  it('Redis 读取异常时回退 DB 事实源', async () => {
+    redis.getJson.mockRejectedValue(new Error('redis down'));
+    prisma.store.findUnique.mockResolvedValue({
+      profileMetadata: { storeType: '餐饮', region: ['x', 'y', 'z'] },
+    });
+
+    const service = createService();
+
+    await expect(service.readStoreProfileMetadataCached(9)).resolves.toEqual({
+      storeType: '餐饮',
+      region: ['x', 'y', 'z'],
+    });
+    expect(prisma.store.findUnique).toHaveBeenCalledTimes(1);
   });
 });

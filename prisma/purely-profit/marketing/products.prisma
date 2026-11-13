@@ -57,7 +57,13 @@ model MarketingProduct {
   @@index([storeId, createdAt])
   @@index([storeId, categoryId, createdAt])
   @@index([storeId, isActive, updatedAt])
-  @@index([storeId, name])
+  // (store_id, name) 已被上面的 @@unique 覆盖，普通索引完全冗余，删除以降低写放大。
+  // 下面两条服务 C 端游标分页：where storeId + isActive [+ categoryId] + id < cursor，
+  // 配合 orderBy id desc，PG 可反向索引扫描直接取前 N 行，无需额外 Sort。
+  // 刻意不含 updatedAt / stock：库存扣减是最高频的写，索引列不被更新才能保持
+  // HOT；与 products 表 20261111100000 移除 *_updated_at_idx 的口径一致。
+  @@index([storeId, isActive, id])
+  @@index([storeId, isActive, categoryId, id])
   @@index([storeId, price])
   @@map("marketing_products")
 }

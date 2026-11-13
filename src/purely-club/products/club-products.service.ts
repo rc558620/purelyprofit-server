@@ -42,13 +42,13 @@ export class ClubProductsService {
       const pageLimit = query.limit ?? CLUB_PRODUCT_DEFAULT_LIST_LIMIT;
       const probeTake = pageLimit + 1;
       const [pageRecords, pricingContext] = await Promise.all([
-        this.clubProductQueryService.listActiveByStore(
-          currentContext.store.id,
-          query.categoryId,
-          query.cursor,
-          probeTake,
-          query.keyword,
-        ),
+        this.clubProductQueryService.listActiveByStore({
+          storeId: currentContext.store.id,
+          categoryId: query.categoryId,
+          cursor: query.cursor,
+          take: probeTake,
+          keyword: query.keyword,
+        }),
         pricingContextPromise,
       ]);
       // take+1 探测：取满则还有下一页，截掉探测行
@@ -69,12 +69,15 @@ export class ClubProductsService {
       };
     }
 
-    // 首页精选路径（featured + limit）：全量查询后截断，不分页
+    // 首页精选路径（featured + limit）：把条数下推到 SQL，不再读取门店全部
+    // 上架商品后在内存里 slice。恒不分页，nextCursor 保持 null。
+    const resolvedLimit = this.resolveListLimit(query.featured, query.limit);
     const [products, pricingContext] = await Promise.all([
-      this.clubProductQueryService.listActiveByStore(
-        currentContext.store.id,
-        query.categoryId,
-      ),
+      this.clubProductQueryService.listActiveByStore({
+        storeId: currentContext.store.id,
+        categoryId: query.categoryId,
+        take: resolvedLimit,
+      }),
       pricingContextPromise,
     ]);
     const hotProductIds =
@@ -84,7 +87,6 @@ export class ClubProductsService {
     const visibleProducts = products.filter((product) =>
       hotProductIds.has(product.id),
     );
-    const resolvedLimit = this.resolveListLimit(query.featured, query.limit);
 
     return {
       items: visibleProducts
@@ -105,20 +107,21 @@ export class ClubProductsService {
     currentContext: ClubCurrentContext,
     productId: number,
   ): Promise<ClubProductDto> {
-    const product = await this.clubProductQueryService.getActiveDetailByStore(
-      currentContext.store.id,
-      productId,
-    );
-    if (!product) {
-      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
-    }
-
-    const pricingContext =
-      await this.clubProductPromotionService.resolvePricingContext(
+    // 商品记录与用户定价上下文互不依赖，并行发起省一次串行 RTT
+    const [product, pricingContext] = await Promise.all([
+      this.clubProductQueryService.getActiveDetailByStore(
+        currentContext.store.id,
+        productId,
+      ),
+      this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
         currentContext.user.id,
         currentContext.user.phone,
-      );
+      ),
+    ]);
+    if (!product) {
+      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+    }
 
     return this.clubProductViewService.toClubProduct(
       product,

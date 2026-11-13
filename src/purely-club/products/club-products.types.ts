@@ -1,3 +1,14 @@
+/** 门店上架商品查询参数（收敛为对象，避免位置参数膨胀） */
+export interface ListActiveProductsParams {
+  storeId: number;
+  categoryId?: number;
+  /** 上一页末尾商品 id，与 orderBy id desc 对齐 */
+  cursor?: number;
+  /** 不传表示不限条数；调用方应尽量下推条数，避免全量读取 */
+  take?: number;
+  keyword?: string;
+}
+
 /** 精选商品展示数量上限 */
 export const CLUB_FEATURED_PRODUCT_LIMIT = 6;
 /** 列表接口默认返回上限，防止全量加载 */

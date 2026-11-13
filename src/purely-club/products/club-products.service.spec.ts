@@ -139,10 +139,12 @@ describe('ClubProductsService', () => {
       ],
       nextCursor: null,
     });
-    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
-      11,
-      undefined,
-    );
+    // 精选路径同样下推 take，不再全量读取门店商品
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith({
+      storeId: 11,
+      categoryId: undefined,
+      take: 6,
+    });
     expect(clubProductQueryService.resolveHotProductIds).toHaveBeenCalledWith(
       products,
     );
@@ -170,13 +172,13 @@ describe('ClubProductsService', () => {
       clubProductPromotionService.resolvePricingContext,
     ).toHaveBeenCalledWith(11, user.id, user.phone);
     // 无 featured 无 cursor：走分页首屏路径，查询层以 limit+1 探测
-    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
-      11,
-      undefined,
-      undefined,
-      51,
-      undefined,
-    );
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith({
+      storeId: 11,
+      categoryId: undefined,
+      cursor: undefined,
+      take: 51,
+      keyword: undefined,
+    });
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
       expect.objectContaining({ id: 31 }),
       aNonEmptySet,
@@ -198,13 +200,13 @@ describe('ClubProductsService', () => {
     const result = await service.list(currentContext, { limit: 5 });
 
     // 首屏不带 cursor 从最新开始，同样以 limit+1 探测
-    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
-      11,
-      undefined,
-      undefined,
-      6,
-      undefined,
-    );
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith({
+      storeId: 11,
+      categoryId: undefined,
+      cursor: undefined,
+      take: 6,
+      keyword: undefined,
+    });
     expect(result.items).toHaveLength(5);
     expect(result.nextCursor).toBe(26);
   });
@@ -223,13 +225,13 @@ describe('ClubProductsService', () => {
     });
 
     // 查询层以 limit+1 探测，游标与排序对齐
-    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
-      11,
-      undefined,
-      31,
-      3,
-      undefined,
-    );
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith({
+      storeId: 11,
+      categoryId: undefined,
+      cursor: 31,
+      take: 3,
+      keyword: undefined,
+    });
     expect(result.items).toHaveLength(2);
     expect(result.nextCursor).toBe(29);
     // 探测行不参与视图映射

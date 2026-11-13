@@ -19,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -70,6 +71,8 @@ export class ClubVoucherOrdersController {
   ) {}
 
   @Post('preview')
+  // 算价含活动/会员/积分多路查询，无限制时会被反复调用放大 DB 压力
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @ApiOperation({
     summary: '预计算 purely-club 团购券订单价格',
     description:
@@ -87,6 +90,8 @@ export class ClubVoucherOrdersController {
   }
 
   @Post()
+  // 下单会调用微信 JSAPI 预支付，与充值下单同一口径（60s/20 次）
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOperation({
     summary: '创建 purely-club 团购券订单草稿',
     description:

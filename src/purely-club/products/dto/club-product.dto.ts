@@ -7,7 +7,9 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -70,10 +72,16 @@ export class ListClubProductsQueryDto {
 
   @ApiPropertyOptional({
     example: '泡澡',
-    description: '商品名称模糊搜索关键字；不传或空串返回全部',
+    description:
+      '商品名称模糊搜索关键字；不传或空串返回全部，最长 30 个字符，不支持通配符',
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: 'keyword 必须是字符串' })
+  @MaxLength(30, { message: '搜索关键字长度不能超过 30 个字符' })
+  @Matches(/^[^%_\\]*$/, {
+    message: '搜索关键字不能包含通配符 %、_ 或反斜杠',
+  })
   keyword?: string;
 }
 

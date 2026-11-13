@@ -51,12 +51,10 @@ export class ClubProductBootstrapService {
       );
     }
 
-    const product = await this.clubProductsService.getDetail(
-      currentContext,
-      productId,
-    );
-
-    const [account, pointsRatio] = await Promise.all([
+    // 商品详情与会员账户 / 积分规则互不依赖，合并为一段并行，省一次串行等待。
+    // 账户与积分规则在各自 fetch 方法内 catch 降级，商品失败仍按原口径整页抛出。
+    const [product, account, pointsRatio] = await Promise.all([
+      this.clubProductsService.getDetail(currentContext, productId),
       this.fetchAccount(currentContext),
       this.fetchPointsRatio(currentContext),
     ]);

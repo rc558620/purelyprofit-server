@@ -37,6 +37,22 @@ const parseOffset = (cursor?: string): number => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
 };
 
+/** 卡视图字段白名单：列表与详情共用，避免读取不参与展示的快照/审计列 */
+const CARD_VIEW_SELECT = {
+  id: true,
+  storeId: true,
+  planId: true,
+  cardNo: true,
+  kind: true,
+  nameSnapshot: true,
+  status: true,
+  startsAt: true,
+  expiresAt: true,
+  totalTimes: true,
+  remainTimes: true,
+  createdAt: true,
+} satisfies Prisma.MemberCardSelect;
+
 @Injectable()
 export class ClubCardQueryService {
   constructor(
@@ -110,6 +126,7 @@ export class ClubCardQueryService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: offset,
         take: limit,
+        select: CARD_VIEW_SELECT,
       }),
     ]);
 
@@ -146,6 +163,7 @@ export class ClubCardQueryService {
 
     const card = await this.prisma.memberCard.findFirst({
       where: { id: cardId, customerId: { in: customerIds } },
+      select: CARD_VIEW_SELECT,
     });
     if (!card) {
       throw new NotFoundException(CLUB_CARD_NOT_FOUND_MESSAGE);

@@ -208,18 +208,25 @@ export class ClubVoucherOrderContextService {
     quantity: number,
     usePoints: boolean,
   ): Promise<ClubVoucherPricing> {
+    // 定价上下文与会员等级折扣率互不依赖：并行预加载，省一次串行往返；
+    // 活动快照同时供行级定价与订单级满减复用，保证同请求口径一致。
+    const [pricingContext, memberDiscountRate] = await Promise.all([
+      this.clubOrderPromotionsService.preloadPricingContext(
+        context.store.id,
+        context.customer.id,
+      ),
+      this.clubOrderPromotionsService.resolveMemberDiscountRate(
+        context.store.id,
+        context.clubUserId,
+        context.phone,
+      ),
+    ]);
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
       context.product.price,
-      { skipReduce: true },
+      { skipReduce: true, context: pricingContext },
     );
-    const memberDiscountRate =
-      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
-        context.store.id,
-        context.clubUserId,
-        context.phone,
-      );
     // 竞争模型（与 purelyClub 服务订单预览一致）：会员等级折扣 vs 活动折扣，取更低者生效
     const effectiveMemberRate =
       memberDiscountRate != null && memberDiscountRate < 1
@@ -237,6 +244,7 @@ export class ClubVoucherOrderContextService {
       await this.clubOrderPromotionsService.resolveOrderReduceDetail(
         context.store.id,
         beforeReduceTotalFen,
+        pricingContext.promotions,
       );
     const orderReduceFen = reduceDetail.totalReduceFen;
     const afterReduceTotalFen = Math.max(

@@ -3,6 +3,7 @@ import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubMemberModule } from '../member/club-member.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
+import { ClubProductCacheService } from './club-product-cache.service';
 import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
@@ -14,6 +15,7 @@ import { ClubPromotionRepository } from '../shared/club-promotion.repository';
   imports: [AuthModule, PrismaModule, ClubStoresModule, ClubMemberModule],
   controllers: [ClubProductsController],
   providers: [
+    ClubProductCacheService,
     ClubProductPromotionService,
     ClubProductQueryService,
     ClubProductViewService,

@@ -53,6 +53,19 @@ export interface ClubMemberSnapshot {
 
 @Injectable()
 export class ClubMemberProfileService {
+  /**
+   * 同一 (storeId, clubUserId) 的在途快照解析共享一个 Promise。
+   *
+   * 首页账户与商品定价会并发解析同一份快照，15s 缓存要等首次写回后才命中，
+   * 冷启动 / 缓存失效瞬间两个分支会各跑一遍档案定位与充值聚合。
+   * 仅进程内生效（cluster 多 worker 各自独立），Promise 结束即清理，
+   * 不作为时间缓存使用，数据可见性仍由 15s TTL 与主动失效负责。
+   */
+  private readonly inflightSnapshots = new Map<
+    string,
+    Promise<ClubMemberSnapshot | null>
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -88,8 +101,33 @@ export class ClubMemberProfileService {
     clubUserId: number,
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
-    // 读缓存：门店+用户粒度，TTL 15s
     const cacheKey = buildClubMemberSnapshotCacheKey(storeId, clubUserId);
+    const inflight = this.inflightSnapshots.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = this.loadSnapshot(
+      cacheKey,
+      storeId,
+      clubUserId,
+      phone,
+    ).finally(() => {
+      this.inflightSnapshots.delete(cacheKey);
+    });
+    this.inflightSnapshots.set(cacheKey, request);
+
+    return request;
+  }
+
+  /** 缓存读取 + 档案定位 + 回写，仅供 getSnapshotByStoreIdentity 经并发去重后调用。 */
+  private async loadSnapshot(
+    cacheKey: string,
+    storeId: number,
+    clubUserId: number,
+    phone: string,
+  ): Promise<ClubMemberSnapshot | null> {
+    // 读缓存：门店+用户粒度，TTL 15s
     const cached = await this.redisService.getJson<ClubMemberSnapshot | null>(
       cacheKey,
     );

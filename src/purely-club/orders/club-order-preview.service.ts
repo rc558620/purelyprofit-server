@@ -67,13 +67,13 @@ export class ClubOrderPreviewService {
         currentContext,
         { storeId: dto.storeId, productId: dto.productId },
       );
-    // 并行解析：活动定价（skipReduce 跳过单件满减）+ 会员等级折扣率
-    const [pricing, memberDiscountRate] = await Promise.all([
-      this.clubOrderPromotionsService.resolvePricing(
+    // 定价上下文（门店活动 + 消费次数）与会员等级折扣率互不依赖，并行预加载。
+    // 同一请求只取一次活动快照：既省一次 Redis GET，也保证行级定价与订单级满减
+    // 基于同一份活动配置，避免缓存恰好在两次加载之间失效导致金额口径不一致。
+    const [pricingContext, memberDiscountRate] = await Promise.all([
+      this.clubOrderPromotionsService.preloadPricingContext(
         context.store.id,
         context.customer.id,
-        context.product.price,
-        { skipReduce: true },
       ),
       this.clubOrderPromotionsService.resolveMemberDiscountRate(
         context.store.id,
@@ -81,6 +81,12 @@ export class ClubOrderPreviewService {
         currentContext.user.phone,
       ),
     ]);
+    const pricing = await this.clubOrderPromotionsService.resolvePricing(
+      context.store.id,
+      context.customer.id,
+      context.product.price,
+      { skipReduce: true, context: pricingContext },
+    );
     const quantity = dto.quantity ?? 1;
     // 订单级金额计算：竞争模型（会员 vs 活动）+ 满减（订单总额、单次生效）
     const amounts = await this.resolveServiceOrderAmounts({
@@ -91,6 +97,7 @@ export class ClubOrderPreviewService {
       quantity,
       pricing,
       memberDiscountRate,
+      promotions: pricingContext.promotions,
     });
     // 积分抵扣计算（基于乘以数量后的金额）
     const { pointsDeductFen, pointsUsed } = await resolvePointsDeduction(
@@ -135,6 +142,7 @@ export class ClubOrderPreviewService {
       quantity,
       pricing,
       memberDiscountRate,
+      promotions,
     } = params;
     const memberBaselineTotalFen = productPriceFen * quantity;
 
@@ -158,6 +166,7 @@ export class ClubOrderPreviewService {
       await this.clubOrderPromotionsService.resolveOrderReduceDetail(
         storeId,
         beforeReduceTotalFen,
+        promotions,
       );
     const orderReduceFen = reduceDetail.totalReduceFen;
     // 最终应付 = 满减前总额 - 满减

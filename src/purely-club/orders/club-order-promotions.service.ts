@@ -209,12 +209,18 @@ export class ClubOrderPromotionsService {
    *   - 示例：满 50 减 9，订单总额 ¥200 也只减 ¥9，不是 ¥9 × 4 = ¥36
    *
    * @param orderTotalFen 订单总额（分）= 折扣后单价 × 数量
+   * @param promotions 调用方预加载的活动快照；传入后复用，避免同请求重复加载
    */
   async resolveOrderReduceFen(
     storeId: number,
     orderTotalFen: number,
+    promotions?: ClubActivePromotionRecord[],
   ): Promise<number> {
-    const detail = await this.resolveOrderReduceDetail(storeId, orderTotalFen);
+    const detail = await this.resolveOrderReduceDetail(
+      storeId,
+      orderTotalFen,
+      promotions,
+    );
     return detail.totalReduceFen;
   }
 
