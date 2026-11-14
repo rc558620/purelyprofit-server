@@ -20,6 +20,7 @@ import {
   clubAccessibleStoreSelect,
   type ClubAccessibleStoreRecord,
 } from './club-stores.types';
+import { CLUB_STORES_ERROR_CODE, clubStoresError } from './club-stores.errors';
 
 const CLUB_INVALID_INVITE_CODE_MESSAGE = '邀请码无效或门店不存在';
 const CLUB_INVALID_SCAN_CODE_MESSAGE = '扫码结果无效，未识别到门店邀请码';
@@ -126,7 +127,12 @@ export class ClubStoreAccessService {
         'not_found',
         scanCode,
       );
-      throw new BadRequestException(CLUB_INVALID_SCAN_CODE_MESSAGE);
+      throw new BadRequestException(
+        clubStoresError(
+          CLUB_STORES_ERROR_CODE.PARAM_SCAN_CODE_INVALID,
+          CLUB_INVALID_SCAN_CODE_MESSAGE,
+        ),
+      );
     }
 
     // 渠道二维码（带 token）已撤销时阻止入店
@@ -141,7 +147,12 @@ export class ClubStoreAccessService {
           storeBeforeJoin.id,
         );
       if (!attribution.continueScan) {
-        throw new BadRequestException('该二维码已停用，请联系商家获取新二维码');
+        throw new BadRequestException(
+          clubStoresError(
+            CLUB_STORES_ERROR_CODE.RULE_QR_CODE_DISABLED,
+            '该二维码已停用，请联系商家获取新二维码',
+          ),
+        );
       }
     }
 
@@ -173,7 +184,12 @@ export class ClubStoreAccessService {
   ): Promise<ClubAccessibleStoreRecord & { isNewMember: boolean }> {
     const normalizedInviteCode = this.normalizeInviteCode(inviteCode);
     if (!normalizedInviteCode) {
-      throw new BadRequestException('门店邀请码不能为空');
+      throw new BadRequestException(
+        clubStoresError(
+          CLUB_STORES_ERROR_CODE.PARAM_INVITE_CODE_EMPTY,
+          '门店邀请码不能为空',
+        ),
+      );
     }
 
     const store =
@@ -181,7 +197,12 @@ export class ClubStoreAccessService {
         normalizedInviteCode,
       );
     if (!store) {
-      throw new NotFoundException(CLUB_INVALID_INVITE_CODE_MESSAGE);
+      throw new NotFoundException(
+        clubStoresError(
+          CLUB_STORES_ERROR_CODE.RESOURCE_INVITE_CODE_NOT_FOUND,
+          CLUB_INVALID_INVITE_CODE_MESSAGE,
+        ),
+      );
     }
 
     const memberPhone = this.resolveMemberPhone(user);
@@ -197,7 +218,12 @@ export class ClubStoreAccessService {
       },
     });
     if (existingMember?.status === MemberStatus.banned) {
-      throw new ForbiddenException(CLUB_BANNED_MEMBER_MESSAGE);
+      throw new ForbiddenException(
+        clubStoresError(
+          CLUB_STORES_ERROR_CODE.AUTH_MEMBER_BANNED,
+          CLUB_BANNED_MEMBER_MESSAGE,
+        ),
+      );
     }
 
     const displayName = this.resolveDisplayName(user);
@@ -239,7 +265,12 @@ export class ClubStoreAccessService {
       select: { id: true },
     });
     if (!store) {
-      throw new NotFoundException('门店不存在');
+      throw new NotFoundException(
+        clubStoresError(
+          CLUB_STORES_ERROR_CODE.RESOURCE_STORE_NOT_FOUND,
+          '门店不存在',
+        ),
+      );
     }
 
     const bindingResult =

@@ -1,6 +1,10 @@
 // 团购券余额支付结算：储值余额扣款 + 消费流水 + 顾客指标（累计消费/到店次数/等级）+ 赠送消费积分
 // 与「服务订单余额结算」同口径：余额支付即门店消费，需记流水与累计消费
 import { BadRequestException, Logger } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import { awardPointsForSettlement } from '../orders/club-order-settlement-points.utils';
@@ -21,14 +25,22 @@ export async function settleVoucherBalancePayment(
     select: { id: true, totalSpent: true, balance: true },
   });
   if (!customer) {
-    throw new BadRequestException(CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE);
+    throw new BadRequestException(
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.RESOURCE_CUSTOMER_NOT_FOUND,
+        CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE,
+      ),
+    );
   }
 
   // 余额扣减金额 = 订单实付金额（积分抵扣部分不占余额）
   const balancePaidFen = order.paidAmountFen;
   if (customer.balance < balancePaidFen) {
     throw new BadRequestException(
-      `余额不足，当前余额 ¥${Money.fromDbCents(customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+        `余额不足，当前余额 ¥${Money.fromDbCents(customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+      ),
     );
   }
 

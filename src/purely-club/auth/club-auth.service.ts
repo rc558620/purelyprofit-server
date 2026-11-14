@@ -1,3 +1,4 @@
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import {
   ConflictException,
   Injectable,
@@ -272,7 +273,10 @@ export class ClubAuthService {
         `bindPhoneByWechatCode 获取到非大陆手机号，user ${userId}`,
       );
       throw new ConflictException(
-        '未能获取到有效的手机号，请改用短信验证码绑定',
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.PARAM_PHONE_NUMBER_INVALID,
+          '未能获取到有效的手机号，请改用短信验证码绑定',
+        ),
       );
     }
 

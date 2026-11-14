@@ -1,4 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -83,7 +87,13 @@ export class ScanOrderingPickupSettingsService {
         orderNoticeEnabled: true,
       },
     });
-    if (!store) throw new NotFoundException('门店不存在');
+    if (!store)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_STORE_NOT_FOUND,
+          '门店不存在',
+        ),
+      );
     return {
       pickupVoiceEnabled: store.pickupVoiceEnabled,
       serveAutoPrintEnabled: store.serveAutoPrintEnabled,

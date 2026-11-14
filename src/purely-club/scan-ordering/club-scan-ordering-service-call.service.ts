@@ -3,6 +3,10 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { ServiceCallType } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -30,8 +34,19 @@ export class ClubScanOrderingServiceCallService {
       },
     });
     if (!session)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
-    if (!session.tableId) throw new ConflictException('点餐会话未绑定桌台');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
+    if (!session.tableId)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_SESSION_NOT_FOUND,
+          '点餐会话未绑定桌台',
+        ),
+      );
     const table = await this.prisma.scanOrderingTable.findUnique({
       where: { id: session.tableId },
       select: {

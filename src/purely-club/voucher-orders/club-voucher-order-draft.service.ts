@@ -4,6 +4,10 @@
 // 与「幂等占位 + 落库 + 失败回滚」是两种性质的工作。拆开后下单服务只负责编排顺序，
 // 算价口径改动不会再与幂等/事务代码互相干扰。
 import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import {
@@ -129,7 +133,12 @@ export class ClubVoucherOrderDraftService {
     );
 
     if (context.product.stock < quantity) {
-      throw new BadRequestException(CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_STOCK_NOT_ENOUGH,
+          CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE,
+        ),
+      );
     }
 
     // 顾客信息快照：静默微信登录拿不到昵称（user.name 为 null），
@@ -173,7 +182,10 @@ export class ClubVoucherOrderDraftService {
       draft.context.customer.balance < draft.pricing.paidAmountFen
     ) {
       throw new BadRequestException(
-        `余额不足，当前余额 ¥${Money.fromDbCents(draft.context.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(draft.pricing.paidAmountFen).toFixedOutputYuan()}`,
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+          `余额不足，当前余额 ¥${Money.fromDbCents(draft.context.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(draft.pricing.paidAmountFen).toFixedOutputYuan()}`,
+        ),
       );
     }
 

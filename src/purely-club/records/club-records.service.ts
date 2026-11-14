@@ -1,3 +1,4 @@
+import { CLUB_RECORD_ERROR_CODE, clubRecordError } from './club-records.errors';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
@@ -100,19 +101,34 @@ export class ClubRecordsService {
         Buffer.from(query.cursor, 'base64url').toString('utf8'),
       ) as { createdAt?: string; id?: string };
     } catch {
-      throw new BadRequestException('分页游标解析失败');
+      throw new BadRequestException(
+        clubRecordError(
+          CLUB_RECORD_ERROR_CODE.PARAM_CURSOR_PARSE_FAILED,
+          '分页游标解析失败',
+        ),
+      );
     }
 
     if (
       typeof payload.id !== 'string' ||
       typeof payload.createdAt !== 'string'
     ) {
-      throw new BadRequestException('分页游标格式不合法');
+      throw new BadRequestException(
+        clubRecordError(
+          CLUB_RECORD_ERROR_CODE.PARAM_CURSOR_INVALID,
+          '分页游标格式不合法',
+        ),
+      );
     }
 
     const createdAt = new Date(payload.createdAt);
     if (Number.isNaN(createdAt.getTime())) {
-      throw new BadRequestException('分页游标时间不合法');
+      throw new BadRequestException(
+        clubRecordError(
+          CLUB_RECORD_ERROR_CODE.PARAM_CURSOR_TIME_INVALID,
+          '分页游标时间不合法',
+        ),
+      );
     }
 
     return { createdAt, id: payload.id };

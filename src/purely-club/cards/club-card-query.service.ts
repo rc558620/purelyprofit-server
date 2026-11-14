@@ -6,6 +6,7 @@
  * 不做手机号降级，避免同号档案把别人的卡展示给我。
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { MemberCardKind, MemberCardStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -158,7 +159,12 @@ export class ClubCardQueryService {
       currentContext.user.id,
     );
     if (customerIds.length === 0) {
-      throw new NotFoundException(CLUB_CARD_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_CARD_NOT_FOUND,
+          CLUB_CARD_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const card = await this.prisma.memberCard.findFirst({
@@ -166,7 +172,12 @@ export class ClubCardQueryService {
       select: CARD_VIEW_SELECT,
     });
     if (!card) {
-      throw new NotFoundException(CLUB_CARD_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_CARD_NOT_FOUND,
+          CLUB_CARD_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const [storeNames, transactions] = await Promise.all([

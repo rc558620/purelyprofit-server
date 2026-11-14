@@ -4,9 +4,15 @@
 // 账目回补（积分 / 库存 / 余额 / 等级）在 club-voucher-order-refund-restore.helper.ts，
 // 两条退款链路共用同一份回补逻辑。
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+  type ClubVoucherErrorPayload,
+} from './club-voucher-orders.errors';
 import type { ClubVoucherOrder } from '@prisma/client';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { isBalancePaymentChannel } from '../payments/club-payment-channels.constants';
+import { formatShanghaiDateTime } from '../../shared/shanghai-time.utils';
 import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -48,8 +54,8 @@ interface RefundSettlementOptions {
   logLabel: string;
   /** 落库失败日志前缀（此时微信侧可能已出款，必须留痕） */
   failureLabel: string;
-  /** 并发抢占失败时抛给前端的既有文案 */
-  conflictMessage: string;
+  /** 并发抢占失败时抛给前端的业务异常载荷（文案 + 稳定业务码） */
+  conflict: ClubVoucherErrorPayload;
   /** 商家拒绝接单时写入的经办人信息 */
   rejectBy?: {
     name: string | null;
@@ -76,7 +82,12 @@ export class ClubVoucherOrderRefundService {
       where: { orderNo, userId: currentContext.user.id },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     // 幂等：已退款直接返回
@@ -94,7 +105,10 @@ export class ClubVoucherOrderRefundService {
       reason: '用户主动退款',
       logLabel: '团购券退款成功',
       failureLabel: '团购券退款落库失败，微信侧可能已出款，请人工核对',
-      conflictMessage: CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
+      conflict: clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_USED_SESSION,
+        CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
+      ),
     });
 
     // 事务提交成功后才广播退款事件：store 房间（商家端查看订单页实时刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情页）
@@ -127,7 +141,12 @@ export class ClubVoucherOrderRefundService {
       where: { orderNo: params.orderNo, storeId: params.storeId },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     // 幂等：已退款直接返回
@@ -147,7 +166,10 @@ export class ClubVoucherOrderRefundService {
       reason: '商家拒绝接单',
       logLabel: '商家拒绝团购券订单成功',
       failureLabel: '商家拒绝接单落库失败，微信侧可能已出款，请人工核对',
-      conflictMessage: CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
+      conflict: clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_NOT_ALLOWED,
+        CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
+      ),
       rejectBy: {
         name: params.rejectedByStaffName,
         role: params.rejectedByStaffRole,
@@ -175,13 +197,28 @@ export class ClubVoucherOrderRefundService {
   private assertRefundable(order: ClubVoucherOrder): void {
     // 可退状态：pending（待使用）、used-未开台（已核销但未绑定开台会话）
     if (order.status === 'used' && order.usedSessionId !== null) {
-      throw new BadRequestException(CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_USED_SESSION,
+          CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
+        ),
+      );
     }
     if (order.status !== 'pending' && order.status !== 'used') {
-      throw new BadRequestException(CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_NOT_ALLOWED,
+          CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
+        ),
+      );
     }
     if (order.expiresAt && order.expiresAt < new Date()) {
-      throw new BadRequestException(CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_REFUND_EXPIRED,
+          CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE,
+        ),
+      );
     }
   }
 
@@ -236,7 +273,7 @@ export class ClubVoucherOrderRefundService {
               `${options.failureLabel}: orderNo=${order.orderNo}, refundNo=${refundNo}`,
             );
           }
-          throw new BadRequestException(options.conflictMessage);
+          throw new BadRequestException(options.conflict);
         }
 
         // 积分退回 + 库存回补，余额支付再回补储值余额与累计消费
@@ -286,19 +323,8 @@ export class ClubVoucherOrderRefundService {
     return `RF${orderNo.replace(/[^A-Za-z0-9_-]/g, '')}`;
   }
 
+  /** 上海墙钟 `YYYY-MM-DD HH:mm`，与核销链路共用同一份共享工具。 */
   private formatDateTime(date: Date): string {
-    const shanghai = new Date(date.getTime() + 8 * 60 * 60_000);
-    const pad = (value: number): string => String(value).padStart(2, '0');
-    return [
-      shanghai.getUTCFullYear(),
-      '-',
-      pad(shanghai.getUTCMonth() + 1),
-      '-',
-      pad(shanghai.getUTCDate()),
-      ' ',
-      pad(shanghai.getUTCHours()),
-      ':',
-      pad(shanghai.getUTCMinutes()),
-    ].join('');
+    return formatShanghaiDateTime(date.getTime());
   }
 }

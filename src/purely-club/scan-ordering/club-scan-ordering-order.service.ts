@@ -6,6 +6,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
@@ -73,7 +77,12 @@ export class ClubScanOrderingOrderService {
     dto: CreateClubScanOrderDto,
   ): Promise<unknown> {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
-      throw new ConflictException('请提供有效的 Idempotency-Key 以创建订单');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_IDEMPOTENCY_KEY_INVALID,
+          '请提供有效的 Idempotency-Key 以创建订单',
+        ),
+      );
     }
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: {
@@ -99,7 +108,12 @@ export class ClubScanOrderingOrderService {
     const currentContext =
       await this.currentStoreContextService.requireCurrentContext(user);
     if (session.storeId !== currentContext.store.id) {
-      throw new BadRequestException('当前门店已切换，请刷新页面后重试');
+      throw new BadRequestException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STORE_CHANGED,
+          '当前门店已切换，请刷新页面后重试',
+        ),
+      );
     }
 
     // 新客额度闸门：新客在额度耗尽时禁止下单，商家充值后才能继续。
@@ -116,10 +130,20 @@ export class ClubScanOrderingOrderService {
       );
     const cartVersion = this.cartPricingService.cartVersion(pricedItems);
     if (cartVersion !== dto.cartVersion) {
-      throw new ConflictException('购物车已更新，请刷新后重新确认订单');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_CART_UPDATED,
+          '购物车已更新，请刷新后重新确认订单',
+        ),
+      );
     }
     if (dto.pricingVersion !== pricingVersion) {
-      throw new ConflictException('订单价格已变化，请重新确认订单');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_PRICE_CHANGED,
+          '订单价格已变化，请重新确认订单',
+        ),
+      );
     }
     const promotionResult = await this.cartPricingService.resolvePromotions(
       session.storeId,
@@ -357,7 +381,13 @@ export class ClubScanOrderingOrderService {
         },
       },
     });
-    if (!order) throw new NotFoundException('订单不存在');
+    if (!order)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     return {
       ...order,
       items: order.items.map((item) => ({
@@ -416,9 +446,20 @@ export class ClubScanOrderingOrderService {
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       select: { id: true, storeId: true, status: true, version: true },
     });
-    if (!order) throw new NotFoundException('订单不存在');
+    if (!order)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     if (order.status !== 'pending_payment')
-      throw new ConflictException('当前订单不可取消');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_NOT_CANCELLABLE,
+          '当前订单不可取消',
+        ),
+      );
     const closed = await this.unpaidOrderClosureService.close({
       orderId: order.id,
       expectedVersion: version,
@@ -427,7 +468,12 @@ export class ClubScanOrderingOrderService {
       reason: '用户取消',
     });
     if (!closed) {
-      throw new ConflictException('订单状态已变化，请刷新后重试');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_STATE_CHANGED,
+          '订单状态已变化，请刷新后重试',
+        ),
+      );
     }
   }
 
@@ -454,7 +500,12 @@ export class ClubScanOrderingOrderService {
       },
     });
     if (!session?.tableId)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
     return session;
   }
 
@@ -475,6 +526,11 @@ export class ClubScanOrderingOrderService {
   }): unknown {
     if (record.status === 'succeeded' && record.responseSnapshot)
       return record.responseSnapshot;
-    throw new ConflictException('订单正在创建中，请稍后重试');
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_CREATING,
+        '订单正在创建中，请稍后重试',
+      ),
+    );
   }
 }

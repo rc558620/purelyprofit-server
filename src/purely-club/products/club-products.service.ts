@@ -1,3 +1,7 @@
+import {
+  CLUB_PRODUCT_ERROR_CODE,
+  clubProductError,
+} from './club-products.errors';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
@@ -120,7 +124,12 @@ export class ClubProductsService {
       ),
     ]);
     if (!product) {
-      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubProductError(
+          CLUB_PRODUCT_ERROR_CODE.RESOURCE_PRODUCT_NOT_FOUND,
+          CLUB_PRODUCT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return this.clubProductViewService.toClubProduct(

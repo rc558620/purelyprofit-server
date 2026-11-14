@@ -16,6 +16,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { MemberCardOrder } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
@@ -80,7 +81,12 @@ export class ClubCardOrderService {
 
     const planId = parseCardId(dto.planId);
     if (planId === null) {
-      throw new BadRequestException('卡模板 ID 不合法');
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.PARAM_PLAN_ID_INVALID,
+          '卡模板 ID 不合法',
+        ),
+      );
     }
 
     const { plan } = await this.contextService.resolvePlan(
@@ -100,7 +106,10 @@ export class ClubCardOrderService {
       });
       if (owned >= plan.purchaseLimit) {
         throw new BadRequestException(
-          `${CLUB_CARD_PURCHASE_LIMIT_MESSAGE_PREFIX} ${plan.purchaseLimit} 张`,
+          clubCardError(
+            CLUB_CARD_ERROR_CODE.RULE_PURCHASE_LIMIT_EXCEEDED,
+            `${CLUB_CARD_PURCHASE_LIMIT_MESSAGE_PREFIX} ${plan.purchaseLimit} 张`,
+          ),
         );
       }
     }
@@ -108,7 +117,10 @@ export class ClubCardOrderService {
     // 余额支付前置校验：余额不足直接拒绝，避免落库永远付不掉的 unpaid 脏单（比较与文案均在后端）
     if (paymentMethod === 'balance' && customer.balanceFen < plan.price) {
       throw new BadRequestException(
-        buildCardBalanceInsufficientMessage(customer.balanceFen, plan.price),
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+          buildCardBalanceInsufficientMessage(customer.balanceFen, plan.price),
+        ),
       );
     }
 
@@ -152,7 +164,12 @@ export class ClubCardOrderService {
         if (occupied) {
           return occupied;
         }
-        throw new ConflictException('订单正在处理，请稍后在卡包或订单页查看');
+        throw new ConflictException(
+          clubCardError(
+            CLUB_CARD_ERROR_CODE.STATUS_ORDER_PROCESSING,
+            '订单正在处理，请稍后在卡包或订单页查看',
+          ),
+        );
       }
     }
 
@@ -267,7 +284,12 @@ export class ClubCardOrderService {
     const manualConfirmPaidAllowed =
       await this.paymentModeService.isManualConfirmPaidAllowed();
     if (!manualConfirmPaidAllowed) {
-      throw new ForbiddenException(CLUB_CARD_MANUAL_CONFIRM_DISABLED_MESSAGE);
+      throw new ForbiddenException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_MANUAL_CONFIRM_DISABLED,
+          CLUB_CARD_MANUAL_CONFIRM_DISABLED_MESSAGE,
+        ),
+      );
     }
 
     const order = await this.findOwnedOrder(currentContext, orderId);
@@ -298,11 +320,21 @@ export class ClubCardOrderService {
       where: { orderNo },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_CARD_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     if (order.amount !== params.amountFen) {
       // 金额不符绝不落账：宁可留待人工核对，也不能按错误金额发卡
-      throw new BadRequestException('回调金额与订单金额不一致');
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_AMOUNT_MISMATCH,
+          '回调金额与订单金额不一致',
+        ),
+      );
     }
 
     const settlement = await this.settlementService.settlePaidOrder(
@@ -343,7 +375,12 @@ export class ClubCardOrderService {
     });
 
     if (!order) {
-      throw new NotFoundException(CLUB_CARD_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     return order;
   }
@@ -392,7 +429,12 @@ export class ClubCardOrderService {
       where: { id: orderId },
     });
     if (!order) {
-      throw new NotFoundException(CLUB_CARD_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     return order;
   }

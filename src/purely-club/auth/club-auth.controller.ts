@@ -1,3 +1,4 @@
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import {
   Body,
   Controller,
@@ -317,7 +318,12 @@ export class ClubAuthController {
       dto.refresh_token,
     );
     if (!result) {
-      throw new UnauthorizedException('刷新令牌无效或已过期');
+      throw new UnauthorizedException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.AUTH_REFRESH_TOKEN_INVALID,
+          '刷新令牌无效或已过期',
+        ),
+      );
     }
     return result;
   }

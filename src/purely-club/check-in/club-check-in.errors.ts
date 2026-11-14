@@ -1,19 +1,29 @@
 import { BadRequestException } from '@nestjs/common';
+import {
+  CLUB_LEGACY_ERROR_CODE,
+  clubBusinessError,
+} from '../shared/club-business-errors';
 
 /**
  * 签到链路业务错误码。
  *
- * 前端按响应体 code 分支、不按文案匹配，因此 code 必须稳定；
- * AllExceptionsFilter 会把 HttpException response.code 透传到响应体。
- * 三个错误码均为状态/资源类冲突，统一用 400（与前端 ApiError.businessCode 一致）。
+ * 三个码值属于冻结的历史码（CLUB_LEGACY_ERROR_CODE），前端已按字面量分支，
+ * 禁止改名或「规范化」；AllExceptionsFilter 会把 response.code 透传到响应体。
+ *
+ * 与共享层「message 由调用方显式传入」并不冲突：签到全是固定文案、没有动态
+ * 场景，因此保留本域唯一的 code→message 映射；但异常载荷统一走
+ * clubBusinessError 构造，不再自建一套载荷形状。
  */
 
 /** 今日已签到（幂等拒绝） */
-export const CHECK_IN_ALREADY_DONE_CODE = 'CHECK_IN_ALREADY_DONE';
+export const CHECK_IN_ALREADY_DONE_CODE =
+  CLUB_LEGACY_ERROR_CODE.CHECK_IN_ALREADY_DONE;
 /** 活动未开始 / 已结束 / 已停用 */
-export const CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE = 'CHECK_IN_ACTIVITY_NOT_ACTIVE';
+export const CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE =
+  CLUB_LEGACY_ERROR_CODE.CHECK_IN_ACTIVITY_NOT_ACTIVE;
 /** 当前门店未配置签到活动 */
-export const CHECK_IN_ACTIVITY_NOT_FOUND_CODE = 'CHECK_IN_ACTIVITY_NOT_FOUND';
+export const CHECK_IN_ACTIVITY_NOT_FOUND_CODE =
+  CLUB_LEGACY_ERROR_CODE.CHECK_IN_ACTIVITY_NOT_FOUND;
 
 export const CHECK_IN_ALREADY_DONE_MESSAGE = '今日已签到';
 export const CHECK_IN_ACTIVITY_NOT_ACTIVE_MESSAGE = '签到活动暂未开启';
@@ -34,8 +44,7 @@ const CHECK_IN_ERROR_MESSAGES: Record<ClubCheckInErrorCode, string> = {
 export function buildCheckInBusinessError(
   code: ClubCheckInErrorCode,
 ): BadRequestException {
-  return new BadRequestException({
-    code,
-    message: CHECK_IN_ERROR_MESSAGES[code],
-  });
+  return new BadRequestException(
+    clubBusinessError(code, CHECK_IN_ERROR_MESSAGES[code]),
+  );
 }

@@ -1,4 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
@@ -76,7 +80,13 @@ export class ClubScanOrderingCartPricingService {
       // 与定价版本计算同口径：hash 输入里的 cartItems 不做排序，行序必须稳定
       orderBy: { id: 'asc' },
     });
-    if (cartItems.length === 0) throw new ConflictException('购物车为空');
+    if (cartItems.length === 0)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_CART_EMPTY,
+          '购物车为空',
+        ),
+      );
     const products = await this.prisma.scanOrderingMenuProduct.findMany({
       where: {
         id: { in: cartItems.map((item) => item.menuProductId) },
@@ -110,7 +120,10 @@ export class ClubScanOrderingCartPricingService {
         .filter((productId) => !foundProductIds.has(productId))
         .join(',');
       throw new ConflictException(
-        `购物车中存在已删除商品（菜单商品 ID：${missingProductIds}）`,
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_CART_PRODUCT_REMOVED,
+          `购物车中存在已删除商品（菜单商品 ID：${missingProductIds}）`,
+        ),
       );
     }
     const items = cartItems.map((cartItem) => {
@@ -288,11 +301,22 @@ export class ClubScanOrderingCartPricingService {
     );
     for (const [specOptionId, quantity] of quantities) {
       const current = optionMap.get(specOptionId);
-      if (!current) throw new ConflictException('规格库存不足');
+      if (!current)
+        throw new ConflictException(
+          clubScanOrderingError(
+            CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+            '规格库存不足',
+          ),
+        );
       const availableStock =
         (current.stockQuantity ?? 0) - (current.reservedQuantity ?? 0);
       if (current.stockQuantity !== null && availableStock < quantity) {
-        throw new ConflictException('规格库存不足');
+        throw new ConflictException(
+          clubScanOrderingError(
+            CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+            '规格库存不足',
+          ),
+        );
       }
       const updated = await tx.scanOrderingSpecOption.updateMany({
         where: {
@@ -305,7 +329,13 @@ export class ClubScanOrderingCartPricingService {
           version: { increment: 1 },
         },
       });
-      if (updated.count === 0) throw new ConflictException('规格库存不足');
+      if (updated.count === 0)
+        throw new ConflictException(
+          clubScanOrderingError(
+            CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+            '规格库存不足',
+          ),
+        );
     }
   }
 

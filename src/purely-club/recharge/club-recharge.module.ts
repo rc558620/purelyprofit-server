@@ -18,6 +18,7 @@ import { ClubRechargeService } from './club-recharge.service';
 import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
 import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
+import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 
 @Module({
   imports: [
@@ -31,6 +32,9 @@ import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
   ],
   controllers: [ClubRechargeController],
   providers: [
+    // 充值下单幂等：与团购券 / 服务订单共用同一份 Redis 占位实现，
+    // 重复提交复用同一笔订单，不再产生第二张待支付单与第二次微信预下单
+    ClubOrderIdempotencyService,
     ClubRechargeContextService,
     ClubRechargeCreationService,
     ClubRechargeOrderStoreService,

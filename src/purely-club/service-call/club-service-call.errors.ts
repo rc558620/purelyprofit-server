@@ -1,0 +1,36 @@
+import {
+  clubBusinessError,
+  type ClubBusinessErrorPayload,
+} from '../shared/club-business-errors';
+
+/**
+ * 服务呼叫链路业务错误码；码值契约见 shared/club-business-errors.ts。
+ * `AUTH_WS_*` 用于服务呼叫网关的 Socket.IO 连接鉴权。
+ */
+export const CLUB_SERVICE_CALL_ERROR_CODE = {
+  AUTH_WS_TOKEN_MISSING: 'CLUB_SERVICE_CALL_AUTH_WS_TOKEN_MISSING',
+  AUTH_WS_TOKEN_INVALID: 'CLUB_SERVICE_CALL_AUTH_WS_TOKEN_INVALID',
+  AUTH_WS_USER_NOT_FOUND: 'CLUB_SERVICE_CALL_AUTH_WS_USER_NOT_FOUND',
+  AUTH_WS_CONNECTION_UNAUTHENTICATED:
+    'CLUB_SERVICE_CALL_AUTH_WS_CONNECTION_UNAUTHENTICATED',
+  STATUS_COOLDOWN: 'CLUB_SERVICE_CALL_STATUS_COOLDOWN',
+  PARAM_QR_INVALID: 'CLUB_SERVICE_CALL_PARAM_QR_INVALID',
+  STATUS_QR_REVOKED: 'CLUB_SERVICE_CALL_STATUS_QR_REVOKED',
+  RESOURCE_SPACE_DELETED: 'CLUB_SERVICE_CALL_RESOURCE_SPACE_DELETED',
+  RULE_CATERING_STORE_FORBIDDEN:
+    'CLUB_SERVICE_CALL_RULE_CATERING_STORE_FORBIDDEN',
+  RULE_QR_STORE_MISMATCH: 'CLUB_SERVICE_CALL_RULE_QR_STORE_MISMATCH',
+} as const;
+
+export type ClubServiceCallErrorCode =
+  (typeof CLUB_SERVICE_CALL_ERROR_CODE)[keyof typeof CLUB_SERVICE_CALL_ERROR_CODE];
+
+/** 码表校验使用的域前缀 */
+export const CLUB_SERVICE_CALL_ERROR_CODE_PREFIX = 'CLUB_SERVICE_CALL_';
+
+export function clubServiceCallError(
+  code: ClubServiceCallErrorCode,
+  message: string,
+): ClubBusinessErrorPayload<ClubServiceCallErrorCode> {
+  return clubBusinessError(code, message);
+}

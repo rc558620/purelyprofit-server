@@ -3,6 +3,7 @@
 // 否则余额减少在商家端无任何痕迹。购卡本身不赠送消费积分（与微信支付购卡口径一致），
 // 避免「同一张卡换个支付方式积分不同」的口径分裂。
 import { BadRequestException, Logger } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { Prisma } from '@prisma/client';
 import { debitCustomerBalance } from '../payments/club-balance-settlement.utils';
 import {
@@ -39,13 +40,21 @@ export async function settleCardBalancePayment(
     select: { id: true, totalSpent: true, balance: true },
   });
   if (!customer) {
-    throw new BadRequestException(CLUB_CARD_CUSTOMER_NOT_FOUND_MESSAGE);
+    throw new BadRequestException(
+      clubCardError(
+        CLUB_CARD_ERROR_CODE.RESOURCE_CUSTOMER_NOT_FOUND,
+        CLUB_CARD_CUSTOMER_NOT_FOUND_MESSAGE,
+      ),
+    );
   }
 
   const balancePaidFen = order.amount;
   if (customer.balance < balancePaidFen) {
     throw new BadRequestException(
-      buildCardBalanceInsufficientMessage(customer.balance, balancePaidFen),
+      clubCardError(
+        CLUB_CARD_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+        buildCardBalanceInsufficientMessage(customer.balance, balancePaidFen),
+      ),
     );
   }
 

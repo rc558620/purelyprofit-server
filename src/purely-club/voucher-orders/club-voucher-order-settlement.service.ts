@@ -35,6 +35,10 @@ import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
   CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE,
 } from './club-voucher-orders.constants';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import { CLUB_VOUCHER_DEFAULT_VALID_DAYS } from './club-voucher-orders.types';
 
 /** 落账事务产出：视图用于响应，快照用于事务提交后的缓存失效与广播 */
@@ -74,7 +78,10 @@ export class ClubVoucherOrderSettlementService {
       await this.clubPaymentModeService.isManualConfirmPaidAllowed();
     if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
-        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_MANUAL_CONFIRM_DISABLED,
+          '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        ),
       );
     }
 
@@ -82,7 +89,12 @@ export class ClubVoucherOrderSettlementService {
       where: { orderNo, userId: currentContext.user.id },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     // 测试模式落账必须留下可识别标记：统一用 `dev-` 前缀的交易号，
     // 与扫码点餐 / 自助点餐两条链路同口径，对账侧可据此排除测试订单，
@@ -101,7 +113,12 @@ export class ClubVoucherOrderSettlementService {
       where: { orderNo },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     assertClubPaymentAmountMatches(order.paidAmountFen, params.amountFen);
     return this.completePayment(order.id, order.paidAmountFen, params);
@@ -138,7 +155,12 @@ export class ClubVoucherOrderSettlementService {
       where: { id: orderId },
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     // 允许 0 元：全额积分抵扣的免费券不经过微信收银台，但金额仍须完全一致
     assertClubPaymentAmountMatchesAllowZero(
@@ -174,7 +196,12 @@ export class ClubVoucherOrderSettlementService {
       where: { id: orderId },
     });
     if (!settled) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     return toVoucherOrderDraftView(settled);
   }
@@ -189,7 +216,12 @@ export class ClubVoucherOrderSettlementService {
       select: { stock: true, validDays: true },
     });
     if (!product || product.stock < order.quantity) {
-      throw new BadRequestException(CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_STOCK_NOT_ENOUGH,
+          CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE,
+        ),
+      );
     }
 
     const decremented = await tx.marketingProduct.updateMany({
@@ -197,7 +229,12 @@ export class ClubVoucherOrderSettlementService {
       data: { stock: { decrement: order.quantity } },
     });
     if (decremented.count !== 1) {
-      throw new BadRequestException(CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_STOCK_NOT_ENOUGH,
+          CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE,
+        ),
+      );
     }
     return product.validDays;
   }

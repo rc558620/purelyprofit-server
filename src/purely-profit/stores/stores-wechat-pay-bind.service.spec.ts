@@ -83,6 +83,24 @@ describe('StoresWechatPayBindService', () => {
     expect(args.data.bindFailReason).toContain('未授权');
   });
 
+  // AppID 未关联与子商户未绑定同为「配置缺一环」，必须落到 failed，
+  // 否则商家端会显示「待校验」而反复重试，实际永远收不到钱。
+  it('AppID 未关联到子商户号时写回 failed 与对应原因', async () => {
+    subMerchantVerifyService.checkBind.mockResolvedValue({
+      status: 'appid_not_bound',
+      code: 'APPID_MCHID_NOT_MATCH',
+      message:
+        '该商户号尚未关联小程序的支付 AppID，请联系平台在微信支付服务商后台为商户号关联小程序后再校验',
+    });
+
+    const { outcome } = await buildService().verifyAndPersist(user);
+
+    expect(outcome).toBe('failed');
+    const [args] = prisma.storeWechatPayConfig.updateMany.mock.calls[0];
+    expect(args.data.bindStatus).toBe('failed');
+    expect(args.data.bindFailReason).toContain('AppID');
+  });
+
   it('结果未知时保持 pending，不允许误判为可用', async () => {
     subMerchantVerifyService.checkBind.mockResolvedValue({
       status: 'unknown',

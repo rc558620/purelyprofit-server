@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
@@ -145,7 +146,10 @@ export class ClubPaymentsService {
             `平台配置=${expectedSpMchId}，已拒绝入账`,
         );
         throw new UnauthorizedException(
-          '微信支付回调的收款主体与平台配置不一致',
+          clubPayError(
+            CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_SP_MCHID_MISMATCH,
+            '微信支付回调的收款主体与平台配置不一致',
+          ),
         );
       }
     }
@@ -173,7 +177,10 @@ export class ClubPaymentsService {
           `回调 sub_mchid=${callbackIdentity.settleMchId} 配置=${expected.settleMchId}，已拒绝入账`,
       );
       throw new UnauthorizedException(
-        '微信支付回调的收款商户号与门店配置不一致',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_SUB_MCHID_MISMATCH,
+          '微信支付回调的收款商户号与门店配置不一致',
+        ),
       );
     }
 

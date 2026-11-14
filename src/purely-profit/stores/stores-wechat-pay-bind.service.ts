@@ -73,10 +73,16 @@ export class StoresWechatPayBindService {
     const result = await this.subMerchantVerifyService.checkBind(
       record.subMchId,
     );
+    /*
+     * appid_not_bound 与 not_bound 同样归为 failed：
+     * 两者都是「配置缺一环、必然收不到钱」，不该让商家看到「待校验」而反复重试。
+     * 具体差异由 bindFailReason 的中文文案区分（一个提示去服务商后台绑定子商户，
+     * 一个提示平台为商户号关联小程序 AppID），前端无需新增状态分支。
+     */
     const outcome: BindVerifyOutcome =
       result.status === 'verified'
         ? 'verified'
-        : result.status === 'not_bound'
+        : result.status === 'not_bound' || result.status === 'appid_not_bound'
           ? 'failed'
           : 'pending';
 

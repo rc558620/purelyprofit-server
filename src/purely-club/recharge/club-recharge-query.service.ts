@@ -1,4 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  CLUB_RECHARGE_ERROR_CODE,
+  clubRechargeError,
+} from './club-recharge.errors';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import type {
@@ -65,7 +69,12 @@ export class ClubRechargeQueryService {
       }
       // 订单表按订单号查询，没有用户维度过滤，这里必须补越权校验
       if (restored.userId !== currentContext.user.id) {
-        throw new NotFoundException('订单不存在');
+        throw new NotFoundException(
+          clubRechargeError(
+            CLUB_RECHARGE_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+            '订单不存在',
+          ),
+        );
       }
       return restored;
     }

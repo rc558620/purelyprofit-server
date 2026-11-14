@@ -1,4 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { Prisma } from '@prisma/client';
 import type {
   PayableOrder,
@@ -52,7 +56,12 @@ export class ClubSelfOrderingPaymentSettlementService {
       },
     });
     if (updated.count === 0) {
-      throw new ConflictException('订单状态已变化，请刷新后重试');
+      throw new ConflictException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.STATUS_ORDER_STATE_CHANGED,
+          '订单状态已变化，请刷新后重试',
+        ),
+      );
     }
 
     await tx.selfOrderPaymentAttempt.upsert({

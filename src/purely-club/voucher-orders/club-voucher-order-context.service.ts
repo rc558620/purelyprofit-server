@@ -14,6 +14,10 @@ import {
   CLUB_VOUCHER_PRODUCT_NOT_FOUND_MESSAGE,
   CLUB_VOUCHER_PRODUCT_NOT_VOUCHER_MESSAGE,
 } from './club-voucher-orders.constants';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 
 /** 团购券下单上下文（门店/顾客/商品摘要） */
 export interface ClubVoucherOrderContext {
@@ -137,7 +141,12 @@ export class ClubVoucherOrderContextService {
     dto: { storeId: number; productId: number },
   ): Promise<ClubVoucherOrderContext> {
     if (currentContext.store.id !== dto.storeId) {
-      throw new BadRequestException('当前门店已切换，请刷新页面后重试');
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_STORE_CHANGED,
+          '当前门店已切换，请刷新页面后重试',
+        ),
+      );
     }
 
     const [customer, product] = await Promise.all([
@@ -170,13 +179,28 @@ export class ClubVoucherOrderContextService {
     ]);
 
     if (!customer) {
-      throw new NotFoundException(CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_CUSTOMER_NOT_FOUND,
+          CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     if (!product) {
-      throw new NotFoundException(CLUB_VOUCHER_PRODUCT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_PRODUCT_NOT_FOUND,
+          CLUB_VOUCHER_PRODUCT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     if (product.type !== 'voucher') {
-      throw new BadRequestException(CLUB_VOUCHER_PRODUCT_NOT_VOUCHER_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RULE_PRODUCT_NOT_VOUCHER,
+          CLUB_VOUCHER_PRODUCT_NOT_VOUCHER_MESSAGE,
+        ),
+      );
     }
 
     return {

@@ -10,6 +10,7 @@
  *
  * ⚠️ 本服务只做记录与触达，**不参与**落账决策，避免出现「记了死信就算处理过」。
  */
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -138,7 +139,12 @@ export class ClubPaymentCallbackFailureService {
     });
 
     if (!existing) {
-      throw new NotFoundException('死信记录不存在');
+      throw new NotFoundException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.RESOURCE_DEAD_LETTER_NOT_FOUND,
+          '死信记录不存在',
+        ),
+      );
     }
 
     const updated = await this.prisma.clubPaymentCallbackFailure.update({

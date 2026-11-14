@@ -1,3 +1,4 @@
+import { CLUB_MEMBER_ERROR_CODE, clubMemberError } from '../club-member.errors';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
@@ -80,7 +81,12 @@ export class ClubMemberProfileService {
       currentContext.user.phone,
     );
     if (!snapshot) {
-      throw new NotFoundException(CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubMemberError(
+          CLUB_MEMBER_ERROR_CODE.RESOURCE_ACCOUNT_NOT_FOUND,
+          CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return snapshot;

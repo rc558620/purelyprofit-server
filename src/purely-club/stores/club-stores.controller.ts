@@ -55,7 +55,9 @@ export class ClubStoresController {
   @ApiOperation({
     summary: '获取 purely-club 当前门店',
     description:
-      '返回当前登录 purely-club 用户的当前门店；若尚未选择，则自动回落到第一个可访问门店。',
+      '返回当前登录 purely-club 用户的当前门店。仅有一家可访问门店时自动选中；' +
+      '有多家门店但尚未显式选择时返回 404 并携带业务码 NO_ACCESSIBLE_STORE，' +
+      '前端据此清缓存并跳门店选择页，避免把充值与下单记到用户没选的门店。',
   })
   @ApiOkResponse({ type: ClubStoreSummaryDto })
   getCurrent(

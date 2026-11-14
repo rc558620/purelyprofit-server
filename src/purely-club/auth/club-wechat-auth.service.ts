@@ -7,6 +7,7 @@
  * 返回 openid（必有）和 unionid（满足条件时返回）供上层登录/注册使用。
  * 本服务不持久化用户数据，仅负责与微信服务器通信并校验响应合法性。
  */
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import {
   Injectable,
   InternalServerErrorException,
@@ -52,10 +53,6 @@ interface WechatGetPhoneNumberRawResponse {
 export class ClubWechatAuthService {
   private readonly logger = new Logger(ClubWechatAuthService.name);
 
-  /** session_key 缓存前缀，key 格式: club:wechat:session_key:{openid} */
-  private static readonly SESSION_KEY_CACHE_PREFIX = 'club:wechat:session_key:';
-  /** session_key 有效期与微信一致（默认 5 天），这里设 5 天 */
-  private static readonly SESSION_KEY_TTL_SECONDS = 5 * 24 * 60 * 60;
   /**
    * 调用微信服务端接口的超时（毫秒）。
    *
@@ -108,7 +105,10 @@ export class ClubWechatAuthService {
       const isInvalidCode = raw.errcode === 40029 || raw.errcode === 40163;
       if (isInvalidCode) {
         throw new UnauthorizedException(
-          '微信登录凭证无效或已过期，请重新发起微信授权',
+          clubAuthError(
+            CLUB_AUTH_ERROR_CODE.AUTH_WECHAT_CODE_INVALID,
+            '微信登录凭证无效或已过期，请重新发起微信授权',
+          ),
         );
       }
 
@@ -121,48 +121,24 @@ export class ClubWechatAuthService {
     }
 
     if (!raw.openid || !raw.session_key) {
+      // 只记录字段标志位与错误码：微信原始响应含 openid / session_key，
+      // 属于凭据级敏感信息，禁止整包打进日志。
       this.logger.error(
-        `微信 code2session 返回数据异常，缺少 openid 或 session_key: ${JSON.stringify(raw)}`,
+        `微信 code2session 返回数据异常，openid=${Boolean(raw.openid)}, session_key=${Boolean(raw.session_key)}, errcode=${raw.errcode ?? 'none'}`,
       );
       throw new InternalServerErrorException(
         '微信登录返回数据异常，请稍后重试',
       );
     }
 
-    await this.cacheSessionKey(raw.openid, raw.session_key);
-
+    // session_key 不落缓存：手机号解密走 access_token 通道，这份密钥当前
+    // 没有任何读取方，留存只会扩大敏感数据面。仍校验其存在并透传给上层，
+    // 避免上层拿到不完整的登录结果。
     return {
       openid: raw.openid,
       unionid: raw.unionid,
       sessionKey: raw.session_key,
     };
-  }
-
-  /**
-   * 缓存 session_key，供后续需要时读取。
-   *
-   * 明确降级为「尽力而为」，写失败只记日志不中断登录：
-   * 1. 目前没有任何读取方 —— 手机号解密走的是 access_token 通道
-   *    （`getPhoneNumber`），这份缓存是纯预留；
-   * 2. Redis 命令超时是常态抖动之一，让它抛出去等于把一次**本可成功**的登录
-   *    打成 500 —— 而登录失败在客户端会一路放大到清会话。
-   * 为一个没人读的值赌上整个登录链路，不划算。
-   */
-  private async cacheSessionKey(
-    openid: string,
-    sessionKey: string,
-  ): Promise<void> {
-    try {
-      await this.redisService.set(
-        `${ClubWechatAuthService.SESSION_KEY_CACHE_PREFIX}${openid}`,
-        sessionKey,
-        ClubWechatAuthService.SESSION_KEY_TTL_SECONDS,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `缓存微信 session_key 失败（不阻断登录，openid=${openid}）：${String(error)}`,
-      );
-    }
   }
 
   /**
@@ -208,7 +184,10 @@ export class ClubWechatAuthService {
       const isInvalidCode = raw.errcode === 40001 || raw.errcode === 40014;
       if (isInvalidCode) {
         throw new UnauthorizedException(
-          '手机号授权凭证无效或已过期，请重新授权',
+          clubAuthError(
+            CLUB_AUTH_ERROR_CODE.AUTH_WECHAT_PHONE_CODE_INVALID,
+            '手机号授权凭证无效或已过期，请重新授权',
+          ),
         );
       }
 
@@ -221,8 +200,9 @@ export class ClubWechatAuthService {
     }
 
     if (!raw.phone_info?.purePhoneNumber) {
+      // 原始响应含明文手机号，日志只保留结构标志位与错误码。
       this.logger.error(
-        `微信 getPhoneNumber 返回数据异常，缺少 phone_info: ${JSON.stringify(raw)}`,
+        `微信 getPhoneNumber 返回数据异常，phone_info=${Boolean(raw.phone_info)}, errcode=${raw.errcode ?? 'none'}`,
       );
       throw new InternalServerErrorException(
         '获取手机号返回数据异常，请稍后重试',
@@ -282,8 +262,9 @@ export class ClubWechatAuthService {
     }
 
     if (!result.access_token) {
+      // access_token 是凭据，日志只保留微信侧错误码，禁止打印原始响应。
       this.logger.error(
-        `微信 getAccessToken 返回异常: ${JSON.stringify(result)}`,
+        `微信 getAccessToken 返回异常，errcode=${result.errcode ?? 'none'}`,
       );
       throw new InternalServerErrorException('微信服务暂时不可用，请稍后重试');
     }

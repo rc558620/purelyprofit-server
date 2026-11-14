@@ -1,4 +1,8 @@
 // 客存 C 端读服务：会员维度列表、详情 + 流水与汇总，memberId 由「门店 + 手机号」定位
+import {
+  CLUB_CUSTODY_ERROR_CODE,
+  clubCustodyError,
+} from './club-custody.errors';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -116,7 +120,12 @@ export class ClubCustodyReadService {
   ): Promise<ClubCustodyOrderDetailResponseDto> {
     const memberId = await this.findMemberId(context);
     if (memberId === null) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CUSTODY_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const now = new Date();
@@ -129,7 +138,12 @@ export class ClubCustodyReadService {
       },
     });
     if (!order) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CUSTODY_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const pickups = await this.prisma.custodyPickup.findMany({

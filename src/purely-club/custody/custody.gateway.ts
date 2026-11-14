@@ -4,6 +4,10 @@
 // 走 `/api/ws/custody` 原生 WebSocket；本命名空间只用于 B 端与 C 端 H5，
 // 两边共用同一份房间口径与 Redis 分发链路。
 import {
+  CLUB_CUSTODY_ERROR_CODE,
+  clubCustodyError,
+} from './club-custody.errors';
+import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
@@ -133,7 +137,12 @@ export class CustodyGateway implements OnGatewayConnection {
       identity.phone,
     );
     if (memberId === null) {
-      throw new BadRequestException('该门店无会员档案，无法订阅客存通知');
+      throw new BadRequestException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          '该门店无会员档案，无法订阅客存通知',
+        ),
+      );
     }
     const room = this.realtimeService.memberRoom(memberId);
     await client.join(room);
@@ -146,7 +155,12 @@ export class CustodyGateway implements OnGatewayConnection {
   private requireStoreId(value: unknown): number {
     const storeId = Number(value);
     if (!Number.isInteger(storeId) || storeId <= 0) {
-      throw new BadRequestException('门店编号无效');
+      throw new BadRequestException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.PARAM_STORE_ID_INVALID,
+          '门店编号无效',
+        ),
+      );
     }
     return storeId;
   }
@@ -169,15 +183,32 @@ export class CustodyGateway implements OnGatewayConnection {
       client.handshake.auth?.token ??
       client.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
     if (typeof rawToken !== 'string' || !rawToken) {
-      throw new UnauthorizedException('缺少访问令牌');
+      throw new UnauthorizedException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.AUTH_WS_TOKEN_MISSING,
+          '缺少访问令牌',
+        ),
+      );
     }
     const payload = this.jwtService.verify<JwtPayload>(rawToken);
-    if (!payload.sub) throw new UnauthorizedException('访问令牌无效');
+    if (!payload.sub)
+      throw new UnauthorizedException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.AUTH_WS_TOKEN_INVALID,
+          '访问令牌无效',
+        ),
+      );
     const account = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: { email: true },
     });
-    if (!account) throw new UnauthorizedException('用户不存在');
+    if (!account)
+      throw new UnauthorizedException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.AUTH_WS_USER_NOT_FOUND,
+          '用户不存在',
+        ),
+      );
     return {
       userId: payload.sub,
       email: account.email,
@@ -205,7 +236,13 @@ export class CustodyGateway implements OnGatewayConnection {
 
   private identityOf(client: Socket): SocketIdentity {
     const identity = client.data.identity as SocketIdentity | undefined;
-    if (!identity) throw new UnauthorizedException('连接尚未认证');
+    if (!identity)
+      throw new UnauthorizedException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.AUTH_WS_CONNECTION_UNAUTHENTICATED,
+          '连接尚未认证',
+        ),
+      );
     return identity;
   }
 }

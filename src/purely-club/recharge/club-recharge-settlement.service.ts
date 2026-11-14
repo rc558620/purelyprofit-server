@@ -3,6 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_RECHARGE_ERROR_CODE,
+  clubRechargeError,
+} from './club-recharge.errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -94,7 +98,12 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     status: ClubOrderStatusResponseDto['status'],
   ): void {
     if (status !== 'pending') {
-      throw new BadRequestException(CLUB_RECHARGE_CONFIRM_NOT_ALLOWED_MESSAGE);
+      throw new BadRequestException(
+        clubRechargeError(
+          CLUB_RECHARGE_ERROR_CODE.STATUS_CONFIRM_NOT_ALLOWED,
+          CLUB_RECHARGE_CONFIRM_NOT_ALLOWED_MESSAGE,
+        ),
+      );
     }
   }
 
@@ -143,7 +152,12 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     // 顾客档案必须显式绑定。若把 null 转成 undefined 再传进 where，Prisma 会忽略
     // id 条件，查询退化成「按门店取任意顾客」，把充值记到别人头上。
     if (draft.customerId === null) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubRechargeError(
+          CLUB_RECHARGE_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          CLUB_MEMBER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const customer = await tx.marketingCustomer.findFirst({
@@ -156,7 +170,12 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     });
 
     if (!customer) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubRechargeError(
+          CLUB_RECHARGE_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          CLUB_MEMBER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return customer;
@@ -169,10 +188,20 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
   ): Promise<unknown> {
     // 防御性校验：充值金额必须为正，赠送金额不可为负
     if (draft.metadata.rechargeAmountFen <= 0) {
-      throw new BadRequestException('充值金额必须大于 0');
+      throw new BadRequestException(
+        clubRechargeError(
+          CLUB_RECHARGE_ERROR_CODE.PARAM_RECHARGE_AMOUNT_INVALID,
+          '充值金额必须大于 0',
+        ),
+      );
     }
     if (draft.metadata.bonusAmountFen < 0) {
-      throw new BadRequestException('赠送金额不可为负数');
+      throw new BadRequestException(
+        clubRechargeError(
+          CLUB_RECHARGE_ERROR_CODE.PARAM_BONUS_AMOUNT_INVALID,
+          '赠送金额不可为负数',
+        ),
+      );
     }
 
     return tx.marketingRecharge.create({

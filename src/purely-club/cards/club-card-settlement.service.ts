@@ -13,6 +13,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { resolveCardExpiresAt } from '../../purely-profit/member/cards/member-card.utils';
@@ -96,7 +97,12 @@ export class ClubCardSettlementService {
           where: { id: orderId },
         });
         if (!order) {
-          throw new NotFoundException(CLUB_CARD_ORDER_NOT_FOUND_MESSAGE);
+          throw new NotFoundException(
+            clubCardError(
+              CLUB_CARD_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+              CLUB_CARD_ORDER_NOT_FOUND_MESSAGE,
+            ),
+          );
         }
         // 零元卡（0 元购 / 赠送）金额为 0 属合法场景，
         // 必须用允许 0 元的版本，否则免费卡永远无法落账
@@ -137,7 +143,10 @@ export class ClubCardSettlementService {
             // 订单已取消 / 关闭却收到支付回调：不能静默成功（钱收了没卡），
             // 抛出后由死信链路留下可人工退款的记录
             throw new ConflictException(
-              `购卡订单状态 ${current?.status ?? 'unknown'} 不允许落账`,
+              clubCardError(
+                CLUB_CARD_ERROR_CODE.STATUS_SETTLEMENT_NOT_ALLOWED,
+                `购卡订单状态 ${current?.status ?? 'unknown'} 不允许落账`,
+              ),
             );
           }
           return {
@@ -152,7 +161,12 @@ export class ClubCardSettlementService {
           select: { validDays: true, totalTimes: true },
         });
         if (!plan) {
-          throw new BadRequestException('卡模板已不存在，无法发卡');
+          throw new BadRequestException(
+            clubCardError(
+              CLUB_CARD_ERROR_CODE.RESOURCE_PLAN_NOT_FOUND,
+              '卡模板已不存在，无法发卡',
+            ),
+          );
         }
 
         // 余额支付：扣款必须与发卡同事务，避免「钱扣了没有卡」

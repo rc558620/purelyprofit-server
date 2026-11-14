@@ -1,3 +1,4 @@
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
@@ -72,7 +73,10 @@ export class ClubAccountMergeService {
   ): Promise<AuthTokenResponseDto> {
     if (!sourceUser.wechatOpenid) {
       throw new ConflictException(
-        '当前微信账号缺少 openid，无法完成合并，请联系客服',
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.RULE_MERGE_OPENID_MISSING,
+          '当前微信账号缺少 openid，无法完成合并，请联系客服',
+        ),
       );
     }
 
@@ -297,7 +301,12 @@ export class ClubAccountMergeService {
         `bindPhone 合并事务失败：sourceUserId=${sourceUserId}, targetUserId=${targetUserId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new ConflictException('账号合并失败，请重试或联系客服');
+      throw new ConflictException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.DEPENDENCY_MERGE_TRANSACTION_FAILED,
+          '账号合并失败，请重试或联系客服',
+        ),
+      );
     }
 
     // 失效两端的旧登录态，确保合并后旧 token 立即无效。

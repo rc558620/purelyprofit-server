@@ -11,6 +11,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { MemberCardKind, MemberCardPlan, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -51,7 +52,12 @@ export class ClubCardContextService {
     storeId?: number,
   ): void {
     if (storeId !== undefined && storeId !== currentContext.store.id) {
-      throw new BadRequestException(CLUB_CARD_STORE_CHANGED_MESSAGE);
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_STORE_CHANGED,
+          CLUB_CARD_STORE_CHANGED_MESSAGE,
+        ),
+      );
     }
   }
 
@@ -87,7 +93,12 @@ export class ClubCardContextService {
     });
 
     if (!plan) {
-      throw new NotFoundException(CLUB_CARD_PLAN_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_PLAN_NOT_FOUND,
+          CLUB_CARD_PLAN_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return { plan, storeName: currentContext.store.name };
@@ -125,7 +136,12 @@ export class ClubCardContextService {
       }));
 
     if (!customer) {
-      throw new NotFoundException(CLUB_CARD_CUSTOMER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RESOURCE_CUSTOMER_NOT_FOUND,
+          CLUB_CARD_CUSTOMER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const phone = currentContext.user.phone ?? '';

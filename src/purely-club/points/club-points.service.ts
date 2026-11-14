@@ -1,3 +1,4 @@
+import { CLUB_POINTS_ERROR_CODE, clubPointsError } from './club-points.errors';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
@@ -124,19 +125,34 @@ export class ClubPointsService {
         id?: number;
       };
     } catch {
-      throw new BadRequestException('分页游标解析失败');
+      throw new BadRequestException(
+        clubPointsError(
+          CLUB_POINTS_ERROR_CODE.PARAM_CURSOR_PARSE_FAILED,
+          '分页游标解析失败',
+        ),
+      );
     }
 
     if (
       typeof payload.id !== 'number' ||
       typeof payload.createdAt !== 'string'
     ) {
-      throw new BadRequestException('分页游标格式不合法');
+      throw new BadRequestException(
+        clubPointsError(
+          CLUB_POINTS_ERROR_CODE.PARAM_CURSOR_INVALID,
+          '分页游标格式不合法',
+        ),
+      );
     }
 
     const createdAt = new Date(payload.createdAt);
     if (Number.isNaN(createdAt.getTime())) {
-      throw new BadRequestException('分页游标时间不合法');
+      throw new BadRequestException(
+        clubPointsError(
+          CLUB_POINTS_ERROR_CODE.PARAM_CURSOR_TIME_INVALID,
+          '分页游标时间不合法',
+        ),
+      );
     }
 
     return {

@@ -3,6 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -41,18 +45,34 @@ export class ClubSelfOrderingPaymentRepository {
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       include: { items: { include: { specs: true } } },
     });
-    if (!order) throw new NotFoundException('订单不存在');
+    if (!order)
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     if (
       order.status !== 'pending_payment' ||
       order.paymentStatus !== 'unpaid'
     ) {
-      throw new ConflictException('订单状态已变化，请刷新后重试');
+      throw new ConflictException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.STATUS_ORDER_STATE_CHANGED,
+          '订单状态已变化，请刷新后重试',
+        ),
+      );
     }
     if (
       Date.now() - order.createdAt.getTime() >
       SELF_ORDER_PAYMENT_TIMEOUT_MS
     ) {
-      throw new ConflictException('订单已超时，请重新下单');
+      throw new ConflictException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.STATUS_ORDER_EXPIRED,
+          '订单已超时，请重新下单',
+        ),
+      );
     }
     return order;
   }
@@ -66,7 +86,13 @@ export class ClubSelfOrderingPaymentRepository {
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       include: { items: true },
     });
-    if (!order) throw new NotFoundException('订单不存在');
+    if (!order)
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     return {
       id: order.id,
       orderNo: order.orderNo,

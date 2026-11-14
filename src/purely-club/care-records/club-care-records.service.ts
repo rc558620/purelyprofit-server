@@ -1,3 +1,7 @@
+import {
+  CLUB_CARE_RECORD_ERROR_CODE,
+  clubCareRecordError,
+} from './club-care-records.errors';
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -51,7 +55,12 @@ export class ClubCareRecordsService {
     // 功能档位门禁：仅注册时选择「SPA/养生/美容」模式的门店运行本功能。
     // 其余门店后端一律拒绝，前端亦不展示入口（入口隐藏 + 接口拒绝双保险）。
     if (currentContext.store.memberCareEnabled !== true) {
-      throw new ForbiddenException('当前门店未开通护理档案');
+      throw new ForbiddenException(
+        clubCareRecordError(
+          CLUB_CARE_RECORD_ERROR_CODE.RULE_CARE_NOT_ENABLED,
+          '当前门店未开通护理档案',
+        ),
+      );
     }
 
     const { page, skip, take } = resolveMarketingPagination(

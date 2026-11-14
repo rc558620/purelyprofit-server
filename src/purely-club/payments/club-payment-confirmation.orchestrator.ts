@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { ForbiddenException } from '@nestjs/common';
 import type { ClubOrderPaidObservationOptions } from '../orders/club-order-drafts.types';
 import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
@@ -47,7 +48,10 @@ export class ClubPaymentConfirmationOrchestrator<
       await this.params.isManualConfirmPaidAllowed();
     if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
-        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_MANUAL_CONFIRM_DISABLED,
+          '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        ),
       );
     }
 

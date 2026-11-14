@@ -1,5 +1,9 @@
 // 客存 C 端写服务：确认/拒绝存入、取件码签发与取消（发起方与确认方必须分离）
 import {
+  CLUB_CUSTODY_ERROR_CODE,
+  clubCustodyError,
+} from './club-custody.errors';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -92,7 +96,12 @@ export class ClubCustodyWriteService {
         data: { status: 'stored' },
       });
       if (updated.count === 0) {
-        throw new ConflictException('存单状态已变更，请返回列表重新查看');
+        throw new ConflictException(
+          clubCustodyError(
+            CLUB_CUSTODY_ERROR_CODE.STATUS_ORDER_CHANGED,
+            '存单状态已变更，请返回列表重新查看',
+          ),
+        );
       }
 
       /*
@@ -171,7 +180,12 @@ export class ClubCustodyWriteService {
       data: { deletedAt: rejectedAt },
     });
     if (softDeleted.count === 0) {
-      throw new ConflictException('存单状态已变更，请返回列表重新查看');
+      throw new ConflictException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.STATUS_ORDER_CHANGED,
+          '存单状态已变更，请返回列表重新查看',
+        ),
+      );
     }
 
     // 拒绝会软删草稿：会员侧「待确认」徽标必须同步减少
@@ -212,10 +226,20 @@ export class ClubCustodyWriteService {
         new Date(),
       )
     ) {
-      throw new BadRequestException(CUSTODY_PICKUP_STATUS_INVALID_MESSAGE);
+      throw new BadRequestException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.STATUS_PICKUP_NOT_ALLOWED,
+          CUSTODY_PICKUP_STATUS_INVALID_MESSAGE,
+        ),
+      );
     }
     if (order.remainingQty <= 0) {
-      throw new BadRequestException('存单已取完，无法生成取件码');
+      throw new BadRequestException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RULE_PICKUP_QTY_EXHAUSTED,
+          '存单已取完，无法生成取件码',
+        ),
+      );
     }
 
     const previous =
@@ -263,7 +287,12 @@ export class ClubCustodyWriteService {
       select: { id: true },
     });
     if (!order) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CUSTODY_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const binding =
@@ -281,7 +310,12 @@ export class ClubCustodyWriteService {
   private async requireMemberId(context: ClubCurrentContext): Promise<number> {
     const memberId = await this.clubCustodyReadService.findMemberId(context);
     if (memberId === null) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CUSTODY_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     return memberId;
   }
@@ -302,7 +336,12 @@ export class ClubCustodyWriteService {
       },
     });
     if (!order) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CUSTODY_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     return order;
   }

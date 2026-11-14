@@ -38,9 +38,12 @@ export class ClubPaymentsController {
     @Headers('wechatpay-signature') signature: string | undefined,
     @Headers('wechatpay-serial') serial: string | undefined,
   ): Promise<ClubWechatPaymentCallbackAckDto> {
-    // rawBody 用于签名校验（签名消息串包含原始请求体）
-    // 由 Fastify 自定义 content type parser 在微信回调路由上按需注入
-    const rawBody = req.rawBody ?? JSON.stringify(payload);
+    // rawBody 用于签名校验（签名消息串包含原始请求体），由 bootstrap 的
+    // preParsing hook 在本路由上按需注入。缺失时必须传空串让验签服务
+    // fail-closed 拒绝，不能用 JSON.stringify(payload) 重新序列化冒充原始报文：
+    // 那样既与微信签名消息串不一致，又会把「路由漏登记 rawBody」的部署故障
+    // 伪装成一次普通的验签失败，排查成本极高。
+    const rawBody = req.rawBody ?? '';
 
     return this.clubPaymentsService.handleWechatCallback(
       payload,

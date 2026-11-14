@@ -38,6 +38,19 @@ describe('ClubPaymentCallbackSignatureService', () => {
     );
   });
 
+  it('缺少原始请求体时 fail-closed 拒绝，不回退到重新序列化的 body', () => {
+    // 即便处于允许调试降级的环境，签名消息串缺了 body 也无从校验；
+    // 放行等于让「路由漏登记 rawBody」变成了可伪造的验签旁路。
+    expect(() =>
+      service.assertWechatCallbackSignature('', {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'ANY_SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      }),
+    ).toThrow(UnauthorizedException);
+  });
+
   it('显式允许调试降级时，未配置平台公钥仅校验时间戳有效性', () => {
     const rawBody = JSON.stringify({
       id: 'test-callback-id',

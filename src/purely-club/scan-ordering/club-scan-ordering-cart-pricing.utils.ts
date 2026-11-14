@@ -1,4 +1,8 @@
 import { ConflictException } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { Money } from '../../shared/money.utils';
 import type {
   OrderAmountBreakdown,
@@ -51,7 +55,13 @@ export const requireSellableProduct = <T extends CartPricedProductSource>(
   product: T | undefined,
   quantity: number,
 ): T => {
-  if (!product) throw new ConflictException(SOLD_OUT_MESSAGE);
+  if (!product)
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+        SOLD_OUT_MESSAGE,
+      ),
+    );
   const inventoryProduct = product.product;
   const baseStock = inventoryProduct
     ? inventoryProduct.stock
@@ -65,7 +75,12 @@ export const requireSellableProduct = <T extends CartPricedProductSource>(
     product.stockMode === 'sold_out' ||
     (product.stockMode === 'finite' && availableStock < quantity)
   ) {
-    throw new ConflictException(SOLD_OUT_MESSAGE);
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+        SOLD_OUT_MESSAGE,
+      ),
+    );
   }
   return product;
 };
@@ -86,7 +101,12 @@ export const resolveCartItemSpecs = (
       })),
   );
   if (specs.length !== selectedIds.size) {
-    throw new ConflictException(SPEC_UPDATED_MESSAGE);
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_SPEC_UPDATED,
+        SPEC_UPDATED_MESSAGE,
+      ),
+    );
   }
   for (const group of specGroups) {
     const selectedCount = specs.filter((spec) =>
@@ -96,7 +116,12 @@ export const resolveCartItemSpecs = (
       selectedCount < group.minSelections ||
       (group.maxSelections !== null && selectedCount > group.maxSelections)
     ) {
-      throw new ConflictException(SPEC_UPDATED_MESSAGE);
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_SPEC_UPDATED,
+          SPEC_UPDATED_MESSAGE,
+        ),
+      );
     }
   }
   return specs;

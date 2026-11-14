@@ -5,6 +5,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ClubWechatPaymentParamsDto } from '../orders/dto/club-order.dto';
@@ -127,7 +131,12 @@ export class ClubSelfOrderingPaymentService {
     // 回收过期在途尝试：避免用户放弃收银台后同订单无法重试
     await this.paymentRepository.expireStaleInFlightAttempts(orderId);
     if (await this.paymentRepository.hasInFlightAttempt(orderId)) {
-      throw new ConflictException('支付请求正在处理中，请勿重复发起');
+      throw new ConflictException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.STATUS_PAYMENT_IN_FLIGHT,
+          '支付请求正在处理中，请勿重复发起',
+        ),
+      );
     }
 
     const resolvedOpenid = await this.clubWechatOpenidService.resolveOpenid(
@@ -178,7 +187,10 @@ export class ClubSelfOrderingPaymentService {
       await this.clubPaymentModeService.isManualConfirmPaidAllowed();
     if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
-        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RULE_MANUAL_CONFIRM_DISABLED,
+          '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        ),
       );
     }
 
@@ -226,7 +238,13 @@ export class ClubSelfOrderingPaymentService {
       await this.paymentRepository.findAttemptByMerchantPaymentNo(
         merchantPaymentNo,
       );
-    if (!attempt) throw new NotFoundException('自助下单支付流水不存在');
+    if (!attempt)
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_PAYMENT_ATTEMPT_NOT_FOUND,
+          '自助下单支付流水不存在',
+        ),
+      );
     // 锁前金额预校验：金额不符直接拒绝，避免无谓占用分布式锁
     // 允许 0 元：0 元订单只可能来自测试模式兜底落账，不经过微信收银台
     assertClubPaymentAmountMatchesAllowZero(
@@ -248,7 +266,12 @@ export class ClubSelfOrderingPaymentService {
                 orderId,
               );
             if (!paymentAttempt || !order) {
-              throw new NotFoundException('自助下单订单或支付流水不存在');
+              throw new NotFoundException(
+                clubSelfOrderingError(
+                  CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_ORDER_OR_ATTEMPT_NOT_FOUND,
+                  '自助下单订单或支付流水不存在',
+                ),
+              );
             }
             // 事务内二次校验：流水金额与订单应付金额都必须与回调一致
             assertClubPaymentAmountsMatchAllowZero(params.amountFen, [
@@ -283,7 +306,12 @@ export class ClubSelfOrderingPaymentService {
               order.status !== 'pending_payment' ||
               order.paymentStatus !== 'unpaid'
             ) {
-              throw new ConflictException('自助下单订单状态不允许确认支付');
+              throw new ConflictException(
+                clubSelfOrderingError(
+                  CLUB_SELF_ORDERING_ERROR_CODE.STATUS_ORDER_NOT_CONFIRMABLE,
+                  '自助下单订单状态不允许确认支付',
+                ),
+              );
             }
 
             await this.settlementService.settlePaidOrder(tx, order, {

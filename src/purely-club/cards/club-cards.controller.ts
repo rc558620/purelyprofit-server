@@ -11,6 +11,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -157,7 +158,12 @@ export class ClubCardsController {
     const cardId = parseCardId(id);
     if (cardId === null) {
       // 非法 ID 按「不存在」处理：不暴露主键类型细节，也避免 500
-      throw new BadRequestException('卡 ID 不合法');
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.PARAM_CARD_ID_INVALID,
+          '卡 ID 不合法',
+        ),
+      );
     }
     return this.clubCardQueryService.getCardDetail(currentContext, cardId);
   }

@@ -1,3 +1,4 @@
+import { CLUB_HOME_ERROR_CODE, clubHomeError } from './club-home.errors';
 import {
   BadRequestException,
   Injectable,
@@ -30,7 +31,10 @@ export class ClubHomeService {
     // 防御性校验：确保上下文已被拦截器正确解析
     if (!currentContext?.user || !currentContext?.store) {
       throw new BadRequestException(
-        '当前请求缺少 purely-club 上下文，请重新进入',
+        clubHomeError(
+          CLUB_HOME_ERROR_CODE.PARAM_CONTEXT_MISSING,
+          '当前请求缺少 purely-club 上下文，请重新进入',
+        ),
       );
     }
 

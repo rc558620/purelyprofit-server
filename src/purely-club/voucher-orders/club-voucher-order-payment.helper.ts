@@ -1,5 +1,9 @@
 // 团购券订单支付链路辅助：优惠拆解行组装 / 草稿订单落库入参 / 唯一券码生成 / 草稿视图映射
 import { BadRequestException } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import type { ClubOrderBreakdownItemDto } from '../orders/dto/club-order.dto';
@@ -141,7 +145,12 @@ export async function generateUniqueVoucherCode(
       return candidate;
     }
   }
-  throw new BadRequestException('券码生成失败，请重试');
+  throw new BadRequestException(
+    clubVoucherError(
+      CLUB_VOUCHER_ERROR_CODE.DEPENDENCY_CODE_GENERATION_FAILED,
+      '券码生成失败，请重试',
+    ),
+  );
 }
 
 /** 订单实体 → 草稿响应（订单号作为草稿态 id） */

@@ -4,6 +4,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -92,7 +96,12 @@ export class ClubScanOrderingSessionService {
       },
     });
     if (!table || table.status === 'disabled' || table.status === 'clearing') {
-      throw new ConflictException('当前桌台暂不可点餐');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_TABLE_UNAVAILABLE,
+          '当前桌台暂不可点餐',
+        ),
+      );
     }
 
     // 到店消费即成为该门店会员：补齐 Member / MarketingCustomer 档案。
@@ -185,7 +194,13 @@ export class ClubScanOrderingSessionService {
         },
       },
     });
-    if (!session?.table) throw new NotFoundException('不存在有效点餐会话');
+    if (!session?.table)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_SESSION_NOT_FOUND,
+          '不存在有效点餐会话',
+        ),
+      );
     return this.toSessionResponse(session, session.table);
   }
 
@@ -209,7 +224,13 @@ export class ClubScanOrderingSessionService {
       orderBy: { lastActiveAt: 'desc' },
       include: { table: true },
     });
-    if (!session) throw new ConflictException('不存在有效点餐会话');
+    if (!session)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_SESSION_NOT_FOUND,
+          '不存在有效点餐会话',
+        ),
+      );
     const updated = await this.prisma.scanOrderingSession.update({
       where: { id: session.id },
       data: { guestCount: dto.guestCount, lastActiveAt: new Date() },
@@ -222,7 +243,13 @@ export class ClubScanOrderingSessionService {
         },
       },
     });
-    if (!updated.table) throw new NotFoundException('桌台不存在');
+    if (!updated.table)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_SESSION_NOT_FOUND,
+          '桌台不存在',
+        ),
+      );
     return this.toSessionResponse(updated, updated.table);
   }
 
@@ -241,7 +268,13 @@ export class ClubScanOrderingSessionService {
       },
       orderBy: { lastActiveAt: 'desc' },
     });
-    if (!session) throw new ConflictException('不存在有效点餐会话');
+    if (!session)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_SESSION_NOT_FOUND,
+          '不存在有效点餐会话',
+        ),
+      );
     await this.prisma.scanOrderingSession.update({
       where: { id: session.id },
       data: { status: 'left', deletedAt: new Date() },

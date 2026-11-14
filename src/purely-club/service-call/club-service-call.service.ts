@@ -1,4 +1,8 @@
 import {
+  CLUB_SERVICE_CALL_ERROR_CODE,
+  clubServiceCallError,
+} from './club-service-call.errors';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -52,7 +56,12 @@ export class ClubServiceCallService {
         now.getTime() - existingCall.lastRequestedAt.getTime() >=
         SERVICE_CALL_COOLDOWN_MS;
       if (!canRemind)
-        throw new ConflictException('已通知工作人员，请一分钟后再试');
+        throw new ConflictException(
+          clubServiceCallError(
+            CLUB_SERVICE_CALL_ERROR_CODE.STATUS_COOLDOWN,
+            '已通知工作人员，请一分钟后再试',
+          ),
+        );
       const serviceCall = await this.prisma.serviceCall.update({
         where: { id: existingCall.id },
         data: {
@@ -116,7 +125,12 @@ export class ClubServiceCallService {
     // 任何入口漏掉提取时，服务端仍能解出 token，不会让已印刷物料凭空失效。
     const token = extractSpaceQrToken(spaceToken);
     if (!token) {
-      throw new BadRequestException('二维码无效，请扫描空间二维码');
+      throw new BadRequestException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.PARAM_QR_INVALID,
+          '二维码无效，请扫描空间二维码',
+        ),
+      );
     }
 
     // 只按摘要查表：明文列已删除，库里没有可直接伪造的凭证
@@ -137,13 +151,28 @@ export class ClubServiceCallService {
       },
     });
     if (!qrCode) {
-      throw new NotFoundException('二维码无效，请扫描空间二维码');
+      throw new NotFoundException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.PARAM_QR_INVALID,
+          '二维码无效，请扫描空间二维码',
+        ),
+      );
     }
     if (qrCode.revokedAt) {
-      throw new BadRequestException('该空间二维码已作废，请联系工作人员');
+      throw new BadRequestException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.STATUS_QR_REVOKED,
+          '该空间二维码已作废，请联系工作人员',
+        ),
+      );
     }
     if (qrCode.space.deletedAt) {
-      throw new NotFoundException('该空间已删除，请联系工作人员');
+      throw new NotFoundException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.RESOURCE_SPACE_DELETED,
+          '该空间已删除，请联系工作人员',
+        ),
+      );
     }
 
     return qrCode;
@@ -175,7 +204,12 @@ export class ClubServiceCallService {
       now.getTime() - existingCall.lastRequestedAt.getTime() >=
       SERVICE_CALL_COOLDOWN_MS;
     if (!canRemind) {
-      throw new ConflictException('已通知工作人员，请一分钟后再试');
+      throw new ConflictException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.STATUS_COOLDOWN,
+          '已通知工作人员，请一分钟后再试',
+        ),
+      );
     }
 
     const serviceCall = await this.prisma.serviceCall.update({
@@ -230,10 +264,20 @@ export class ClubServiceCallService {
       await this.currentStoreContextService.requireCurrentContext(user);
 
     if (currentContext.store.businessMode === 'catering') {
-      throw new ForbiddenException('餐饮门店请通过订单页呼叫服务员');
+      throw new ForbiddenException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.RULE_CATERING_STORE_FORBIDDEN,
+          '餐饮门店请通过订单页呼叫服务员',
+        ),
+      );
     }
     if (spaceQrCode.storeId !== currentContext.store.id) {
-      throw new ForbiddenException('该二维码不属于当前门店');
+      throw new ForbiddenException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.RULE_QR_STORE_MISMATCH,
+          '该二维码不属于当前门店',
+        ),
+      );
     }
 
     const locationLabel = this.buildSpaceLocationLabel(spaceQrCode.space);
@@ -284,7 +328,12 @@ export class ClubServiceCallService {
       orderBy: { requestedAt: 'desc' },
     });
     if (existingCall) {
-      throw new ConflictException('已通知服务员，请一分钟后再试');
+      throw new ConflictException(
+        clubServiceCallError(
+          CLUB_SERVICE_CALL_ERROR_CODE.STATUS_COOLDOWN,
+          '已通知服务员，请一分钟后再试',
+        ),
+      );
     }
 
     const serviceCall = await this.prisma.serviceCall.create({

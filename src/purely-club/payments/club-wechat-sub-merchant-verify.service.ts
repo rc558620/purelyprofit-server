@@ -1,24 +1,35 @@
 /**
- * 子商户绑定关系校验（服务商模式）。
+ * 子商户收款能力校验（服务商模式）。
  *
- * 原理：以「服务商商户号 + 子商户号」去查一个**必然不存在**的商户订单号，
- * 按微信返回码反推绑定关系 —— 这是微信官方推荐的轻量探测方式：
+ * 校验分两层，缺一层就会出现「后台显示已配置、实际收不到钱」的静默故障：
  *
- *   ORDER_NOT_EXIST / NOT_FOUND  → 微信认识这个子商户号，关系正常（可以收款）
- *   NO_AUTH                      → 该子商户号未与本服务商绑定，或未授权
- *   MCH_NOT_EXISTS               → 子商户号在微信侧不存在（填错了）
- *   其它 / 网络异常              → 未知，不能据此判定可用或不可用
+ *   1. **子商户 ↔ 服务商**：以「服务商商户号 + 子商户号」查一个必然不存在的商户订单，
+ *      按微信返回码反推绑定关系 —— 微信官方推荐的轻量探测方式：
+ *        ORDER_NOT_EXIST / NOT_FOUND  → 微信认识这个子商户号，关系正常
+ *        NO_AUTH                      → 该子商户号未与本服务商绑定，或未授权
+ *        MCH_NOT_EXISTS               → 子商户号在微信侧不存在（填错了）
+ *   2. **AppID ↔ 子商户**：用一次「假 openid」的 JSAPI 下单探测。
+ *      微信的校验顺序是 appid/商户号 → openid，因此：
+ *        返回 PARAM_ERROR「无效的openid」     → appid 与商户号已匹配（只缺真实 openid）
+ *        返回 APPID_MCHID_NOT_MATCH 等        → 小程序 AppID 未与子商户号关联
+ *      这一层是历史缺口：只看第 1 层时，商家端会显示「已配置」，
+ *      真机下单却报「商户号 mch_id 与 appid 不匹配」。
  *
  * ⚠️ 探测单号必须用不可能与真实订单冲突的前缀：真实订单号前缀是
- * RC / SV / SO / VC / SF，这里用 ZQ，且不落任何库表。
+ * RC / SV / SO / VC / SF，查单探测用 ZQ，下单探测用 ZP，且不落任何库表。
  */
 import { randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClubWechatPayHttpService } from './club-wechat-pay-http.service';
+import { isAppIdMchIdMismatch } from './club-wechat-pay.errors';
 
 /** 绑定关系校验结论 */
-export type SubMerchantBindStatus = 'verified' | 'not_bound' | 'unknown';
+export type SubMerchantBindStatus =
+  | 'verified'
+  | 'not_bound'
+  | 'appid_not_bound'
+  | 'unknown';
 
 export interface SubMerchantBindCheckResult {
   status: SubMerchantBindStatus;
@@ -28,8 +39,10 @@ export interface SubMerchantBindCheckResult {
   message: string;
 }
 
-/** 探测单号前缀：与真实订单前缀（RC/SV/SO/VC/SF）不重叠 */
-const PROBE_ORDER_NO_PREFIX = 'ZQ';
+/** 查单探测单号前缀：与真实订单前缀（RC/SV/SO/VC/SF）不重叠 */
+const QUERY_PROBE_ORDER_NO_PREFIX = 'ZQ';
+/** 下单探测单号前缀：与查单探测、真实订单都不重叠 */
+const APPID_PROBE_ORDER_NO_PREFIX = 'ZP';
 
 /** 关系正常：微信认识这个子商户号，只是没有这笔单 */
 const BIND_OK_CODES = ['ORDER_NOT_EXIST', 'NOT_FOUND', 'ORDERNOTEXIST'];
@@ -43,6 +56,11 @@ const BIND_FAIL_MESSAGES: Record<string, string> = {
   MCHID_NOT_EXIST: '该子商户号在微信支付侧不存在，请核对填写是否正确',
 };
 
+/** 探测下单用的占位 openid：无需真实用户，仅用于触碰 appid 校验 */
+const PROBE_OPENID = 'oProbeAppIdBinding0000000000000000';
+/** 未配置服务商回调地址时的占位 notify_url（微信仅要求 HTTPS 形态） */
+const FALLBACK_NOTIFY_URL = 'https://example.com/club/pay/probe';
+
 @Injectable()
 export class ClubWechatSubMerchantVerifyService {
   private readonly logger = new Logger(ClubWechatSubMerchantVerifyService.name);
@@ -53,7 +71,7 @@ export class ClubWechatSubMerchantVerifyService {
   ) {}
 
   /**
-   * 校验子商户号与服务商的绑定关系。
+   * 校验子商户的收款能力：先查绑定关系，再验 AppID 是否已关联到该子商户号。
    *
    * @param subMchId 门店配置的子商户号
    */
@@ -70,7 +88,23 @@ export class ClubWechatSubMerchantVerifyService {
       };
     }
 
-    const probeOrderNo = this.buildProbeOrderNo();
+    const relation = await this.probeMerchantRelation(spMchId, subMchId);
+    if (relation.status !== 'verified') {
+      return relation;
+    }
+
+    // 关系正常不代表能收款：小程序 AppID 未关联到该子商户号时，下单必失败
+    return this.probeAppIdBinding(spMchId, subMchId);
+  }
+
+  // ─── 第一层：子商户 ↔ 服务商 ──────────────────────────────────────────────
+
+  /** 用「必然不存在的商户订单号」探测子商户号与服务商的关系 */
+  private async probeMerchantRelation(
+    spMchId: string,
+    subMchId: string,
+  ): Promise<SubMerchantBindCheckResult> {
+    const probeOrderNo = this.buildProbeOrderNo(QUERY_PROBE_ORDER_NO_PREFIX);
     const query =
       `sp_mchid=${encodeURIComponent(spMchId)}` +
       `&sub_mchid=${encodeURIComponent(subMchId)}`;
@@ -125,8 +159,106 @@ export class ClubWechatSubMerchantVerifyService {
     };
   }
 
+  // ─── 第二层：AppID ↔ 子商户 ───────────────────────────────────────────────
+
+  /**
+   * 用一次假 openid 的 JSAPI 下单探测 AppID 是否已关联到子商户号。
+   *
+   * 之所以不真下单：微信在 appid/商户号校验失败时直接拒绝，不会创建订单；
+   * 校验通过后才会因 openid 无效而失败，同样不会落单。因此整个过程零脏数据。
+   */
+  private async probeAppIdBinding(
+    spMchId: string,
+    subMchId: string,
+  ): Promise<SubMerchantBindCheckResult> {
+    const spAppId = this.configService
+      .get<string>('wechat.partner.spAppId')
+      ?.trim();
+    if (!spAppId) {
+      return {
+        status: 'unknown',
+        code: null,
+        message: '平台未配置服务商小程序 AppID（sp_appid），无法校验收款 AppID',
+      };
+    }
+
+    const subAppId = this.configService
+      .get<string>('wechat.partner.subAppId')
+      ?.trim();
+    const notifyUrl =
+      this.configService.get<string>('wechat.partner.notifyUrl')?.trim() ||
+      FALLBACK_NOTIFY_URL;
+
+    const body = JSON.stringify({
+      sp_appid: spAppId,
+      sp_mchid: spMchId,
+      ...(subAppId ? { sub_appid: subAppId } : {}),
+      sub_mchid: subMchId,
+      description: '收款能力探测',
+      out_trade_no: this.buildProbeOrderNo(APPID_PROBE_ORDER_NO_PREFIX),
+      notify_url: notifyUrl,
+      amount: { total: 1, currency: 'CNY' },
+      payer: subAppId
+        ? { sub_openid: PROBE_OPENID }
+        : { sp_openid: PROBE_OPENID },
+    });
+
+    const result = await this.httpService.request<unknown>({
+      method: 'POST',
+      urlPath: '/v3/pay/partner/transactions/jsapi',
+      mchId: spMchId,
+      credential: 'partner',
+      body,
+    });
+
+    if (result.ok) {
+      // 假 openid 不可能下单成功；真成功说明探测行为异常，不能判为可用
+      this.logger.error(
+        `AppID 关联探测意外下单成功 subMchId=${subMchId}，判定为未知，需人工核查`,
+      );
+      return {
+        status: 'unknown',
+        code: null,
+        message: '收款 AppID 探测异常，请稍后重试',
+      };
+    }
+
+    const code = result.code ?? null;
+    if (isAppIdMchIdMismatch(code, result.message)) {
+      this.logger.warn(
+        `子商户 AppID 未关联 subMchId=${subMchId} spAppId=${spAppId} ` +
+          `subAppId=${subAppId ?? '-'} wechatCode=${code ?? 'EMPTY'}`,
+      );
+      return {
+        status: 'appid_not_bound',
+        code,
+        message:
+          '该商户号尚未关联小程序的支付 AppID，请联系平台在微信支付服务商后台为商户号关联小程序后再校验',
+      };
+    }
+
+    // 通过了 appid 校验，卡在 openid 属预期结果
+    if (code === 'PARAM_ERROR' && /openid/i.test(result.message)) {
+      return {
+        status: 'verified',
+        code,
+        message: '子商户绑定关系与收款 AppID 均正常，可以正常收款',
+      };
+    }
+
+    this.logger.warn(
+      `子商户 AppID 探测返回未预期错误码 subMchId=${subMchId} ` +
+        `httpStatus=${result.status} wechatCode=${code ?? 'EMPTY'} message=${result.message}`,
+    );
+    return {
+      status: 'unknown',
+      code,
+      message: `暂时无法确认收款 AppID 关联（微信返回 ${code || '空错误码'}），请稍后重试`,
+    };
+  }
+
   /** 构造不可能与真实订单冲突的探测单号 */
-  private buildProbeOrderNo(): string {
-    return `${PROBE_ORDER_NO_PREFIX}${Date.now()}${randomBytes(4).toString('hex')}`;
+  private buildProbeOrderNo(prefix: string): string {
+    return `${prefix}${Date.now()}${randomBytes(4).toString('hex')}`;
   }
 }

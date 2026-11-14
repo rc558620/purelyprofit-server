@@ -1,4 +1,5 @@
 // 微信支付退款服务：调用 v3 退款接口（POST /v3/refund/domestic/refunds）
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import {
   ForbiddenException,
   Injectable,
@@ -136,7 +137,12 @@ export class ClubWechatRefundService {
         `退款归属校验失败：订单 ${params.orderNo} 属于门店 ${record.storeId}，` +
           `与本次请求的门店 ${params.storeId} 不一致，拒绝退款`,
       );
-      throw new ForbiddenException('订单与门店不匹配，拒绝退款');
+      throw new ForbiddenException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_REFUND_STORE_MISMATCH,
+          '订单与门店不匹配，拒绝退款',
+        ),
+      );
     }
 
     const recorded = record?.subMchId ?? null;

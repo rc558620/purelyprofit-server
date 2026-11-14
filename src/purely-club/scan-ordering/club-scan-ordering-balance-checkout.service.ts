@@ -4,6 +4,10 @@
 // 而余额支付会**当场扣真实款项**，失败语义完全不同。开发态手动确认（跳过扣款）
 // 见 ClubScanOrderingDevelopmentCheckoutService，两条链路刻意不放在一起。
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -73,7 +77,13 @@ export class ClubScanOrderingBalanceCheckoutService {
         marketingSnapshot: true,
       },
     });
-    if (!order) throw new ConflictException('订单状态已变化，请刷新后重试');
+    if (!order)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_STATE_CHANGED,
+          '订单状态已变化，请刷新后重试',
+        ),
+      );
 
     const customer = await this.marketingCustomerService.resolveActiveCustomer(
       order.storeId,
@@ -135,7 +145,12 @@ export class ClubScanOrderingBalanceCheckoutService {
       },
     });
     if (updated.count === 0) {
-      throw new ConflictException('订单状态已变化，请刷新后重试');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_STATE_CHANGED,
+          '订单状态已变化，请刷新后重试',
+        ),
+      );
     }
 
     // 余额支付成功分配取餐号（幂等：已分配时直接跳过）

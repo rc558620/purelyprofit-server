@@ -38,6 +38,12 @@ export interface WechatPartnerConfig {
   platformPublicKeyContent: string;
   /** 服务商模式下发起支付的小程序 appid（sp_appid） */
   spAppId: string;
+  /**
+   * 实际拉起支付的小程序 appid（sub_appid），仅当 sp_appid 与该小程序不同主体时配置。
+   * 非空时下单改用 sub_appid + payer.sub_openid，paySign 也用该 appid；
+   * 留空则维持 sp_appid + payer.sp_openid 的原口径（小程序与服务商同主体时适用）。
+   */
+  subAppId: string;
   /** 服务商模式的支付回调通知地址（已备案的 HTTPS 公网地址） */
   notifyUrl: string;
   /** 豁免开关：允许 spMchId 与 wechat.payMchId 相等 */
@@ -122,15 +128,42 @@ export function resolveWechatPartnerConfig(): WechatPartnerConfig {
     /**
      * 服务商模式下发起支付的小程序 appid（sp_appid）。
      *
-     * 未显式配置时回落 wechat.appId（purelyClub 小程序 AppID）——单向读取、
-     * 不改动原配置；待 Q2 确认「purelyClub AppID 是否直接作为 sp_appid」后
-     * 再决定是否需要按商家收集 sub_appid。
+     * 微信对 sp_appid 的硬性要求：**必须与服务商商户号绑定**，且**必须是小程序 appid**。
+     *   - 服务号 appid 虽然能关联到服务商号，但小程序 wx.requestPayment 只能拉起
+     *     由小程序 appid 生成的 prepay_id，用服务号下单必报「商户号mch_id与appid不匹配」；
+     *   - 服务商无法关联「不同主体」的小程序（后台提示暂不支持）。
+     *
+     * 当前部署为**异主体期**：服务商号属「纯利宝（昆明）科技有限公司」，
+     * purelyClub 小程序属「官渡区纯利堡软件开发服务部（个体工商户）」，
+     * 因此这里填服务商同主体的壳小程序 appid，purelyClub 只能作为 sub_appid。
+     *
+     * 【主体统一后的目标态】purelyClub 小程序主体变更为昆明科技后：
+     *   本项 = purelyClub 小程序 appid（同主体可直接关联），
+     *   同时把 subAppId 留空 ⇒ 下单改用 payer.sp_openid。
+     *   切换前提：服务商后台已完成 club appid 关联，否则下单会落到
+     *   CLUB_PAY_DEPENDENCY_APPID_MCHID_MISMATCH。
      * 对应环境变量：WECHAT_PARTNER_SP_APP_ID
      */
     spAppId:
       process.env.WECHAT_PARTNER_SP_APP_ID?.trim() ||
       process.env.WECHAT_APP_ID ||
       '',
+
+    /**
+     * 实际拉起支付的小程序 appid（sub_appid）。
+     *
+     * 仅当 sp_appid（服务商号自有 AppID）与 purelyClub 小程序不同主体时需要：
+     * 此时用户 openid 来自 purelyClub 小程序，微信要求以 sub_appid + sub_openid 下单，
+     * 且该 AppID 须已与 sub_mchid 绑定，否则返回 APPID_MCHID_NOT_MATCH。
+     * 留空 = 沿用 sp_appid + sp_openid，适用于小程序已与服务商号同主体的部署。
+     *
+     * ⚠️ 该绑定是**按子商户号逐个建立**的：新增一个商家就要为其商户号单独关联一次
+     *    club appid，不存在「全局配一次、所有商家通用」。关联缺失时商家端绑定校验
+     *    会返回 appid_not_bound（新增的第二层探测），而不是显示「已生效」。
+     * ⚠️ 刻意不回落 WECHAT_APP_ID：新增口径必须由运维显式开启，避免静默改变存量下单行为。
+     * 对应环境变量：WECHAT_PARTNER_SUB_APP_ID
+     */
+    subAppId: process.env.WECHAT_PARTNER_SUB_APP_ID?.trim() ?? '',
 
     /**
      * 服务商模式的支付回调通知地址：必须是已备案的 HTTPS 公网地址，

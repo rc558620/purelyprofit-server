@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
@@ -55,7 +56,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     status: ClubOrderStatusResponseDto['status'],
   ): void {
     if (status !== 'pending') {
-      throw new BadRequestException(CLUB_SERVICE_CONFIRM_NOT_ALLOWED_MESSAGE);
+      throw new BadRequestException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.STATUS_CONFIRM_NOT_ALLOWED,
+          CLUB_SERVICE_CONFIRM_NOT_ALLOWED_MESSAGE,
+        ),
+      );
     }
   }
 
@@ -78,7 +84,10 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     // 校验余额是否充足
     if (settlementContext.customer.balance < balancePaidFen) {
       throw new BadRequestException(
-        `余额不足，当前余额 ¥${Money.fromDbCents(settlementContext.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+          `余额不足，当前余额 ¥${Money.fromDbCents(settlementContext.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+        ),
       );
     }
 
@@ -143,7 +152,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     // 顾客档案必须显式绑定。若把 null 转成 undefined 再传进 where，Prisma 会忽略
     // id 条件，查询退化成「按门店取任意顾客」，把消费记到别人头上。
     if (draft.customerId === null) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          CLUB_MEMBER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     const [customer, product] = await Promise.all([
@@ -173,11 +187,21 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     ]);
 
     if (!customer) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          CLUB_MEMBER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     if (!product || product.stock <= 0) {
-      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_PRODUCT_NOT_FOUND,
+          CLUB_PRODUCT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return {
@@ -232,7 +256,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       },
     });
     if (result.count === 0) {
-      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_PRODUCT_NOT_FOUND,
+          CLUB_PRODUCT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
   }
 

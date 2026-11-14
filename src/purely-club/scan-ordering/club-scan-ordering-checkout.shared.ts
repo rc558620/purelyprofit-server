@@ -4,6 +4,10 @@
 // 失效营销衍生缓存、广播带取餐号的订单状态、按归属校验读回订单。
 // 抽成纯函数而不是基类，是为了让两条链路互不继承、各自只声明需要的依赖。
 import { NotFoundException } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -92,6 +96,12 @@ export async function loadOwnedScanOrder(
       paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
   });
-  if (!order) throw new NotFoundException('订单不存在');
+  if (!order)
+    throw new NotFoundException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+        '订单不存在',
+      ),
+    );
   return order;
 }

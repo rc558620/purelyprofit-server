@@ -32,8 +32,13 @@ export class ClubRechargeService {
   createOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubRechargeOrderDto,
+    idempotencyKey?: string,
   ): Promise<ClubRechargeOrderResponseDto> {
-    return this.clubRechargeCreationService.createOrder(currentContext, dto);
+    return this.clubRechargeCreationService.createOrder(
+      currentContext,
+      dto,
+      idempotencyKey,
+    );
   }
 
   /**

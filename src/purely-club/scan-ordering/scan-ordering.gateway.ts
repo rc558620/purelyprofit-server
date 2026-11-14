@@ -13,6 +13,10 @@ import {
   OnApplicationShutdown,
   UnauthorizedException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type Redis from 'ioredis';
 import type { Namespace, Socket } from 'socket.io';
@@ -211,7 +215,13 @@ export class ScanOrderingGateway
       },
       select: { id: true },
     });
-    if (!order) throw new UnauthorizedException('无权订阅该订单');
+    if (!order)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_ORDER_SUBSCRIBE_FORBIDDEN,
+          '无权订阅该订单',
+        ),
+      );
     const room = this.realtimeService.orderRoom(order.id);
     await client.join(room);
     this.logger.debug(
@@ -237,7 +247,13 @@ export class ScanOrderingGateway
       },
       select: { id: true },
     });
-    if (!session) throw new UnauthorizedException('无权订阅该点餐会话');
+    if (!session)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_SUBSCRIBE_FORBIDDEN,
+          '无权订阅该点餐会话',
+        ),
+      );
     const room = this.realtimeService.sessionRoom(session.id);
     await client.join(room);
     this.logger.debug(
@@ -264,7 +280,13 @@ export class ScanOrderingGateway
       },
       select: { orderNo: true },
     });
-    if (!order) throw new UnauthorizedException('该团购券订单不存在');
+    if (!order)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_VOUCHER_SUBSCRIBE_FORBIDDEN,
+          '该团购券订单不存在',
+        ),
+      );
     const room = this.realtimeService.voucherOrderRoom(payload.orderNo);
     await client.join(room);
     this.logger.debug(
@@ -374,15 +396,32 @@ export class ScanOrderingGateway
       client.handshake.auth?.token ??
       client.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
     if (typeof rawToken !== 'string' || !rawToken) {
-      throw new UnauthorizedException('缺少访问令牌');
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_TOKEN_MISSING,
+          '缺少访问令牌',
+        ),
+      );
     }
     const payload = this.jwtService.verify<JwtPayload>(rawToken);
-    if (!payload.sub) throw new UnauthorizedException('访问令牌无效');
+    if (!payload.sub)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_TOKEN_INVALID,
+          '访问令牌无效',
+        ),
+      );
     const account = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: { email: true },
     });
-    if (!account) throw new UnauthorizedException('用户不存在');
+    if (!account)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_USER_NOT_FOUND,
+          '用户不存在',
+        ),
+      );
     const currentMembership =
       await this.authMembershipResolverService.resolveAuthenticatedMembership(
         payload,
@@ -411,7 +450,13 @@ export class ScanOrderingGateway
 
   private identityOf(client: Socket): SocketIdentity {
     const identity = client.data.identity as SocketIdentity | undefined;
-    if (!identity) throw new UnauthorizedException('连接尚未认证');
+    if (!identity)
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_CONNECTION_UNAUTHENTICATED,
+          '连接尚未认证',
+        ),
+      );
     return identity;
   }
 }

@@ -1,5 +1,9 @@
 // 团购券订单查询服务：列表/详情 + 惰性过期
 import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import type { ClubVoucherOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -191,7 +195,12 @@ export class ClubVoucherOrderQueryService {
       select: VOUCHER_ORDER_DETAIL_SELECT,
     });
     if (!order) {
-      throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
     const normalized = await this.expireIfOverdue(order);
     const [storeNameMap, productImageMap] = await Promise.all([

@@ -9,6 +9,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -122,7 +126,13 @@ export class ClubSelfOrderingOrderService {
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
       include: { items: true },
     });
-    if (!order) throw new NotFoundException('订单不存在');
+    if (!order)
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     return toSelfOrderResponse(order);
   }
 
@@ -134,7 +144,8 @@ export class ClubSelfOrderingOrderService {
     const orders = await this.prisma.selfOrder.findMany({
       where: { sessionId, clubUserId: user.id, deletedAt: null },
       include: { items: true },
-      orderBy: { createdAt: 'desc' },
+      // createdAt 可能重复，补 id 作为 tiebreaker 保证翻页顺序稳定
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 50,
     });
     return orders.map((order) => toSelfOrderResponse(order));
@@ -144,7 +155,12 @@ export class ClubSelfOrderingOrderService {
 
   private requireIdempotencyKey(idempotencyKey: string | undefined): string {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
-      throw new ConflictException('请提供有效的 Idempotency-Key 以创建订单');
+      throw new ConflictException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.PARAM_IDEMPOTENCY_KEY_INVALID,
+          '请提供有效的 Idempotency-Key 以创建订单',
+        ),
+      );
     }
     return idempotencyKey.trim();
   }
@@ -222,7 +238,12 @@ export class ClubSelfOrderingOrderService {
       select: { id: true, spaceId: true, createdAt: true },
     });
     if (!session) {
-      throw new ForbiddenException('当前空间会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.AUTH_SESSION_UNAVAILABLE,
+          '当前空间会话不可用，请重新扫码',
+        ),
+      );
     }
 
     // 会员过期门店停止新的下单流程；到期之前已开台的会话允许继续下单
@@ -381,6 +402,11 @@ export class ClubSelfOrderingOrderService {
     if (record.status === 'succeeded' && record.responseSnapshot) {
       return record.responseSnapshot as Record<string, unknown>;
     }
-    throw new ConflictException('订单正在创建中，请稍后重试');
+    throw new ConflictException(
+      clubSelfOrderingError(
+        CLUB_SELF_ORDERING_ERROR_CODE.STATUS_ORDER_CREATING,
+        '订单正在创建中，请稍后重试',
+      ),
+    );
   }
 }

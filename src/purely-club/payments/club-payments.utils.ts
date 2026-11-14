@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException } from '@nestjs/common';
 import type { ClubOrderPaidObservationOptions } from '../orders/club-order-drafts.types';
 
@@ -24,11 +25,21 @@ export function assertClubPaymentAmountMatches(
   callbackAmountFen: number,
 ): void {
   if (expectedAmountFen <= 0 || callbackAmountFen <= 0) {
-    throw new BadRequestException(WECHAT_AMOUNT_INVALID_MESSAGE);
+    throw new BadRequestException(
+      clubPayError(
+        CLUB_PAY_ERROR_CODE.PARAM_AMOUNT_NON_POSITIVE,
+        WECHAT_AMOUNT_INVALID_MESSAGE,
+      ),
+    );
   }
 
   if (expectedAmountFen !== callbackAmountFen) {
-    throw new BadRequestException(AMOUNT_MISMATCH_MESSAGE);
+    throw new BadRequestException(
+      clubPayError(
+        CLUB_PAY_ERROR_CODE.RULE_AMOUNT_MISMATCH,
+        AMOUNT_MISMATCH_MESSAGE,
+      ),
+    );
   }
 }
 
@@ -44,11 +55,21 @@ export function assertClubPaymentAmountMatchesAllowZero(
   callbackAmountFen: number,
 ): void {
   if (expectedAmountFen < 0 || callbackAmountFen < 0) {
-    throw new BadRequestException(ZERO_AMOUNT_INVALID_MESSAGE);
+    throw new BadRequestException(
+      clubPayError(
+        CLUB_PAY_ERROR_CODE.PARAM_AMOUNT_NEGATIVE,
+        ZERO_AMOUNT_INVALID_MESSAGE,
+      ),
+    );
   }
 
   if (expectedAmountFen !== callbackAmountFen) {
-    throw new BadRequestException(AMOUNT_MISMATCH_MESSAGE);
+    throw new BadRequestException(
+      clubPayError(
+        CLUB_PAY_ERROR_CODE.RULE_AMOUNT_MISMATCH,
+        AMOUNT_MISMATCH_MESSAGE,
+      ),
+    );
   }
 }
 

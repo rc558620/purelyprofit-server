@@ -102,7 +102,8 @@ export class ClubStoresResponseDto {
   @ApiPropertyOptional({
     example: 1,
     nullable: true,
-    description: '当前选中的门店 ID；无可访问门店时为 null',
+    description:
+      '当前选中的门店 ID；无可访问门店、或有多家门店但尚未显式选择时为 null',
   })
   @IsOptional()
   @IsInt({ message: '当前门店 ID 必须是整数' })

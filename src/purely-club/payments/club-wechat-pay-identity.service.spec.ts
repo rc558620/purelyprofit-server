@@ -49,6 +49,7 @@ describe('ClubWechatPayIdentityService', () => {
     jest.clearAllMocks();
     configState['wechat.partner.enabled'] = false;
     configState['wechat.partner.requireVerifiedBind'] = true;
+    delete configState['wechat.partner.subAppId'];
     storesService.getWechatPayConfigForStore.mockResolvedValue(storeConfig);
   });
 
@@ -76,6 +77,26 @@ describe('ClubWechatPayIdentityService', () => {
       appId: 'wx_club_appid',
       notifyUrl: 'https://api.example.com/api/club/payments/wechat/callback',
     });
+  });
+
+  it('服务商模式配置 sub_appid 时把实际拉起支付的小程序 AppID 交给下单链路', async () => {
+    configState['wechat.partner.enabled'] = true;
+    configState['wechat.partner.subAppId'] = 'wx_club_miniprogram';
+
+    const target = await buildService().resolveTarget(1);
+
+    expect(target).toMatchObject({
+      appId: 'wx_club_appid',
+      subAppId: 'wx_club_miniprogram',
+    });
+  });
+
+  it('未配置 sub_appid 时支付身份不携带该字段（存量口径零变化）', async () => {
+    configState['wechat.partner.enabled'] = true;
+
+    const target = await buildService().resolveTarget(1);
+
+    expect(target).not.toHaveProperty('subAppId');
   });
 
   it('服务商模式下子商户号为空时回落到旧的门店商户号（灰度迁移窗口）', async () => {

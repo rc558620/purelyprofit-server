@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ClubCardOrderService } from '../cards/club-card-order.service';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
@@ -77,7 +78,10 @@ export function resolveClubOrderTypeByOrderNo(
 
   if (!orderType) {
     throw new BadRequestException(
-      `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC / SF / MC）`,
+      clubPayError(
+        CLUB_PAY_ERROR_CODE.PARAM_ORDER_NO_PREFIX_UNKNOWN,
+        `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC / SF / MC）`,
+      ),
     );
   }
 
@@ -112,7 +116,10 @@ export class ClubPaymentCallbackDispatchService {
   ): Promise<ClubPaymentCallbackResult> {
     if (!ORDER_NO_PATTERN.test(orderNo)) {
       throw new BadRequestException(
-        `订单号格式异常: ${orderNo}（期望格式 RC/SV/SO/VC + 时间戳 + 随机HEX）`,
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.PARAM_ORDER_NO_FORMAT_INVALID,
+          `订单号格式异常: ${orderNo}（期望格式 RC/SV/SO/VC + 时间戳 + 随机HEX）`,
+        ),
       );
     }
 

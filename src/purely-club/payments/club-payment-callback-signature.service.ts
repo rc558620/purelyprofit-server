@@ -21,6 +21,7 @@
  * 历史说明（已废弃，保留仅供追溯）：早期仅校验时间戳时效性 + 必填头存在性，
  * 靠 IP 白名单 + HTTPS 兜底安全。该策略已废止，注释同步更新避免误导。
  */
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { createVerify } from 'node:crypto';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -55,13 +56,33 @@ export class ClubPaymentCallbackSignatureService {
     headers: ClubWechatCallbackHeaders,
     scope: WechatCallbackSignatureScope = 'platform',
   ): void {
+    // 签名消息串的第二段就是原始请求体。拿不到 rawBody 时任何"补救"都不可用：
+    // 重新序列化 body 会与微信签名串不一致，最多只能让验签失败，
+    // 更糟的是会把部署缺失掩盖成普通攻击。这里统一 fail-closed 并留痕。
+    if (!rawBody) {
+      this.logger.error(
+        '微信支付回调缺少原始请求体，请检查 setupRawBodyForWechatCallback 的路由登记',
+      );
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_RAW_BODY_MISSING,
+          '微信支付回调缺少原始请求体',
+        ),
+      );
+    }
+
     const timestamp = headers.timestamp?.trim();
     const nonce = headers.nonce?.trim();
     const signature = headers.signature?.trim();
     const serial = headers.serial?.trim();
 
     if (!timestamp || !nonce || !signature) {
-      throw new UnauthorizedException('缺少微信支付回调签名头');
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_SIGNATURE_HEADERS_MISSING,
+          '缺少微信支付回调签名头',
+        ),
+      );
     }
 
     if (!serial) {
@@ -74,7 +95,12 @@ export class ClubPaymentCallbackSignatureService {
     const timestampMs = this.parseCallbackTimestampMs(timestamp);
     const ageMs = Math.abs(Date.now() - timestampMs);
     if (ageMs > this.getWechatCallbackMaxAgeSeconds() * 1000) {
-      throw new UnauthorizedException('微信支付回调已过期');
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_EXPIRED,
+          '微信支付回调已过期',
+        ),
+      );
     }
 
     // RSA-SHA256 验签（仅在对应链路的平台公钥已配置时执行）
@@ -99,7 +125,10 @@ export class ClubPaymentCallbackSignatureService {
           '当前环境不允许跳过验签，已拒绝回调',
       );
       throw new UnauthorizedException(
-        '未配置微信支付平台公钥，拒绝处理支付回调',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.DEPENDENCY_PLATFORM_PUBLIC_KEY_MISSING,
+          '未配置微信支付平台公钥，拒绝处理支付回调',
+        ),
       );
     }
 
@@ -135,21 +164,36 @@ export class ClubPaymentCallbackSignatureService {
       );
 
       if (!isValid) {
-        throw new UnauthorizedException('微信支付回调签名校验失败');
+        throw new UnauthorizedException(
+          clubPayError(
+            CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_SIGNATURE_INVALID,
+            '微信支付回调签名校验失败',
+          ),
+        );
       }
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
       this.logger.error('微信平台公钥 RSA 验签异常，公钥格式可能有误', error);
-      throw new UnauthorizedException('微信支付回调签名校验异常');
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.DEPENDENCY_RSA_VERIFY_ERROR,
+          '微信支付回调签名校验异常',
+        ),
+      );
     }
   }
 
   private parseCallbackTimestampMs(timestamp: string): number {
     const timestampMs = Number.parseInt(timestamp, 10) * 1000;
     if (!Number.isFinite(timestampMs)) {
-      throw new UnauthorizedException('微信支付回调时间戳非法');
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_TIMESTAMP_INVALID,
+          '微信支付回调时间戳非法',
+        ),
+      );
     }
     return timestampMs;
   }

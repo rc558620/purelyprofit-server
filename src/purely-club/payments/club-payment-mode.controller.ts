@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import {
   Body,
   Controller,
@@ -9,8 +10,10 @@ import {
   NotFoundException,
   Post,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ClubDevLoginGuard } from '../auth/guards/club-dev-login.guard';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CLUB_PAYMENT_MODE_DEV_TOKEN_HEADER } from './club-payment-mode.constants';
 import { ClubPaymentModeService } from './club-payment-mode.service';
@@ -23,8 +26,14 @@ import { UpdatePaymentModeDto } from './dto/update-payment-mode.dto';
  * 仅在非生产环境可用：生产环境一律伪装为路由不存在（404），
  * 切换请求还需通过服务端配置的访问令牌校验，避免测试环境公网可达时被任意切换，
  * 导致「本以为是测试、实际是真实扣款」的资金事故。
+ *
+ * 生产 404 由类级 Guard 承担而不是方法体：Guard 在 ValidationPipe 之前执行，
+ * 否则生产环境带非法 body 的探测请求会先被全局校验管道拦成 400，
+ * 反而坐实「该调试路由存在」，破坏 404 伪装。方法体内的开关校验
+ * 负责处理「非生产但已关闭运行期切换」这一配置态，两者不重复。
  */
 @ApiTags('Club / Payments · 调试')
+@UseGuards(ClubDevLoginGuard)
 @Controller('club/dev')
 export class ClubPaymentModeController {
   private readonly logger = new Logger(ClubPaymentModeController.name);
@@ -69,7 +78,12 @@ export class ClubPaymentModeController {
 
     if (!this.clubPaymentModeService.isDevTokenValid(devToken)) {
       this.logger.warn('[支付模式] 切换请求令牌校验失败，已拒绝');
-      throw new UnauthorizedException('支付模式切换令牌无效或未配置');
+      throw new UnauthorizedException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_DEV_TOKEN_INVALID,
+          '支付模式切换令牌无效或未配置',
+        ),
+      );
     }
 
     await this.clubPaymentModeService.setMode(dto.mode);

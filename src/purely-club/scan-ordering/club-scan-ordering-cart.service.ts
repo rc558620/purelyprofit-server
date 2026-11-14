@@ -5,6 +5,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -220,7 +224,13 @@ export class ClubScanOrderingCartService {
       where: { id: itemId, status: 'active', deletedAt: null },
       include: { session: true },
     });
-    if (!item) throw new NotFoundException('购物车商品不存在');
+    if (!item)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_CART_ITEM_NOT_FOUND,
+          '购物车商品不存在',
+        ),
+      );
     this.ensureSessionOwner(user, item.session);
     // 改量同样要校验库存：否则用户把步进器点到大数量也能成功，直到提交订单才被
     // 库存预留打回。口径＝本行新数量 + 该商品其它规格行已占数量。
@@ -243,7 +253,12 @@ export class ClubScanOrderingCartService {
       },
     });
     if (result.count === 0)
-      throw new ConflictException('购物车已更新，请刷新后重试');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_CART_UPDATED,
+          '购物车已更新，请刷新后重试',
+        ),
+      );
     // item.session 已校验过归属与有效期（ensureSessionOwner），无需重查会话
     return this.toCartPayload(
       item.sessionId,
@@ -260,7 +275,13 @@ export class ClubScanOrderingCartService {
       where: { id: itemId, status: 'active', deletedAt: null },
       include: { session: true },
     });
-    if (!item) throw new NotFoundException('购物车商品不存在');
+    if (!item)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_CART_ITEM_NOT_FOUND,
+          '购物车商品不存在',
+        ),
+      );
     this.ensureSessionOwner(user, item.session);
     const result = await this.prisma.scanOrderingCartItem.updateMany({
       where: { id: itemId, version, status: 'active' },
@@ -271,7 +292,12 @@ export class ClubScanOrderingCartService {
       },
     });
     if (result.count === 0)
-      throw new ConflictException('购物车已更新，请刷新后重试');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_CART_UPDATED,
+          '购物车已更新，请刷新后重试',
+        ),
+      );
     // item.session 已校验过归属与有效期（ensureSessionOwner），无需重查会话
     return this.toCartPayload(
       item.sessionId,
@@ -293,7 +319,13 @@ export class ClubScanOrderingCartService {
         },
       },
     });
-    if (!product) throw new ConflictException('商品已售罄或库存不足');
+    if (!product)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+          '商品已售罄或库存不足',
+        ),
+      );
     return product;
   }
 
@@ -327,7 +359,12 @@ export class ClubScanOrderingCartService {
         (!inventoryProduct.isActive || inventoryProduct.deletedAt)) ||
       (product.stockMode === 'finite' && availableStock < requiredTotal)
     ) {
-      throw new ConflictException('商品已售罄或库存不足');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+          '商品已售罄或库存不足',
+        ),
+      );
     }
   }
 
@@ -365,7 +402,12 @@ export class ClubScanOrderingCartService {
       include: { table: true },
     });
     if (!session)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
     return session;
   }
 
@@ -384,7 +426,12 @@ export class ClubScanOrderingCartService {
       session.expiresAt <= new Date() ||
       session.deletedAt
     )
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
   }
 
   /**
@@ -433,7 +480,12 @@ export class ClubScanOrderingCartService {
       const required = requiredByOption.get(option.id) ?? 0;
       const available = option.stockQuantity - (option.reservedQuantity ?? 0);
       if (available < required) {
-        throw new ConflictException(`规格【${option.name}】已售罄或库存不足`);
+        throw new ConflictException(
+          clubScanOrderingError(
+            CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+            `规格【${option.name}】已售罄或库存不足`,
+          ),
+        );
       }
     }
   }
@@ -464,7 +516,12 @@ export class ClubScanOrderingCartService {
       group.options.filter((option) => selected.has(option.id)),
     );
     if (options.length !== selected.size)
-      throw new BadRequestException('商品规格选择不符合要求');
+      throw new BadRequestException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_SPEC_SELECTION_INVALID,
+          '商品规格选择不符合要求',
+        ),
+      );
     for (const group of groups) {
       const count = options.filter((option) =>
         group.options.some((candidate) => candidate.id === option.id),
@@ -473,7 +530,12 @@ export class ClubScanOrderingCartService {
         count < group.minSelections ||
         (group.maxSelections !== null && count > group.maxSelections)
       ) {
-        throw new BadRequestException('商品规格选择不符合要求');
+        throw new BadRequestException(
+          clubScanOrderingError(
+            CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_SPEC_SELECTION_INVALID,
+            '商品规格选择不符合要求',
+          ),
+        );
       }
     }
     return options;

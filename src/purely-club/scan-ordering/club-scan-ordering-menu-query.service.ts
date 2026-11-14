@@ -1,4 +1,8 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -76,7 +80,12 @@ export class ClubScanOrderingMenuQueryService {
       },
     });
     if (!session)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
 
     // 缓存 key 依赖 menuVersion；版本本身有短 TTL 缓存，这里不一定真的查库
     // （口径见 resolveMenuVersion / computeMenuVersion）

@@ -4,6 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -63,7 +67,13 @@ export class ClubScanOrderingQrTokenService {
         },
       },
     });
-    if (!qrCode) throw new NotFoundException('桌码无效，请重新扫码');
+    if (!qrCode)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_QR_TOKEN_INVALID,
+          '桌码无效，请重新扫码',
+        ),
+      );
 
     // C 端扫码必须校验门店为餐饮业态，防止非餐饮门店通过历史脏数据或旧二维码被访问
     const store = await this.prisma.store.findUnique({
@@ -71,13 +81,23 @@ export class ClubScanOrderingQrTokenService {
       select: { businessMode: true, memberCareEnabled: true },
     });
     if (!store || store.businessMode !== 'catering') {
-      throw new NotFoundException('桌码无效或门店不支持扫码点餐，请重新扫码');
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_QR_TOKEN_INVALID,
+          '桌码无效或门店不支持扫码点餐，请重新扫码',
+        ),
+      );
     }
     if (
       qrCode.table.status === 'disabled' ||
       qrCode.table.status === 'clearing'
     ) {
-      throw new ConflictException('当前桌台暂不可点餐');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_TABLE_UNAVAILABLE,
+          '当前桌台暂不可点餐',
+        ),
+      );
     }
 
     const scanToken = await this.issueScanToken({
@@ -117,7 +137,12 @@ export class ClubScanOrderingQrTokenService {
     const key = `${SCAN_TOKEN_PREFIX}${this.hash(scanToken)}`;
     const value = await this.redisService.get(key);
     if (!value)
-      throw new BadRequestException('扫码凭据无效或已过期，请重新扫码');
+      throw new BadRequestException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_QR_CREDENTIAL_INVALID,
+          '扫码凭据无效或已过期，请重新扫码',
+        ),
+      );
     await this.redisService.del(key);
     return JSON.parse(value) as ResolvedScanToken;
   }

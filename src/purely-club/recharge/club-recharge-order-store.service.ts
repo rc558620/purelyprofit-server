@@ -1,4 +1,8 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  CLUB_RECHARGE_ERROR_CODE,
+  clubRechargeError,
+} from './club-recharge.errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
@@ -68,7 +72,12 @@ export class ClubRechargeOrderStoreService {
       });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('订单已存在，请勿重复提交');
+        throw new ConflictException(
+          clubRechargeError(
+            CLUB_RECHARGE_ERROR_CODE.STATUS_ORDER_DUPLICATE,
+            '订单已存在，请勿重复提交',
+          ),
+        );
       }
       throw error;
     }

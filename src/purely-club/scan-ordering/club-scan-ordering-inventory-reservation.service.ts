@@ -1,4 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -53,14 +57,24 @@ function buildReservationUpdates(
   for (const item of groupedItems.values()) {
     const current = productMap.get(item.productId);
     if (!current) {
-      throw new ConflictException('商品库存不足');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+          '商品库存不足',
+        ),
+      );
     }
     const baseStock = current.productId
       ? (inventoryMap.get(current.productId) ?? 0)
       : (current.stockQuantity ?? 0);
     const availableStock = baseStock - current.reservedQuantity;
     if (current.stockMode !== 'unlimited' && availableStock < item.quantity) {
-      throw new ConflictException('商品库存不足');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+          '商品库存不足',
+        ),
+      );
     }
     updates.push({
       id: item.productId,
@@ -115,7 +129,12 @@ async function applyReservationUpdates(
   `;
 
   if (affected !== updates.length) {
-    throw new ConflictException('商品库存不足');
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
+        '商品库存不足',
+      ),
+    );
   }
 }
 

@@ -22,7 +22,6 @@
  */
 import { randomBytes } from 'node:crypto';
 import {
-  BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -33,8 +32,9 @@ import type { ClubWechatPayTarget } from './club-wechat-pay-identity.service';
 import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
 import { ClubWechatPayHttpService } from './club-wechat-pay-http.service';
 import {
-  STORE_PAY_CONFIG_MISSING_CODE,
-  STORE_PAY_CONFIG_MISSING_MESSAGE,
+  buildAppIdMchIdMismatchError,
+  buildStorePayConfigMissingError,
+  isAppIdMchIdMismatch,
 } from './club-wechat-pay.errors';
 
 /** JSAPI 下单路径：直连模式 */
@@ -97,7 +97,9 @@ export class ClubWechatJsapiService {
       openid: params.openid,
     });
 
-    return this.buildJsapiPaymentParams(target.appId, prepayId, privateKeyPem);
+    // 启用 sub_appid 后，实际调起支付的是该小程序，paySign 必须用它的 appId
+    const paySignAppId = target.subAppId ?? target.appId;
+    return this.buildJsapiPaymentParams(paySignAppId, prepayId, privateKeyPem);
   }
 
   // ─── 统一下单请求 ─────────────────────────────────────────────────────────
@@ -114,10 +116,7 @@ export class ClubWechatJsapiService {
     const target = await this.identityService.resolveTarget(storeId);
     if (!target) {
       this.logger.warn(`门店 ${storeId} 未配置微信收款，拒绝创建在线支付订单`);
-      throw new BadRequestException({
-        code: STORE_PAY_CONFIG_MISSING_CODE,
-        message: STORE_PAY_CONFIG_MISSING_MESSAGE,
-      });
+      throw buildStorePayConfigMissingError();
     }
 
     // 直连模式的回调由门店自己的密钥加密，缺密钥等于「能付但收不到通知」
@@ -128,10 +127,7 @@ export class ClubWechatJsapiService {
         this.logger.warn(
           `门店 ${storeId} 处于直连模式但未配置 APIv3 密钥，拒绝下单（回调将无法解密）`,
         );
-        throw new BadRequestException({
-          code: STORE_PAY_CONFIG_MISSING_CODE,
-          message: STORE_PAY_CONFIG_MISSING_MESSAGE,
-        });
+        throw buildStorePayConfigMissingError();
       }
     }
 
@@ -175,8 +171,19 @@ export class ClubWechatJsapiService {
     this.logger.error(
       `微信下单失败 orderNo=${opts.orderNo} storeId=${opts.storeId} mode=${opts.target.mode} ` +
         `signMchId=${opts.target.signMchId} settleMchId=${opts.target.settleMchId} ` +
+        `appId=${opts.target.appId} subAppId=${opts.target.subAppId ?? '-'} ` +
         `httpStatus=${result.status} wechatCode=${result.code ?? 'UNKNOWN'} message=${result.message}`,
     );
+
+    /*
+     * appid 与商户号未绑定属于「门店配置缺一环」，不是平台故障：
+     * 抛 500 会让前端只能提示「支付失败」，把可修复的配置问题伪装成系统异常。
+     * 这里升级为带稳定业务码的 400，前端可直接提示「联系平台完成 AppID 授权」。
+     */
+    if (isAppIdMchIdMismatch(result.code, result.message)) {
+      throw buildAppIdMchIdMismatchError();
+    }
+
     throw new InternalServerErrorException(
       `微信支付下单失败：${result.message || '请联系客服'}`,
     );
@@ -185,8 +192,13 @@ export class ClubWechatJsapiService {
   /**
    * 组装下单请求体。
    *
-   * 服务商模式下字段名全部变化：appid/mchid → sp_appid/sp_mchid + sub_mchid，
-   * 付款人 openid → sp_openid（本平台统一以 purelyClub AppID 作 sp_appid 的必然结果）。
+   * 服务商模式两种口径：
+   * - 未配置 sub_appid：sp_appid + sp_mchid + sub_mchid + payer.sp_openid
+   *   （sp_appid 即 purelyClub 小程序，与服务商号同主体）。
+   * - 配置 sub_appid：额外带 sub_appid，payer 改用 sub_openid
+   *   （sp_appid 为服务商自有 AppID，付款用户 openid 来自另一主体的小程序）。
+   * ⚠️ appid 与 openid 必须成对：sp_appid 配 sp_openid，sub_appid 配 sub_openid，
+   * 交叉传值会被微信判为参数错误或「下单账号与支付账号不一致」。
    */
   private buildOrderBody(opts: {
     target: ClubWechatPayTarget;
@@ -203,12 +215,16 @@ export class ClubWechatJsapiService {
     };
 
     if (opts.target.mode === 'partner') {
+      const { subAppId } = opts.target;
       return JSON.stringify({
         ...common,
         sp_appid: opts.target.appId,
         sp_mchid: opts.target.signMchId,
+        ...(subAppId ? { sub_appid: subAppId } : {}),
         sub_mchid: opts.target.settleMchId,
-        payer: { sp_openid: opts.openid },
+        payer: subAppId
+          ? { sub_openid: opts.openid }
+          : { sp_openid: opts.openid },
       });
     }
 
@@ -230,8 +246,8 @@ export class ClubWechatJsapiService {
    *
    * 算法：RSA-SHA256，输出 Base64
    *
-   * ⚠️ appId 必须与**下单时实际使用的那个**完全一致：服务商模式下是 sp_appid，
-   * 前端拿到的调起参数与下单主体不一致时，小程序能拉起但会被微信直接拒绝。
+   * ⚠️ appId 必须与**下单及实际调起支付所用的**完全一致：未启用 sub_appid 时是
+   * sp_appid，启用后是 sub_appid；不一致时小程序能拉起但会被微信直接拒绝。
    */
   private buildJsapiPaymentParams(
     appId: string,

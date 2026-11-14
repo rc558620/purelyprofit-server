@@ -23,6 +23,7 @@
  * 参考文档：
  *   https://pay.weixin.qq.com/docs/merchant/development/interface-rules/sensitive-data-encryption.html
  */
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import {
   Injectable,
   InternalServerErrorException,
@@ -71,7 +72,10 @@ export class ClubWechatCallbackDecryptorService {
 
     if (resource.algorithm !== 'AEAD_AES_256_GCM') {
       throw new UnauthorizedException(
-        `不支持的回调加密算法: ${resource.algorithm}`,
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_ALGORITHM_UNSUPPORTED,
+          `不支持的回调加密算法: ${resource.algorithm}`,
+        ),
       );
     }
 
@@ -155,7 +159,10 @@ export class ClubWechatCallbackDecryptorService {
         '[partner] wechat.partner.apiV3Key 未配置，服务商模式下回调报文无法解密',
       );
       throw new UnauthorizedException(
-        '微信支付回调解密失败：服务商 APIv3 密钥未配置',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.DEPENDENCY_PARTNER_API_V3_KEY_MISSING,
+          '微信支付回调解密失败：服务商 APIv3 密钥未配置',
+        ),
       );
     }
 
@@ -172,7 +179,10 @@ export class ClubWechatCallbackDecryptorService {
           '请核对 WECHAT_PARTNER_API_V3_KEY（子商户没有自己的 APIv3 密钥，不要拿门店密钥顶替）',
       );
       throw new UnauthorizedException(
-        '微信支付回调解密失败，服务商密钥不匹配或报文已损坏',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_DECRYPT_FAILED,
+          '微信支付回调解密失败，服务商密钥不匹配或报文已损坏',
+        ),
       );
     }
 
@@ -195,7 +205,10 @@ export class ClubWechatCallbackDecryptorService {
 
     if (apiV3Keys.length === 0) {
       throw new UnauthorizedException(
-        '系统中尚未配置任何微信收款商户，无法处理支付回调',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.DEPENDENCY_STORE_API_V3_KEYS_MISSING,
+          '系统中尚未配置任何微信收款商户，无法处理支付回调',
+        ),
       );
     }
 
@@ -217,7 +230,10 @@ export class ClubWechatCallbackDecryptorService {
         '所有已配置 APIv3Key 均无法解密微信回调报文，可能是密钥错误或报文被篡改',
       );
       throw new UnauthorizedException(
-        '微信支付回调解密失败，密钥不匹配或报文已损坏',
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.AUTH_CALLBACK_DECRYPT_FAILED,
+          '微信支付回调解密失败，密钥不匹配或报文已损坏',
+        ),
       );
     }
 

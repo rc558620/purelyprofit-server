@@ -47,6 +47,7 @@ describe('ClubWechatJsapiService 下单口径', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     configState['wechat.partner.enabled'] = false;
+    delete configState['wechat.partner.subAppId'];
     storesService.getWechatPayConfigForStore.mockResolvedValue({
       mchId: 'STORE_MCH',
       mchName: '示例门店',
@@ -101,6 +102,29 @@ describe('ClubWechatJsapiService 下单口径', () => {
       amount: { total: 1, currency: 'CNY' },
       payer: { sp_openid: 'oOPENID' },
     });
+  });
+
+  it('配置 sub_appid 时改用 sub_appid + sub_openid，且 paySign 用 sub_appid', async () => {
+    configState['wechat.partner.enabled'] = true;
+    configState['wechat.partner.subAppId'] = 'wx_club_miniprogram';
+
+    await buildService().createJsapiPaymentParams(orderRequest);
+
+    const call = httpService.request.mock.calls[0][0];
+    expect(JSON.parse(call.body)).toEqual({
+      sp_appid: 'wx_partner_appid',
+      sp_mchid: 'SP0001',
+      sub_appid: 'wx_club_miniprogram',
+      sub_mchid: 'SUB0001',
+      description: '会员充值',
+      out_trade_no: orderRequest.orderNo,
+      notify_url: 'https://api.example.com/club/callback',
+      amount: { total: 1, currency: 'CNY' },
+      payer: { sub_openid: 'oOPENID' },
+    });
+    expect(httpService.signWithRsa.mock.calls[0][0]).toContain(
+      'wx_club_miniprogram',
+    );
   });
 
   it('paySign 的 appId 必须与下单使用的 appid 一致，否则小程序会被微信拒绝', async () => {
@@ -171,5 +195,55 @@ describe('ClubWechatJsapiService 下单口径', () => {
       buildService().createJsapiPaymentParams(orderRequest),
     ).rejects.toThrow('该门店暂不支持在线充值');
     expect(httpService.request).not.toHaveBeenCalled();
+  });
+
+  // ─── 下单失败的错误码映射 ─────────────────────────────────────────────────
+  // appid 未绑定属于「门店配置缺一环」，必须给出稳定业务码，
+  // 否则前端只能展示通用 500「支付失败」，平台与商家都无从定位。
+
+  it('APPID_MCHID_NOT_MATCH 映射为稳定业务码，而不是通用 500', async () => {
+    configState['wechat.partner.enabled'] = true;
+    httpService.request.mockResolvedValue({
+      ok: false,
+      status: 400,
+      code: 'APPID_MCHID_NOT_MATCH',
+      message: 'appid和mch_id不匹配，请检查后再试',
+    });
+
+    await expect(
+      buildService().createJsapiPaymentParams(orderRequest),
+    ).rejects.toMatchObject({
+      response: { code: 'CLUB_PAY_DEPENDENCY_APPID_MCHID_MISMATCH' },
+    });
+  });
+
+  it('INVALID_REQUEST「商户号mch_id与appid不匹配」同样映射为 appid 未关联', async () => {
+    configState['wechat.partner.enabled'] = true;
+    httpService.request.mockResolvedValue({
+      ok: false,
+      status: 400,
+      code: 'INVALID_REQUEST',
+      message: '商户号mch_id与appid不匹配',
+    });
+
+    await expect(
+      buildService().createJsapiPaymentParams(orderRequest),
+    ).rejects.toMatchObject({
+      response: { code: 'CLUB_PAY_DEPENDENCY_APPID_MCHID_MISMATCH' },
+    });
+  });
+
+  it('其它微信错误仍按系统异常处理，不误映射成 AppID 问题', async () => {
+    configState['wechat.partner.enabled'] = true;
+    httpService.request.mockResolvedValue({
+      ok: false,
+      status: 400,
+      code: 'PARAM_ERROR',
+      message: '参数错误',
+    });
+
+    await expect(
+      buildService().createJsapiPaymentParams(orderRequest),
+    ).rejects.toThrow('微信支付下单失败：参数错误');
   });
 });

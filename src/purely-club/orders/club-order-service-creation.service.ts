@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
@@ -243,7 +244,12 @@ export class ClubOrderServiceCreationService {
         reused: true,
       };
     } catch {
-      throw new ConflictException('订单已提交，请稍后在订单列表中查看');
+      throw new ConflictException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.STATUS_REPLAY_CONFLICT,
+          '订单已提交，请稍后在订单列表中查看',
+        ),
+      );
     }
   }
 }

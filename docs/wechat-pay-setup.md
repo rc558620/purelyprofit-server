@@ -4,6 +4,7 @@
 > 本步目标：搞清楚三条收款链路的凭据边界 → 配置服务商侧环境变量 → 商家在后台填子商户号 → 通过绑定校验 → 打通「C 端付款 → 结算到商家子商户」。
 > 代码事实依据：`src/config/configuration.ts`（`wechat` / `wechat.partner` 块）、`src/purely-club/payments/*`、`src/purely-profit/stores/stores-wechat-pay*.ts`、`.env.example`。
 > 文档日期：2026-10-29（服务商模式改造后重写，旧版「直连普通商户」内容已作废）。
+> 主体统一（个体工商户 → 纯利宝（昆明）科技有限公司）的执行顺序见 `docs/wechat-entity-migration.md`。
 
 ---
 

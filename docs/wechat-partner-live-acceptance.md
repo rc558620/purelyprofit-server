@@ -1,6 +1,6 @@
 # 服务商模式上线验收手册（1 分钱真实联调）
 
-> 配套：`docs/wechat-pay-setup.md`（配置口径）、`scripts/verify-wechat-partner-live.mjs`（自动自检）。
+> 配套：`docs/wechat-pay-setup.md`（配置口径）、`docs/wechat-entity-migration.md`（主体统一迁移顺序）、`scripts/verify-wechat-partner-live.mjs`（自动自检）。
 > 本文是**执行步骤**：每一步都有命令、预期结果与失败时的处理方向。
 > 未打勾的项目未完成前，不要对全量商家开放。
 

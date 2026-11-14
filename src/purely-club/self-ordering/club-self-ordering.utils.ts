@@ -1,5 +1,9 @@
 import { randomBytes } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 
 /**
  * 自助下单业态门禁：仅面向非餐饮（空间场景）门店。
@@ -10,7 +14,12 @@ export function assertGeneralStoreForSelfOrdering(store: {
   businessMode: string;
 }): void {
   if (store.businessMode === 'catering') {
-    throw new ForbiddenException('餐饮门店请使用扫码点餐');
+    throw new ForbiddenException(
+      clubSelfOrderingError(
+        CLUB_SELF_ORDERING_ERROR_CODE.RULE_BUSINESS_MODE_CATERING,
+        '餐饮门店请使用扫码点餐',
+      ),
+    );
   }
 }
 

@@ -4,6 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
@@ -74,7 +78,12 @@ export class ClubSelfOrderingService {
     // 自助下单面向非餐饮业态；餐饮门店走既有的扫码点餐链路
     assertGeneralStoreForSelfOrdering(currentContext.store);
     if (qrCode.storeId !== currentContext.store.id) {
-      throw new ForbiddenException('该二维码不属于当前门店');
+      throw new ForbiddenException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.AUTH_QR_STORE_MISMATCH,
+          '该二维码不属于当前门店',
+        ),
+      );
     }
 
     const session = await this.prisma.spaceSession.findFirst({
@@ -83,7 +92,12 @@ export class ClubSelfOrderingService {
       select: { id: true },
     });
     if (!session) {
-      throw new NotFoundException('当前空间未开台，请联系工作人员');
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_SPACE_SESSION_NOT_FOUND,
+          '当前空间未开台，请联系工作人员',
+        ),
+      );
     }
 
     return {
@@ -113,7 +127,12 @@ export class ClubSelfOrderingService {
     // 任何入口漏掉提取时，服务端仍能解出 token，不会让已印刷物料凭空失效。
     const token = extractSpaceQrToken(spaceToken);
     if (!token) {
-      throw new BadRequestException('二维码无效，请扫描空间二维码');
+      throw new BadRequestException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.PARAM_QR_TOKEN_INVALID,
+          '二维码无效，请扫描空间二维码',
+        ),
+      );
     }
 
     // 只按摘要查表：明文列已删除，库里没有可直接伪造的凭证
@@ -133,13 +152,28 @@ export class ClubSelfOrderingService {
       },
     });
     if (!qrCode) {
-      throw new NotFoundException('二维码无效，请扫描空间二维码');
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.PARAM_QR_TOKEN_INVALID,
+          '二维码无效，请扫描空间二维码',
+        ),
+      );
     }
     if (qrCode.revokedAt) {
-      throw new BadRequestException('该空间二维码已作废，请联系工作人员');
+      throw new BadRequestException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.STATUS_QR_REVOKED,
+          '该空间二维码已作废，请联系工作人员',
+        ),
+      );
     }
     if (qrCode.space.deletedAt) {
-      throw new NotFoundException('该空间已删除，请联系工作人员');
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_SPACE_DELETED,
+          '该空间已删除，请联系工作人员',
+        ),
+      );
     }
 
     return qrCode;

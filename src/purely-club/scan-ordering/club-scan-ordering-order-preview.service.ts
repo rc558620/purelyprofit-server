@@ -1,4 +1,8 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
@@ -56,7 +60,12 @@ export class ClubScanOrderingOrderPreviewService {
       },
     });
     if (!session?.tableId)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+          '当前桌台会话不可用，请重新扫码',
+        ),
+      );
     return session;
   }
 }

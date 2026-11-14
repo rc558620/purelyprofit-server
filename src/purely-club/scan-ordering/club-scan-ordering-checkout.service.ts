@@ -5,6 +5,10 @@
 // ClubScanOrderingBalanceCheckoutService —— 两者对失败的处理完全不同，
 // 微信发起失败只是没拉起收银台，落账失败则涉及资金与状态机。
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import { randomBytes } from 'node:crypto';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -130,7 +134,13 @@ export class ClubScanOrderingCheckoutService {
         paymentExpiresAt: true,
       },
     });
-    if (!order) throw new ConflictException('订单不可支付或已过期');
+    if (!order)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_NOT_PAYABLE,
+          '订单不可支付或已过期',
+        ),
+      );
     return order;
   }
 
@@ -169,7 +179,12 @@ export class ClubScanOrderingCheckoutService {
       orderBy: { createdAt: 'desc' },
     });
     if (activeAttempt) {
-      throw new ConflictException('支付请求正在处理中，请勿重复发起');
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_PAYMENT_IN_FLIGHT,
+          '支付请求正在处理中，请勿重复发起',
+        ),
+      );
     }
   }
 

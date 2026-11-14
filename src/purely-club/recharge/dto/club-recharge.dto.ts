@@ -104,10 +104,32 @@ export class ClubRechargePackagesResponseDto {
 }
 
 export class ClubRechargeOrderResponseDto extends ClubOrderStatusResponseDto {
-  @ApiProperty({ example: 500, description: '充值金额，单位元' })
+  @ApiProperty({
+    example: 50000,
+    description: '充值金额，单位分（后端权威口径，与落库金额一致）',
+  })
+  rechargeAmountFen: number;
+
+  @ApiProperty({
+    example: 8000,
+    description: '赠送金额，单位分（后端权威口径，与落库金额一致）',
+  })
+  bonusAmountFen: number;
+
+  @ApiProperty({
+    example: 500,
+    description:
+      '充值金额，单位元；兼容字段，待 purelyClub 切换到 rechargeAmountFen 后下线',
+    deprecated: true,
+  })
   rechargeAmount: number;
 
-  @ApiProperty({ example: 80, description: '赠送金额，单位元' })
+  @ApiProperty({
+    example: 80,
+    description:
+      '赠送金额，单位元；兼容字段，待 purelyClub 切换到 bonusAmountFen 后下线',
+    deprecated: true,
+  })
   bonusAmount: number;
 
   @ApiPropertyOptional({

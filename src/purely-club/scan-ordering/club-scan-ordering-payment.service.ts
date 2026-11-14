@@ -4,6 +4,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
@@ -81,7 +85,13 @@ export class ClubScanOrderingPaymentService {
       where: { merchantPaymentNo },
       select: { id: true, orderId: true, amount: true, status: true },
     });
-    if (!attempt) throw new NotFoundException('扫码点餐支付流水不存在');
+    if (!attempt)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_PAYMENT_ATTEMPT_NOT_FOUND,
+          '扫码点餐支付流水不存在',
+        ),
+      );
     // 允许 0 元：积分全额抵扣的订单由内部 confirm-paid 落账，不经过微信收银台
     assertClubPaymentAmountMatchesAllowZero(attempt.amount, params.amountFen);
     const result = await this.paymentLockService.withOrderLock(
@@ -95,7 +105,12 @@ export class ClubScanOrderingPaymentService {
             where: { id: attempt.orderId },
           });
           if (!paymentAttempt || !order) {
-            throw new NotFoundException('扫码点餐订单或支付流水不存在');
+            throw new NotFoundException(
+              clubScanOrderingError(
+                CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_OR_ATTEMPT_NOT_FOUND,
+                '扫码点餐订单或支付流水不存在',
+              ),
+            );
           }
           assertClubPaymentAmountsMatchAllowZero(params.amountFen, [
             paymentAttempt.amount,
@@ -140,7 +155,12 @@ export class ClubScanOrderingPaymentService {
             order.status !== 'pending_payment' ||
             order.paymentStatus !== 'unpaid'
           ) {
-            throw new ConflictException('扫码点餐订单状态不允许确认支付');
+            throw new ConflictException(
+              clubScanOrderingError(
+                CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_NOT_CONFIRMABLE,
+                '扫码点餐订单状态不允许确认支付',
+              ),
+            );
           }
           // 手工补录单没有 clubUserId，不参与会员积分/消费落账。
           const clubUserId = order.clubUserId;
@@ -292,7 +312,13 @@ export class ClubScanOrderingPaymentService {
       },
     });
     // 事务内刚更新过该订单，读不到只可能是数据被并发清理，属异常态
-    if (!snapshot) throw new NotFoundException('扫码点餐订单不存在');
+    if (!snapshot)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '扫码点餐订单不存在',
+        ),
+      );
     return snapshot;
   }
 

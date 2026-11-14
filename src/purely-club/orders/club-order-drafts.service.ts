@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { RedisService } from '../../redis/redis.service';
 import type {
@@ -77,7 +78,12 @@ export class ClubOrderDraftsService {
     );
 
     if (draft.userId !== user.id) {
-      throw new NotFoundException('订单不存在');
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_DRAFT_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     }
 
     return draft;
@@ -95,7 +101,12 @@ export class ClubOrderDraftsService {
     >(buildDraftKey(orderId));
 
     if (!draft || draft.orderType !== expectedType) {
-      throw new NotFoundException('订单不存在');
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_DRAFT_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
     }
 
     const normalizedDraft = normalizeDraft(draft);
@@ -198,7 +209,12 @@ export class ClubOrderDraftsService {
       CLUB_ORDER_DRAFT_TTL_SECONDS,
     );
     if (!created) {
-      throw new ConflictException('订单已存在，请勿重复提交');
+      throw new ConflictException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.STATUS_DRAFT_DUPLICATE,
+          '订单已存在，请勿重复提交',
+        ),
+      );
     }
   }
 }

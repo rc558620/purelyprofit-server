@@ -8,7 +8,9 @@ import path from 'path';
 
 const cliArgs = process.argv.slice(2);
 const enforceLength = cliArgs.includes('--enforce-length');
-const targetFile = cliArgs.find(arg => !arg.startsWith('-') && fs.existsSync(arg));
+const targetFile = cliArgs.find(
+  (arg) => !arg.startsWith('-') && fs.existsSync(arg),
+);
 
 if (!targetFile) {
   console.error('❌ 请指定要检查的文件路径');
@@ -35,8 +37,12 @@ const isConfigLayerFile = normalizedFile.includes(
   `${path.sep}src${path.sep}config${path.sep}`,
 );
 const isPrismaConfigFile = normalizedFile.endsWith('prisma.config.ts');
-const isRedisServiceFile = normalizedFile.endsWith('src/redis/redis.service.ts');
-const isRuleScriptFile = normalizedFile.endsWith('scripts/check-f0rest-rules.mjs');
+const isRedisServiceFile = normalizedFile.endsWith(
+  'src/redis/redis.service.ts',
+);
+const isRuleScriptFile = normalizedFile.endsWith(
+  'scripts/check-f0rest-rules.mjs',
+);
 
 // 1. 检查文件长度 (Rule 10)
 if (lines.length > 400) {
@@ -49,12 +55,22 @@ if (lines.length > 400) {
 }
 
 // 2. 检查异步风格 (Rule 7)
+// NestJS 异常过滤器的 `new XxxExceptionFilter(...).catch(exception, host)` 是
+// 同步生命周期方法，不是 Promise 的 .catch()；单测里直接调用过滤器属于常规写法，
+// 不先排除会把这类文件误判成「异步链式」。
+const contentWithoutFilterCatch = content.replace(
+  /new\s+\w*Filter\([^)]*\)\s*\.catch\s*\(/g,
+  'EXCEPTION_FILTER_CATCH(',
+);
 if (
   isCodeFile &&
   !isRuleScriptFile &&
-  (/\.then\s*\(/.test(content) || /\.catch\s*\(/.test(content))
+  (/\.then\s*\(/.test(contentWithoutFilterCatch) ||
+    /\.catch\s*\(/.test(contentWithoutFilterCatch))
 ) {
-  errors.push('[Rule 7] 后端异步逻辑统一使用 async/await，禁止新增 .then().catch() 链式调用。');
+  errors.push(
+    '[Rule 7] 后端异步逻辑统一使用 async/await，禁止新增 .then().catch() 链式调用。',
+  );
 }
 
 // 3. 检查环境变量读取边界 (Rule 6)
@@ -65,21 +81,37 @@ if (
   !isConfigLayerFile &&
   !isPrismaConfigFile
 ) {
-  errors.push('[Rule 6] 业务代码禁止直接读取 process.env。请统一在 configuration.ts 中映射后通过 ConfigService 获取。');
+  errors.push(
+    '[Rule 6] 业务代码禁止直接读取 process.env。请统一在 configuration.ts 中映射后通过 ConfigService 获取。',
+  );
 }
 
 // 4. Controller 分层检查 (Rule 4)
 if (isControllerFile) {
   if (content.includes('PrismaService')) {
-    errors.push('[Rule 4] controller 禁止直接依赖 PrismaService。请将数据库访问下沉到 service。');
+    errors.push(
+      '[Rule 4] controller 禁止直接依赖 PrismaService。请将数据库访问下沉到 service。',
+    );
   }
 
   if (content.includes('RedisService')) {
-    errors.push('[Rule 4] controller 禁止直接依赖 RedisService。请将缓存读写下沉到 service。');
+    errors.push(
+      '[Rule 4] controller 禁止直接依赖 RedisService。请将缓存读写下沉到 service。',
+    );
   }
 
   if (/bcrypt|hash\(|compare\(/.test(content)) {
-    errors.push('[Rule 4] controller 禁止处理密码哈希或密码比对。请下沉到 service。');
+    errors.push(
+      '[Rule 4] controller 禁止处理密码哈希或密码比对。请下沉到 service。',
+    );
+  }
+
+  // Rule 5 补足：controller 内私建的入参 DTO 不在 .dto.ts 扫描范围内，
+  // 既能绕过 class-validator / Swagger 检查，也破坏「controller 只接收参数」的分层。
+  if (/from ['"]class-validator['"]/.test(content)) {
+    errors.push(
+      '[Rule 5] controller 内禁止引入 class-validator 或私建入参 DTO，请收敛到 dto/*.dto.ts。',
+    );
   }
 
   if (!content.includes('@ApiTags(')) {
@@ -88,18 +120,28 @@ if (isControllerFile) {
 
   const hasRouteDecorator = /@(Get|Post|Put|Patch|Delete)\(/.test(content);
   if (hasRouteDecorator && !content.includes('@ApiOperation(')) {
-    errors.push('[Rule 5] controller 存在路由方法时，必须至少补充 @ApiOperation 注解。');
+    errors.push(
+      '[Rule 5] controller 存在路由方法时，必须至少补充 @ApiOperation 注解。',
+    );
   }
 
-  if (content.includes('JwtAuthGuard') && !content.includes('@ApiBearerAuth(')) {
-    errors.push('[Rule 5] 使用 JwtAuthGuard 的 controller 需要补充 @ApiBearerAuth 注解。');
+  if (
+    content.includes('JwtAuthGuard') &&
+    !content.includes('@ApiBearerAuth(')
+  ) {
+    errors.push(
+      '[Rule 5] 使用 JwtAuthGuard 的 controller 需要补充 @ApiBearerAuth 注解。',
+    );
   }
 }
 
 // 5. DTO 校验检查 (Rule 5)
 if (isDtoFile) {
   const hasValidatorImport = /from ['"]class-validator['"]/.test(content);
-  const hasValidatorDecorator = /@(Is|Validate|Matches|Min|Max|Length|Array|IsOptional|IsEnum)/.test(content);
+  const hasValidatorDecorator =
+    /@(Is|Validate|Matches|Min|Max|Length|Array|IsOptional|IsEnum)/.test(
+      content,
+    );
   const hasSwaggerProperty = /@ApiProperty|@ApiPropertyOptional/.test(content);
 
   if (!hasValidatorImport || !hasValidatorDecorator) {
@@ -107,7 +149,9 @@ if (isDtoFile) {
   }
 
   if (!hasSwaggerProperty) {
-    errors.push('[Rule 5] DTO 必须补充 @ApiProperty 或 @ApiPropertyOptional 注解。');
+    errors.push(
+      '[Rule 5] DTO 必须补充 @ApiProperty 或 @ApiPropertyOptional 注解。',
+    );
   }
 }
 
@@ -118,17 +162,19 @@ if (
   !isRedisServiceFile &&
   /new\s+Redis\s*\(/.test(content)
 ) {
-  errors.push('[Rule 8] 禁止在业务文件里直接 new Redis()。请统一复用 RedisService。');
+  errors.push(
+    '[Rule 8] 禁止在业务文件里直接 new Redis()。请统一复用 RedisService。',
+  );
 }
 
 if (warnings.length > 0) {
   console.warn(`⚠️ 在 ${fileName} 中有 ${warnings.length} 条建议：`);
-  warnings.forEach(warn => console.warn(`   - ${warn}`));
+  warnings.forEach((warn) => console.warn(`   - ${warn}`));
 }
 
 if (errors.length > 0) {
   console.error(`\n❌ 在 ${fileName} 中发现 ${errors.length} 处违规：`);
-  errors.forEach(err => console.error(`   - ${err}`));
+  errors.forEach((err) => console.error(`   - ${err}`));
   process.exit(1);
 } else {
   console.log(`\n✅ ${fileName} 合规。`);

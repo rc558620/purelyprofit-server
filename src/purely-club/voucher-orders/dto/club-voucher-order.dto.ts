@@ -32,6 +32,43 @@ export class ClubVoucherOrderStatusQueryDto {
   verify?: boolean;
 }
 
+/** 团购券订单列表筛选入参 */
+export class ListClubVoucherOrdersQueryDto {
+  @ApiPropertyOptional({
+    enum: ['all', 'pending', 'used', 'refunded', 'expired'],
+    description: '订单状态筛选；不传表示全部',
+  })
+  @IsOptional()
+  @IsIn(['all', 'pending', 'used', 'refunded', 'expired'], {
+    message: 'status 不合法',
+  })
+  status?: string;
+
+  @ApiPropertyOptional({
+    example: 20,
+    default: 20,
+    maximum: 50,
+    description: '每页数量（默认 20，最大 50）',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 最少为 1' })
+  @Max(50, { message: 'limit 最大为 50' })
+  limit?: number;
+
+  @ApiPropertyOptional({
+    example: 0,
+    default: 0,
+    description: '偏移量（默认 0）',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'offset 必须是整数' })
+  @Min(0, { message: 'offset 最少为 0' })
+  offset?: number;
+}
+
 /** 创建团购券订单入参 */
 export class CreateClubVoucherOrderDto {
   @ApiProperty({ example: 11, description: '当前选中的门店 ID' })

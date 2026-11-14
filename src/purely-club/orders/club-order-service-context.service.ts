@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type { ClubServicePricingResolution } from './club-order-promotions.service';
@@ -59,11 +60,21 @@ export class ClubOrderServiceContextService {
     ]);
 
     if (!customer) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          CLUB_MEMBER_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     if (!product || product.stock <= 0) {
-      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RESOURCE_PRODUCT_NOT_FOUND,
+          CLUB_PRODUCT_NOT_FOUND_MESSAGE,
+        ),
+      );
     }
 
     return {
@@ -157,7 +168,12 @@ export class ClubOrderServiceContextService {
     requestedStoreId: number,
   ): void {
     if (currentContext.store.id !== requestedStoreId) {
-      throw new BadRequestException('当前门店已切换，请刷新页面后重试');
+      throw new BadRequestException(
+        clubOrderError(
+          CLUB_ORDER_ERROR_CODE.RULE_STORE_CHANGED,
+          '当前门店已切换，请刷新页面后重试',
+        ),
+      );
     }
   }
 }

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -45,7 +46,9 @@ export class ClubCardBusinessModeGuard implements CanActivate {
 
     // 控制器已挂 ClubJwtAuthGuard，走到这里仍无登录态说明装配顺序有误
     if (!user) {
-      throw new ForbiddenException('请先登录后再操作');
+      throw new ForbiddenException(
+        clubCardError(CLUB_CARD_ERROR_CODE.AUTH_REQUIRED, '请先登录后再操作'),
+      );
     }
 
     const currentContext =
@@ -55,7 +58,10 @@ export class ClubCardBusinessModeGuard implements CanActivate {
 
     if (currentContext.store.businessMode === 'catering') {
       throw new ForbiddenException(
-        CLUB_CARD_CATERING_STORE_UNSUPPORTED_MESSAGE,
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_CATERING_STORE_UNSUPPORTED,
+          CLUB_CARD_CATERING_STORE_UNSUPPORTED_MESSAGE,
+        ),
       );
     }
 

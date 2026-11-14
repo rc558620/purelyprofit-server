@@ -1,4 +1,5 @@
 import { BadRequestException, Logger } from '@nestjs/common';
+import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { fetchPointsEarnConfig } from './club-order-points.utils';
 import type {
@@ -57,7 +58,10 @@ export async function deductPointsForSettlement(
   });
   if (result.count === 0) {
     throw new BadRequestException(
-      '积分不足或已被并发抵扣，当前积分无法完成扣减',
+      clubOrderError(
+        CLUB_ORDER_ERROR_CODE.RULE_POINTS_INSUFFICIENT,
+        '积分不足或已被并发抵扣，当前积分无法完成扣减',
+      ),
     );
   }
 

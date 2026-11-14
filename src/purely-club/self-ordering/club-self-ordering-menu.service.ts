@@ -1,4 +1,8 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
@@ -108,7 +112,12 @@ export class ClubSelfOrderingMenuService {
       select: { id: true },
     });
     if (!session) {
-      throw new ForbiddenException('当前空间会话不可用，请重新扫码');
+      throw new ForbiddenException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.AUTH_SESSION_UNAVAILABLE,
+          '当前空间会话不可用，请重新扫码',
+        ),
+      );
     }
 
     const [categories, products] = await Promise.all([

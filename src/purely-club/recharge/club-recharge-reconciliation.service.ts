@@ -112,7 +112,8 @@ export class ClubRechargeReconciliationService
           createdAt: { lt: resolveStartOfToday() },
           deletedAt: null,
         },
-        orderBy: { createdAt: 'asc' },
+        // 批处理扫描必须全程稳定：同一 createdAt 下补 id，避免跨批次遗漏或重复
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: BATCH_SIZE,
         select: { orderNo: true },
       });

@@ -9,6 +9,10 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { Prisma } from '@prisma/client';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -55,7 +59,10 @@ export class ClubScanOrderingDevelopmentCheckoutService {
       await this.clubPaymentModeService.isManualConfirmPaidAllowed();
     if (!manualConfirmPaidAllowed) {
       throw new ForbiddenException(
-        '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_MANUAL_CONFIRM_DISABLED,
+          '当前环境未开启手动确认支付，请通过支付回调驱动落账',
+        ),
       );
     }
 
@@ -182,7 +189,13 @@ export class ClubScanOrderingDevelopmentCheckoutService {
         deletedAt: null,
       },
     });
-    if (!order) throw new ConflictException('订单不可确认支付');
+    if (!order)
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_NOT_CONFIRMABLE,
+          '订单不可确认支付',
+        ),
+      );
     return order;
   }
 

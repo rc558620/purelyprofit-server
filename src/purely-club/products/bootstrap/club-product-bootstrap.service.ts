@@ -11,6 +11,10 @@
  * 初始规格固定为「1 件 + 商品配置人数」，与前端进入页面时的默认选择对齐；
  * 预计算恒定以 usePoints=true 取价——展示的是「积分最多可抵扣多少」，与开关状态无关。
  */
+import {
+  CLUB_PRODUCT_ERROR_CODE,
+  clubProductError,
+} from '../club-products.errors';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type {
   ClubMemberAccountDto,
@@ -47,7 +51,10 @@ export class ClubProductBootstrapService {
     // 防御性校验：确保上下文已被拦截器正确解析
     if (!currentContext?.user || !currentContext?.store) {
       throw new BadRequestException(
-        '当前请求缺少 purely-club 上下文，请重新进入',
+        clubProductError(
+          CLUB_PRODUCT_ERROR_CODE.PARAM_CONTEXT_MISSING,
+          '当前请求缺少 purely-club 上下文，请重新进入',
+        ),
       );
     }
 

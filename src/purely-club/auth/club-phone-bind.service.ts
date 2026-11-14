@@ -1,3 +1,4 @@
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import {
   ConflictException,
   Injectable,
@@ -64,7 +65,12 @@ export class ClubPhoneBindService {
       },
     });
     if (!currentUser) {
-      throw new NotFoundException('用户不存在');
+      throw new NotFoundException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.RESOURCE_USER_NOT_FOUND,
+          '用户不存在',
+        ),
+      );
     }
 
     // 2. 检查手机号是否已有账号
@@ -81,7 +87,10 @@ export class ClubPhoneBindService {
       });
       if (targetUser?.wechatOpenid) {
         throw new ConflictException(
-          '该手机号已绑定其他微信账号，无法自动合并，请联系客服',
+          clubAuthError(
+            CLUB_AUTH_ERROR_CODE.STATUS_PHONE_BOUND_BY_OTHER_WECHAT,
+            '该手机号已绑定其他微信账号，无法自动合并，请联系客服',
+          ),
         );
       }
       return this.clubAccountMergeService.mergeWechatUserToPhoneUser(
@@ -95,7 +104,12 @@ export class ClubPhoneBindService {
     // 3. 手机号无其他账号：绑定到当前用户，并迁移占位手机号记录
     // 防御性检查：当前账号已绑定手机号时拒绝，避免 wechatPhone 被静默覆盖
     if (currentUser.wechatPhone?.trim()) {
-      throw new ConflictException('当前账号已绑定手机号，无需重复绑定');
+      throw new ConflictException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.STATUS_PHONE_ALREADY_BOUND,
+          '当前账号已绑定手机号，无需重复绑定',
+        ),
+      );
     }
 
     await this.prisma.$transaction(

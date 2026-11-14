@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import { ClubRechargeQueryService } from './club-recharge-query.service';
 import { ClubRechargeService } from './club-recharge.service';
 import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
 import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
+import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 
 describe('ClubRechargeService', () => {
   let service: ClubRechargeService;
@@ -97,6 +99,14 @@ describe('ClubRechargeService', () => {
     toOrderStatusResponse: jest.fn(),
   };
 
+  /** 充值下单幂等桩：默认「无重复提交」，各用例按需覆盖 */
+  const clubOrderIdempotencyService = {
+    normalizeKey: jest.fn(),
+    findOrderNo: jest.fn(),
+    reserve: jest.fn(),
+    release: jest.fn(),
+  };
+
   const clubPaymentLockService = {
     acquireLock: jest.fn().mockResolvedValue('mock-lock-token'),
     releaseLock: jest.fn().mockResolvedValue(undefined),
@@ -160,6 +170,17 @@ describe('ClubRechargeService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // clearAllMocks 只清调用记录、不清实现，这里逐个复位幂等桩，
+    // 避免某个用例改过实现后污染后续用例。
+    clubOrderIdempotencyService.normalizeKey.mockImplementation(
+      (raw?: string): string | null => {
+        const key = raw?.trim();
+        return key && key.length >= 8 ? key : null;
+      },
+    );
+    clubOrderIdempotencyService.findOrderNo.mockResolvedValue(null);
+    clubOrderIdempotencyService.reserve.mockResolvedValue(null);
+    clubOrderIdempotencyService.release.mockResolvedValue(undefined);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, boolean> = {
         'club.manualConfirmPaidEnabled': true,
@@ -239,6 +260,10 @@ describe('ClubRechargeService', () => {
           useValue: clubRechargeWechatVerifyService,
         },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
+        {
+          provide: ClubOrderIdempotencyService,
+          useValue: clubOrderIdempotencyService,
+        },
       ],
     }).compile();
 
@@ -350,6 +375,83 @@ describe('ClubRechargeService', () => {
     });
   });
 
+  // 充值下单幂等：与团购券 / 服务订单同口径，防止双击产生多笔待支付单。
+  // 幂等键是可选请求头，未适配的旧前端必须保持零影响。
+  it('createOrder 未传幂等键时保持旧行为，不占用也不释放幂等占位', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
+
+    await service.createOrder(currentContext, {
+      storeId: 11,
+      customAmount: 268,
+    });
+
+    expect(clubOrderIdempotencyService.reserve).not.toHaveBeenCalled();
+    expect(clubOrderIdempotencyService.release).not.toHaveBeenCalled();
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('createOrder 同一幂等键重复提交复用上一笔订单，不重复建单与预下单', async () => {
+    clubOrderIdempotencyService.findOrderNo.mockResolvedValue('RC123');
+    clubOrderDraftsService.getDraft.mockResolvedValue(createRechargeDraft());
+
+    const result = await service.createOrder(
+      currentContext,
+      { storeId: 11, customAmount: 268 },
+      'idem-key-0001',
+    );
+
+    expect(result.id).toBe('RC123');
+    expect(clubOrderIdempotencyService.findOrderNo).toHaveBeenCalledWith({
+      scope: 'club:recharge-order:create',
+      userId: 201,
+      key: 'idem-key-0001',
+    });
+    expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('createOrder 幂等命中但当前门店已切换时拒绝复用旧订单', async () => {
+    clubOrderIdempotencyService.findOrderNo.mockResolvedValue('RC123');
+    clubOrderDraftsService.getDraft.mockResolvedValue({
+      ...createRechargeDraft(),
+      storeId: 99,
+    });
+
+    await expect(
+      service.createOrder(
+        currentContext,
+        { storeId: 11, customAmount: 268 },
+        'idem-key-0001',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('createOrder 建单失败时释放幂等占位，允许用同一个键重试', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.createDraft.mockRejectedValue(
+      new Error('草稿写入失败'),
+    );
+
+    await expect(
+      service.createOrder(
+        currentContext,
+        { storeId: 11, customAmount: 268 },
+        'idem-key-0001',
+      ),
+    ).rejects.toThrow('草稿写入失败');
+
+    expect(clubOrderIdempotencyService.release).toHaveBeenCalledWith({
+      scope: 'club:recharge-order:create',
+      userId: 201,
+      key: 'idem-key-0001',
+    });
+  });
+
   it('createOrder 使用套餐创建充值订单草稿并返回支付参数', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([
       createPromotion({
@@ -367,6 +469,9 @@ describe('ClubRechargeService', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
+        // 权威分值与兼容元值必须同时输出，老前端仍读元、新前端可读分
+        rechargeAmountFen: 50000,
+        bonusAmountFen: 10000,
         rechargeAmount: 500,
         bonusAmount: 100,
         packageId: '18',

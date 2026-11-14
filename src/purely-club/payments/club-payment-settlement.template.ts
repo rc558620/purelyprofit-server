@@ -1,3 +1,4 @@
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
@@ -42,7 +43,12 @@ export abstract class ClubPaymentSettlementTemplate<
     this.assertDraftPayable(draft.status);
 
     if (!draft.customerId) {
-      throw new NotFoundException(this.memberNotFoundMessage);
+      throw new NotFoundException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.RESOURCE_MEMBER_NOT_FOUND,
+          this.memberNotFoundMessage,
+        ),
+      );
     }
 
     // 获取分布式锁，防止并发回调/重复 confirm 导致重复落账
@@ -51,7 +57,12 @@ export abstract class ClubPaymentSettlementTemplate<
       this.logger.warn(
         `订单 ${draft.orderNo} 正在被并发处理，拒绝本次落账请求`,
       );
-      throw new BadRequestException(CLUB_PAYMENT_ALREADY_PROCESSING_MESSAGE);
+      throw new BadRequestException(
+        clubPayError(
+          CLUB_PAY_ERROR_CODE.STATUS_ALREADY_PROCESSING,
+          CLUB_PAYMENT_ALREADY_PROCESSING_MESSAGE,
+        ),
+      );
     }
 
     try {

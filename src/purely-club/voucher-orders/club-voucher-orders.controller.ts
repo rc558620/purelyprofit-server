@@ -17,8 +17,6 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
@@ -32,33 +30,9 @@ import {
   ClubVoucherOrderResponseDto,
   ClubVoucherOrderStatusQueryDto,
   CreateClubVoucherOrderDto,
+  ListClubVoucherOrdersQueryDto,
   PreviewClubVoucherOrderDto,
 } from './dto/club-voucher-order.dto';
-
-/** 团购券订单列表筛选入参 */
-class ListClubVoucherOrdersQueryDto {
-  /** 状态筛选：all/pending/used/refunded/expired */
-  @IsOptional()
-  @IsIn(['all', 'pending', 'used', 'refunded', 'expired'], {
-    message: 'status 不合法',
-  })
-  status?: string;
-
-  /** 每页数量（默认 20，最大 50） */
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'limit 必须是整数' })
-  @Min(1, { message: 'limit 最少为 1' })
-  @Max(50, { message: 'limit 最大为 50' })
-  limit?: number;
-
-  /** 偏移量（默认 0） */
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'offset 必须是整数' })
-  @Min(0, { message: 'offset 最少为 0' })
-  offset?: number;
-}
 
 @ApiTags('Club / Voucher Orders')
 @ApiBearerAuth()
@@ -123,11 +97,10 @@ export class ClubVoucherOrdersController {
     @CurrentClubContext() currentContext: ClubCurrentContext,
     @Query() query: ListClubVoucherOrdersQueryDto,
   ): Promise<ClubVoucherOrderListResponseDto> {
-    return this.clubVoucherOrdersService.listVoucherOrders(currentContext, {
-      status: query.status,
-      limit: query.limit,
-      offset: query.offset,
-    });
+    return this.clubVoucherOrdersService.listVoucherOrders(
+      currentContext,
+      query,
+    );
   }
 
   @Get(':orderNo')

@@ -1,3 +1,4 @@
+import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import {
   ConflictException,
   Injectable,
@@ -82,16 +83,31 @@ export class ClubPhoneRebindService {
       },
     });
     if (!currentUser) {
-      throw new NotFoundException('用户不存在');
+      throw new NotFoundException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.RESOURCE_USER_NOT_FOUND,
+          '用户不存在',
+        ),
+      );
     }
 
     const previousPhone = currentUser.wechatPhone?.trim() ?? '';
     if (!previousPhone) {
       // 未绑定过手机号：应走 bindPhone（可能触发账号合并），而不是换绑
-      throw new ConflictException('当前账号尚未绑定手机号，请先绑定手机号');
+      throw new ConflictException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.STATUS_PHONE_NOT_BOUND,
+          '当前账号尚未绑定手机号，请先绑定手机号',
+        ),
+      );
     }
     if (previousPhone === dto.phone) {
-      throw new ConflictException('新手机号与当前手机号相同');
+      throw new ConflictException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.PARAM_NEW_PHONE_SAME_AS_CURRENT,
+          '新手机号与当前手机号相同',
+        ),
+      );
     }
 
     // 2. 新手机号不能已属于其他账号 —— 拒绝，绝不合并（见类注释第 1 点）
@@ -101,7 +117,12 @@ export class ClubPhoneRebindService {
         'purely_club',
       );
     if (existingPhoneUser && existingPhoneUser.id !== userId) {
-      throw new ConflictException('该手机号已绑定其他账号，请更换手机号');
+      throw new ConflictException(
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.STATUS_PHONE_BOUND_BY_OTHER_ACCOUNT,
+          '该手机号已绑定其他账号，请更换手机号',
+        ),
+      );
     }
 
     // 跨产品线唯一：注册 / 登录即注册 / 微信登录都走
@@ -409,7 +430,10 @@ export class ClubPhoneRebindService {
     });
     if (conflictingCustomer) {
       throw new ConflictException(
-        '该手机号已被门店内的其他顾客档案占用，请联系商家处理后再换绑',
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.RULE_PHONE_OCCUPIED_BY_OTHER_CUSTOMER,
+          '该手机号已被门店内的其他顾客档案占用，请联系商家处理后再换绑',
+        ),
       );
     }
 
@@ -428,7 +452,10 @@ export class ClubPhoneRebindService {
     });
     if (conflictingMember) {
       throw new ConflictException(
-        '该手机号已被门店内的其他会员档案占用，请联系商家处理后再换绑',
+        clubAuthError(
+          CLUB_AUTH_ERROR_CODE.RULE_PHONE_OCCUPIED_BY_OTHER_MEMBER,
+          '该手机号已被门店内的其他会员档案占用，请联系商家处理后再换绑',
+        ),
       );
     }
 
@@ -527,7 +554,10 @@ export class ClubPhoneRebindService {
       (CLUB_PHONE_REBIND_COOLDOWN_MS - elapsed) / MS_PER_DAY,
     );
     throw new ConflictException(
-      `手机号换绑过于频繁，请 ${remainingDays} 天后再试`,
+      clubAuthError(
+        CLUB_AUTH_ERROR_CODE.RULE_REBIND_COOLDOWN,
+        `手机号换绑过于频繁，请 ${remainingDays} 天后再试`,
+      ),
     );
   }
 }

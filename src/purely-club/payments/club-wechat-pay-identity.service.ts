@@ -30,8 +30,10 @@ export interface ClubWechatPayTarget {
   signMchId: string;
   /** 资金结算去向商户号：服务商模式为子商户号，直连模式与 signMchId 同值 */
   settleMchId: string;
-  /** 下单与前端拉起支付使用的 appid（服务商模式下为 sp_appid） */
+  /** 下单使用的 appid（服务商模式下为 sp_appid，直连模式下为小程序 appid） */
   appId: string;
+  /** 实际调起支付的小程序 appid（sub_appid）；未启用 sub_appid 口径时为 undefined */
+  subAppId?: string;
   /** 支付回调地址 */
   notifyUrl: string;
 }
@@ -142,6 +144,16 @@ export class ClubWechatPayIdentityService {
       );
     }
 
+    /*
+     * sub_appid 是「异主体期」的过渡口径：sp_appid 用服务商同主体的壳小程序，
+     * purelyClub 只能作为 sub_appid 并配 payer.sub_openid。
+     * 主体统一到服务商主体后，这一项应留空，下单自动回落 sp_appid + sp_openid，
+     * 无需改代码 —— 但切换前必须先确认服务商后台已完成 club appid 关联。
+     */
+    const subAppId = this.configService
+      .get<string>('wechat.partner.subAppId')
+      ?.trim();
+
     return {
       mode: 'partner',
       signMchId: this.requireConfig(
@@ -153,6 +165,7 @@ export class ClubWechatPayIdentityService {
         'wechat.partner.spAppId',
         '服务商模式下的支付 AppID（sp_appid）未配置',
       ),
+      ...(subAppId ? { subAppId } : {}),
       notifyUrl: this.requireConfig(
         'wechat.partner.notifyUrl',
         '服务商模式下的支付回调地址未配置，微信支付成功后无法通知到平台',

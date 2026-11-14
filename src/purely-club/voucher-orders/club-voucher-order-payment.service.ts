@@ -5,6 +5,10 @@
 // 「支付成功落账」在 ClubVoucherOrderSettlementService。
 // 对外方法签名保持不变，controller / 回调 / 队列调用点零改动。
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_VOUCHER_ERROR_CODE,
+  clubVoucherError,
+} from './club-voucher-orders.errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -116,7 +120,12 @@ export class ClubVoucherOrderPaymentService {
     if (occupied) {
       return occupied;
     }
-    throw new ConflictException('订单正在处理，请稍后在订单列表查看');
+    throw new ConflictException(
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.STATUS_ORDER_PROCESSING,
+        '订单正在处理，请稍后在订单列表查看',
+      ),
+    );
   }
 
   /** 释放幂等占位；失败只会让对方多等一个 TTL，不影响已抛出的业务错误 */

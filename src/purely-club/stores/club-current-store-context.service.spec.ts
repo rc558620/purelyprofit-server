@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { AllExceptionsFilter } from '../../bootstrap/all-exceptions.filter';
 import { RedisService } from '../../redis/redis.service';
 import { ClubStoreAccessService } from './club-store-access.service';
+import type { ClubAccessibleStoreRecord } from './club-stores.types';
 import {
   ClubCurrentStoreContextService,
   CLUB_NO_ACCESSIBLE_STORE_CODE,
@@ -20,6 +21,20 @@ import {
  */
 describe('ClubCurrentStoreContextService', () => {
   let service: ClubCurrentStoreContextService;
+
+  /** 构造完整的可访问门店记录：直接调用 service 时不能只给 id/name */
+  const buildAccessibleStore = (
+    id: number,
+    name: string,
+  ): ClubAccessibleStoreRecord => ({
+    id,
+    name,
+    address: null,
+    businessMode: 'general',
+    memberCareEnabled: false,
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-12T00:00:00.000Z'),
+  });
 
   const user: AuthenticatedUser = {
     id: 215,
@@ -46,6 +61,9 @@ describe('ClubCurrentStoreContextService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认「未选店」：clearAllMocks 只清调用记录、不清实现，
+    // 不复位的话某些用例设置的 mockResolvedValue('37') 会污染后续用例。
+    redisService.get.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -136,6 +154,64 @@ describe('ClubCurrentStoreContextService', () => {
 
       await expect(service.getCurrentStore(user)).resolves.toEqual(stores[1]);
       expect(redisService.del).not.toHaveBeenCalled();
+    });
+
+    it('仅一家门店时仍自动选中并持久化，保持老用户零感知', async () => {
+      const stores = [{ id: 9, name: '门店甲' }];
+      clubStoreAccessService.findAccessibleStores.mockResolvedValue(stores);
+
+      await expect(service.getCurrentStore(user)).resolves.toEqual(stores[0]);
+      expect(redisService.set).toHaveBeenCalledWith(
+        'club:selected-store:215',
+        '9',
+        expect.any(Number),
+      );
+    });
+
+    it('多家门店且未选店时拒绝隐式回落，携带 NO_ACCESSIBLE_STORE 业务码', async () => {
+      clubStoreAccessService.findAccessibleStores.mockResolvedValue([
+        { id: 9, name: '门店甲' },
+        { id: 37, name: '门店乙' },
+      ]);
+
+      await expect(service.getCurrentStore(user)).rejects.toMatchObject({
+        status: 404,
+        response: expect.objectContaining({
+          message: '当前账号暂无可访问门店',
+          code: CLUB_NO_ACCESSIBLE_STORE_CODE,
+        }),
+      });
+      // 关键：不能把第一个门店写进选店缓存，否则前端跳到选店页后
+      // 列表接口会「替用户选好」，拦截形同虚设。
+      expect(redisService.set).not.toHaveBeenCalled();
+    });
+
+    it('选店缓存指向已不可访问的门店时要求重新选店，并清掉脏缓存', async () => {
+      clubStoreAccessService.findAccessibleStores.mockResolvedValue([
+        { id: 9, name: '门店甲' },
+        { id: 37, name: '门店乙' },
+      ]);
+      redisService.get.mockResolvedValue('999');
+
+      await expect(service.getCurrentStore(user)).rejects.toMatchObject({
+        status: 404,
+        response: expect.objectContaining({
+          code: CLUB_NO_ACCESSIBLE_STORE_CODE,
+        }),
+      });
+      expect(redisService.del).toHaveBeenCalledWith('club:selected-store:215');
+    });
+
+    it('门店列表的 currentStoreId 在多门店未选店时为 null，不产生选店副作用', async () => {
+      const stores: ClubAccessibleStoreRecord[] = [
+        buildAccessibleStore(9, '门店甲'),
+        buildAccessibleStore(37, '门店乙'),
+      ];
+
+      await expect(
+        service.resolveCurrentStoreId(user.id, stores),
+      ).resolves.toBeNull();
+      expect(redisService.set).not.toHaveBeenCalled();
     });
   });
 });

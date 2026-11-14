@@ -4,6 +4,10 @@
 // 建单是「幂等 + 事务」；两者混在一起时，任何价格规则调整都要在同一段代码里
 // 穿过幂等闸门去改，回归面被放大。
 import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  CLUB_SELF_ORDERING_ERROR_CODE,
+  clubSelfOrderingError,
+} from './club-self-ordering.errors';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
 import type { SelfOrderItemInputDto } from './dto/create-self-order.dto';
 
@@ -104,7 +108,12 @@ export class ClubSelfOrderingPricingService {
   ): Promise<PricedSelfOrderItem> {
     const productId = Number(line.productId);
     if (!Number.isInteger(productId) || productId <= 0) {
-      throw new NotFoundException('购物车中存在无效商品，请刷新后重试');
+      throw new NotFoundException(
+        clubSelfOrderingError(
+          CLUB_SELF_ORDERING_ERROR_CODE.PARAM_CART_ITEM_INVALID,
+          '购物车中存在无效商品，请刷新后重试',
+        ),
+      );
     }
 
     let priced: Awaited<ReturnType<ProductSpecPricingService['price']>>;
@@ -116,7 +125,12 @@ export class ClubSelfOrderingPricingService {
       });
     } catch (error) {
       if (error instanceof NotFoundException) {
-        throw new NotFoundException('购物车中存在已下架商品，请刷新后重试');
+        throw new NotFoundException(
+          clubSelfOrderingError(
+            CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_PRODUCT_OFF_SHELF,
+            '购物车中存在已下架商品，请刷新后重试',
+          ),
+        );
       }
       throw error;
     }

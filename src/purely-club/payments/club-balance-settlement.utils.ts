@@ -10,6 +10,7 @@
  * - 本函数只负责「扣款 + 可选指标更新」，不写消费流水、不发积分、不处理幂等；
  * - 流水表 / 赠送积分 / 订单状态流转仍由各业务链路负责（它们口径确实不同）。
  */
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
@@ -46,7 +47,10 @@ export interface DebitCustomerBalanceParams {
 /** 统一兜底文案：无法回读最新余额（并发失败时行已变），只展示扣款额 */
 const buildDefaultInsufficientError = (balancePaidFen: number): Error =>
   new BadRequestException(
-    `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+    clubPayError(
+      CLUB_PAY_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+      `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+    ),
   );
 
 /** 构造指标更新字段：等级阈值必须读门店配置，不能用硬编码兜底值 */

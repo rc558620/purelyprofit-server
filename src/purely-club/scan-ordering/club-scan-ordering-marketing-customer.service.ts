@@ -1,4 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
@@ -169,7 +173,10 @@ export class ClubScanOrderingMarketingCustomerService {
     );
     if (!customer) {
       throw new ConflictException(
-        '当前门店未开通余额支付，请先完成会员绑定或充值',
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_BALANCE_PAYMENT_NOT_ENABLED,
+          '当前门店未开通余额支付，请先完成会员绑定或充值',
+        ),
       );
     }
     return customer;

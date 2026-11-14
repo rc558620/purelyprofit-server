@@ -150,7 +150,7 @@ describe('ClubStoresService', () => {
     service = module.get<ClubStoresService>(ClubStoresService);
   });
 
-  it('list 在无历史选择时回落到第一个可访问门店并持久化', async () => {
+  it('list 在多门店且无历史选择时不替用户选店，currentStoreId 为 null', async () => {
     const store11 = createStore({ id: 11, name: '望京旗舰店' });
     const store12 = createStore({ id: 12, name: '三里屯店' });
 
@@ -166,6 +166,23 @@ describe('ClubStoresService', () => {
         { id: 11, name: '望京旗舰店', ...expectedStoreSummary },
         { id: 12, name: '三里屯店', ...expectedStoreSummary },
       ],
+      currentStoreId: null,
+    });
+    // 不能把第一个门店写进选店缓存：否则选店页会「替用户选好」，
+    // 让 getCurrentStore 的强制选店拦截形同虚设。
+    expect(redisService.set).not.toHaveBeenCalled();
+  });
+
+  it('list 仅一家门店时仍自动选中并持久化，保持老用户零感知', async () => {
+    const onlyStore = createStore({ id: 11, name: '望京旗舰店' });
+
+    prismaService.store.findMany.mockResolvedValueOnce([onlyStore]);
+    redisService.get.mockResolvedValue(null);
+    storesProfileService.batchReadStoreProfileMetadata.mockResolvedValue([
+      mockMetadata,
+    ]);
+
+    await expect(service.list(user)).resolves.toMatchObject({
       currentStoreId: 11,
     });
     expect(redisService.set).toHaveBeenCalledWith(
