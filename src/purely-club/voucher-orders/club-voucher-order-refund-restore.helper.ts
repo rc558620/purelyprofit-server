@@ -5,8 +5,7 @@
 // 两条退款链路必须走同一份回补逻辑，避免一处改了另一处漏改。
 import { Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
-import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
+import { applyCustomerMetrics } from '../shared/club-customer-metrics.helper';
 
 const logger = new Logger('ClubVoucherOrderRefundRestore');
 
@@ -72,7 +71,7 @@ export async function restoreVoucherBalance(
 
   const customer = await tx.marketingCustomer.findFirst({
     where: { id: order.customerId, storeId: order.storeId, deletedAt: null },
-    select: { id: true, totalSpent: true, visitCount: true, points: true },
+    select: { id: true, points: true },
   });
   if (!customer) return;
 
@@ -111,20 +110,17 @@ export async function restoreVoucherBalance(
   // （见 computeCustomerConsumptionStats）。
   const refundAmountFen = order.paidAmountFen + order.pointsDeductFen;
 
-  // totalSpent / visitCount 用绝对赋值避免历史数据异常导致负数；
-  // visitCount 与结算时 increment: 1 对称回退——本笔消费既已取消，累计次数必须回滚，
+  // 余额退回 + totalSpent/visitCount 回滚 + 等级重算一次原子完成：
+  // 回滚用 SQL 侧 GREATEST(col - delta, 0)，并发退款不会互相覆盖成负值；
+  // 等级按数据库回滚后的真实 totalSpent 重算，不再用本函数开头读到的旧值绝对赋值。
+  // visitCount 与结算时 +1 对称回退——本笔消费既已取消，累计次数必须回滚，
   // 否则会与已回退的 totalSpent 形成账实偏差（次数虚高、等级门槛失真）。
-  const newTotalSpent = Math.max(customer.totalSpent - refundAmountFen, 0);
-  const newVisitCount = Math.max(customer.visitCount - 1, 0);
-  // 与消费落账同源：读门店会员等级设置的可配置阈值
-  const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
-  await tx.marketingCustomer.update({
-    where: { id: customer.id },
-    data: {
-      balance: { increment: order.paidAmountFen },
-      totalSpent: newTotalSpent,
-      visitCount: newVisitCount,
-      tier: calcCustomerTier(newTotalSpent, thresholds) as never,
-    },
+  await applyCustomerMetrics(tx, {
+    customerId: customer.id,
+    storeId: order.storeId,
+    balanceDelta: order.paidAmountFen,
+    totalSpentDelta: -refundAmountFen,
+    visitCountDelta: -1,
+    touchLastVisitAt: false,
   });
 }

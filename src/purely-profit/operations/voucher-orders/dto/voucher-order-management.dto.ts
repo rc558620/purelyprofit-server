@@ -9,6 +9,7 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { transformOptionalKeyword } from '../../../stores/dto/store-response.dto';
@@ -79,6 +80,17 @@ export class QueryVoucherOrdersDto {
   @IsInt({ message: 'offset 必须是整数' })
   @Min(0, { message: 'offset 最小为 0' })
   offset?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。' +
+      '传入时优先于 offset（兼容期保留 offset 走旧路径）',
+    example: 'v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMF0sImlkIjo0Mn0',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(256, { message: 'cursor 长度不合法' })
+  cursor?: string;
 }
 
 /** 商家端团购券订单列表项 */
@@ -184,9 +196,21 @@ export class VoucherOrderListResponseDto {
   @ApiProperty({ type: [VoucherOrderListItemDto] })
   items!: VoucherOrderListItemDto[];
 
-  /** 总数（同筛选条件下） */
-  @ApiProperty({ description: '总数' })
+  /** 总数（同筛选条件下，全量口径：不含游标条件） */
+  @ApiProperty({ description: '总数（同筛选条件下的全量口径）' })
   total!: number;
+
+  /** 是否还有下一页（恒等于 nextCursor 非空，供只读 hasMore 的旧前端沿用） */
+  @ApiProperty({ description: '是否还有下一页', example: false })
+  hasMore!: boolean;
+
+  /** 下一页游标：null 表示已到底；原样回传给下次请求的 cursor 参数 */
+  @ApiProperty({
+    description: '下一页游标，null 表示已到底',
+    type: String,
+    nullable: true,
+  })
+  nextCursor!: string | null;
 }
 
 /** 更新团购券新订单语音播报开关 */

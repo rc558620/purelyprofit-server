@@ -41,11 +41,12 @@ import {
   queryMembersOverview,
   queryMembersPage,
 } from './members.query';
+import { buildPaginationMeta, toDbMemberStatus } from './members.utils';
 import {
-  buildPaginationMeta,
-  resolvePagination,
-  toDbMemberStatus,
-} from './members.utils';
+  encodeMemberListCursor,
+  resolveMemberListPaging,
+} from './members.cursor';
+import type { MemberListPaging } from './members.cursor';
 
 const MEMBERS_LIST_CACHE_TTL_SECONDS = 90;
 const MEMBERS_LIST_REFRESH_AFTER_MS = 20_000;
@@ -74,17 +75,17 @@ export class MembersReadService {
       query.storeId,
       '无权查看该门店会员列表',
     );
-    const {
-      page: currentPage,
-      skip,
-      take,
-    } = this.resolvePage(query.page, query.pageSize);
+    // 入参校验先于缓存与取数：cursor 非法时直接 400，不白跑一次查询
+    const paging = resolveMemberListPaging(query, this.resolvePagingBounds());
 
     if (storeId === null) {
-      return {
-        items: [],
-        meta: buildPaginationMeta(0, currentPage, take),
-      };
+      return buildEmptyMembersPage(paging);
+    }
+
+    // 游标页不进缓存：cursor 天生一次性，按 cursor 拼 key 会让缓存无界增长，
+    // 且无法被会员列表的统一失效 pattern 覆盖。
+    if (paging.cursor) {
+      return this.buildMemberListPage(storeId, query, paging);
     }
 
     const cacheKey = buildMembersListCacheKey(storeId, {
@@ -92,8 +93,8 @@ export class MembersReadService {
       level: query.level,
       keyword: query.keyword,
       partner: query.partner,
-      page: currentPage,
-      pageSize: take,
+      page: paging.page,
+      pageSize: paging.limit,
     });
 
     return this.refreshableCache.getOrLoadRefreshableJson({
@@ -101,33 +102,51 @@ export class MembersReadService {
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MEMBERS_LIST_CACHE_TTL_SECONDS,
       refreshAfterMs: MEMBERS_LIST_REFRESH_AFTER_MS,
-      loadValue: async () => {
-        const { items, total } = await queryMembersPage(this.prisma, {
-          storeId,
-          status: toDbMemberStatus(query.status),
-          level: query.level,
-          keyword: query.keyword,
-          onlyPartners: query.partner,
-          skip,
-          take,
-        });
-        // 列表必须与详情口径一致：批量带出充值记录，避免 rechargeHistory 恒为空
-        const rechargeRecordsByMemberId = await queryMemberRechargeHistories(
-          this.prisma,
-          items.map((item) => item.id),
-        );
-
-        return {
-          items: items.map((item) =>
-            toMemberResponse(
-              item,
-              rechargeRecordsByMemberId.get(item.id) ?? [],
-            ),
-          ),
-          meta: buildPaginationMeta(total, currentPage, take),
-        };
-      },
+      loadValue: () => this.buildMemberListPage(storeId, query, paging),
     });
+  }
+
+  /**
+   * 会员列表取数与响应组装（两条路径共用）。
+   *
+   * 到底判定分两条：游标路径靠 `take = limit + 1` 的探测行；offset 路径没有探测行，
+   * 只能用 `offset + 已取条数 < total` 推导。两条路径都产出 nextCursor。
+   */
+  private async buildMemberListPage(
+    storeId: number,
+    query: ListMembersQueryDto,
+    paging: MemberListPaging,
+  ): Promise<PaginatedMembersResponseDto> {
+    const { items, total } = await queryMembersPage(this.prisma, {
+      storeId,
+      status: toDbMemberStatus(query.status),
+      level: query.level,
+      keyword: query.keyword,
+      onlyPartners: query.partner,
+      skip: paging.offset,
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      cursor: paging.cursor,
+    });
+
+    const hasMore = paging.cursor
+      ? items.length > paging.limit
+      : paging.offset + items.length < total;
+    const pageItems = paging.cursor ? items.slice(0, paging.limit) : items;
+    // 列表必须与详情口径一致：批量带出充值记录，避免 rechargeHistory 恒为空
+    const rechargeRecordsByMemberId = await queryMemberRechargeHistories(
+      this.prisma,
+      pageItems.map((item) => item.id),
+    );
+    const lastItem = pageItems.at(-1);
+
+    return {
+      items: pageItems.map((item) =>
+        toMemberResponse(item, rechargeRecordsByMemberId.get(item.id) ?? []),
+      ),
+      meta: buildPaginationMeta(total, paging.page, paging.limit),
+      hasMore,
+      nextCursor: hasMore && lastItem ? encodeMemberListCursor(lastItem) : null,
+    };
   }
 
   async getMeta(
@@ -303,15 +322,26 @@ export class MembersReadService {
     return toMemberResponse(member, rechargeRecords);
   }
 
-  private resolvePage(
-    page?: number,
-    pageSize?: number,
-  ): { page: number; skip: number; take: number } {
-    const defaultPageSize =
-      this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize =
-      this.configService.get<number>('app.maxPageSize') ?? 100;
-
-    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
+  private resolvePagingBounds(): {
+    defaultPageSize: number;
+    maxPageSize: number;
+  } {
+    return {
+      defaultPageSize:
+        this.configService.get<number>('app.defaultPageSize') ?? 20,
+      maxPageSize: this.configService.get<number>('app.maxPageSize') ?? 100,
+    };
   }
+}
+
+/** 空页响应：meta 口径与迁移前一致，仅新增游标字段 */
+function buildEmptyMembersPage(
+  paging: MemberListPaging,
+): PaginatedMembersResponseDto {
+  return {
+    items: [],
+    meta: buildPaginationMeta(0, paging.page, paging.limit),
+    hasMore: false,
+    nextCursor: null,
+  };
 }

@@ -9,10 +9,11 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
-import type { MemberCardKind, MemberCardPlan, Prisma } from '@prisma/client';
+import type { MemberCardKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildClubMemberDisplayName,
@@ -21,9 +22,48 @@ import {
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   CLUB_CARD_CUSTOMER_NOT_FOUND_MESSAGE,
+  CLUB_CARD_PLAN_LIST_MAX_LIMIT,
   CLUB_CARD_PLAN_NOT_FOUND_MESSAGE,
   CLUB_CARD_STORE_CHANGED_MESSAGE,
 } from './club-cards.constants';
+
+/**
+ * 购卡页档位投影：与 `toPlanView` 的入参逐字段对应。
+ *
+ * 模板表还有 perUseTimes / usableSpaceTypes / usableWeekdays / maxGuestPerUse
+ * 等「开台核销规则」列，C 端购卡页一个都不展示，由核销链路自行读取，
+ * 因此不属于本投影。
+ */
+const CLUB_CARD_PLAN_LIST_SELECT = {
+  id: true,
+  kind: true,
+  name: true,
+  price: true,
+  originalPrice: true,
+  validDays: true,
+  totalTimes: true,
+} as const satisfies Prisma.MemberCardPlanSelect;
+
+/** 购卡页档位记录（= 上述投影的查询返回类型） */
+export type ClubCardPlanListRecord = Prisma.MemberCardPlanGetPayload<{
+  select: typeof CLUB_CARD_PLAN_LIST_SELECT;
+}>;
+
+/**
+ * 单张模板上下文投影：下单只需「身份 + 单价 + 限购」，其余规则列由落账链路读取。
+ */
+const CLUB_CARD_PLAN_CONTEXT_SELECT = {
+  id: true,
+  kind: true,
+  name: true,
+  price: true,
+  purchaseLimit: true,
+} as const satisfies Prisma.MemberCardPlanSelect;
+
+/** 单张模板上下文记录（= 上述投影的查询返回类型） */
+export type ClubCardPlanContextRecord = Prisma.MemberCardPlanGetPayload<{
+  select: typeof CLUB_CARD_PLAN_CONTEXT_SELECT;
+}>;
 
 /** 本人顾客档案摘要（下单落库与快照用） */
 export interface ClubCardCustomerSnapshot {
@@ -38,12 +78,14 @@ export interface ClubCardCustomerSnapshot {
 
 /** 可售卡模板 + 所属门店名 */
 export interface ClubCardPlanContext {
-  plan: MemberCardPlan;
+  plan: ClubCardPlanContextRecord;
   storeName: string;
 }
 
 @Injectable()
 export class ClubCardContextService {
+  private readonly logger = new Logger(ClubCardContextService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /** 校验请求里的门店与当前门店一致（防止切换门店后旧页面继续下单） */
@@ -65,8 +107,8 @@ export class ClubCardContextService {
   async listAvailablePlans(params: {
     storeId: number;
     kind?: MemberCardKind;
-  }): Promise<MemberCardPlan[]> {
-    return this.prisma.memberCardPlan.findMany({
+  }): Promise<ClubCardPlanListRecord[]> {
+    const plans = await this.prisma.memberCardPlan.findMany({
       where: {
         storeId: params.storeId,
         isActive: true,
@@ -75,7 +117,18 @@ export class ClubCardContextService {
       },
       // 价格升序：购卡页 Tab 内按档位从低到高，排序在 SQL 侧完成避免内存抖动
       orderBy: [{ price: 'asc' }, { id: 'asc' }],
+      // 兜底上限：业务依据见 CLUB_CARD_PLAN_LIST_MAX_LIMIT 的注释
+      take: CLUB_CARD_PLAN_LIST_MAX_LIMIT,
+      select: CLUB_CARD_PLAN_LIST_SELECT,
     });
+
+    // 命中上限说明门店档位数据异常（远超正常个位数档位），留痕便于排查而非静默截断
+    if (plans.length >= CLUB_CARD_PLAN_LIST_MAX_LIMIT) {
+      this.logger.warn(
+        `[club-cards] 门店 ${params.storeId} 上架卡模板达到上限 ${CLUB_CARD_PLAN_LIST_MAX_LIMIT}，购卡页已按价格升序截断`,
+      );
+    }
+    return plans;
   }
 
   /** 当前门店的单张可购卡模板 */
@@ -90,6 +143,7 @@ export class ClubCardContextService {
         isActive: true,
         deletedAt: null,
       },
+      select: CLUB_CARD_PLAN_CONTEXT_SELECT,
     });
 
     if (!plan) {

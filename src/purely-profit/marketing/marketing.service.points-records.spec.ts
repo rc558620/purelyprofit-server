@@ -53,6 +53,8 @@ describe('MarketingService points records', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
   });
 

@@ -41,6 +41,12 @@ describe('ClubSelfOrderingPaymentService', () => {
 
   /** 事务内客户端 mock */
   const tx = {
+    // 顾客消费指标走 UPDATE ... RETURNING，返回一行模拟条件更新命中
+    $queryRaw: jest
+      .fn()
+      .mockResolvedValue([
+        { total_spent: 100, visit_count: 1, balance: 900, tier: 'regular' },
+      ]),
     marketingCustomer: { updateMany: jest.fn() },
     selfOrder: { updateMany: jest.fn() },
     selfOrderPaymentAttempt: { updateMany: jest.fn(), upsert: jest.fn() },
@@ -156,14 +162,11 @@ describe('ClubSelfOrderingPaymentService', () => {
     it('支付成功：条件扣减余额并以乐观锁置为已支付', async () => {
       await service.createBalancePayment(user, 1);
 
-      expect(tx.marketingCustomer.updateMany).toHaveBeenCalledWith({
-        where: expect.objectContaining({
-          id: 55,
-          balance: { gte: 1600 },
-          status: 'active',
-        }),
-        data: { balance: { decrement: 1600 } },
-      });
+      // 扣款走同一条带 balance >= 1600 / status = active 的原子 UPDATE ... RETURNING
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+      const params = tx.$queryRaw.mock.calls[0].slice(1) as unknown[];
+      expect(params).toContain(-1600);
+      expect(params).toContain(55);
       expect(tx.selfOrder.updateMany).toHaveBeenCalledWith({
         where: {
           id: 1,
@@ -209,7 +212,8 @@ describe('ClubSelfOrderingPaymentService', () => {
     });
 
     it('余额不足时拒绝支付', async () => {
-      tx.marketingCustomer.updateMany.mockResolvedValue({ count: 0 });
+      // RETURNING 返回空 = 余额条件未命中
+      tx.$queryRaw.mockResolvedValueOnce([]);
 
       await expect(service.createBalancePayment(user, 1)).rejects.toThrow(
         ConflictException,

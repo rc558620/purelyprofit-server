@@ -42,7 +42,14 @@ export class ClubProductQueryService {
     return records;
   }
 
-  /** 商品不存在的空结果不缓存：避免新上架商品被空值挡住一个 TTL。 */
+  /**
+   * 按门店查询上架商品详情。
+   *
+   * 命中与「确认不存在」都走缓存：后者是短 TTL 负缓存，避免已删除 / 被枚举的
+   * productId 每次都打到数据库。负缓存的安全边界由 detail key 里的商品版本
+   * 保证 —— 上架、重新上架、改价都会切换版本，新 key 必然回源，
+   * 因此不会出现「新上架商品被空值挡住」。
+   */
   async getActiveDetailByStore(
     storeId: number,
     productId: number,
@@ -51,8 +58,9 @@ export class ClubProductQueryService {
       storeId,
       productId,
     );
-    const cached = await this.clubProductCacheService.readDetail(cacheKey);
-    if (cached) {
+    // undefined = 未命中；null = 负缓存命中（确认不存在），无需回源
+    const cached = await this.clubProductCacheService.readDetailEntry(cacheKey);
+    if (cached !== undefined) {
       return cached;
     }
 
@@ -65,7 +73,9 @@ export class ClubProductQueryService {
       select: clubProductSelect,
     });
     if (product) {
-      await this.clubProductCacheService.writeDetail(cacheKey, product);
+      await this.clubProductCacheService.writeDetailHit(cacheKey, product);
+    } else {
+      await this.clubProductCacheService.writeDetailAbsent(cacheKey);
     }
     return product;
   }

@@ -6,7 +6,7 @@ import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type { RedisService } from './redis.service';
 
 export type MembershipCacheInvalidatorInput = {
-  redisService: Pick<RedisService, 'del' | 'delByPattern'>;
+  redisService: Pick<RedisService, 'del' | 'delByPattern' | 'delByPatterns'>;
 };
 
 export type MembershipCacheInvalidatorRegistry = {

@@ -7,7 +7,14 @@
 // 手机号在响应中返回完整号码（商家需联系顾客）
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import {
   CLUB_MEMBER_LEVEL_VALUES,
   type ClubMemberLevelValue,
@@ -262,6 +269,20 @@ export class MarketingPointsRecordsResponseDto {
 
   @ApiProperty({ type: MarketingPaginationMetaDto })
   meta: MarketingPaginationMetaDto;
+
+  @ApiProperty({ description: '是否还有下一页（恒等于 nextCursor !== null）' })
+  @IsBoolean({ message: 'hasMore 必须是布尔值' })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: 'nextCursor 必须是字符串' })
+  nextCursor: string | null;
 }
 
 // ─── 会员等级设置 ─────────────────────────────────────────────────────

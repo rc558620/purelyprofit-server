@@ -71,6 +71,9 @@ export function buildEmptySalesListResponse(
     items: [],
     meta: buildPaginationMeta(0, page, pageSize),
     summary: buildEmptySalesStats(),
+    // 空页恒为到底：hasMore 与 nextCursor 必须始终满足 hasMore === (nextCursor !== null)
+    hasMore: false,
+    nextCursor: null,
   };
 }
 

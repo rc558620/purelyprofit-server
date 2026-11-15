@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -110,6 +111,17 @@ export class ListMembersQueryDto extends PaginationQueryDto {
   @Transform(transformOptionalKeyword)
   @IsString({ message: '搜索关键词必须是字符串' })
   keyword?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。' +
+      '传入时优先于 page（兼容期保留 page/pageSize 走旧路径）',
+    example: 'v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMF0sImlkIjo0Mn0',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(256, { message: 'cursor 长度不合法' })
+  cursor?: string;
 }
 
 export class ListMemberSnapshotsQueryDto {
@@ -302,4 +314,18 @@ export class PaginatedMembersResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto, description: '分页元信息' })
   meta: PaginationMetaDto;
+
+  @ApiProperty({
+    description: '是否还有下一页（恒等于 nextCursor 非空）',
+    example: false,
+  })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  nextCursor: string | null;
 }

@@ -21,6 +21,7 @@ import {
   type ClubAccessibleStoreRecord,
 } from './club-stores.types';
 import { CLUB_STORES_ERROR_CODE, clubStoresError } from './club-stores.errors';
+import { ClubCurrentContextCache } from './club-current-context.cache';
 
 const CLUB_INVALID_INVITE_CODE_MESSAGE = '邀请码无效或门店不存在';
 const CLUB_INVALID_SCAN_CODE_MESSAGE = '扫码结果无效，未识别到门店邀请码';
@@ -39,6 +40,7 @@ export class ClubStoreAccessService {
     private readonly inviteCodeMapService: ClubInviteCodeMapService,
     private readonly inviteAttributionService: ClubInviteAttributionService,
     private readonly memberBindingService: ClubMemberBindingService,
+    private readonly clubCurrentContextCache: ClubCurrentContextCache,
   ) {}
 
   /**
@@ -70,16 +72,57 @@ export class ClubStoreAccessService {
     };
   }
 
+  /** 可访问门店缓存的 key；上下文服务会把它与「选中门店」key 合并成一次 MGET */
+  buildAccessibleStoresCacheKey(userId: number): string {
+    return `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${userId}`;
+  }
+
+  /**
+   * 解析缓存里的门店列表。
+   *
+   * 非 JSON 或非数组一律按未命中处理（返回 null），避免脏值扩散成运行时异常：
+   * 缓存只是加速层，解析失败必须能安全回源。
+   */
+  parseAccessibleStores(
+    raw: string | null,
+  ): ClubAccessibleStoreRecord[] | null {
+    if (raw === null) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed)
+        ? (parsed as ClubAccessibleStoreRecord[])
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   async findAccessibleStores(
     user: AuthenticatedUser,
   ): Promise<ClubAccessibleStoreRecord[]> {
-    const cacheKey = `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${user.id}`;
-    const cached =
-      await this.redisService.getJson<ClubAccessibleStoreRecord[]>(cacheKey);
-    if (cached && Array.isArray(cached)) {
+    const cached = this.parseAccessibleStores(
+      await this.redisService.get(this.buildAccessibleStoresCacheKey(user.id)),
+    );
+    if (cached) {
       return cached;
     }
 
+    return this.refreshAccessibleStores(user);
+  }
+
+  /**
+   * 回源数据库并写缓存。
+   *
+   * 单独暴露供「合并读取」路径复用：`ClubCurrentStoreContextService` 用一次
+   * MGET 同时读门店列表与选中门店，未命中时直接调用本方法回源，
+   * 不再在 `findAccessibleStores` 里重复一次 Redis 往返。
+   */
+  async refreshAccessibleStores(
+    user: AuthenticatedUser,
+  ): Promise<ClubAccessibleStoreRecord[]> {
     const stores = await this.prisma.store.findMany({
       where: {
         deletedAt: null,
@@ -92,7 +135,7 @@ export class ClubStoreAccessService {
     });
 
     await this.redisService.setJson(
-      cacheKey,
+      this.buildAccessibleStoresCacheKey(user.id),
       stores,
       CLUB_ACCESSIBLE_STORES_CACHE_TTL_SECONDS,
     );
@@ -293,9 +336,10 @@ export class ClubStoreAccessService {
    * 确保下次请求获取最新数据，而不是等 60 秒 TTL 自然过期。
    */
   async invalidateAccessibleStoresCache(userId: number): Promise<void> {
-    await this.redisService.del(
-      `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${userId}`,
-    );
+    // 进程内上下文快照必须与 Redis 同步失效：换绑手机号 / 加入门店后若只清
+    // Redis，本实例在 TTL 窗口内仍会把旧门店列表当成「当前门店」返回。
+    this.clubCurrentContextCache.delete(userId);
+    await this.redisService.del(this.buildAccessibleStoresCacheKey(userId));
   }
 
   /**

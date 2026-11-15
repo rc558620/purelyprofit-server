@@ -57,8 +57,22 @@ const buildProduct = (fixture: FixtureProduct = {}) => ({
 
 const buildPrisma = (product: unknown) =>
   ({
-    product: { findFirst: jest.fn().mockResolvedValue(product) },
+    product: {
+      findFirst: jest.fn().mockResolvedValue(product),
+      findMany: jest.fn().mockResolvedValue(product === null ? [] : [product]),
+    },
   }) as unknown as PrismaService;
+
+/** 批量定价夹具：单独暴露 findMany 桩，便于断言只查一次库 */
+const buildBatchPrisma = (products: unknown[]) => {
+  const findMany = jest.fn().mockResolvedValue(products);
+  return {
+    prisma: {
+      product: { findFirst: jest.fn(), findMany },
+    } as unknown as PrismaService,
+    findMany,
+  };
+};
 
 const CUP_GROUP: FixtureGroup = {
   id: 1,
@@ -219,5 +233,94 @@ describe('ProductSpecPricingService', () => {
 
     expect(ascending.specSignature).toBe(descending.specSignature);
     expect(ascending.specSignature).toBe(hashSpecSignature([11, 21]));
+  });
+
+  describe('priceMany 批量定价', () => {
+    it('一次查询返回多行，结果顺序与入参一致且共用同一份价格规则', async () => {
+      const latte = {
+        ...buildProduct({ price: 1000, groups: [CUP_GROUP] }),
+        id: 1,
+      };
+      const cola = {
+        ...buildProduct({
+          name: '可乐',
+          category: '酒水饮料',
+          price: 800,
+          groups: [],
+        }),
+        id: 2,
+      };
+      const { prisma, findMany } = buildBatchPrisma([latte, cola]);
+      const service = new ProductSpecPricingService(prisma);
+
+      const result = await service.priceMany(7, [
+        { productId: 2, specOptionIds: [] },
+        { productId: 1, specOptionIds: [11] },
+      ]);
+
+      expect(findMany).toHaveBeenCalledTimes(1);
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: { in: [2, 1] },
+            storeId: 7,
+            isActive: true,
+            deletedAt: null,
+          },
+        }),
+      );
+      expect(result.map((row) => row.unitPriceCents)).toEqual([800, 1200]);
+      expect(result[1].displayName).toBe('拿铁（大杯）');
+      expect(result[0].specSignature).toBeNull();
+    });
+
+    it('空购物车不查库', async () => {
+      const { prisma, findMany } = buildBatchPrisma([]);
+      const service = new ProductSpecPricingService(prisma);
+
+      await expect(service.priceMany(7, [])).resolves.toEqual([]);
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it('重复商品 ID 去重查询，每行仍独立计算规格加价', async () => {
+      const { prisma, findMany } = buildBatchPrisma([
+        { ...buildProduct({ groups: [CUP_GROUP] }), id: 1 },
+      ]);
+      const service = new ProductSpecPricingService(prisma);
+
+      const result = await service.priceMany(7, [
+        { productId: 1, specOptionIds: [11] },
+        { productId: 1, specOptionIds: [12] },
+      ]);
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: { in: [1] } }),
+        }),
+      );
+      expect(result.map((row) => row.unitPriceCents)).toEqual([1200, 1000]);
+    });
+
+    it('任一商品缺失或已下架时抛 NotFoundException', async () => {
+      const { prisma } = buildBatchPrisma([
+        { ...buildProduct({ groups: [] }), id: 1 },
+      ]);
+      const service = new ProductSpecPricingService(prisma);
+
+      await expect(
+        service.priceMany(7, [{ productId: 1 }, { productId: 999 }]),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('规格越界仍按单条定价口径拒绝', async () => {
+      const { prisma } = buildBatchPrisma([
+        { ...buildProduct({ groups: [CUP_GROUP] }), id: 1 },
+      ]);
+      const service = new ProductSpecPricingService(prisma);
+
+      await expect(
+        service.priceMany(7, [{ productId: 1, specOptionIds: [999] }]),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 });

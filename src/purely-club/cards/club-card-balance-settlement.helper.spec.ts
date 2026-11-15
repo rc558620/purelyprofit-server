@@ -19,6 +19,7 @@ const ORDER = {
 };
 
 interface TxStub {
+  $queryRaw: jest.Mock;
   marketingCustomer: {
     findFirst: jest.Mock;
     updateMany: jest.Mock;
@@ -26,21 +27,33 @@ interface TxStub {
   marketingConsumption: { create: jest.Mock };
 }
 
-/** 构造事务桩：默认余额充足、条件更新命中 */
+/**
+ * 构造事务桩：默认余额充足、条件更新命中。
+ * `$queryRaw` 返回一行 = UPDATE ... RETURNING 命中；返回空数组 = 并发条件未命中。
+ */
 const buildTx = (options?: {
   balance?: number;
-  totalSpent?: number;
   updateCount?: number;
 }): TxStub => ({
+  $queryRaw: jest.fn().mockResolvedValue(
+    options?.updateCount === 0
+      ? []
+      : [
+          {
+            total_spent: 29900,
+            visit_count: 1,
+            balance: (options?.balance ?? 50000) - ORDER.amount,
+            tier: 'regular',
+          },
+        ],
+  ),
   marketingCustomer: {
     findFirst: jest.fn().mockResolvedValue({
       id: 7,
-      totalSpent: options?.totalSpent ?? 0,
+      totalSpent: 10000,
       balance: options?.balance ?? 50000,
     }),
-    updateMany: jest
-      .fn()
-      .mockResolvedValue({ count: options?.updateCount ?? 1 }),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
   },
   marketingConsumption: { create: jest.fn().mockResolvedValue({ id: 1 }) },
 });
@@ -50,7 +63,7 @@ const asTx = (tx: TxStub): Prisma.TransactionClient =>
 
 describe('settleCardBalancePayment 余额扣款', () => {
   it('余额充足时扣款、记流水并同步累计消费', async () => {
-    const tx = buildTx({ balance: 50000, totalSpent: 10000 });
+    const tx = buildTx({ balance: 50000 });
 
     await settleCardBalancePayment(asTx(tx), ORDER, 7);
 
@@ -66,22 +79,11 @@ describe('settleCardBalancePayment 余额扣款', () => {
         itemsSummary: '年享卡 · 会员卡购买',
       }),
     });
-    expect(tx.marketingCustomer.updateMany).toHaveBeenCalledWith({
-      // 扣款限定在同一门店的未删除档案内，避免跨店扣错人
-      where: {
-        id: 7,
-        storeId: ORDER.storeId,
-        deletedAt: null,
-        balance: { gte: ORDER.amount },
-      },
-      data: expect.objectContaining({
-        balance: { decrement: ORDER.amount },
-        totalSpent: { increment: ORDER.amount },
-        visitCount: { increment: 1 },
-        lastVisitAt: expect.any(Date),
-        tier: expect.any(String),
-      }),
-    });
+    // 扣款 + 累计消费 + 到店次数在一次条件 UPDATE 内原子完成
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const values = tx.$queryRaw.mock.calls[0].slice(1) as unknown[];
+    expect(values).toContain(-ORDER.amount);
+    expect(values).toContain(ORDER.amount);
   });
 
   it('余额不足时直接拒绝且不写流水、不扣款', async () => {
@@ -91,7 +93,7 @@ describe('settleCardBalancePayment 余额扣款', () => {
       settleCardBalancePayment(asTx(tx), ORDER, 7),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
-    expect(tx.marketingCustomer.updateMany).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('并发扣款失败（条件更新未命中）时抛业务异常', async () => {

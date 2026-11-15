@@ -23,6 +23,10 @@ import {
   mapClubCustodyOrder,
   mapClubPickupRecord,
 } from './club-custody.mapper';
+import {
+  CLUB_CUSTODY_ORDER_VIEW_SELECT,
+  CLUB_CUSTODY_PICKUP_VIEW_SELECT,
+} from './club-custody.types';
 import type {
   ClubCustodyOrderDetailResponseDto,
   ClubCustodyOrderListResponseDto,
@@ -89,6 +93,8 @@ export class ClubCustodyReadService {
     const [records, summary] = await Promise.all([
       this.prisma.custodyOrder.findMany({
         ...query,
+        // 只取会员视角消费的列：审计 / B 端列（orderNo、会员快照、作废信息）一律不拉
+        select: CLUB_CUSTODY_ORDER_VIEW_SELECT,
         where: {
           AND: [
             query.where,
@@ -136,6 +142,7 @@ export class ClubCustodyReadService {
         memberId,
         deletedAt: null,
       },
+      select: CLUB_CUSTODY_ORDER_VIEW_SELECT,
     });
     if (!order) {
       throw new NotFoundException(
@@ -150,6 +157,7 @@ export class ClubCustodyReadService {
       where: { custodyOrderId: order.id, deletedAt: null },
       orderBy: [{ pickedAt: 'desc' }, { id: 'desc' }],
       take: CUSTODY_PICKUP_RECORD_LIMIT,
+      select: CLUB_CUSTODY_PICKUP_VIEW_SELECT,
     });
 
     return {

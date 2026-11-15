@@ -9,8 +9,9 @@
 
 /**
  * 菜单缓存 key。
- * menuVersion 是基于分类/商品 ID+version 的 content-hash，
- * 菜单变更后 menuVersion 自动变化 → key 自动变化 → 旧 key 自然过期。
+ * menuVersion 是基于分类/商品/规格组/规格项 ID+version+上下架的 content-hash
+ * （库内 md5，32 位十六进制），菜单变更后 menuVersion 自动变化 → key 自动变化
+ * → 旧 key 自然过期。前端不解析该值，只当不透明字符串使用。
  */
 export function buildClubMenuCacheKey(
   storeId: number,
@@ -36,6 +37,19 @@ export function buildClubMenuVersionCacheKey(storeId: number): string {
   return `club:menu-version:store:${storeId}`;
 }
 
+// ── Club 自助下单菜单缓存键 ──
+
+/**
+ * 自助下单菜单缓存 key（门店粒度，短 TTL）。
+ *
+ * 与扫码点餐菜单不同：自助下单菜单直接来自商品库，menuVersion 可由回源数据
+ * 一并算出并随响应缓存，无需额外跑一次版本聚合查询，因此不做版本化 key。
+ * 会话门禁不进缓存（会话状态必须实时校验），菜单数据才进缓存。
+ */
+export function buildClubSelfOrderingMenuCacheKey(storeId: number): string {
+  return `club:self-ordering-menu:store:${storeId}`;
+}
+
 // ── Club 会员快照缓存键 ──
 
 /**
@@ -56,8 +70,11 @@ export function buildClubMemberSnapshotPattern(storeId: number): string {
 // ── Club 活动促销缓存键 ──
 
 /**
- * 门店当前生效活动列表缓存 key（门店粒度）。
- * 失效挂 invalidateMarketingOverview（活动创建/编辑/启停路径已调用）。
+ * 门店当前生效活动列表缓存 key（门店粒度，定价投影：4 类折扣活动）。
+ *
+ * TTL 不固定：由最近的活动开始/结束边界截断（上限 60s），保证到点即生效/即失效，
+ * 见 `resolveClubPromotionCacheTtlSeconds`。失效挂 invalidateMarketingOverview，
+ * 与新补充的 `:list` 展示缓存**成对删除**。
  */
 export function buildClubPromotionsCacheKey(storeId: number): string {
   return `club:promotions:store:${storeId}`;
@@ -68,11 +85,12 @@ export function buildClubPromotionsPattern(storeId: number): string {
 }
 
 /**
- * C 端活动列表缓存 key（门店粒度）。
+ * C 端活动列表缓存 key（门店粒度，展示口径：全量字段）。
  *
  * 与 buildClubPromotionsCacheKey 区分：后者只缓存定价所需的 4 类折扣活动
  * （见 ClubPromotionRepository），这里缓存 C 端首页/活动页展示用的全量字段，
- * 两者形状不同不能共键。失效同样挂在活动写路径上。
+ * 两者形状不同不能共键。两份 key 必须**成对失效**，否则会出现「展示已更新、
+ * 结算仍按旧活动打折」这类口径分裂（见 marketingOverviewCacheInvalidatorProvider）。
  */
 export function buildClubPromotionListCacheKey(storeId: number): string {
   return `club:promotions:store:${storeId}:list`;

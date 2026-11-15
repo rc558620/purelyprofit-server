@@ -15,10 +15,10 @@ export const profitDashboardHomeCacheInvalidatorProvider: CacheInvalidatorProvid
 > = (input: ProfitReadCacheInvalidatorInput) => ({
   invalidateProfitDashboardHome: async (storeId: number): Promise<void> => {
     await Promise.all([
-      input.redisService.delByPattern(buildProfitDashboardHomePattern(storeId)),
-      input.redisService.delByPattern(
+      input.redisService.delByPatterns([
+        buildProfitDashboardHomePattern(storeId),
         buildProfitDashboardHomeChunkPattern(storeId),
-      ),
+      ]),
       // 动态缓存键不带 period，chunk 通配模式匹配不到，需精确删除
       input.redisService.del(
         buildProfitDashboardHomeActivitiesCacheKey(storeId),

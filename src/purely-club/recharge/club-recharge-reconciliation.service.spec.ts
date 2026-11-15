@@ -91,9 +91,13 @@ describe('ClubRechargeReconciliationService', () => {
       { orderNo: 'RC-A' },
       { orderNo: 'RC-B' },
     ]);
-    verifyService.verifyAndSettle
-      .mockRejectedValueOnce(new Error('微信接口超时'))
-      .mockResolvedValueOnce({ status: 'paid' });
+    // 按订单号决定结果，避免依赖并发下的调用顺序
+    verifyService.verifyAndSettle.mockImplementation(
+      ({ orderNo }: { orderNo: string }) =>
+        orderNo === 'RC-A'
+          ? Promise.reject(new Error('微信接口超时'))
+          : Promise.resolve({ status: 'paid' }),
+    );
 
     await expect(service.reconcileStaleOrders()).resolves.toEqual({
       scanned: 2,
@@ -104,6 +108,31 @@ describe('ClubRechargeReconciliationService', () => {
     expect(alertService.send).toHaveBeenCalledWith(
       expect.objectContaining({ level: 'error' }),
     );
+  });
+
+  it('批量核对时按有限并发调用微信查单，不再逐笔串行', async () => {
+    prismaService.clubRechargeOrder.findMany.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        orderNo: `RC-BATCH-${index}`,
+      })),
+    );
+    let inFlight = 0;
+    let peak = 0;
+    verifyService.verifyAndSettle.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
+      inFlight -= 1;
+      return { status: 'pending' };
+    });
+
+    const summary = await service.reconcileStaleOrders();
+
+    expect(summary).toEqual({ scanned: 5, settled: 0, failed: 0 });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(5);
   });
 
   it('未抢到分布式锁时本轮不核对任何订单', async () => {

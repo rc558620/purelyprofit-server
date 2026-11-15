@@ -1,5 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  buildFinanceCashFlowCursorWhere,
+  FINANCE_CASH_FLOW_ORDER_BY,
+} from './finance-cash-flow.cursor';
+import type { FinanceCashFlowListCursor } from './finance-cash-flow.cursor';
 import type {
   FinanceCashFlowFilterRange,
   FinanceCashFlowRecordWithAmount,
@@ -27,22 +32,37 @@ const CASH_FLOW_RECORD_PAGE_SELECT = {
   createdAt: true,
 } satisfies Prisma.FinanceCashFlowRecordSelect;
 
+/**
+ * 现金流水分页查询（双路径）。
+ *
+ * - `cursor` 为空：走 offset 路径，skip/take 与迁移前逐字一致（缓存行为不变）。
+ * - `cursor` 非空：where 里额外叠加 keyset 条件，不再传 skip；
+ *   `take` 由调用方按 `limit + 1` 传入，多取的一行用于探测「是否还有下一页」。
+ *
+ * total 恒为「与筛选同源、不含游标」的全量口径：COUNT 只带筛选条件，
+ * 否则翻页过程中总数会一路变小。
+ */
 export async function queryCashFlowRecordPage(
   prisma: PrismaService,
   params: {
     where: Prisma.FinanceCashFlowRecordWhereInput;
-    page: number;
-    pageSize: number;
+    skip: number;
+    take: number;
+    /** 游标：非空时走游标路径（此时 skip 被忽略） */
+    cursor?: FinanceCashFlowListCursor | null;
   },
 ): Promise<{ total: number; records: FinanceCashFlowRecordWithAmount[] }> {
+  const listWhere = params.cursor
+    ? { AND: [params.where, buildFinanceCashFlowCursorWhere(params.cursor)] }
+    : params.where;
   const [total, records] = await Promise.all([
     prisma.financeCashFlowRecord.count({ where: params.where }),
     prisma.financeCashFlowRecord.findMany({
-      where: params.where,
+      where: listWhere,
       select: CASH_FLOW_RECORD_PAGE_SELECT,
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-      skip: (params.page - 1) * params.pageSize,
-      take: params.pageSize,
+      orderBy: FINANCE_CASH_FLOW_ORDER_BY,
+      ...(params.cursor ? {} : { skip: params.skip }),
+      take: params.take,
     }),
   ]);
 

@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import {
   CLUB_RECHARGE_ERROR_CODE,
@@ -18,20 +17,15 @@ import type {
 } from '../orders/club-order-drafts.types';
 import {
   type ClubRechargeOrderResponseDto,
-  type ClubRechargePackageDto,
   type CreateClubRechargeOrderDto,
 } from './dto/club-recharge.dto';
 import { toClubRechargeOrderResponse } from './club-recharge.mapper';
 import { ClubRechargePackagesService } from './club-recharge-packages.service';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import type { ResolvedRechargeOrderSelection } from './club-recharge.types';
-import {
-  CLUB_CUSTOM_AMOUNT_MAX,
-  CLUB_CUSTOM_AMOUNT_MIN,
-  CLUB_RECHARGE_PACKAGE_NOT_FOUND_MESSAGE,
-} from './club-recharge.constants';
-import { Money } from './club-recharge.utils';
+import { resolveRechargeOrderSelection } from './club-recharge-selection';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import type { ClubWechatPayTarget } from '../payments/club-wechat-pay-identity.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import { ClubRechargeOrderStoreService } from './club-recharge-order-store.service';
@@ -85,11 +79,14 @@ export class ClubRechargeCreationService {
     // A1：下单前显式校验门店已配置微信收款。
     // 不校验的话门店没配收款时用户一路走到支付，最后只看到通用「支付失败」，
     // 既不知道是门店侧问题，也不知道该联系谁。
-    if (!skipWechatPrepay) {
-      await this.clubWechatJsapiService.assertStorePayConfigured(
-        currentContext.store.id,
-      );
-    }
+    //
+    // 解析结果（支付身份）继续传给下面的预下单：同一请求内同一份门店收款配置
+    // 只读一次、APIv3 密钥只解密一次，不再「先断言一遍、预下单再解析一遍」。
+    const payTarget = skipWechatPrepay
+      ? null
+      : await this.clubWechatJsapiService.resolvePayableTargetOrThrow(
+          currentContext.store.id,
+        );
 
     const packages =
       await this.clubRechargePackagesService.loadPackagesForStore(
@@ -101,7 +98,7 @@ export class ClubRechargeCreationService {
     // packageId / customAmount 同时传入）时，下单虽然失败，却已经建好 / 认领了
     // 一条 marketingCustomer 档案，留下孤儿数据。建档是「确定要落账」的动作，
     // 必须放在所有前置校验之后。
-    const selection = this.resolveRechargeOrderSelection(dto, packages);
+    const selection = resolveRechargeOrderSelection(dto, packages);
     const customer =
       await this.clubRechargeContextService.requireCurrentCustomer(
         currentContext.store.id,
@@ -144,6 +141,7 @@ export class ClubRechargeCreationService {
         customerId: customer.id,
         openid,
         skipWechatPrepay,
+        payTarget,
         orderNo,
       });
     } catch (error) {
@@ -165,6 +163,8 @@ export class ClubRechargeCreationService {
     customerId: number;
     openid: string | null;
     skipWechatPrepay: boolean;
+    /** 前置校验阶段解析好的收款身份（跳过预下单时为 null） */
+    payTarget: ClubWechatPayTarget | null;
     orderNo: string;
   }): Promise<ClubRechargeOrderResponseDto> {
     const { currentContext, selection, orderNo } = params;
@@ -197,6 +197,8 @@ export class ClubRechargeCreationService {
             description: '会员充值',
             amountFen: selection.rechargeAmountFen,
             openid: params.openid,
+            // 复用前置校验解析出的身份：不再读一次门店收款配置、不再解密一次密钥
+            ...(params.payTarget ? { target: params.payTarget } : {}),
           });
         draft = await this.clubOrderDraftsService.updateDraftPaymentParams(
           draft,
@@ -296,88 +298,6 @@ export class ClubRechargeCreationService {
     this.logger.warn(
       `开发态下单未拿到 openid（storeId=${storeId}），将使用 mock 支付参数`,
     );
-  }
-
-  private resolveRechargeOrderSelection(
-    dto: CreateClubRechargeOrderDto,
-    packages: ClubRechargePackageDto[],
-  ): ResolvedRechargeOrderSelection {
-    const hasPackageId =
-      typeof dto.packageId === 'string' && dto.packageId.trim().length > 0;
-    const hasCustomAmount = typeof dto.customAmount === 'number';
-
-    if (hasPackageId === hasCustomAmount) {
-      throw new BadRequestException(
-        clubRechargeError(
-          CLUB_RECHARGE_ERROR_CODE.PARAM_PACKAGE_AMOUNT_EXCLUSIVE,
-          'packageId 和 customAmount 必须二选一',
-        ),
-      );
-    }
-
-    if (hasPackageId) {
-      return this.resolvePackageSelection(dto.packageId!, packages);
-    }
-
-    return this.resolveCustomAmountSelection(dto.customAmount!);
-  }
-
-  private resolvePackageSelection(
-    packageId: string,
-    packages: ClubRechargePackageDto[],
-  ): ResolvedRechargeOrderSelection {
-    const matchedPackage = packages.find((item) => item.id === packageId);
-    if (!matchedPackage) {
-      throw new NotFoundException(
-        clubRechargeError(
-          CLUB_RECHARGE_ERROR_CODE.RESOURCE_PACKAGE_NOT_FOUND,
-          CLUB_RECHARGE_PACKAGE_NOT_FOUND_MESSAGE,
-        ),
-      );
-    }
-
-    return {
-      packageId: matchedPackage.id,
-      promotionId: this.resolvePromotionIdFromPackageId(matchedPackage.id),
-      rechargeAmountFen: Money.fromInputYuan(matchedPackage.amount).toDbCents(),
-      bonusAmountFen: Money.fromInputYuan(
-        matchedPackage.bonusAmount,
-      ).toDbCents(),
-      customAmountFen: null,
-    };
-  }
-
-  private resolveCustomAmountSelection(
-    customAmount: number,
-  ): ResolvedRechargeOrderSelection {
-    if (
-      customAmount < CLUB_CUSTOM_AMOUNT_MIN ||
-      customAmount > CLUB_CUSTOM_AMOUNT_MAX
-    ) {
-      throw new BadRequestException(
-        clubRechargeError(
-          CLUB_RECHARGE_ERROR_CODE.PARAM_CUSTOM_AMOUNT_OUT_OF_RANGE,
-          `自定义充值金额需在 ${CLUB_CUSTOM_AMOUNT_MIN}-${CLUB_CUSTOM_AMOUNT_MAX} 元之间`,
-        ),
-      );
-    }
-
-    return {
-      packageId: null,
-      promotionId: null,
-      rechargeAmountFen: Money.fromInputYuan(customAmount).toDbCents(),
-      bonusAmountFen: 0,
-      customAmountFen: Money.fromInputYuan(customAmount).toDbCents(),
-    };
-  }
-
-  private resolvePromotionIdFromPackageId(packageId: string): number | null {
-    const matched = /^(\d+)(?::\d+)?$/.exec(packageId.trim());
-    if (!matched) {
-      return null;
-    }
-
-    return Number.parseInt(matched[1], 10);
   }
 
   private assertSameCurrentStore(

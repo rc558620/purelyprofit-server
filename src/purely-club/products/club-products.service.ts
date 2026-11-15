@@ -3,6 +3,7 @@ import {
   clubProductError,
 } from './club-products.errors';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { MarketingMemberLevelConfigValue } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
   ClubProductDto,
@@ -26,9 +27,15 @@ export class ClubProductsService {
     private readonly clubProductViewService: ClubProductViewService,
   ) {}
 
+  /**
+   * @param levelSettings 请求级会员等级配置种子（原始配置，含已停用等级）。
+   *   首页聚合已解析过一次时透传，定价链路不再重复读配置表；
+   *   不传时定价链路自行读取，行为与历史一致。
+   */
   async list(
     currentContext: ClubCurrentContext,
     query: ListClubProductsQueryDto,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubProductsResponseDto> {
     // 定价上下文（会员折扣/首单优惠/满减）与列表查询并行发起
     const pricingContextPromise =
@@ -36,6 +43,7 @@ export class ClubProductsService {
         currentContext.store.id,
         currentContext.user.id,
         currentContext.user.phone,
+        levelSettings,
       );
 
     // 服务列表分页路径：翻页（有 cursor）与服务列表首屏（无 cursor 无 featured）共用。

@@ -12,6 +12,7 @@ import type { PricingVersionSnapshot } from './scan-ordering-pricing-version.ser
 import type {
   PromotionAdapterInput,
   PromotionAdapterResult,
+  PromotionCustomerLookup,
 } from './scan-ordering-promotion.adapter';
 import {
   allocateLineDiscounts,
@@ -28,6 +29,21 @@ import type {
   ScanOrderingOrderItemCreateData,
 } from './club-scan-ordering-order.types';
 import type { PreviewClubScanOrderDto } from './dto/club-scan-ordering.dto';
+import { applySpecReservationUpdates } from './club-scan-ordering-spec-stock.helper';
+import type { SpecReservationUpdate } from './club-scan-ordering-spec-stock.helper';
+
+/** 促销解析入参（扫码点餐预览 / 下单共用）。 */
+export interface ScanOrderingPromotionInput {
+  storeId: number;
+  clubUserId: number;
+  pricedItems: PricedCartItem[];
+  usePoints: boolean;
+  /**
+   * 顾客档案定位口径：预览传 `existing`（只读），下单 / 落账传 `ensure`
+   * （允许建档）。缺省按 `ensure` 处理，避免调用方漏传导致下单不建档。
+   */
+  customerLookup?: PromotionCustomerLookup;
+}
 
 /** C 端扫码点餐购物车定价与金额计算服务。 */
 @Injectable()
@@ -159,23 +175,19 @@ export class ClubScanOrderingCartPricingService {
   }
 
   async resolvePromotions(
-    storeId: number,
-    clubUserId: number,
-    sessionId: number,
-    pricedItems: PricedCartItem[],
-    usePoints: boolean,
+    input: ScanOrderingPromotionInput,
   ): Promise<PromotionAdapterResult> {
     const adapterInput: PromotionAdapterInput = {
-      storeId,
-      clubUserId,
-      sessionId,
-      items: pricedItems.map((item) => ({
+      storeId: input.storeId,
+      clubUserId: input.clubUserId,
+      items: input.pricedItems.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
         unitPriceAmount: item.unitPriceAmount,
         specOptionIds: item.specs.map((spec) => spec.specOptionId),
       })),
-      usePoints,
+      usePoints: input.usePoints,
+      customerLookup: input.customerLookup,
     };
     return this.promotionAdapter.resolvePromotions(adapterInput);
   }
@@ -299,6 +311,7 @@ export class ClubScanOrderingCartPricingService {
     const optionMap = new Map(
       currentOptions.map((option) => [option.id, option]),
     );
+    const updates: SpecReservationUpdate[] = [];
     for (const [specOptionId, quantity] of quantities) {
       const current = optionMap.get(specOptionId);
       if (!current)
@@ -318,25 +331,10 @@ export class ClubScanOrderingCartPricingService {
           ),
         );
       }
-      const updated = await tx.scanOrderingSpecOption.updateMany({
-        where: {
-          id: specOptionId,
-          isActive: true,
-          version: current.version,
-        },
-        data: {
-          reservedQuantity: { increment: quantity },
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count === 0)
-        throw new ConflictException(
-          clubScanOrderingError(
-            CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STOCK_INSUFFICIENT,
-            '规格库存不足',
-          ),
-        );
+      updates.push({ id: specOptionId, version: current.version, quantity });
     }
+
+    await applySpecReservationUpdates(tx, updates);
   }
 
   /** 构建订单项创建数据，优惠分摊见 {@link allocateLineDiscounts}。 */

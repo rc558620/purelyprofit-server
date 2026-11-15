@@ -13,6 +13,10 @@ import type {
 } from './dto/club-wechat-callback.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import {
+  buildClubPaymentCallbackJobKey,
+  CLUB_PAYMENT_CALLBACK_QUEUE_NAME,
+} from './club-payment-callback-queue.constants';
 import type { ClubPaymentCallbackJobData } from '../../queue/club-payment-callback.types';
 import type {
   ClubPaymentCallbackSettlementParams,
@@ -31,7 +35,7 @@ export class ClubPaymentsService {
     private readonly paymentOrderRecordService: ClubPaymentOrderRecordService,
     /** 服务购买单（SV）无订单表，门店 ID 只能从草稿里取 */
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
-    @InjectQueue('club-payment-callback')
+    @InjectQueue(CLUB_PAYMENT_CALLBACK_QUEUE_NAME)
     private readonly paymentCallbackQueue: Queue<ClubPaymentCallbackJobData>,
   ) {}
 
@@ -96,16 +100,15 @@ export class ClubPaymentsService {
       callbackReceivedAtMs,
     });
 
+    // 任务名与 jobId 同源、只由 orderNo 决定：同一订单的重复回调（含不同
+    // transactionId）会被 BullMQ 去重，不再并行跑两遍落账全链路。
+    // 重试 / 退避 / 保留策略统一在队列 module 的默认任务选项里定义，
+    // 此处不再重复声明，避免 per-job 参数静默覆盖默认值。
+    const jobKey = buildClubPaymentCallbackJobKey(orderNo);
     await this.paymentCallbackQueue.add(
-      `wechat-payment:${orderNo}`,
+      jobKey,
       { orderNo, settlementParams },
-      {
-        jobId: `wechat-payment:${orderNo}:${transactionId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 1000 },
-        removeOnComplete: { age: 86_400, count: 10_000 },
-        removeOnFail: { age: 604_800, count: 10_000 },
-      },
+      { jobId: jobKey },
     );
 
     return {

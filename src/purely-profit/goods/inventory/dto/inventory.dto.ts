@@ -14,7 +14,6 @@ import {
 } from 'class-validator';
 import {
   PaginationMetaDto,
-  PaginationQueryDto,
   transformOptionalBoolean,
   transformOptionalInt,
   transformOptionalKeyword,
@@ -240,36 +239,8 @@ export class UpdateAlertThresholdDto {
   threshold: number;
 }
 
-export class ListInventoryAdjustmentsQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ example: 1, description: '门店 ID' })
-  @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '门店 ID 必须是整数' })
-  @Min(1, { message: '门店 ID 必须大于等于 1' })
-  storeId?: number;
-
-  @ApiPropertyOptional({ example: 1, description: '商品 ID' })
-  @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '商品 ID 必须是整数' })
-  @Min(1, { message: '商品 ID 必须大于等于 1' })
-  productId?: number;
-
-  @ApiPropertyOptional({ example: '可乐', description: '商品关键字' })
-  @IsOptional()
-  @Transform(transformOptionalKeyword)
-  @IsString({ message: '关键字必须是字符串' })
-  keyword?: string;
-
-  @ApiPropertyOptional({
-    example: 'restock',
-    enum: INVENTORY_ADJUST_TYPE_VALUES,
-    description: '调整类型',
-  })
-  @IsOptional()
-  @IsIn(INVENTORY_ADJUST_TYPE_VALUES, { message: '调整类型不合法' })
-  adjustType?: (typeof INVENTORY_ADJUST_TYPE_VALUES)[number];
-}
+// 库存流水查询入参已外移到 inventory-adjustments-query.dto.ts（控制单文件行数），此处透出保持既有引用不变
+export { ListInventoryAdjustmentsQueryDto } from './inventory-adjustments-query.dto';
 
 export class InventoryAdjustmentResponseDto {
   @ApiProperty({ example: '1', description: '记录 ID' })
@@ -326,6 +297,20 @@ export class PaginatedInventoryAdjustmentsResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto, description: '分页信息' })
   meta: PaginationMetaDto;
+
+  @ApiProperty({
+    description: '是否还有下一页（恒等于 nextCursor 非空）',
+    example: false,
+  })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  nextCursor: string | null;
 }
 
 export class InventoryStatsResponseDto {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Money } from '../../shared/money.utils';
 import { formatShanghaiDayLabel } from '../../shared/shanghai-time.utils';
@@ -12,6 +12,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildClubPromotionListCacheKey } from '../../redis/keys/club-cache-keys';
+import {
+  resolveClubPromotionCacheTtlSeconds,
+  runClubPromotionSingleflight,
+} from '../shared/club-promotion-cache.helper';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
   ClubPromotionActionTypeValue,
@@ -25,8 +29,6 @@ import {
 
 /** 首页活动列表最大返回条数 */
 const CLUB_HOME_PROMOTION_LIMIT = 20;
-/** 活动列表缓存 TTL（秒），活动写路径会主动失效（见 marketing-promotions.service） */
-const CLUB_PROMOTION_LIST_CACHE_TTL_SECONDS = 60;
 
 /**
  * 缓存中的活动记录形状：Date 字段经 JSON 序列化后是 ISO 字符串，
@@ -52,6 +54,13 @@ interface ClubPromotionPresentation {
 
 @Injectable()
 export class ClubPromotionsService {
+  private readonly logger = new Logger(ClubPromotionsService.name);
+  /** 缓存未命中时的进程内并发去重 */
+  private readonly inflightLoads = new Map<
+    string,
+    Promise<ClubPromotionRecord[]>
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -81,50 +90,104 @@ export class ClubPromotionsService {
             left.sort - right.sort ||
             right.priority - left.priority ||
             right.startAt - left.startAt,
-        ),
+        )
+        // 展示条数上限必须在**排序之后**截断：此前用 DB `take: 20` 截的是
+        // 「最近创建的 20 条」，而展示序由 sort/priority 决定，等于把最该
+        // 展示的活动截掉了。排序键是类型常量映射，下推 SQL 需在 SQL 里复刻
+        // 这张映射表，两处漂移的代价比多传几条记录大得多。
+        .slice(0, CLUB_HOME_PROMOTION_LIMIT),
     };
   }
 
   /**
-   * 读取当前门店生效活动，优先走门店级缓存。
+   * 读取当前门店生效活动（展示口径），优先走门店级缓存。
    *
    * 首页与活动页每次进入都会调 list，而活动只在后台改配置时变化，
    * 未缓存时每个 C 端页面进入都要跑一次 marketingPromotion 查询。
-   * TTL 60s 与 ClubPromotionRepository 对齐，活动写路径会主动失效。
+   *
+   * 缓存口径：
+   *  - TTL 由最近的活动边界决定（见 resolveClubPromotionCacheTtlSeconds），
+   *    保证未开始活动到点即出现、已结束活动到点即消失；
+   *  - 无 take：缓存全量「未结束 + 启用 + 白名单类型」活动，展示上限在排序后
+   *    截断。窗口过滤已排除历史活动，正常门店只有几条到几十条；
+   *  - 空数组同样缓存；
+   *  - Redis 异常降级回源，缓存不许变成故障点。
    */
   private async loadActivePromotions(
     storeId: number,
     now: Date,
   ): Promise<ClubPromotionRecord[]> {
     const cacheKey = buildClubPromotionListCacheKey(storeId);
-    const cached =
-      await this.redisService.getJson<CachedClubPromotionRecord[]>(cacheKey);
+    const cached = await this.readCache(cacheKey);
     if (cached) {
       return cached.map((record) => this.revivePromotionRecord(record));
     }
 
-    const promotions = await this.prisma.marketingPromotion.findMany({
+    return runClubPromotionSingleflight(this.inflightLoads, cacheKey, () =>
+      this.loadFromDatabase(storeId, cacheKey, now),
+    );
+  }
+
+  private async loadFromDatabase(
+    storeId: number,
+    cacheKey: string,
+    now: Date,
+  ): Promise<ClubPromotionRecord[]> {
+    // 只按 endAt 过滤：未开始的活动也要取回来，它决定缓存的「开始」边界
+    const rows = await this.prisma.marketingPromotion.findMany({
       where: {
         storeId,
         enabled: true,
         type: { in: [...MARKETING_PROMOTION_TYPE_VALUES] },
-        startAt: { lte: now },
         endAt: { gte: now },
       },
       select: clubPromotionSelect,
-      // 数据库按创建时间倒序取候选集，内存中再按 sort/priority/startAt 精排
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: CLUB_HOME_PROMOTION_LIMIT,
     });
+    const active = rows.filter((row) => row.startAt.getTime() <= now.getTime());
 
-    // 空数组同样缓存：无活动门店的空结果本身有效，避免每次都回源
-    await this.redisService.setJson(
+    await this.writeCache(
       cacheKey,
-      promotions,
-      CLUB_PROMOTION_LIST_CACHE_TTL_SECONDS,
+      active,
+      resolveClubPromotionCacheTtlSeconds(rows, now.getTime()),
     );
 
-    return promotions;
+    return active;
+  }
+
+  /** 读缓存：异常降级为「未命中」，不阻断首页/活动页。 */
+  private async readCache(
+    cacheKey: string,
+  ): Promise<CachedClubPromotionRecord[] | null> {
+    try {
+      return await this.redisService.getJson<CachedClubPromotionRecord[]>(
+        cacheKey,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `读取活动列表缓存失败 cacheKey=${cacheKey}，降级回源: ${this.toMessage(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /** 写缓存：失败只影响下次是否命中，不改变本次结果。 */
+  private async writeCache(
+    cacheKey: string,
+    records: ClubPromotionRecord[],
+    ttlSeconds: number,
+  ): Promise<void> {
+    try {
+      await this.redisService.setJson(cacheKey, records, ttlSeconds);
+    } catch (error) {
+      this.logger.warn(
+        `写入活动列表缓存失败 cacheKey=${cacheKey} ttl=${ttlSeconds}s: ${this.toMessage(error)}`,
+      );
+    }
+  }
+
+  private toMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   /** 把缓存里被 JSON 序列化成 ISO 字符串的日期字段还原为 Date */

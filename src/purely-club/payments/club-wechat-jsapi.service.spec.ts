@@ -28,7 +28,6 @@ describe('ClubWechatJsapiService 下单口径', () => {
 
   const buildService = () =>
     new ClubWechatJsapiService(
-      storesService as unknown as StoresWechatPayService,
       httpService as unknown as ClubWechatPayHttpService,
       new ClubWechatPayIdentityService(
         configService as unknown as ConfigService,
@@ -175,7 +174,7 @@ describe('ClubWechatJsapiService 下单口径', () => {
       configuredAt: null,
     });
 
-    await expect(buildService().assertStorePayConfigured(1)).rejects.toThrow(
+    await expect(buildService().resolvePayableTargetOrThrow(1)).rejects.toThrow(
       '该门店暂不支持在线充值',
     );
   });
@@ -195,6 +194,57 @@ describe('ClubWechatJsapiService 下单口径', () => {
       buildService().createJsapiPaymentParams(orderRequest),
     ).rejects.toThrow('该门店暂不支持在线充值');
     expect(httpService.request).not.toHaveBeenCalled();
+  });
+
+  // ─── 收款配置解析次数（3-B-9） ────────────────────────────────────────────
+  // 门店收款配置读取会连带做 apiV3Key 解密，一次下单里重复解析是纯浪费；
+  // 「谁可以收款」的判定也只允许有一个真相源。
+
+  it('直连模式一次下单只读一次门店收款配置（含 APIv3 密钥校验）', async () => {
+    await buildService().createJsapiPaymentParams(orderRequest);
+
+    expect(storesService.getWechatPayConfigForStore).toHaveBeenCalledTimes(1);
+    expect(storesService.getWechatPayConfigForStore).toHaveBeenCalledWith(1);
+  });
+
+  it('服务商模式一次下单同样只读一次门店收款配置', async () => {
+    configState['wechat.partner.enabled'] = true;
+
+    await buildService().createJsapiPaymentParams(orderRequest);
+
+    expect(storesService.getWechatPayConfigForStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('直连模式缺 APIv3 密钥时拒绝下单，且不向微信发请求', async () => {
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      mchId: 'STORE_MCH',
+      mchName: '示例门店',
+      apiV3Key: null,
+      subMchId: null,
+      bindStatus: null,
+      configuredAt: null,
+    });
+
+    await expect(
+      buildService().createJsapiPaymentParams(orderRequest),
+    ).rejects.toThrow('该门店暂不支持在线充值');
+    expect(httpService.request).not.toHaveBeenCalled();
+  });
+
+  it('传入已解析的 target 时不再读门店收款配置（同请求复用）', async () => {
+    const target = {
+      mode: 'store' as const,
+      signMchId: 'STORE_MCH',
+      settleMchId: 'STORE_MCH',
+      appId: 'wx_club_appid',
+      notifyUrl: 'https://api.example.com/club/callback',
+    };
+
+    await buildService().createJsapiPaymentParams({ ...orderRequest, target });
+
+    expect(storesService.getWechatPayConfigForStore).not.toHaveBeenCalled();
+    expect(httpService.request).toHaveBeenCalledTimes(1);
+    expect(httpService.request.mock.calls[0][0].mchId).toBe('STORE_MCH');
   });
 
   // ─── 下单失败的错误码映射 ─────────────────────────────────────────────────

@@ -74,6 +74,8 @@ describe('FinanceCashFlowService', () => {
         total: 0,
         totalPages: 0,
       },
+      hasMore: false,
+      nextCursor: null,
     });
     expect(prismaService.financeCashFlowRecord.count).not.toHaveBeenCalled();
     expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();

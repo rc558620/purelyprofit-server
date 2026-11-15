@@ -37,8 +37,16 @@ import {
   queryCashFlowRecordPage,
   queryCashFlowStatsRows,
 } from './finance-cash-flow.query';
+import {
+  encodeFinanceCashFlowCursor,
+  resolveFinanceCashFlowPaging,
+} from './finance-cash-flow.cursor';
+import type { FinanceCashFlowListPaging } from './finance-cash-flow.cursor';
 import { buildPaginatedCashFlowRecordsResponse } from './finance.mapper';
-import type { FinanceCashFlowListQueryInput } from './finance.types';
+import type {
+  FinanceCashFlowListQueryInput,
+  FinanceCashFlowRecordWithAmount,
+} from './finance.types';
 import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import {
@@ -84,6 +92,23 @@ export class FinanceCashFlowService {
       page: query.page,
       pageSize: query.pageSize,
     };
+    // 入参校验先于缓存与取数：cursor 非法时直接 400，不白跑一次查询
+    const paging = resolveFinanceCashFlowPaging(query);
+
+    /**
+     * 游标页不进缓存：cursor 天生一次性，按 cursor 拼 key 会让缓存无界增长，
+     * 且无法被 buildFinanceCashFlowPattern 的统一失效覆盖。
+     * offset / 首页路径的缓存 key 与 TTL 完全不变（key 里只有 page/pageSize）。
+     */
+    if (paging.cursor) {
+      return this.buildCashFlowRecords(
+        storeId,
+        cashFlowQuery,
+        callerIsSubAccount,
+        paging,
+      );
+    }
+
     const cacheKey = buildFinanceCashFlowListCacheKey(storeId, {
       ...cashFlowQuery,
       scope,
@@ -95,9 +120,19 @@ export class FinanceCashFlowService {
       ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
       refreshAfterMs: FINANCE_CASH_FLOW_REFRESH_AFTER_MS,
       loadValue: () =>
-        this.buildCashFlowRecords(storeId, cashFlowQuery, callerIsSubAccount),
+        this.buildCashFlowRecords(
+          storeId,
+          cashFlowQuery,
+          callerIsSubAccount,
+          paging,
+        ),
       refreshValue: () =>
-        this.buildCashFlowRecords(storeId, cashFlowQuery, callerIsSubAccount),
+        this.buildCashFlowRecords(
+          storeId,
+          cashFlowQuery,
+          callerIsSubAccount,
+          paging,
+        ),
     });
   }
 
@@ -190,6 +225,7 @@ export class FinanceCashFlowService {
     storeId: number,
     cashFlowQuery: FinanceCashFlowListQueryInput,
     callerIsSubAccount: boolean,
+    paging: FinanceCashFlowListPaging,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
     const range = getCashFlowFilterRange(cashFlowQuery);
     const clampedRange =
@@ -199,13 +235,13 @@ export class FinanceCashFlowService {
         callerIsSubAccount,
       );
     const directionFilter = cashFlowQuery.directionFilter ?? 'all';
-    const pageState = buildPaginationState(
-      cashFlowQuery.page,
-      cashFlowQuery.pageSize,
-    );
+    const pageState = buildPaginationState(paging.page, paging.limit);
 
     if (clampedRange.empty) {
-      return buildPaginatedCashFlowRecordsResponse([], pageState, 0);
+      return buildPaginatedCashFlowRecordsResponse([], pageState, 0, {
+        hasMore: false,
+        nextCursor: null,
+      });
     }
 
     const where: Prisma.FinanceCashFlowRecordWhereInput = {
@@ -219,11 +255,18 @@ export class FinanceCashFlowService {
 
     const { total, records } = await queryCashFlowRecordPage(this.prisma, {
       where,
-      page: pageState.page,
-      pageSize: pageState.pageSize,
+      skip: paging.offset,
+      // 游标路径多取一行做「是否还有下一页」探测，省掉一次额外查询
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      cursor: paging.cursor,
     });
 
-    return buildPaginatedCashFlowRecordsResponse(records, pageState, total);
+    return buildPaginatedCashFlowRecordsResponse(
+      paging.cursor ? records.slice(0, paging.limit) : records,
+      pageState,
+      total,
+      buildCashFlowPageCursor(records, total, paging),
+    );
   }
 
   private async buildCashFlowStats(
@@ -313,4 +356,29 @@ export class FinanceCashFlowService {
     }
     return record;
   }
+}
+
+/**
+ * 到底判定 + nextCursor 组装（两条路径共用）。
+ *
+ * - 游标路径：`take = limit + 1` 的探测行存在即说明还有下一页；游标取自本页最后一行。
+ * - offset 路径：没有探测行，只能用 `offset + 已取条数 < total` 推导。
+ *
+ * 恒等式 `hasMore === (nextCursor !== null)` 由本函数单点保证，
+ * 调用方不要再各自拼装，否则两条路径迟早漂移。
+ */
+function buildCashFlowPageCursor(
+  records: FinanceCashFlowRecordWithAmount[],
+  total: number,
+  paging: FinanceCashFlowListPaging,
+): { hasMore: boolean; nextCursor: string | null } {
+  const hasMore = paging.cursor
+    ? records.length > paging.limit
+    : paging.offset + records.length < total;
+  const lastRecord = records.at(Math.min(records.length, paging.limit) - 1);
+  return {
+    hasMore,
+    nextCursor:
+      hasMore && lastRecord ? encodeFinanceCashFlowCursor(lastRecord) : null,
+  };
 }

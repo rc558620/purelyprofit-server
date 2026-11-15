@@ -23,6 +23,7 @@ import {
 type RedisServiceMock = {
   del: jest.Mock<Promise<void>, [string]>;
   delByPattern: jest.Mock<Promise<number>, [string]>;
+  delByPatterns: jest.Mock<Promise<number>, [string[]]>;
 };
 
 function createRedisServiceMock(): RedisServiceMock {
@@ -33,6 +34,10 @@ function createRedisServiceMock(): RedisServiceMock {
     }),
     delByPattern: jest.fn((_pattern: string) => {
       void _pattern;
+      return Promise.resolve(1);
+    }),
+    delByPatterns: jest.fn((_patterns: string[]) => {
+      void _patterns;
       return Promise.resolve(1);
     }),
   };
@@ -59,8 +64,8 @@ describe('cache invalidator registries', () => {
     await registry.invalidateMarketingOverview(18);
     await registry.invalidateSpacesReadCaches(18);
 
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
-      buildProfitDashboardHomePattern(18),
+    expect(redisService.delByPatterns).toHaveBeenCalledWith(
+      expect.arrayContaining([buildProfitDashboardHomePattern(18)]),
     );
     expect(redisService.delByPattern).toHaveBeenCalledWith(
       buildBusinessAnalysisPattern(18),
@@ -88,8 +93,8 @@ describe('cache invalidator registries', () => {
 
     await registry.invalidateMembersDerived(18);
 
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
-      buildMembersListPattern(18),
+    expect(redisService.delByPatterns).toHaveBeenCalledWith(
+      expect.arrayContaining([buildMembersListPattern(18)]),
     );
   });
 

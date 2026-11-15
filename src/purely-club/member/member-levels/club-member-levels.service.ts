@@ -4,13 +4,16 @@ import {
   cloneDefaultMarketingMemberLevelSettings,
   type MarketingMemberLevelConfigValue,
 } from '../../../purely-profit/marketing/marketing.utils';
-import { safeParseLevels } from '../../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type {
   ClubMemberLevelConfigDto,
   ClubMemberLevelStatusDto,
   ClubMemberLevelValue,
 } from '../dto/club-member-account.dto';
 import type { ClubMemberSnapshot } from '../member-profile/club-member-profile.service';
+import {
+  ClubLevelSettingsTtlCache,
+  cloneLevelSettings,
+} from './club-member-levels.cache';
 import {
   CLUB_MEMBER_HELD_LEVEL_LABEL_MAP,
   CLUB_MEMBER_LEVEL_META,
@@ -19,9 +22,9 @@ import {
   formatAmount,
   formatDiscountLabel,
   formatDiscountShortText,
+  normalizeMemberLevels,
   normalizeRate,
   type ClubMemberLevelResolution,
-  type ClubMemberLevelSettingRecord,
 } from './club-member-levels.shared';
 
 export type { ClubMemberLevelResolution };
@@ -32,6 +35,18 @@ export class ClubMemberLevelsService {
 
   async listConfigs(storeId: number): Promise<ClubMemberLevelConfigDto[]> {
     const levelSettings = await this.loadLevelSettings(storeId);
+    return this.listConfigsFromSettings(levelSettings);
+  }
+
+  /**
+   * 用**已解析**的原始等级配置生成可见等级列表。
+   *
+   * 与 `listConfigs` 共用 `toActiveConfigDtos`，保证「首页等级列表」与
+   * 「账户里的可见等级列表」永远同一口径；区别只在于配置来源（自行读取 vs 调用方种子）。
+   */
+  listConfigsFromSettings(
+    levelSettings: MarketingMemberLevelConfigValue[],
+  ): ClubMemberLevelConfigDto[] {
     return this.toActiveConfigDtos(levelSettings);
   }
 
@@ -42,19 +57,34 @@ export class ClubMemberLevelsService {
     return resolution.currentLevelConfig.level;
   }
 
+  /**
+   * @param levelSettings 请求级种子（原始配置，含已停用等级）。
+   *   传入时直接复用，跳过配置表读取；不传时行为与历史一致（自行读取）。
+   */
   async resolveCurrentLevelConfig(
     snapshot: ClubMemberSnapshot,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubMemberLevelConfigDto> {
-    const resolution = await this.resolveLevelResolution(snapshot);
+    const resolution = await this.resolveLevelResolution(
+      snapshot,
+      levelSettings,
+    );
     return resolution.currentLevelConfig;
   }
 
+  /**
+   * @param levelSettings 请求级种子（原始配置，含已停用等级）。
+   *   传入时不再读配置表；`heldLevelConfig` 仍从**原始配置**取，所以
+   *   「已停用但顾客仍持有」的等级不会丢 label。
+   */
   async resolveLevelResolution(
     snapshot: ClubMemberSnapshot,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubMemberLevelResolution> {
-    const levelSettings = await this.loadLevelSettings(snapshot.storeId);
-    const visibleLevelConfigs = this.toActiveConfigDtos(levelSettings);
-    const allLevelConfigs = levelSettings.map((levelSetting) =>
+    const resolvedLevelSettings =
+      levelSettings ?? (await this.loadLevelSettings(snapshot.storeId));
+    const visibleLevelConfigs = this.toActiveConfigDtos(resolvedLevelSettings);
+    const allLevelConfigs = resolvedLevelSettings.map((levelSetting) =>
       this.toConfigDto(levelSetting),
     );
     const heldLevelConfig = allLevelConfigs.find(
@@ -145,20 +175,45 @@ export class ClubMemberLevelsService {
   /**
    * 并发去重：同一门店的在途请求共用一个 Promise。
    * 会员等级页会并发请求 account / level-status / levels，三个接口都要读同一份配置，
-   * 去重后一次页面加载只查一次配置表；不做时间缓存，后台改配置后仍立即生效。
+   * 去重后一次页面加载只查一次配置表。
+   *
+   * 与下面的 TTL 缓存叠加后的语义：3s 内直接命中缓存；缓存未命中瞬间的并发请求
+   * 由本 Map 合并成一次回源。
    */
   private readonly inflightSettingsRequests = new Map<
     number,
     Promise<MarketingMemberLevelConfigValue[]>
   >();
 
-  private loadLevelSettings(
+  /**
+   * 等级配置进程内 TTL 缓存（3-B-2）。
+   *
+   * 只缓存 `levels`：同一行的 `pointsRatio` 是资金口径（积分抵扣 / 赠送比例），
+   * 必须每次直读，禁止并入此缓存。
+   */
+  private readonly levelSettingsCache = new ClubLevelSettingsTtlCache();
+
+  /**
+   * 读取门店原始等级配置（含已停用等级）。
+   *
+   * 对外暴露是为了支撑「请求级种子」：首页一次 `getHome` 内三条分支
+   * （等级列表 / 账户等级 / 商品定价）都需要同一份配置，由调用方解析一次后
+   * 透传，避免各自回源。
+   *
+   * 可见延迟：命中进程内缓存时可能读到最多 3s 前的配置（见
+   * `CLUB_LEVEL_SETTINGS_CACHE_TTL_MS`）。返回值为副本，调用方可安全修改。
+   */
+  async loadLevelSettings(
     storeId: number,
   ): Promise<MarketingMemberLevelConfigValue[]> {
-    const inflight = this.inflightSettingsRequests.get(storeId);
+    const cached = this.levelSettingsCache.get(storeId);
+    if (cached) {
+      return cloneLevelSettings(cached);
+    }
 
+    const inflight = this.inflightSettingsRequests.get(storeId);
     if (inflight) {
-      return inflight;
+      return cloneLevelSettings(await inflight);
     }
 
     const request = this.fetchLevelSettings(storeId).finally(() => {
@@ -166,9 +221,15 @@ export class ClubMemberLevelsService {
     });
     this.inflightSettingsRequests.set(storeId, request);
 
-    return request;
+    return cloneLevelSettings(await request);
   }
 
+  /**
+   * 回源读取并写入缓存。
+   *
+   * 失败（数据库异常）不写缓存，下次请求会重新尝试——缓存只做加速，
+   * 不允许把一次失败固化成 3s 的错误结果。
+   */
   private async fetchLevelSettings(
     storeId: number,
   ): Promise<MarketingMemberLevelConfigValue[]> {
@@ -180,83 +241,9 @@ export class ClubMemberLevelsService {
       },
     });
 
-    return this.normalizeMemberLevels(settings, fallback.levels);
-  }
-
-  private normalizeMemberLevels(
-    settings: ClubMemberLevelSettingRecord | null,
-    fallbackLevels: MarketingMemberLevelConfigValue[],
-  ): MarketingMemberLevelConfigValue[] {
-    // 优先使用 Zod schema 解析
-    if (settings?.levels) {
-      const parsedLevels = safeParseLevels(settings.levels);
-      if (parsedLevels.length > 0) {
-        return fallbackLevels.map((fallbackLevel) => {
-          const matched = parsedLevels.find(
-            (item) => item.id === fallbackLevel.id,
-          );
-          return matched
-            ? {
-                ...fallbackLevel,
-                ...matched,
-                id: fallbackLevel.id,
-              }
-            : { ...fallbackLevel };
-        });
-      }
-    }
-
-    // Zod 解析失败，回退到手写归一化
-    const rawLevels = Array.isArray(settings?.levels) ? settings.levels : [];
-
-    return fallbackLevels.map((fallbackLevel) => {
-      const found = rawLevels.find(
-        (item) =>
-          !!item &&
-          typeof item === 'object' &&
-          !Array.isArray(item) &&
-          (item as Record<string, unknown>).id === fallbackLevel.id,
-      );
-      const matched =
-        found && typeof found === 'object' && !Array.isArray(found)
-          ? (found as Record<string, unknown>)
-          : undefined;
-
-      const discountRate =
-        typeof matched?.discountRate === 'number'
-          ? matched.discountRate
-          : fallbackLevel.discountRate;
-
-      return {
-        id: fallbackLevel.id,
-        name:
-          typeof matched?.name === 'string' && matched.name.trim().length > 0
-            ? matched.name.trim()
-            : fallbackLevel.name,
-        discountRate,
-        discountRatePct:
-          typeof matched?.discountRatePct === 'number'
-            ? matched.discountRatePct
-            : Math.round(discountRate * 100),
-        spendThreshold:
-          typeof matched?.spendThreshold === 'number'
-            ? Math.max(0, Math.round(matched.spendThreshold))
-            : fallbackLevel.spendThreshold,
-        description:
-          typeof matched?.description === 'string' &&
-          matched.description.trim().length > 0
-            ? matched.description.trim()
-            : fallbackLevel.description,
-        enabled:
-          typeof matched?.enabled === 'boolean'
-            ? matched.enabled
-            : fallbackLevel.enabled,
-        updatedAt:
-          typeof matched?.updatedAt === 'number'
-            ? matched.updatedAt
-            : fallbackLevel.updatedAt,
-      };
-    });
+    const levels = normalizeMemberLevels(settings, fallback.levels);
+    this.levelSettingsCache.set(storeId, levels);
+    return levels;
   }
 
   private toActiveConfigDtos(

@@ -168,9 +168,10 @@ describe('ClubProductsService', () => {
 
     await service.list(currentContext, {});
 
+    // 未传等级配置种子 → 第 4 参为 undefined，定价链路自行读取（行为与历史一致）
     expect(
       clubProductPromotionService.resolvePricingContext,
-    ).toHaveBeenCalledWith(11, user.id, user.phone);
+    ).toHaveBeenCalledWith(11, user.id, user.phone, undefined);
     // 无 featured 无 cursor：走分页首屏路径，查询层以 limit+1 探测
     expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith({
       storeId: 11,

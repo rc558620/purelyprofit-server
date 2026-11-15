@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { AllExceptionsFilter } from '../../bootstrap/all-exceptions.filter';
 import { RedisService } from '../../redis/redis.service';
 import { ClubStoreAccessService } from './club-store-access.service';
+import { ClubCurrentContextCache } from './club-current-context.cache';
 import type { ClubAccessibleStoreRecord } from './club-stores.types';
 import {
   ClubCurrentStoreContextService,
@@ -48,8 +49,10 @@ describe('ClubCurrentStoreContextService', () => {
     currentMembership: null,
   };
 
+  /** get 用于 readSelectedStoreId；mget 用于合并读取上下文快照 */
   const redisService = {
     get: jest.fn(),
+    mget: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
   };
@@ -57,17 +60,38 @@ describe('ClubCurrentStoreContextService', () => {
   const clubStoreAccessService = {
     findAccessibleStores: jest.fn(),
     findAccessibleStoreById: jest.fn(),
+    buildAccessibleStoresCacheKey: jest.fn(
+      (userId: number) => `club:accessible-stores:${userId}`,
+    ),
+    // 真实解析语义：缓存只是加速层，脏值必须能被安全判为未命中
+    parseAccessibleStores: jest.fn((raw: string | null) => {
+      if (raw === null) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        return Array.isArray(parsed)
+          ? (parsed as ClubAccessibleStoreRecord[])
+          : null;
+      } catch {
+        return null;
+      }
+    }),
+    refreshAccessibleStores: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    // 默认「未选店」：clearAllMocks 只清调用记录、不清实现，
-    // 不复位的话某些用例设置的 mockResolvedValue('37') 会污染后续用例。
+    // 默认「门店缓存未命中 + 未选店」：clearAllMocks 只清调用记录、不清实现，
+    // 不复位的话某些用例设置的 mockResolvedValue 会污染后续用例。
     redisService.get.mockResolvedValue(null);
+    redisService.mget.mockResolvedValue([null, null]);
+    clubStoreAccessService.refreshAccessibleStores.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubCurrentStoreContextService,
+        ClubCurrentContextCache,
         { provide: RedisService, useValue: redisService },
         {
           provide: ClubStoreAccessService,
@@ -85,7 +109,7 @@ describe('ClubCurrentStoreContextService', () => {
 
   describe('无可访问门店的错误契约', () => {
     beforeEach(() => {
-      clubStoreAccessService.findAccessibleStores.mockResolvedValue([]);
+      clubStoreAccessService.refreshAccessibleStores.mockResolvedValue([]);
     });
 
     it('抛出的 404 必须携带业务码 NO_ACCESSIBLE_STORE', async () => {
@@ -149,8 +173,8 @@ describe('ClubCurrentStoreContextService', () => {
         { id: 9, name: '门店甲' },
         { id: 37, name: '门店乙' },
       ];
-      clubStoreAccessService.findAccessibleStores.mockResolvedValue(stores);
-      redisService.get.mockResolvedValue('37');
+      clubStoreAccessService.refreshAccessibleStores.mockResolvedValue(stores);
+      redisService.mget.mockResolvedValue([null, '37']);
 
       await expect(service.getCurrentStore(user)).resolves.toEqual(stores[1]);
       expect(redisService.del).not.toHaveBeenCalled();
@@ -158,7 +182,7 @@ describe('ClubCurrentStoreContextService', () => {
 
     it('仅一家门店时仍自动选中并持久化，保持老用户零感知', async () => {
       const stores = [{ id: 9, name: '门店甲' }];
-      clubStoreAccessService.findAccessibleStores.mockResolvedValue(stores);
+      clubStoreAccessService.refreshAccessibleStores.mockResolvedValue(stores);
 
       await expect(service.getCurrentStore(user)).resolves.toEqual(stores[0]);
       expect(redisService.set).toHaveBeenCalledWith(
@@ -169,7 +193,7 @@ describe('ClubCurrentStoreContextService', () => {
     });
 
     it('多家门店且未选店时拒绝隐式回落，携带 NO_ACCESSIBLE_STORE 业务码', async () => {
-      clubStoreAccessService.findAccessibleStores.mockResolvedValue([
+      clubStoreAccessService.refreshAccessibleStores.mockResolvedValue([
         { id: 9, name: '门店甲' },
         { id: 37, name: '门店乙' },
       ]);
@@ -187,11 +211,11 @@ describe('ClubCurrentStoreContextService', () => {
     });
 
     it('选店缓存指向已不可访问的门店时要求重新选店，并清掉脏缓存', async () => {
-      clubStoreAccessService.findAccessibleStores.mockResolvedValue([
+      clubStoreAccessService.refreshAccessibleStores.mockResolvedValue([
         { id: 9, name: '门店甲' },
         { id: 37, name: '门店乙' },
       ]);
-      redisService.get.mockResolvedValue('999');
+      redisService.mget.mockResolvedValue([null, '999']);
 
       await expect(service.getCurrentStore(user)).rejects.toMatchObject({
         status: 404,
@@ -212,6 +236,42 @@ describe('ClubCurrentStoreContextService', () => {
         service.resolveCurrentStoreId(user.id, stores),
       ).resolves.toBeNull();
       expect(redisService.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('上下文快照的合并读取与进程内复用', () => {
+    it('门店列表与选中门店合并为一次 MGET，不再各自 GET', async () => {
+      const stores = [{ id: 9, name: '门店甲' }];
+      redisService.mget.mockResolvedValue([JSON.stringify(stores), '9']);
+
+      await expect(service.getCurrentStore(user)).resolves.toEqual(stores[0]);
+      expect(redisService.mget).toHaveBeenCalledTimes(1);
+      // 命中缓存时既不回源 DB，也不读选店 key 的独立 GET
+      expect(
+        clubStoreAccessService.refreshAccessibleStores,
+      ).not.toHaveBeenCalled();
+      expect(redisService.get).not.toHaveBeenCalled();
+    });
+
+    it('TTL 窗口内的连续请求不再触碰 Redis', async () => {
+      const stores = [{ id: 9, name: '门店甲' }];
+      redisService.mget.mockResolvedValue([JSON.stringify(stores), '9']);
+
+      await service.getCurrentStore(user);
+      await service.getCurrentStore(user);
+
+      expect(redisService.mget).toHaveBeenCalledTimes(1);
+    });
+
+    it('选店缓存被清除时同步失效进程内快照，避免继续返回旧门店', async () => {
+      const stores = [{ id: 9, name: '门店甲' }];
+      redisService.mget.mockResolvedValue([JSON.stringify(stores), '9']);
+
+      await service.getCurrentStore(user);
+      await service.clearSelectedStoreId(user.id);
+      await service.getCurrentStore(user);
+
+      expect(redisService.mget).toHaveBeenCalledTimes(2);
     });
   });
 });

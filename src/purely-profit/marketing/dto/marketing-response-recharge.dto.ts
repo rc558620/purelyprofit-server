@@ -5,6 +5,7 @@
 //  - 时间戳字段单位：毫秒（number）
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import {
   MARKETING_RECHARGE_TYPE_VALUES,
   type MarketingRechargeTypeValue,
@@ -97,4 +98,18 @@ export class MarketingRechargesResponseDto {
 
   @ApiProperty({ type: MarketingPaginationMetaDto })
   meta: MarketingPaginationMetaDto;
+
+  @ApiProperty({ description: '是否还有下一页（恒等于 nextCursor !== null）' })
+  @IsBoolean({ message: 'hasMore 必须是布尔值' })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: 'nextCursor 必须是字符串' })
+  nextCursor: string | null;
 }

@@ -13,6 +13,7 @@ import { ProductSpecPricingService } from '../../purely-profit/goods/products/pr
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
+import { buildSpecPricingStub } from './club-self-ordering-order.service.fixture';
 
 /**
  * 自助下单建单测试：
@@ -79,41 +80,7 @@ describe('ClubSelfOrderingOrderService', () => {
       .mockResolvedValue({ consumed: false, remaining: 0 }),
   };
 
-  /**
-   * 商品规格定价桩：商品 101 = 可口可乐（800 分 / 成本 300 分），
-   * 选中选项 11（大杯 +200 分）后单价 1000 分、展示名带规格后缀。
-   */
-  const specPricing = {
-    price: jest.fn(
-      (input: {
-        storeId: number;
-        productId: number;
-        specOptionIds?: number[] | null;
-      }): Promise<Record<string, unknown>> => {
-        if (input.productId !== 101) {
-          return Promise.reject(new NotFoundException('商品不存在或已下架'));
-        }
-        const ids = [...new Set(input.specOptionIds ?? [])].sort(
-          (left, right) => left - right,
-        );
-        const hasSpec = ids.length > 0;
-        return Promise.resolve({
-          menuProductId: hasSpec ? 77 : null,
-          unitPriceCents: hasSpec ? 1000 : 800,
-          costPriceCents: 300,
-          profitCents: hasSpec ? 700 : 500,
-          categoryName: '酒水饮料',
-          specOptionIds: ids,
-          specNames: hasSpec ? ['大杯'] : [],
-          specOptions: hasSpec
-            ? [{ id: 11, name: '大杯', extraPrice: 200 }]
-            : [],
-          specSignature: hasSpec ? `sig-${ids.join('-')}` : null,
-          displayName: hasSpec ? '可口可乐（大杯）' : '可口可乐',
-        });
-      },
-    ),
-  };
+  const specPricing = buildSpecPricingStub();
 
   const createdOrder = {
     id: 1,
@@ -276,7 +243,7 @@ describe('ClubSelfOrderingOrderService', () => {
   });
 
   it('商品下架时拒绝建单', async () => {
-    specPricing.price.mockRejectedValueOnce(
+    specPricing.priceMany.mockRejectedValueOnce(
       new NotFoundException('商品不存在或已下架'),
     );
 

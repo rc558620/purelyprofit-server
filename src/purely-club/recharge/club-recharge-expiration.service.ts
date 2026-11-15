@@ -23,6 +23,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AlertService } from '../../shared/alert/alert.service';
 import { ClubWechatTransactionService } from '../payments/club-wechat-transaction.service';
+import {
+  CLUB_BATCH_DEFAULT_CONCURRENCY,
+  runClubBatchWithConcurrency,
+} from '../shared/club-batch-concurrency.helper';
 import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 
 /** 分布式锁 key */
@@ -87,9 +91,13 @@ export class ClubRechargeExpirationService
         select: { orderNo: true, storeId: true },
       });
 
-      for (const order of dueOrders) {
-        await this.expireOneOrder(order.orderNo, order.storeId);
-      }
+      // 逐笔串行会让「100 笔 × 微信关单往返」吃掉整个扫描周期（锁 TTL 55s），
+      // 并发上限与微信支付接口配额、DB 连接池一起权衡，见 helper 注释
+      await runClubBatchWithConcurrency(
+        dueOrders,
+        (order) => this.expireOneOrder(order.orderNo, order.storeId),
+        CLUB_BATCH_DEFAULT_CONCURRENCY,
+      );
     } catch (error: unknown) {
       this.logger.error(
         `扫描超时充值订单失败: ${error instanceof Error ? error.message : String(error)}`,

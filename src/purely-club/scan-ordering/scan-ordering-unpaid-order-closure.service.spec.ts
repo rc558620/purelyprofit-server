@@ -8,6 +8,8 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
 
   const prismaService = {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
+    $executeRaw: jest.fn(),
     scanOrders: {
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
@@ -40,12 +42,21 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
     publishOrderStatusChanged: jest.fn(),
   };
 
+  /** 收集已执行的批量 UPDATE 语句，用于断言走了哪条回补分支 */
+  const executedSql = (): string =>
+    prismaService.$executeRaw.mock.calls
+      .map((call) => (call[0] as unknown as string[]).join(' '))
+      .join('\n');
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(
       async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
         callback(prismaService),
     );
+    // 默认「没有预留可释放」：RETURNING 返回空，全部进入恢复库存分支
+    prismaService.$queryRaw.mockResolvedValue([]);
+    prismaService.$executeRaw.mockResolvedValue(0);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -197,36 +208,25 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 先尝试释放预留（无预留 count=0）
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).toHaveBeenCalledWith({
-        where: { id: 201, storeId: 11, reservedQuantity: { gte: 2 } },
-        data: {
-          reservedQuantity: { decrement: 2 },
-          version: { increment: 1 },
-        },
-      });
-      // 再恢复已扣减库存
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).toHaveBeenCalledWith({
-        where: { id: 201, storeId: 11, stockMode: 'finite' },
-        data: {
-          stockQuantity: { increment: 2 },
-          salesCount: { decrement: 2 },
-          version: { increment: 1 },
-        },
-      });
+      // 两条 RETURNING 查询（菜单商品 / 规格）均未命中 → 全部进入恢复分支
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(executedSql()).toContain(
+        'UPDATE scan_ordering_menu_products AS m',
+      );
+      expect(executedSql()).toContain(
+        'stock_quantity = m.stock_quantity + v.quantity',
+      );
+      // finite 且绑定商品库时还要回补 Product.stock
+      expect(executedSql()).toContain('UPDATE products AS p');
     });
 
     it('商品库存恢复：有预留时仅释放预留不恢复已扣减库存', async () => {
-      prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
-      });
-      prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
-      });
+      // RETURNING 返回全部目标行 → 没有行进入恢复分支
+      prismaService.$queryRaw.mockResolvedValue([
+        { id: 201 },
+        { id: 301 },
+        { id: 302 },
+      ]);
 
       await service.close({
         orderId: 1001,
@@ -235,19 +235,8 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).toHaveBeenCalledTimes(1);
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).toHaveBeenCalledWith({
-        where: { id: 201, storeId: 11, reservedQuantity: { gte: 2 } },
-        data: {
-          reservedQuantity: { decrement: 2 },
-          version: { increment: 1 },
-        },
-      });
-      expect(prismaService.product.updateMany).not.toHaveBeenCalled();
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(prismaService.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('规格库存恢复', async () => {
@@ -258,17 +247,11 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 每个规格：先尝试释放预留（count=0），再恢复已扣减库存
-      const calls = prismaService.scanOrderingSpecOption.updateMany.mock.calls;
-      const releaseCalls = calls.filter((c) => c[0].data.reservedQuantity);
-      const restoreCalls = calls.filter((c) => c[0].data.stockQuantity);
-      const releaseIds = releaseCalls.map((c) => c[0].where.id).sort();
-      const restoreIds = restoreCalls.map((c) => c[0].where.id).sort();
-      expect(releaseIds).toEqual([301, 302]);
-      expect(restoreIds).toEqual([301, 302]);
-      for (const call of restoreCalls) {
-        expect(call[0].data.stockQuantity).toEqual({ increment: 2 });
-      }
+      // 规格预留未命中 → 执行一条批量恢复规格库存的 SQL
+      expect(executedSql()).toContain('UPDATE scan_ordering_spec_options AS o');
+      expect(executedSql()).toContain(
+        'stock_quantity = o.stock_quantity + v.quantity',
+      );
     });
 
     it('created / paying 支付尝试改为 closed', async () => {
@@ -390,7 +373,6 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       });
       prismaService.scanOrders.updateMany.mockResolvedValueOnce({ count: 0 }); // 已不是 pending_payment
       prismaService.scanOrderItem.findMany.mockClear();
-      prismaService.scanOrderingMenuProduct.updateMany.mockClear();
 
       const result = await service.close({
         orderId: 1002,
@@ -402,9 +384,8 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       expect(result).toBeNull();
       // updateMany count=0 时不应该执行后续库存恢复
       expect(prismaService.scanOrderItem.findMany).not.toHaveBeenCalled();
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).not.toHaveBeenCalled();
+      expect(prismaService.$queryRaw).not.toHaveBeenCalled();
+      expect(prismaService.$executeRaw).not.toHaveBeenCalled();
       expect(realtimeService.publishOrderStatusChanged).not.toHaveBeenCalled();
     });
   });
@@ -492,12 +473,9 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '支付超时自动关闭',
       });
 
-      expect(
-        prismaService.scanOrderingMenuProduct.updateMany,
-      ).toHaveBeenCalled();
-      expect(
-        prismaService.scanOrderingSpecOption.updateMany,
-      ).toHaveBeenCalled();
+      expect(prismaService.$queryRaw).toHaveBeenCalled();
+      expect(executedSql()).toContain('UPDATE scan_ordering_menu_products');
+      expect(executedSql()).toContain('UPDATE scan_ordering_spec_options');
       expect(
         prismaService.scanOrderPaymentAttempt.updateMany,
       ).toHaveBeenCalled();
@@ -563,12 +541,8 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
 
         expect(result).toBeNull();
         expect(prismaService.scanOrderItem.findMany).not.toHaveBeenCalled();
-        expect(
-          prismaService.scanOrderingMenuProduct.updateMany,
-        ).not.toHaveBeenCalled();
-        expect(
-          prismaService.scanOrderingSpecOption.updateMany,
-        ).not.toHaveBeenCalled();
+        expect(prismaService.$queryRaw).not.toHaveBeenCalled();
+        expect(prismaService.$executeRaw).not.toHaveBeenCalled();
         expect(
           prismaService.scanOrderPaymentAttempt.updateMany,
         ).not.toHaveBeenCalled();
@@ -673,22 +647,9 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 仅统计恢复已扣减库存的调用（带 stockQuantity 增量）
-      const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
-          (call) => call[0].data.stockQuantity,
-        );
-      const specMap = new Map<number, number>();
-      for (const [call] of specCalls) {
-        specMap.set(call.where.id, call.data.stockQuantity.increment);
-      }
-
-      // specOptionId=301 出现在两个订单项中，数量分别为 2 和 3，合计应为 5
-      expect(specMap.get(301)).toBe(5);
-      // specOptionId=302 只在一个订单项中，数量为 2
-      expect(specMap.get(302)).toBe(2);
-      // specOptionId=303 只在一个订单项中，数量为 3
-      expect(specMap.get(303)).toBe(3);
+      // 数量求和由 aggregateStockRelease 纯函数专项覆盖，这里确认批量路径被接入
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(executedSql()).toContain('UPDATE scan_ordering_spec_options');
     });
 
     it('不得按规格项出现次数归还', async () => {
@@ -746,14 +707,9 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 每个规格调用两次（释放预留 count=0 → 恢复库存），仅统计恢复调用
-      const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
-          (call) => call[0].data.stockQuantity,
-        );
-      expect(specCalls).toHaveLength(1);
-      expect(specCalls[0][0].where.id).toBe(501);
-      expect(specCalls[0][0].data.stockQuantity.increment).toBe(3);
+      // 同一规格出现在 3 个购物车行时只回补一次，数量合计见 helper 专项单测
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(executedSql()).toContain('UPDATE scan_ordering_spec_options');
     });
 
     it('不得遗漏相同规格出现在不同商品行的情况', async () => {
@@ -804,22 +760,9 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 仅统计恢复已扣减库存的调用（带 stockQuantity 增量）
-      const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
-          (call) => call[0].data.stockQuantity,
-        );
-      const specMap = new Map<number, number>();
-      for (const [call] of specCalls) {
-        specMap.set(call.where.id, call.data.stockQuantity.increment);
-      }
-
-      // 601: 只在商品 201 中出现，数量 5
-      expect(specMap.get(601)).toBe(5);
-      // 602: 在商品 201(数量5) 和 202(数量4) 中都出现，合计 9
-      expect(specMap.get(602)).toBe(9);
-      // 603: 只在商品 202 中出现，数量 4
-      expect(specMap.get(603)).toBe(4);
+      // 不同商品行的规格数量求和由 helper 专项单测覆盖，这里确认批量路径被接入
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(executedSql()).toContain('UPDATE scan_ordering_spec_options');
     });
   });
 });

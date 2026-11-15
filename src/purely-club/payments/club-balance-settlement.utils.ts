@@ -13,9 +13,8 @@
 import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
-import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { Money } from '../../shared/money.utils';
+import { applyCustomerMetrics } from '../shared/club-customer-metrics.helper';
 
 /** 与扣款同事务更新的顾客消费指标 */
 export interface DebitCustomerBalanceMetrics {
@@ -26,8 +25,6 @@ export interface DebitCustomerBalanceMetrics {
    * 否则物化字段会永远小于「流水实时聚合」。
    */
   settlementAmountFen: number;
-  /** 调用方已读到的累计消费（用于计算等级），必须是扣款前的值 */
-  currentTotalSpent: number;
 }
 
 export interface DebitCustomerBalanceParams {
@@ -42,6 +39,11 @@ export interface DebitCustomerBalanceParams {
   requireActive?: boolean;
   /** 余额不足异常工厂：各业务线的异常类型与文案不同，缺省用统一文案 */
   buildInsufficientError?: () => Error;
+  /**
+   * 事务外预加载的等级阈值；传入则不再在事务内查配置。
+   * 不传时行为不变（事务内读取），供其余结算链路继续使用。
+   */
+  tierThresholds?: { gold: number; diamond: number };
 }
 
 /** 统一兜底文案：无法回读最新余额（并发失败时行已变），只展示扣款额 */
@@ -53,27 +55,13 @@ const buildDefaultInsufficientError = (balancePaidFen: number): Error =>
     ),
   );
 
-/** 构造指标更新字段：等级阈值必须读门店配置，不能用硬编码兜底值 */
-const buildMetricsUpdate = async (
-  tx: Prisma.TransactionClient,
-  storeId: number,
-  metrics: DebitCustomerBalanceMetrics,
-): Promise<Prisma.MarketingCustomerUpdateManyMutationInput> => {
-  const thresholds = await queryCustomerTierThresholds(tx, storeId);
-  const newTotalSpent = metrics.currentTotalSpent + metrics.settlementAmountFen;
-  return {
-    totalSpent: { increment: metrics.settlementAmountFen },
-    visitCount: { increment: 1 },
-    lastVisitAt: new Date(),
-    tier: calcCustomerTier(newTotalSpent, thresholds) as never,
-  };
-};
-
 /**
  * 原子扣减储值余额（事务内调用）。
  *
- * `balance: { gte }` 是最终防线：即使调用方前置校验通过，并发消费也可能让余额
- * 在事务内变化，只有条件更新能保证不会扣成负数。
+ * `balance >= 扣款额` 作为 SQL 条件写进同一条 UPDATE，是最终防线：即使调用方
+ * 前置校验通过，并发消费也可能让余额在事务内变化，只有条件更新能保证不会扣成负数。
+ * 累计消费 / 到店次数 / 等级由 {@link applyCustomerMetrics} 在同一语句内原子更新，
+ * 等级基于数据库更新后的真实 totalSpent 重算，不再使用调用方读到的旧值。
  *
  * @throws 余额不足 / 档案已删除 / 并发失败时抛调用方指定的异常
  */
@@ -81,29 +69,28 @@ export async function debitCustomerBalance(
   tx: Prisma.TransactionClient,
   params: DebitCustomerBalanceParams,
 ): Promise<void> {
-  const { customerId, storeId, balancePaidFen, metrics, requireActive } =
-    params;
+  const {
+    customerId,
+    storeId,
+    balancePaidFen,
+    metrics,
+    requireActive,
+    tierThresholds,
+  } = params;
 
-  const metricsUpdate = metrics
-    ? await buildMetricsUpdate(tx, storeId, metrics)
-    : {};
-
-  const result = await tx.marketingCustomer.updateMany({
-    where: {
-      id: customerId,
-      storeId,
-      // 已软删档案不再参与扣款：宁可失败留待人工，也不能扣到失效档案上
-      deletedAt: null,
-      ...(requireActive ? { status: 'active' } : {}),
-      balance: { gte: balancePaidFen },
-    },
-    data: {
-      balance: { decrement: balancePaidFen },
-      ...metricsUpdate,
-    },
+  const snapshot = await applyCustomerMetrics(tx, {
+    customerId,
+    storeId,
+    balanceDelta: -balancePaidFen,
+    requireBalanceGte: balancePaidFen,
+    totalSpentDelta: metrics?.settlementAmountFen ?? 0,
+    visitCountDelta: metrics ? 1 : 0,
+    touchLastVisitAt: Boolean(metrics),
+    requireActive,
+    tierThresholds,
   });
 
-  if (result.count !== 1) {
+  if (!snapshot) {
     throw (
       params.buildInsufficientError?.() ??
       buildDefaultInsufficientError(balancePaidFen)

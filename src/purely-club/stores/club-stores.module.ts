@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { ClubCurrentContextCache } from './club-current-context.cache';
 import { ClubCurrentContextInterceptor } from './club-current-context.interceptor';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
 import { ClubInviteAttributionService } from './club-invite-attribution.service';
@@ -18,6 +19,7 @@ import { ClubStoresService } from './club-stores.service';
   imports: [AuthModule, PrismaModule, StoresModule],
   controllers: [ClubStoresController, ClubInviteEntryController],
   providers: [
+    ClubCurrentContextCache,
     ClubStoreAccessService,
     ClubInviteCodeMapService,
     ClubInviteAttributionService,

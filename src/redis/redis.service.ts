@@ -9,7 +9,11 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import type { ChainableCommander, RedisOptions } from 'ioredis';
 import { recordRedisOperation } from '../observability';
-import { pipelineUnlinkByPattern } from './redis-pipeline.util';
+import {
+  isSimpleRedisGlob,
+  pipelineUnlinkByPattern,
+  pipelineUnlinkByPatterns,
+} from './redis-pipeline.util';
 import { safeJsonStringify } from './redis-json.util';
 import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 
@@ -303,6 +307,35 @@ export class RedisService
       this.logger,
       this.slowRedisLogEnabled,
       this.slowRedisThresholdMs,
+    );
+  }
+
+  /**
+   * 一次 keyspace 遍历删除多个模式的 key。
+   *
+   * 仅含 `*` 的模式走合并路径；含 `?` / `[]` / `\` 的复杂模式分流回
+   * delByPattern，由 Redis 服务端 MATCH 保证语义，避免客户端匹配分叉。
+   */
+  async delByPatterns(patterns: string[]): Promise<number> {
+    if (patterns.length === 0) return 0;
+    const simple = patterns.filter(isSimpleRedisGlob);
+    const complex = patterns.filter((pattern) => !isSimpleRedisGlob(pattern));
+
+    const [simpleDeleted, complexDeleted] = await Promise.all([
+      simple.length > 0
+        ? pipelineUnlinkByPatterns(
+            this.client,
+            simple,
+            this.logger,
+            this.slowRedisLogEnabled,
+            this.slowRedisThresholdMs,
+          )
+        : Promise.resolve(0),
+      Promise.all(complex.map((pattern) => this.delByPattern(pattern))),
+    ]);
+
+    return (
+      simpleDeleted + complexDeleted.reduce((sum, count) => sum + count, 0)
     );
   }
 

@@ -80,7 +80,6 @@ export async function settleCardBalancePayment(
     balancePaidFen,
     metrics: {
       settlementAmountFen: balancePaidFen,
-      currentTotalSpent: customer.totalSpent,
     },
   });
 

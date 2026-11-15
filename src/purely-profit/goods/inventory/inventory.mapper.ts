@@ -114,9 +114,15 @@ export function buildPaginatedInventoryAdjustmentsResponse(params: {
   total: number;
   page: number;
   pageSize: number;
+  /** 是否还有下一页：两条路径都由调用方判定后传入 */
+  hasMore: boolean;
+  /** 下一页游标：null 表示已到底 */
+  nextCursor: string | null;
 }): PaginatedInventoryAdjustmentsResponseDto {
   return {
     items: params.items.map(buildInventoryAdjustmentResponse),
     meta: buildPaginationMeta(params.total, params.page, params.pageSize),
+    hasMore: params.hasMore,
+    nextCursor: params.nextCursor,
   };
 }

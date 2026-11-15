@@ -1,6 +1,7 @@
 import {
   buildBusinessAnalysisPattern,
   buildClubPromotionsCacheKey,
+  buildClubPromotionListCacheKey,
   buildProfitDashboardHomeActivitiesCacheKey,
   buildMarketingOverviewCacheKey,
   buildMembersListPattern,
@@ -59,6 +60,7 @@ import {
 type RedisServiceMock = {
   del: jest.Mock<Promise<void>, [string]>;
   delByPattern: jest.Mock<Promise<number>, [string]>;
+  delByPatterns: jest.Mock<Promise<number>, [string[]]>;
 };
 
 type ProviderCase = {
@@ -66,6 +68,7 @@ type ProviderCase = {
   invoke: (redisService: RedisServiceMock) => Promise<void>;
   expectedDelCalls?: string[];
   expectedDelByPatternCalls?: string[];
+  expectedDelByPatternsCalls?: string[][];
 };
 
 function createRedisServiceMock(): RedisServiceMock {
@@ -76,6 +79,10 @@ function createRedisServiceMock(): RedisServiceMock {
     }),
     delByPattern: jest.fn((_pattern: string) => {
       void _pattern;
+      return Promise.resolve(1);
+    }),
+    delByPatterns: jest.fn((_patterns: string[]) => {
+      void _patterns;
       return Promise.resolve(1);
     }),
   };
@@ -89,9 +96,11 @@ const providerCases: readonly ProviderCase[] = [
         redisService,
       }).invalidateProfitDashboardHome(18),
     expectedDelCalls: [buildProfitDashboardHomeActivitiesCacheKey(18)],
-    expectedDelByPatternCalls: [
-      buildProfitDashboardHomePattern(18),
-      buildProfitDashboardHomeChunkPattern(18),
+    expectedDelByPatternsCalls: [
+      [
+        buildProfitDashboardHomePattern(18),
+        buildProfitDashboardHomeChunkPattern(18),
+      ],
     ],
   },
   {
@@ -108,9 +117,11 @@ const providerCases: readonly ProviderCase[] = [
       marketingOverviewCacheInvalidatorProvider({
         redisService,
       }).invalidateMarketingOverview(18),
+    // C 端两份活动缓存（定价投影 + 展示列表）必须成对失效
     expectedDelCalls: [
       buildMarketingOverviewCacheKey(18),
       buildClubPromotionsCacheKey(18),
+      buildClubPromotionListCacheKey(18),
     ],
   },
   {
@@ -134,9 +145,8 @@ const providerCases: readonly ProviderCase[] = [
       buildMembersMetaCacheKey(18),
       buildMembersOverviewCacheKey(18),
     ],
-    expectedDelByPatternCalls: [
-      buildMembersListPattern(18),
-      buildMembersSnapshotsPattern(18),
+    expectedDelByPatternsCalls: [
+      [buildMembersListPattern(18), buildMembersSnapshotsPattern(18)],
     ],
   },
   {
@@ -280,7 +290,12 @@ const providerCases: readonly ProviderCase[] = [
 describe('cache invalidator providers', () => {
   it.each(providerCases)(
     '$description',
-    async ({ invoke, expectedDelCalls, expectedDelByPatternCalls }) => {
+    async ({
+      invoke,
+      expectedDelCalls,
+      expectedDelByPatternCalls,
+      expectedDelByPatternsCalls,
+    }) => {
       const redisService = createRedisServiceMock();
 
       await invoke(redisService);
@@ -291,6 +306,9 @@ describe('cache invalidator providers', () => {
       expect(
         redisService.delByPattern.mock.calls.map(([pattern]) => pattern),
       ).toEqual(expectedDelByPatternCalls ?? []);
+      expect(
+        redisService.delByPatterns.mock.calls.map(([patterns]) => patterns),
+      ).toEqual(expectedDelByPatternsCalls ?? []);
     },
   );
 });

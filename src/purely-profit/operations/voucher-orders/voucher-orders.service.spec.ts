@@ -1,68 +1,23 @@
-// 商家端团购券订单服务回归用例：惰性过期探测/分批、状态索引口径、确认条件更新与幂等。
+// 商家端团购券订单服务回归用例：惰性过期探测/分批、状态索引口径、确认条件更新与幂等、列表游标分页。
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
-import { ClubVoucherOrderRefundService } from '../../../purely-club/voucher-orders/club-voucher-order-refund.service';
-import { VoucherOrdersService } from './voucher-orders.service';
 import { VoucherOrderStatusFilter } from './dto/voucher-order-management.dto';
 import {
   EXPIRE_SCAN_BATCH_SIZE,
   EXPIRE_SCAN_MAX_BATCHES,
 } from './voucher-order-management.helper';
+import {
+  decodeCursor,
+  encodeCursor,
+} from '../../../shared/cursor-pagination.utils';
+import {
+  buildVoucherOrderListRow,
+  createVoucherOrdersTestService,
+  emulateVoucherOrderListQuery,
+  voucherOrdersSpecUser,
+} from './voucher-orders.spec-helpers';
+import type { FakeListQueryArgs } from './voucher-orders.spec-helpers';
 
-const currentUser = {} as AuthenticatedUser;
-
-const createService = async (): Promise<{
-  service: VoucherOrdersService;
-  prisma: {
-    clubVoucherOrder: {
-      updateMany: jest.Mock;
-      findMany: jest.Mock;
-      count: jest.Mock;
-      findFirst: jest.Mock;
-      update: jest.Mock;
-    };
-  };
-  realtime: { publishVoucherOrderConfirmed: jest.Mock };
-}> => {
-  const prisma = {
-    clubVoucherOrder: {
-      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      findMany: jest.fn().mockResolvedValue([]),
-      count: jest.fn().mockResolvedValue(0),
-      findFirst: jest.fn(),
-      update: jest.fn(),
-    },
-    staff: { findUnique: jest.fn().mockResolvedValue(null) },
-    store: { findUnique: jest.fn().mockResolvedValue(null) },
-  };
-  const realtime = {
-    publishVoucherOrderConfirmed: jest.fn(),
-    publishVoucherOrderStatusChanged: jest.fn(),
-  };
-  const commerceAccess = {
-    resolveSingleStoreId: jest.fn().mockResolvedValue(1),
-    findOperatorStaffIdForStore: jest.fn().mockResolvedValue(null),
-  };
-
-  const module: TestingModule = await Test.createTestingModule({
-    providers: [
-      VoucherOrdersService,
-      { provide: PrismaService, useValue: prisma },
-      { provide: CommerceAccessService, useValue: commerceAccess },
-      { provide: ScanOrderingRealtimeService, useValue: realtime },
-      {
-        provide: ClubVoucherOrderRefundService,
-        useValue: { rejectVoucherOrderByMerchant: jest.fn() },
-      },
-    ],
-  }).compile();
-
-  return { service: module.get(VoucherOrdersService), prisma, realtime };
-};
+const currentUser = voucherOrdersSpecUser;
 
 const buildUnconfirmedOrder = (): Record<string, unknown> => ({
   id: 7,
@@ -76,7 +31,7 @@ const buildUnconfirmedOrder = (): Record<string, unknown> => ({
 
 describe('VoucherOrdersService', () => {
   it('无过期订单时只做索引探测，不产生写事务', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
 
     const result = await service.listVoucherOrders(currentUser, {
       status: VoucherOrderStatusFilter.EXPIRED,
@@ -95,11 +50,16 @@ describe('VoucherOrdersService', () => {
     expect(probeArgs.where.expiresAt.lt).toBeInstanceOf(Date);
     expect(probeArgs.select).toEqual({ id: true });
     expect(probeArgs.take).toBe(EXPIRE_SCAN_BATCH_SIZE);
-    expect(result).toEqual({ items: [], total: 0 });
+    expect(result).toEqual({
+      items: [],
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+    });
   });
 
   it('存在过期订单时按批翻转，翻转先于列表查询与 count', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     prisma.clubVoucherOrder.findMany
       .mockResolvedValueOnce([{ id: 11 }, { id: 12 }])
       .mockResolvedValueOnce([]);
@@ -127,7 +87,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('惰性过期达到单请求批次上限时停止，剩余留待下次请求', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     const fullBatch = Array.from(
       { length: EXPIRE_SCAN_BATCH_SIZE },
       (_, index) => ({ id: index + 1 }),
@@ -152,7 +112,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('列表与 count 使用显式状态集合而非 not 不等式', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     const statuses = ['pending', 'used', 'refunded', 'expired'];
 
     await service.listVoucherOrders(currentUser, {
@@ -172,7 +132,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('确认订单只预读必要字段，并用带状态条件的原子更新防并发重复确认', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     prisma.clubVoucherOrder.findFirst.mockResolvedValue(
       buildUnconfirmedOrder(),
     );
@@ -205,7 +165,8 @@ describe('VoucherOrdersService', () => {
   });
 
   it('已确认订单直接返回快照，不重复写入也不重复广播', async () => {
-    const { service, prisma, realtime } = await createService();
+    const { service, prisma, realtime } =
+      await createVoucherOrdersTestService();
     const confirmedAt = new Date('2026-11-11T02:00:00.000Z');
     prisma.clubVoucherOrder.findFirst.mockResolvedValue({
       ...buildUnconfirmedOrder(),
@@ -224,7 +185,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('确认被并发抢占时回读最新确认信息，保持幂等语义', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     const confirmedAt = new Date('2026-11-11T02:00:00.000Z');
     prisma.clubVoucherOrder.findFirst
       .mockResolvedValueOnce(buildUnconfirmedOrder())
@@ -244,7 +205,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('抢占后回读仍无确认信息时抛出状态冲突，不返回伪造成功', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     prisma.clubVoucherOrder.findFirst
       .mockResolvedValueOnce(buildUnconfirmedOrder())
       .mockResolvedValueOnce(buildUnconfirmedOrder());
@@ -256,7 +217,7 @@ describe('VoucherOrdersService', () => {
   });
 
   it('已过有效期但 DB 状态仍是 pending 的订单不可确认', async () => {
-    const { service, prisma } = await createService();
+    const { service, prisma } = await createVoucherOrdersTestService();
     prisma.clubVoucherOrder.findFirst.mockResolvedValue({
       ...buildUnconfirmedOrder(),
       expiresAt: new Date('2000-01-01T00:00:00.000Z'),
@@ -267,5 +228,145 @@ describe('VoucherOrdersService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.clubVoucherOrder.update).not.toHaveBeenCalled();
     expect(prisma.clubVoucherOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  describe('列表游标分页（3-A-1 试点）', () => {
+    const cursorAt = new Date('2026-11-11T02:00:00.000Z');
+
+    it('带 cursor 时走游标路径：不传 skip、多取一行探测、游标条件包在 AND 内', async () => {
+      const { service, prisma } = await createVoucherOrdersTestService();
+      prisma.clubVoucherOrder.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          buildVoucherOrderListRow(4, cursorAt),
+          buildVoucherOrderListRow(3, cursorAt),
+        ]);
+      prisma.clubVoucherOrder.count.mockResolvedValue(5);
+
+      const result = await service.listVoucherOrders(currentUser, {
+        limit: 1,
+        cursor: encodeCursor({ keys: [cursorAt.getTime()], id: 5 }),
+      });
+
+      const listArgs = prisma.clubVoucherOrder.findMany.mock.calls[1][0] as {
+        where: { AND: Array<Record<string, unknown>> };
+        orderBy: unknown;
+        take: number;
+        skip?: number;
+      };
+      expect(listArgs.skip).toBeUndefined();
+      expect(listArgs.take).toBe(2);
+      // 排序末尾必须有 id 兜底，否则同秒行在翻页时会漏读/重复读
+      expect(listArgs.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+      expect(listArgs.where.AND[1]).toEqual({
+        OR: [
+          { createdAt: { lt: cursorAt } },
+          { createdAt: cursorAt, id: { lt: 5 } },
+        ],
+      });
+
+      // total 是全量口径：count 的 where 不带游标分支
+      const countArgs = prisma.clubVoucherOrder.count.mock.calls[0][0] as {
+        where: Record<string, unknown>;
+      };
+      expect(countArgs.where.AND).toBeUndefined();
+      expect(result.total).toBe(5);
+      expect(result.items).toHaveLength(1);
+      expect(result.hasMore).toBe(true);
+      expect(decodeCursor(result.nextCursor)).toEqual({
+        keys: [cursorAt.getTime()],
+        id: 4,
+      });
+    });
+
+    it('探测行恰好用完时 nextCursor 为 null，不多发一次空页请求', async () => {
+      const { service, prisma } = await createVoucherOrdersTestService();
+      prisma.clubVoucherOrder.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([buildVoucherOrderListRow(9, cursorAt)]);
+      prisma.clubVoucherOrder.count.mockResolvedValue(6);
+
+      const result = await service.listVoucherOrders(currentUser, {
+        limit: 2,
+        cursor: encodeCursor({ keys: [cursorAt.getTime()], id: 10 }),
+      });
+
+      expect(result.hasMore).toBe(false);
+      expect(result.nextCursor).toBeNull();
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('非法 cursor 抛 400，且校验先于惰性过期与列表查询', async () => {
+      const { service, prisma } = await createVoucherOrdersTestService();
+
+      await expect(
+        service.listVoucherOrders(currentUser, { cursor: 'v1:broken' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.clubVoucherOrder.updateMany).not.toHaveBeenCalled();
+      expect(prisma.clubVoucherOrder.findMany).not.toHaveBeenCalled();
+    });
+
+    it('offset 兼容路径保留 skip，并同样产出 nextCursor 供前端逐步切换', async () => {
+      const { service, prisma } = await createVoucherOrdersTestService();
+      prisma.clubVoucherOrder.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([buildVoucherOrderListRow(9, cursorAt)]);
+      prisma.clubVoucherOrder.count.mockResolvedValue(4);
+
+      const result = await service.listVoucherOrders(currentUser, {
+        limit: 1,
+        offset: 2,
+      });
+
+      const listArgs = prisma.clubVoucherOrder.findMany.mock.calls[1][0] as {
+        skip?: number;
+        take: number;
+      };
+      expect(listArgs.skip).toBe(2);
+      expect(listArgs.take).toBe(1);
+      // 2 + 1 < 4：老路径靠 total 推导，语义与迁移前一致
+      expect(result.hasMore).toBe(true);
+      expect(decodeCursor(result.nextCursor)).toEqual({
+        keys: [cursorAt.getTime()],
+        id: 9,
+      });
+    });
+
+    it('同一 createdAt 的多条订单按 id 兜底翻页：不漏不重', async () => {
+      const sameInstant = new Date('2026-11-11T02:00:00.000Z');
+      const dataset = [5, 4, 3, 2, 1].map((id) =>
+        buildVoucherOrderListRow(id, sameInstant),
+      );
+      const { service, prisma } = await createVoucherOrdersTestService();
+      prisma.clubVoucherOrder.findMany.mockImplementation(
+        (args: FakeListQueryArgs) =>
+          Promise.resolve(
+            // 惰性过期探测的 select 只有 id，据此与列表查询区分
+            args.select.orderNo
+              ? emulateVoucherOrderListQuery(dataset, args)
+              : [],
+          ),
+      );
+      prisma.clubVoucherOrder.count.mockResolvedValue(dataset.length);
+
+      const first = await service.listVoucherOrders(currentUser, { limit: 2 });
+      const second = await service.listVoucherOrders(currentUser, {
+        limit: 2,
+        cursor: first.nextCursor ?? undefined,
+      });
+      const third = await service.listVoucherOrders(currentUser, {
+        limit: 2,
+        cursor: second.nextCursor ?? undefined,
+      });
+
+      expect(
+        [...first.items, ...second.items, ...third.items].map(
+          (item) => item.orderNo,
+        ),
+      ).toEqual(['VO-5', 'VO-4', 'VO-3', 'VO-2', 'VO-1']);
+      expect(third.hasMore).toBe(false);
+      expect(third.nextCursor).toBeNull();
+    });
   });
 });

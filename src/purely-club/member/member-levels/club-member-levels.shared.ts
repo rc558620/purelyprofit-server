@@ -1,4 +1,6 @@
 import Decimal from 'decimal.js';
+import type { MarketingMemberLevelConfigValue } from '../../../purely-profit/marketing/marketing.utils';
+import { safeParseLevels } from '../../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type {
   ClubMemberHeldLevelValue,
   ClubMemberLevelValue,
@@ -115,4 +117,92 @@ export function calculateProgressPct(
         .toDecimalPlaces(2),
     ),
   ).toNumber();
+}
+
+/* ──────────────── 等级配置归一化（纯函数，供 service 读写共用） ──────────────── */
+
+/**
+ * 把 `marketing_member_level_settings.levels` 归一化成稳定的等级配置数组。
+ *
+ * 口径：以默认配置的等级集合与顺序为骨架，用库里的同 id 配置覆盖；
+ * 库里缺失或单条非法的等级回落到默认值。Zod 整体解析失败时退化为手写归一化，
+ * 保证历史脏数据不会让整个等级体系不可用。
+ *
+ * 纯函数、无 this 依赖，因此从 service 外移（3-B-2 附带，便于缓存值与实时读取
+ * 走同一份实现，避免两处口径漂移）。
+ */
+export function normalizeMemberLevels(
+  settings: ClubMemberLevelSettingRecord | null,
+  fallbackLevels: MarketingMemberLevelConfigValue[],
+): MarketingMemberLevelConfigValue[] {
+  // 优先使用 Zod schema 解析
+  if (settings?.levels) {
+    const parsedLevels = safeParseLevels(settings.levels);
+    if (parsedLevels.length > 0) {
+      return fallbackLevels.map((fallbackLevel) => {
+        const matched = parsedLevels.find(
+          (item) => item.id === fallbackLevel.id,
+        );
+        return matched
+          ? {
+              ...fallbackLevel,
+              ...matched,
+              id: fallbackLevel.id,
+            }
+          : { ...fallbackLevel };
+      });
+    }
+  }
+
+  // Zod 解析失败，回退到手写归一化
+  const rawLevels = Array.isArray(settings?.levels) ? settings.levels : [];
+
+  return fallbackLevels.map((fallbackLevel) => {
+    const found = rawLevels.find(
+      (item) =>
+        !!item &&
+        typeof item === 'object' &&
+        !Array.isArray(item) &&
+        (item as Record<string, unknown>).id === fallbackLevel.id,
+    );
+    const matched =
+      found && typeof found === 'object' && !Array.isArray(found)
+        ? (found as Record<string, unknown>)
+        : undefined;
+
+    const discountRate =
+      typeof matched?.discountRate === 'number'
+        ? matched.discountRate
+        : fallbackLevel.discountRate;
+
+    return {
+      id: fallbackLevel.id,
+      name:
+        typeof matched?.name === 'string' && matched.name.trim().length > 0
+          ? matched.name.trim()
+          : fallbackLevel.name,
+      discountRate,
+      discountRatePct:
+        typeof matched?.discountRatePct === 'number'
+          ? matched.discountRatePct
+          : Math.round(discountRate * 100),
+      spendThreshold:
+        typeof matched?.spendThreshold === 'number'
+          ? Math.max(0, Math.round(matched.spendThreshold))
+          : fallbackLevel.spendThreshold,
+      description:
+        typeof matched?.description === 'string' &&
+        matched.description.trim().length > 0
+          ? matched.description.trim()
+          : fallbackLevel.description,
+      enabled:
+        typeof matched?.enabled === 'boolean'
+          ? matched.enabled
+          : fallbackLevel.enabled,
+      updatedAt:
+        typeof matched?.updatedAt === 'number'
+          ? matched.updatedAt
+          : fallbackLevel.updatedAt,
+    };
+  });
 }

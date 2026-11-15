@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { buildContainsPattern } from '../../../shared/like.utils';
 import { createMemberAssetLogsQueryConfig } from './members-points.shared';
 import type {
   MemberAssetLogsQueryConfig,
@@ -70,11 +71,18 @@ export const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
       },
       buildSourceFilter: (source) =>
         Prisma.sql`l.source = ${source}::"MemberPointsSource"`,
-      buildKeywordFilter: (keyword) => Prisma.sql`(
-        m.name ILIKE ${`%${keyword}%`}
-        OR m.phone ILIKE ${`%${keyword}%`}
-        OR l.reason ILIKE ${`%${keyword}%`}
-      )`,
+      buildKeywordFilter: (keyword) => {
+        const pattern = buildContainsPattern(keyword);
+        if (!pattern) {
+          // 空串兜底：调用方本已过滤空关键字，这里只保证绝不拼出 '%%'（匹配一切）
+          return Prisma.sql`TRUE`;
+        }
+        return Prisma.sql`(
+          m.name ILIKE ${pattern} ESCAPE '\\'
+          OR m.phone ILIKE ${pattern} ESCAPE '\\'
+          OR l.reason ILIKE ${pattern} ESCAPE '\\'
+        )`;
+      },
     },
   }),
 };
@@ -132,12 +140,19 @@ export const BEANS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
       },
       buildSourceFilter: (source) =>
         Prisma.sql`l.source = ${source}::"MemberBeanSource"`,
-      buildKeywordFilter: (keyword) => Prisma.sql`(
-        m.name ILIKE ${`%${keyword}%`}
-        OR m.phone ILIKE ${`%${keyword}%`}
-        OR l.reason ILIKE ${`%${keyword}%`}
-        OR COALESCE(l.related_user, '') ILIKE ${`%${keyword}%`}
-      )`,
+      buildKeywordFilter: (keyword) => {
+        const pattern = buildContainsPattern(keyword);
+        if (!pattern) {
+          // 空串兜底：调用方本已过滤空关键字，这里只保证绝不拼出 '%%'（匹配一切）
+          return Prisma.sql`TRUE`;
+        }
+        return Prisma.sql`(
+          m.name ILIKE ${pattern} ESCAPE '\\'
+          OR m.phone ILIKE ${pattern} ESCAPE '\\'
+          OR l.reason ILIKE ${pattern} ESCAPE '\\'
+          OR COALESCE(l.related_user, '') ILIKE ${pattern} ESCAPE '\\'
+        )`;
+      },
     },
   }),
 };

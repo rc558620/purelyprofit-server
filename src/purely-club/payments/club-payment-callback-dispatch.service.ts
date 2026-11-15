@@ -1,5 +1,9 @@
-import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
+import {
+  ORDER_NO_PATTERN,
+  resolveClubOrderTypeByOrderNo,
+} from './club-order-no.constants';
 import { ClubCardOrderService } from '../cards/club-card-order.service';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
@@ -11,82 +15,12 @@ import type {
   ClubPaymentCallbackSettlementParams,
 } from './club-payments.types';
 
-/** 订单号前缀 → 订单类型映射 */
-const ORDER_NO_TYPE_MAP: Record<
-  string,
-  | 'recharge'
-  | 'service'
-  | 'scan_ordering'
-  | 'voucher'
-  | 'self_ordering'
-  | 'card'
-> = {
-  RC: 'recharge',
-  SV: 'service',
-  SO: 'scan_ordering',
-  VC: 'voucher',
-  SF: 'self_ordering',
-  MC: 'card',
-};
-
-/** 订单号格式正则：前缀（RC/SV/SO/VC/SF/MC）+ 时间戳 + 随机 HEX */
-const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC|SF|MC)[A-Za-z0-9-]+$/;
-
-/**
- * 校验 ORDER_NO_TYPE_MAP 的 key 与 ORDER_NO_PATTERN 中的前缀选项一致。
- * 新增订单类型时必须同时更新两处，否则此断言在服务启动时就会失败。
- */
-const PATTERN_PREFIXES =
-  ORDER_NO_PATTERN.source.match(/\(\?:([^)]+)\)/)?.[1]?.split('|') ?? [];
-const MAP_PREFIXES = Object.keys(ORDER_NO_TYPE_MAP);
-if (PATTERN_PREFIXES.length > 0 && MAP_PREFIXES.length > 0) {
-  const missingInMap = PATTERN_PREFIXES.filter(
-    (p) => !MAP_PREFIXES.includes(p),
-  );
-  const missingInPattern = MAP_PREFIXES.filter(
-    (p) => !PATTERN_PREFIXES.includes(p),
-  );
-  if (missingInMap.length > 0 || missingInPattern.length > 0) {
-    throw new Error(
-      `[ClubPaymentCallbackDispatchService] 订单号前缀映射不一致: ` +
-        `ORDER_NO_PATTERN 包含 ${PATTERN_PREFIXES.join('/')}，` +
-        `ORDER_NO_TYPE_MAP 包含 ${MAP_PREFIXES.join('/')}，` +
-        `缺失: map中缺 ${missingInMap.join('/')}, pattern中缺 ${missingInPattern.join('/')}`,
-    );
-  }
-}
-
-export type ClubOrderTypeByOrderNo =
-  | 'recharge'
-  | 'service'
-  | 'scan_ordering'
-  | 'voucher'
-  | 'self_ordering'
-  | 'card';
-
-/**
- * 按订单号前缀解析订单类型。
- *
- * 前缀映射在本文件只有一份事实来源（ORDER_NO_TYPE_MAP），
- * 死信记录等旁路链路必须复用本函数，禁止各自再写一份前缀判断。
- */
-export function resolveClubOrderTypeByOrderNo(
-  orderNo: string,
-): ClubOrderTypeByOrderNo {
-  const prefix = orderNo.slice(0, 2).toUpperCase();
-  const orderType = ORDER_NO_TYPE_MAP[prefix];
-
-  if (!orderType) {
-    throw new BadRequestException(
-      clubPayError(
-        CLUB_PAY_ERROR_CODE.PARAM_ORDER_NO_PREFIX_UNKNOWN,
-        `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC / SF / MC）`,
-      ),
-    );
-  }
-
-  return orderType;
-}
+// 保持既有调用方的导入路径可用；常量本身收敛在无依赖的 club-order-no.constants 中。
+export {
+  ORDER_NO_PATTERN,
+  resolveClubOrderTypeByOrderNo,
+} from './club-order-no.constants';
+export type { ClubOrderTypeByOrderNo } from './club-order-no.constants';
 
 @Injectable()
 export class ClubPaymentCallbackDispatchService {

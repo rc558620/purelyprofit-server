@@ -104,6 +104,20 @@ export class CostRecordListResponseDto {
   @ValidateNested()
   @Type(() => PaginationMetaDto)
   meta: PaginationMetaDto;
+
+  @ApiProperty({
+    description: '是否还有下一页（恒等于 nextCursor 非空）',
+    example: false,
+  })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  nextCursor: string | null;
 }
 
 export class CostReportSummaryDto {

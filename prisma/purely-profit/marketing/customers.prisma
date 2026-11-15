@@ -143,6 +143,10 @@ model MarketingPointsRecord {
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
   @@index([storeId, type, createdAt])
+  /// C 端积分明细 / 余额快照：门店 + 顾客等值定位后倒序键集翻页。
+  /// 仅 (customerId, createdAt) 时 storeId 只能回表过滤；仅 (storeId, createdAt)
+  /// 时顾客维度需扫全店流水，两者都会随单顾客流水增长退化。
+  @@index([storeId, customerId, createdAt(sort: Desc), id(sort: Desc)], map: "idx_points_records_store_customer_created")
   @@map("marketing_points_records")
 }
 

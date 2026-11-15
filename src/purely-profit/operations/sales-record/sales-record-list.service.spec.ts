@@ -1,6 +1,11 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import {
+  decodeCursor,
+  encodeCursor,
+} from '../../../shared/cursor-pagination.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -146,6 +151,8 @@ describe('SalesRecordListService', () => {
         avgOrderValue: 0,
         compareLastPeriod: null,
       },
+      hasMore: false,
+      nextCursor: null,
     });
 
     expect(prismaService.saleOrder.findMany).not.toHaveBeenCalled();
@@ -248,6 +255,9 @@ describe('SalesRecordListService', () => {
         avgOrderValue: 0,
         compareLastPeriod: null,
       },
+      // total=1、offset=0：已到底，nextCursor 必须为 null
+      hasMore: false,
+      nextCursor: null,
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalled();
   });
@@ -1601,6 +1611,9 @@ describe('SalesRecordListService', () => {
         avgOrderValue: 0,
         compareLastPeriod: null,
       },
+      // 单条结果已到底：hasMore=false 且 nextCursor=null（恒等式成立）
+      hasMore: false,
+      nextCursor: null,
     });
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1766,5 +1779,211 @@ describe('SalesRecordListService', () => {
     );
     // $queryRaw 是 aggregateOrderStats 的专用通道：列表侧不得再触发
     expect(prismaService.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  // ─── 游标分页（3-A-1）：同值行不漏不重、末页到底、非法游标 400、offset 兼容 ───
+  describe('游标分页', () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const olderDate = new Date('2026-05-13T10:00:00.000Z');
+
+    /** 最小订单行：游标分页只依赖 date / id，其余字段给足映射所需的最小值 */
+    const buildOrderRow = (id: number, date: Date) => ({
+      id,
+      orderNo: `#20260514-${id}`,
+      note: null,
+      paymentMethod: 'cash',
+      calcMode: 'business',
+      operatorNameSnapshot: null,
+      date,
+      createdAt: date,
+      scanOrderId: null,
+      manualEntry: false,
+      diningMode: null,
+      sourceChannel: null,
+      guestCount: null,
+      externalOrderNo: null,
+      customerPhone: null,
+      refund: null,
+      customerPaymentMethod: null,
+      grouponCode: null,
+      grouponPlatform: null,
+      settlementChannel: null,
+      voucherCode: null,
+      voucherPlatform: null,
+      voucherFaceAmount: new Prisma.Decimal(0),
+      grouponSettlementStatus: null,
+      grouponPlatformReceivable: null,
+      grouponPlatformSettledAmount: null,
+      grouponPlatformFee: null,
+      items: [],
+      spaceSession: null,
+      operatorStaff: null,
+    });
+
+    interface FakeListArgs {
+      where?: {
+        AND?: Array<{ OR?: Array<Record<string, unknown>> }>;
+        date?: unknown;
+      };
+      skip?: number;
+      take?: number;
+    }
+
+    /** 内存模拟 where 的 (date, id) 游标条件 + 两级排序 + skip/take */
+    const emulateListQuery = (
+      dataset: ReturnType<typeof buildOrderRow>[],
+      args: FakeListArgs,
+    ) => {
+      const cursorWhere = args.where?.AND?.[1];
+      const rows = cursorWhere
+        ? dataset.filter((row) => isAfterCursor(row, cursorWhere))
+        : [...dataset];
+      rows.sort(
+        (left, right) =>
+          right.date.getTime() - left.date.getTime() || right.id - left.id,
+      );
+      const skip = args.skip ?? 0;
+      return rows.slice(skip, skip + (args.take ?? rows.length));
+    };
+
+    /** 时间区间条件（`{ lt }`）与等值条件（Date）形态不同，必须先区分 */
+    const isRange = (value: unknown): value is { lt: Date } =>
+      typeof value === 'object' && value !== null && 'lt' in value;
+
+    /** 判断行是否严格排在游标之后：date 相同必须再比 id */
+    const isAfterCursor = (
+      row: { date: Date; id: number },
+      cursorWhere: { OR?: Array<Record<string, unknown>> },
+    ): boolean =>
+      (cursorWhere.OR ?? []).some((branch) => {
+        const dateCondition = branch.date;
+        if (isRange(dateCondition)) {
+          return row.date.getTime() < dateCondition.lt.getTime();
+        }
+        if (
+          !(dateCondition instanceof Date) ||
+          dateCondition.getTime() !== row.date.getTime()
+        ) {
+          return false;
+        }
+        const idCondition = branch.id as { lt: number };
+        return row.id < idCondition.lt;
+      });
+
+    it('同 date 的多条订单按 id 兜底翻页：不漏不重且末页到底', async () => {
+      // 3 条同 saleDate + 2 条更早 = 5 条，pageSize=2 => 3 页
+      const dataset = [
+        buildOrderRow(9, saleDate),
+        buildOrderRow(8, saleDate),
+        buildOrderRow(7, saleDate),
+        buildOrderRow(6, olderDate),
+        buildOrderRow(5, olderDate),
+      ];
+      prismaService.saleOrder.findMany.mockImplementation(
+        (args: FakeListArgs) =>
+          Promise.resolve(emulateListQuery(dataset, args)),
+      );
+      prismaService.saleOrder.count.mockResolvedValue(dataset.length);
+
+      const first = await service.list(user, {
+        storeId: 18,
+        period: 'all',
+        pageSize: 2,
+      });
+      const second = await service.list(user, {
+        storeId: 18,
+        period: 'all',
+        pageSize: 2,
+        cursor: first.nextCursor ?? undefined,
+      });
+      const third = await service.list(user, {
+        storeId: 18,
+        period: 'all',
+        pageSize: 2,
+        cursor: second.nextCursor ?? undefined,
+      });
+
+      expect(
+        [...first.items, ...second.items, ...third.items].map(
+          (item) => item.id,
+        ),
+      ).toEqual(['9', '8', '7', '6', '5']);
+      expect(new Set(first.items.map((item) => item.id)).size).toBe(2);
+      expect(first.hasMore).toBe(true);
+      expect(second.hasMore).toBe(true);
+      expect(third.hasMore).toBe(false);
+      expect(third.nextCursor).toBeNull();
+      // total 恒为全量口径：翻页时不变
+      expect(third.meta.total).toBe(5);
+    });
+
+    it('游标路径：不传 skip、多取一行探测、游标条件按 (date, id) 展开', async () => {
+      prismaService.saleOrder.findMany.mockResolvedValue([]);
+      prismaService.saleOrder.count.mockResolvedValue(6);
+
+      const result = await service.list(user, {
+        storeId: 18,
+        period: 'all',
+        pageSize: 1,
+        cursor: encodeCursor({ keys: [saleDate.getTime()], id: 9 }),
+      });
+
+      const listArgs = prismaService.saleOrder.findMany.mock.calls[0][0] as {
+        where: { AND: Array<Record<string, unknown>> };
+        skip?: number;
+        take: number;
+      };
+      expect(listArgs.skip).toBeUndefined();
+      expect(listArgs.take).toBe(2);
+      expect(listArgs.where.AND[1]).toEqual({
+        OR: [{ date: { lt: saleDate } }, { date: saleDate, id: { lt: 9 } }],
+      });
+      // count 不带游标条件：total 与列表筛选同源
+      const countArgs = prismaService.saleOrder.count.mock.calls[0][0] as {
+        where: Record<string, unknown>;
+      };
+      expect(countArgs.where.AND).toBeUndefined();
+      expect(result.meta.total).toBe(6);
+      expect(result.items).toHaveLength(0);
+      expect(result.hasMore).toBe(false);
+      expect(result.nextCursor).toBeNull();
+    });
+
+    it('offset 兼容路径：保留 skip，用 total 推导 hasMore 并产出 nextCursor', async () => {
+      prismaService.saleOrder.findMany.mockResolvedValue([
+        buildOrderRow(6, olderDate),
+      ]);
+      prismaService.saleOrder.count.mockResolvedValue(9);
+
+      const result = await service.list(user, {
+        storeId: 18,
+        period: 'all',
+        page: 4,
+        pageSize: 2,
+      });
+
+      const listArgs = prismaService.saleOrder.findMany.mock.calls[0][0] as {
+        skip?: number;
+        take: number;
+      };
+      expect(listArgs.skip).toBe(6);
+      expect(listArgs.take).toBe(2);
+      // 6 + 1 < 9
+      expect(result.hasMore).toBe(true);
+      expect(decodeCursor(result.nextCursor)?.id).toBe(6);
+    });
+
+    it('非法 cursor 抛 400，且不查库', async () => {
+      await expect(
+        service.list(user, {
+          storeId: 18,
+          period: 'all',
+          cursor: 'v1:broken',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prismaService.saleOrder.findMany).not.toHaveBeenCalled();
+      expect(prismaService.saleOrder.count).not.toHaveBeenCalled();
+    });
   });
 });

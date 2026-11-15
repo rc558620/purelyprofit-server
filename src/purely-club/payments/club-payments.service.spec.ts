@@ -8,6 +8,7 @@ import { ClubPaymentOrderRecordService } from './club-payment-order-record.servi
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
 import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
 import { ClubPaymentsService } from './club-payments.service';
+import { CLUB_PAYMENT_CALLBACK_QUEUE_NAME } from './club-payment-callback-queue.constants';
 import type { ClubWechatPaymentCallbackDto } from './dto/club-wechat-callback.dto';
 
 describe('ClubPaymentsService', () => {
@@ -119,7 +120,7 @@ describe('ClubPaymentsService', () => {
           useValue: clubOrderDraftsService,
         },
         {
-          provide: getQueueToken('club-payment-callback'),
+          provide: getQueueToken(CLUB_PAYMENT_CALLBACK_QUEUE_NAME),
           useValue: paymentCallbackQueue,
         },
       ],
@@ -173,8 +174,10 @@ describe('ClubPaymentsService', () => {
     expect(
       clubWechatCallbackDecryptorService.decryptCallback,
     ).toHaveBeenCalledWith(payload);
+    // 入队契约：jobId 只由 orderNo 组成（同单重复回调走 BullMQ 去重），
+    // 重试次数与退避策略由队列默认任务选项单点定义，per-job 不得再重复声明
     expect(paymentCallbackQueue.add).toHaveBeenCalledWith(
-      'wechat-payment:RC202606101231000001A2B',
+      'wechat-payment-RC202606101231000001A2B',
       {
         orderNo: 'RC202606101231000001A2B',
         settlementParams: expect.objectContaining({
@@ -182,14 +185,52 @@ describe('ClubPaymentsService', () => {
           transactionId: 'wxTx123',
         }),
       },
-      expect.objectContaining({
-        jobId: 'wechat-payment:RC202606101231000001A2B:wxTx123',
-        attempts: 5,
-      }),
+      { jobId: 'wechat-payment-RC202606101231000001A2B' },
     );
     expect(
       clubPaymentCallbackDispatchService.dispatchByOrderNo,
     ).not.toHaveBeenCalled();
+  });
+
+  it('同一订单号换 transactionId 重投时 jobId 不变（BullMQ 据此去重，不并行跑两遍落账）', async () => {
+    clubWechatCallbackDecryptorService.decryptCallback.mockResolvedValue({
+      out_trade_no: 'RC202606101231000001A2B',
+      transaction_id: 'wxTx_ANOTHER_ONE',
+      trade_state: 'SUCCESS',
+      mchid: 'mch123',
+      appid: 'app123',
+    });
+    clubWechatCallbackDecryptorService.validateAndExtract.mockReturnValue({
+      orderNo: 'RC202606101231000001A2B',
+      transactionId: 'wxTx_ANOTHER_ONE',
+      amountFen: 50000,
+      paidAt: '2026-06-10T12:31:00+08:00',
+    });
+    paymentCallbackQueue.add.mockResolvedValue({});
+
+    await service.handleWechatCallback(
+      makeCallbackPayload(),
+      {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
+      },
+      '{}',
+    );
+
+    expect(paymentCallbackQueue.add).toHaveBeenCalledTimes(1);
+    // transactionId 只保留在 job data 里（死信/日志可用），不参与去重键
+    expect(paymentCallbackQueue.add.mock.calls[0][2]).toEqual({
+      jobId: 'wechat-payment-RC202606101231000001A2B',
+    });
+    expect(paymentCallbackQueue.add.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        settlementParams: expect.objectContaining({
+          transactionId: 'wxTx_ANOTHER_ONE',
+        }),
+      }),
+    );
   });
 
   it('回调商户号与门店配置一致时把权威商户号写回订单', async () => {

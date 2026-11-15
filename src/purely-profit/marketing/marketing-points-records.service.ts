@@ -10,12 +10,13 @@ import { mapPointsRecordRow } from './marketing.mapper';
 import {
   queryCustomerPointsRecordPage,
   queryPointsRecordPage,
-} from './marketing.query';
-import { MarketingSharedService } from './marketing-shared.service';
+} from './marketing-flow.query';
 import {
-  buildMarketingPaginationMeta,
-  resolveMarketingPagination,
-} from './marketing.utils';
+  buildMarketingFlowPage,
+  resolveMarketingFlowPaging,
+} from './marketing-flow.cursor';
+import { MarketingSharedService } from './marketing-shared.service';
+import { buildMarketingPaginationMeta } from './marketing.utils';
 
 @Injectable()
 export class MarketingPointsRecordsService {
@@ -33,34 +34,35 @@ export class MarketingPointsRecordsService {
         user,
         query.storeId,
       );
+    // 分页参数归一放在取数之前：cursor 非法时直接 400，不白跑一次列表查询
+    const paging = resolveMarketingFlowPaging(query);
     if (!resolvedStoreId) {
       return {
         items: [],
-        meta: buildMarketingPaginationMeta(0, 1, query.pageSize ?? 20),
+        meta: buildMarketingPaginationMeta(0, 1, paging.limit),
+        hasMore: false,
+        nextCursor: null,
       };
     }
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
-    const listQuery = {
+    const { items: rows, total } = await queryPointsRecordPage(this.prisma, {
       storeId: resolvedStoreId,
       customerId: query.customerId,
       type: query.type,
       startMs: query.startMs,
       endMs: query.endMs,
-    };
-
-    const { items: rows, total } = await queryPointsRecordPage(this.prisma, {
-      ...listQuery,
-      skip,
-      take,
+      skip: paging.offset,
+      // 游标路径多取一行做「是否还有下一页」探测；offset 路径取数成本不变
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      cursor: paging.cursor,
     });
+    const page = buildMarketingFlowPage(rows, total, paging);
 
     return {
-      items: rows.map(mapPointsRecordRow),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      items: page.rows.map(mapPointsRecordRow),
+      meta: page.meta,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -77,25 +79,25 @@ export class MarketingPointsRecordsService {
       'marketing:view',
     );
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
-    const listQuery = {
-      type: query.type,
-      startMs: query.startMs,
-      endMs: query.endMs,
-    };
-
+    const paging = resolveMarketingFlowPaging(query);
     const { items: rows, total } = await queryCustomerPointsRecordPage(
       this.prisma,
       customerId,
-      { ...listQuery, skip, take },
+      {
+        type: query.type,
+        startMs: query.startMs,
+        endMs: query.endMs,
+        skip: paging.offset,
+        take: paging.limit,
+      },
     );
+    const page = buildMarketingFlowPage(rows, total, paging);
 
     return {
-      items: rows.map(mapPointsRecordRow),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      items: page.rows.map(mapPointsRecordRow),
+      meta: page.meta,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
     };
   }
 }

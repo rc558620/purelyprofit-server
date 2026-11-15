@@ -32,7 +32,7 @@ import type {
   ClubServiceOrderPreviewResponseDto,
   PreviewClubServiceOrderDto,
 } from './dto/club-order.dto';
-import { resolvePointsDeduction } from './club-order-points.utils';
+import { resolvePointsDeductionFromAvailablePoints } from './club-order-points.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown.service';
 import type {
@@ -99,17 +99,26 @@ export class ClubOrderPreviewService {
       memberDiscountRate,
       promotions: pricingContext.promotions,
     });
+    // 顾客资产（积分 + 余额）同源读取一次：
+    // 积分抵扣与余额充足性判断关注的是同一行，分两次 findUnique 会重复读同一行。
+    // 注意这里只读、不锁：预览是纯只读路径，真正扣减由创建/结算在事务内重新校验。
+    const customer = await this.prisma.marketingCustomer.findUnique({
+      where: { id: context.customer.id },
+      select: { points: true, balance: true },
+    });
     // 积分抵扣计算（基于乘以数量后的金额）
-    const { pointsDeductFen, pointsUsed } = await resolvePointsDeduction(
-      this.prisma,
-      currentContext.store.id,
-      context.customer.id,
-      amounts.finalPriceFen,
-      dto.usePoints === true,
-    );
+    const { pointsDeductFen, pointsUsed } =
+      await resolvePointsDeductionFromAvailablePoints(this.prisma, {
+        storeId: currentContext.store.id,
+        priceAfterDiscountFen: amounts.finalPriceFen,
+        usePoints: dto.usePoints === true,
+        availablePoints: customer?.points ?? 0,
+        // 纯展示算价：允许命中 5s 积分配置缓存（真正扣减由创建 / 结算事务内重算）
+        useCachePointsConfig: true,
+      });
     // 余额充足性判断（由后端计算，前端仅展示结果）
-    const balanceCheck = await this.resolveBalanceCheck(
-      context.customer.id,
+    const balanceCheck = this.buildBalanceCheck(
+      customer?.balance ?? 0,
       amounts.finalPriceFen,
       pointsDeductFen,
     );
@@ -187,20 +196,19 @@ export class ClubOrderPreviewService {
     };
   }
 
-  /** 余额充足性判断：余额 >= 积分抵扣后实付；提示文案由后端拼装（前端仅展示） */
-  private async resolveBalanceCheck(
-    customerId: number,
+  /**
+   * 余额充足性判断：余额 >= 积分抵扣后实付；提示文案由后端拼装（前端仅展示）。
+   *
+   * 入参是**已读取**的余额（分），不再自行查库——预览的顾客行由调用方一次性读取。
+   */
+  private buildBalanceCheck(
+    customerBalanceFen: number,
     finalPriceFen: number,
     pointsDeductFen: number,
-  ): Promise<ClubBalanceCheckResult> {
+  ): ClubBalanceCheckResult {
     const afterPointsPriceFen = Money.fromDbCents(finalPriceFen)
       .subtractClampedToZero(Money.fromDbCents(pointsDeductFen))
       .toDbCents();
-    const customer = await this.prisma.marketingCustomer.findUnique({
-      where: { id: customerId },
-      select: { balance: true },
-    });
-    const customerBalanceFen = customer?.balance ?? 0;
     const balanceEnough = customerBalanceFen >= afterPointsPriceFen;
     const insufficientBalanceMessage = balanceEnough
       ? null

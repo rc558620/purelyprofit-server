@@ -81,6 +81,32 @@ describe('ClubRechargeExpirationService', () => {
     );
   });
 
+  it('批量关单时按有限并发调用微信，不再逐笔串行', async () => {
+    prismaService.clubRechargeOrder.findMany.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        orderNo: `RC-BATCH-${index}`,
+        storeId: 11,
+      })),
+    );
+    let inFlight = 0;
+    let peak = 0;
+    transactionService.closeOrder.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
+      inFlight -= 1;
+      return 'closed';
+    });
+
+    await service.expireDueOrders();
+
+    expect(transactionService.closeOrder).toHaveBeenCalledTimes(5);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(5);
+  });
+
   it('未抢到分布式锁时本轮不处理任何订单', async () => {
     redisClient.set.mockResolvedValue(null);
 

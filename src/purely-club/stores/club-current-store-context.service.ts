@@ -12,6 +12,10 @@ import {
 import { CLUB_STORES_ERROR_CODE, clubStoresError } from './club-stores.errors';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubStoreAccessService } from './club-store-access.service';
+import {
+  ClubCurrentContextCache,
+  type ClubCurrentContextSnapshot,
+} from './club-current-context.cache';
 import type {
   ClubAccessibleStoreRecord,
   ClubCurrentContext,
@@ -47,6 +51,7 @@ export class ClubCurrentStoreContextService {
   constructor(
     private readonly redisService: RedisService,
     private readonly clubStoreAccessService: ClubStoreAccessService,
+    private readonly clubCurrentContextCache: ClubCurrentContextCache,
   ) {}
 
   async resolveCurrentContext(
@@ -82,20 +87,84 @@ export class ClubCurrentStoreContextService {
   async getCurrentStore(
     user: AuthenticatedUser,
   ): Promise<ClubAccessibleStoreRecord> {
-    const stores = await this.clubStoreAccessService.findAccessibleStores(user);
-    if (stores.length === 0) {
-      return this.throwStoreSelectionRequired(user.id);
+    const memoized = this.clubCurrentContextCache.get(user.id);
+    if (memoized) {
+      return this.resolveStoreFromSnapshot(
+        user.id,
+        memoized.stores,
+        memoized.selectedStoreId,
+      );
     }
 
-    const currentStoreId = await this.resolveCurrentStoreId(user.id, stores);
+    const snapshot = await this.loadAccessSnapshot(user);
+    const store = await this.resolveStoreFromSnapshot(
+      user.id,
+      snapshot.stores,
+      snapshot.selectedStoreId,
+    );
+    // 只缓存「成功解析出当前门店」的结果：把「需要选店」的失败态缓存住，
+    // 会让用户刚选完店仍被同一业务码拦截。
+    this.clubCurrentContextCache.set(user.id, {
+      stores: snapshot.stores,
+      selectedStoreId: store.id,
+    });
+    return store;
+  }
+
+  /**
+   * 从快照解析当前门店；无可访问门店或多门店未显式选店时抛业务错误。
+   *
+   * 多门店且没有有效选店时不能隐式落到第一个门店：充值、储值、下单、
+   * 查余额全部以 currentStore 为准，静默回落会把钱记到用户没选的那家店。
+   * 复用同一业务码，让前端既有的「清缓存 + 跳门店选择页」兜底生效。
+   */
+  private async resolveStoreFromSnapshot(
+    userId: number,
+    stores: ClubAccessibleStoreRecord[],
+    selectedStoreId: number | null,
+  ): Promise<ClubAccessibleStoreRecord> {
+    if (stores.length === 0) {
+      return this.throwStoreSelectionRequired(userId);
+    }
+
+    const currentStoreId = await this.resolveCurrentStoreIdFromValue(
+      userId,
+      stores,
+      selectedStoreId,
+    );
     if (currentStoreId === null) {
-      // 多门店且没有有效选店：不能隐式落到第一个门店。充值、储值、下单、
-      // 查余额全部以 currentStore 为准，静默回落会把钱记到用户没选的那家店。
-      // 复用同一业务码，让前端既有的「清缓存 + 跳门店选择页」兜底生效。
-      return this.throwStoreSelectionRequired(user.id);
+      return this.throwStoreSelectionRequired(userId);
     }
 
     return stores.find((store) => store.id === currentStoreId) ?? stores[0];
+  }
+
+  /**
+   * 一次 MGET 读出「可访问门店」与「选中门店」两个 key。
+   *
+   * 原实现每次请求固定两次独立 GET；合并后固定一次。门店列表未命中时
+   * 直接回源并写缓存，不再重复读一次 Redis；选中门店已在本轮取回，
+   * 同样不再二次往返。
+   */
+  private async loadAccessSnapshot(
+    user: AuthenticatedUser,
+  ): Promise<ClubCurrentContextSnapshot> {
+    const [storesRaw, selectedStoreRaw] = await this.redisService.mget([
+      this.clubStoreAccessService.buildAccessibleStoresCacheKey(user.id),
+      this.buildSelectedStoreKey(user.id),
+    ]);
+    const cachedStores =
+      this.clubStoreAccessService.parseAccessibleStores(storesRaw);
+    const selectedStoreId = this.parseSelectedStoreId(selectedStoreRaw);
+
+    if (cachedStores) {
+      return { stores: cachedStores, selectedStoreId };
+    }
+
+    return {
+      stores: await this.clubStoreAccessService.refreshAccessibleStores(user),
+      selectedStoreId,
+    };
   }
 
   /** 抛「需要选店」业务码，并清掉可能已失效的选店缓存。 */
@@ -142,11 +211,23 @@ export class ClubCurrentStoreContextService {
     userId: number,
     stores: ClubAccessibleStoreRecord[],
   ): Promise<number | null> {
+    return this.resolveCurrentStoreIdFromValue(
+      userId,
+      stores,
+      await this.readSelectedStoreId(userId),
+    );
+  }
+
+  /** 选店决策本体；选中值由调用方提供，避免合并读取路径重复一次 Redis GET */
+  private async resolveCurrentStoreIdFromValue(
+    userId: number,
+    stores: ClubAccessibleStoreRecord[],
+    selectedStoreId: number | null,
+  ): Promise<number | null> {
     if (stores.length === 0) {
       return null;
     }
 
-    const selectedStoreId = await this.readSelectedStoreId(userId);
     const hasSelectedStore =
       selectedStoreId !== null &&
       stores.some((store) => store.id === selectedStoreId);
@@ -169,13 +250,17 @@ export class ClubCurrentStoreContextService {
   }
 
   async clearSelectedStoreId(userId: number): Promise<void> {
+    this.clubCurrentContextCache.delete(userId);
     await this.redisService.del(this.buildSelectedStoreKey(userId));
   }
 
   private async readSelectedStoreId(userId: number): Promise<number | null> {
-    const rawStoreId = await this.redisService.get(
-      this.buildSelectedStoreKey(userId),
+    return this.parseSelectedStoreId(
+      await this.redisService.get(this.buildSelectedStoreKey(userId)),
     );
+  }
+
+  private parseSelectedStoreId(rawStoreId: string | null): number | null {
     if (!rawStoreId || rawStoreId.trim().length === 0) {
       return null;
     }
@@ -188,6 +273,9 @@ export class ClubCurrentStoreContextService {
     userId: number,
     storeId: number,
   ): Promise<void> {
+    // 选中门店变化后必须清掉进程内快照：TTL 窗口内继续返回旧门店，
+    // 会让「切换门店后立刻下单」打到上一家店。
+    this.clubCurrentContextCache.delete(userId);
     await this.redisService.set(
       this.buildSelectedStoreKey(userId),
       `${storeId}`,

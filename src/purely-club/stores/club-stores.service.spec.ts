@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { StoresProfileService } from '../../purely-profit/stores/stores-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { ClubCurrentContextCache } from './club-current-context.cache';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
 import { ClubInviteAttributionService } from './club-invite-attribution.service';
 import { ClubInviteCodeMapService } from './club-invite-code-map.service';
@@ -45,6 +46,7 @@ describe('ClubStoresService', () => {
 
   const redisService = {
     get: jest.fn(),
+    mget: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
     getJson: jest.fn(),
@@ -121,6 +123,8 @@ describe('ClubStoresService', () => {
     storesProfileService.batchReadStoreProfileMetadata.mockResolvedValue([]);
     // 默认邀请码映射缓存未命中
     redisService.getJson.mockResolvedValue(null);
+    // 默认上下文快照缓存未命中（门店列表 + 选中门店），走回源路径
+    redisService.mget.mockResolvedValue([null, null]);
     // 真实事务链路：member / marketingCustomer 均不存在时走创建路径
     prismaService.member.findFirst.mockResolvedValue(null);
     prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
@@ -130,6 +134,7 @@ describe('ClubStoresService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ClubCurrentContextCache,
         ClubStoreAccessService,
         ClubCurrentStoreContextService,
         ClubStoreViewService,

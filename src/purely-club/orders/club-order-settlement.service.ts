@@ -8,6 +8,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
+import { fetchPointsEarnConfig } from './club-order-points.utils';
 import { debitCustomerBalance } from '../payments/club-balance-settlement.utils';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
@@ -28,7 +30,15 @@ import type {
 import {
   awardConsumptionPoints,
   deductCustomerPoints,
+  resolvePointsMultiplier,
 } from './club-order-settlement-points.utils';
+import type { ClubPointsSettlementRules } from './club-order-settlement-points.utils';
+
+/** 服务订单结算所需的门店级只读规则快照（事务外预加载） */
+interface SettlementRules {
+  tierThresholds: { gold: number; diamond: number };
+  points: ClubPointsSettlementRules;
+}
 
 @Injectable()
 export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
@@ -52,6 +62,29 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     );
   }
 
+  /**
+   * 事务外并行预加载等级阈值与积分规则。
+   *
+   * 这三项都是门店级低频变更的只读配置，原本散落在事务内的扣款 / 积分奖励
+   * 子过程里串行查库；外提后不占用交互式事务的单连接，也把 3 次串行 RTT
+   * 压成 1 次并行 RTT。配置若在事务期间变更，取事务开始前的快照，与原有
+   * 「事务内某一时点读取」语义等价（配置变更本身不参与资金条件更新）。
+   */
+  protected async preloadSettlementRules(
+    draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
+  ): Promise<SettlementRules> {
+    const [tierThresholds, pointsEarnConfig, pointsMultiplier] =
+      await Promise.all([
+        queryCustomerTierThresholds(this.prisma, draft.storeId),
+        fetchPointsEarnConfig(this.prisma, draft.storeId),
+        resolvePointsMultiplier(this.prisma, draft.storeId),
+      ]);
+    return {
+      tierThresholds,
+      points: { pointsEarnConfig, pointsMultiplier },
+    };
+  }
+
   protected assertDraftPayable(
     status: ClubOrderStatusResponseDto['status'],
   ): void {
@@ -68,7 +101,9 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
   protected async persistPaidDraft(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
+    rules?: unknown,
   ): Promise<void> {
+    const snapshot = rules as SettlementRules | undefined;
     this.logger.log(
       `开始结算订单: orderNo=${draft.orderNo}, storeId=${draft.storeId}, customerId=${draft.customerId}`,
     );
@@ -112,8 +147,8 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       metrics: {
         // 累计消费口径与消费流水 amount 一致（含积分抵扣部分）
         settlementAmountFen: balancePaidFen + pointsDeductFen,
-        currentTotalSpent: settlementContext.customer.totalSpent,
       },
+      tierThresholds: snapshot?.tierThresholds,
     });
     // 若使用了积分抵扣，结算时从账户中扣除
     if (draft.metadata.pointsUsed > 0) {
@@ -126,7 +161,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     }
     // 根据消费金额和积分规则增加积分
     // 此操作也修改 marketingCustomer 的 points 字段，必须在 deductCustomerPoints 之后执行
-    await awardConsumptionPoints(tx, draft, settlementContext.customer.id);
+    await awardConsumptionPoints(
+      tx,
+      draft,
+      settlementContext.customer.id,
+      snapshot?.points,
+    );
   }
 
   protected toResponse(

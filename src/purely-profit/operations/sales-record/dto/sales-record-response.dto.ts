@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StaffRole } from '@prisma/client';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 import {
   SALES_CALC_MODE_VALUES,
@@ -226,6 +227,23 @@ export class SalesRecordListResponseDto {
     description: '当前周期统计数据（总营业额/总利润/订单笔数/平均客单价）',
   })
   summary?: SalesStatsResponseDto;
+
+  @ApiProperty({
+    description: '是否还有下一页（恒等于 nextCursor 非空）',
+    example: false,
+  })
+  @IsBoolean({ message: 'hasMore 必须是布尔值' })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: 'nextCursor 必须是字符串' })
+  nextCursor: string | null;
 }
 
 // ─── 同模块 DTO 已按职责拆分为多个文件，此处统一再导出以保持引用路径稳定 ─────

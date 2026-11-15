@@ -27,13 +27,16 @@ export class ClubScanOrderingOrderPreviewService {
         session.storeId,
       );
     const cartVersion = this.cartPricingService.cartVersion(pricedItems);
-    const promotionResult = await this.cartPricingService.resolvePromotions(
-      session.storeId,
-      user.id,
-      session.id,
+    // 预览是只读接口：顾客档案不存在时按「无会员资产」计价（积分 0、消费次数 0），
+    // 建档 / 归并留到下单与支付落账。此前这里会 upsert 建档 + 跑归并事务，
+    // 使最高频的预览接口持续写库。
+    const promotionResult = await this.cartPricingService.resolvePromotions({
+      storeId: session.storeId,
+      clubUserId: user.id,
       pricedItems,
-      dto.usePoints === true,
-    );
+      usePoints: dto.usePoints === true,
+      customerLookup: 'existing',
+    });
     const amounts = this.cartPricingService.calculateAmounts(
       pricedItems,
       promotionResult,

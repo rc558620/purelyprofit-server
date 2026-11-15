@@ -19,7 +19,22 @@ describe('ClubHomeService', () => {
   const clubMemberService = {
     getAccount: jest.fn(),
     getLevels: jest.fn(),
+    loadLevelSettings: jest.fn(),
   };
+
+  /** 请求级等级配置种子（原始配置口径，含 enabled 标记） */
+  const mockLevelSettings = [
+    {
+      id: 'gold' as const,
+      name: '黄金会员',
+      discountRate: 0.9,
+      discountRatePct: 90,
+      spendThreshold: 0,
+      description: '充值即享 9 折优惠',
+      enabled: true,
+      updatedAt: 1_700_000_000_000,
+    },
+  ];
   const clubPromotionsService = {
     list: jest.fn(),
   };
@@ -126,6 +141,7 @@ describe('ClubHomeService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     clubMemberService.getLevels.mockResolvedValue(mockLevelConfigs);
+    clubMemberService.loadLevelSettings.mockResolvedValue(mockLevelSettings);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -161,14 +177,26 @@ describe('ClubHomeService', () => {
     });
 
     expect(clubStoresService.getCurrent).toHaveBeenCalledWith(currentContext);
-    expect(clubMemberService.getAccount).toHaveBeenCalledWith(currentContext);
-    expect(clubMemberService.getLevels).toHaveBeenCalledWith(currentContext);
+    expect(clubMemberService.getAccount).toHaveBeenCalledWith(
+      currentContext,
+      mockLevelSettings,
+    );
+    expect(clubMemberService.getLevels).toHaveBeenCalledWith(
+      currentContext,
+      mockLevelSettings,
+    );
     expect(clubPromotionsService.list).toHaveBeenCalledWith(currentContext);
-    expect(clubProductsService.list).toHaveBeenCalledWith(currentContext, {
-      featured: false,
-      limit: 6, // CLUB_FEATURED_PRODUCT_LIMIT
-    });
+    expect(clubProductsService.list).toHaveBeenCalledWith(
+      currentContext,
+      {
+        featured: false,
+        limit: 6, // CLUB_FEATURED_PRODUCT_LIMIT
+      },
+      mockLevelSettings,
+    );
   });
+
+  // ─── 3-B-4 等级配置只解析一次（种子用例见 club-home.seed.spec.ts） ────
 
   it('getHome 在餐饮门店下跳过商品查询', async () => {
     const cateringContext: ClubCurrentContext = {

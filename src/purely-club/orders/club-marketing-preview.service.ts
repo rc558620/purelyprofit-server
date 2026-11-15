@@ -38,10 +38,16 @@ export class ClubMarketingPreviewService {
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
   ) {}
 
-  /** 多行营销预览（扫码点餐）：每行独立竞争，订单级满减单次生效 */
+  /**
+   * 多行营销预览（扫码点餐）：每行独立竞争，订单级满减单次生效。
+   *
+   * `customerId` 允许为 null：只读预览链路不会为未建档顾客创建档案，此时按
+   * 「无会员资产」口径计算——消费次数 0（首单折扣照常可命中）、可用积分 0。
+   * 这与下单时补建出的一条空档案在数值上完全等价。
+   */
   async previewMarketingLines(
     storeId: number,
-    customerId: number,
+    customerId: number | null,
     clubUserId: number,
     phone: string,
     lines: ClubMarketingPreviewLine[],
@@ -110,7 +116,7 @@ export class ClubMarketingPreviewService {
    */
   private async resolveLinesPricing(
     storeId: number,
-    customerId: number,
+    customerId: number | null,
     lines: ClubMarketingPreviewLine[],
     memberDiscountRate: number | null,
     // 由 previewMarketingLines 预加载后透传（与会员折扣率并行），为空时才自取
@@ -251,18 +257,27 @@ export class ClubMarketingPreviewService {
 
   private async resolveMarketingPointsPreview(
     storeId: number,
-    customerId: number,
+    customerId: number | null,
     payableAmountFen: number,
     usePoints: boolean,
   ): Promise<ClubPointsPreviewResult> {
     const [config, customer] = await Promise.all([
-      fetchPointsRedeemConfig(this.prisma, storeId),
-      // 带租户条件而非只按主键：customerId 由上游 resolveActiveCustomer 算出，
-      // 但本方法自身不应假设调用方一定安全
-      this.prisma.marketingCustomer.findFirst({
-        where: { id: customerId, storeId, status: 'active', deletedAt: null },
-        select: { points: true },
-      }),
+      // 营销预览是纯展示算价，允许命中积分配置短 TTL 缓存
+      fetchPointsRedeemConfig(this.prisma, storeId, { useCache: true }),
+      // 带租户条件而非只按主键：customerId 由上游档案定位算出，
+      // 但本方法自身不应假设调用方一定安全。
+      // 未建档顾客（customerId 为 null）没有积分记录，直接视为 0 积分，省一次查询。
+      customerId === null
+        ? Promise.resolve(null)
+        : this.prisma.marketingCustomer.findFirst({
+            where: {
+              id: customerId,
+              storeId,
+              status: 'active',
+              deletedAt: null,
+            },
+            select: { points: true },
+          }),
     ]);
     const availablePoints = customer?.points ?? 0;
     const { pointsDeductFen, pointsUsed } = usePoints

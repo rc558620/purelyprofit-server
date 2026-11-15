@@ -109,6 +109,9 @@ model MemberCard {
   @@index([storeId, status, kind, createdAt(sort: Desc), id(sort: Desc)])
   /// 顾客维度取卡包（商家端顾客详情 / C 端我的卡包）
   @@index([customerId, status, createdAt(sort: Desc)])
+  /// C 端卡包：`customerId IN (...)` + `status NOT` 无法走有序扫描，
+  /// 补齐 (customerId, createdAt DESC, id DESC) 消除额外 Sort 与全量回表。
+  @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "idx_member_cards_customer_created")
   /// 开台识别：按门店 + 顾客 + 状态取可用卡
   @@index([storeId, customerId, status])
   @@index([planId])

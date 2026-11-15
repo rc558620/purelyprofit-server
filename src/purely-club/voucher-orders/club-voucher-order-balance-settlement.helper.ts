@@ -68,7 +68,6 @@ export async function settleVoucherBalancePayment(
     balancePaidFen,
     metrics: {
       settlementAmountFen: balancePaidFen + order.pointsDeductFen,
-      currentTotalSpent: customer.totalSpent,
     },
   });
 

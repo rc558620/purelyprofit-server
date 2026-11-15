@@ -10,7 +10,6 @@ import {
   buildClubMenuCacheKey,
   buildClubMenuVersionCacheKey,
 } from '../../redis/keys/club-cache-keys';
-import { createHash } from 'node:crypto';
 
 const CLUB_MENU_CACHE_TTL_SECONDS = 30;
 /**
@@ -24,27 +23,14 @@ const CLUB_MENU_CACHE_TTL_SECONDS = 30;
 const CLUB_MENU_VERSION_CACHE_TTL_SECONDS = 10;
 
 /**
- * 菜单版本扁平行。
+ * 菜单版本指纹查询的结果行。
  *
- * 四层结构（分类 → 商品 → 规格组 → 规格项）用一次 JOIN 拉平后按层级排序返回，
- * 空层级（无规格组的商品、无规格项的组）由 LEFT JOIN 产生 NULL 行表示。
+ * 聚合查询恒定返回 1 行：`string_agg` 在空集上是 NULL，已被 `COALESCE` 兜成
+ * 空串，因此空菜单同样得到一个稳定的 md5（即空串的 md5）。
  */
-interface MenuVersionRow {
-  categoryId: number;
-  categoryVersion: number;
-  productId: number;
-  productVersion: number;
-  productIsActive: boolean;
-  groupId: number | null;
-  groupVersion: number | null;
-  optionId: number | null;
-  optionVersion: number | null;
+interface MenuVersionFingerprintRow {
+  fingerprint: string;
 }
-
-type MenuVersionOption = [number, number];
-type MenuVersionGroup = [number, number, MenuVersionOption[]];
-type MenuVersionProduct = [number, number, boolean, MenuVersionGroup[]];
-type MenuVersionCategory = [number, number, MenuVersionProduct[]];
 
 @Injectable()
 export class ClubScanOrderingMenuQueryService {
@@ -274,31 +260,43 @@ export class ClubScanOrderingMenuQueryService {
   }
 
   /**
-   * 计算门店菜单版本（sha256）。
+   * 计算门店菜单版本（内容指纹）。
    *
-   * 轻量查询：只取 id + version 参与 hash（不拉名称/图片/金额等大字段）。
-   * 商品与规格维度**必须**进 hash：改价、库存预留（下单即 bump 商品 version）、
-   * 上下架、规格增删都是商品级变更，只 bump 商品/规格的 version 而不动分类 version。
-   * 若只按分类计算，这些最高频的菜单变更不会改变 menuVersion → 缓存 key 不变 →
-   * TTL 内持续把旧价格/旧库存返回给顾客（key 的契约见 buildClubMenuCacheKey）。
+   * 语义：这份版本必须是**内容指纹**，不能换成写路径 INCR 的计数器。
+   * 它是菜单缓存 key 的组成部分（见 buildClubMenuCacheKey），一旦某个写路径
+   * 漏挂失效，计数器版本会长期把旧价格/旧库存发给顾客；而内容指纹在下一个
+   * 请求就会自愈。因此这里保持「按内容算」，不改成 bump。
    *
-   * 实现说明：原本用 Prisma 四层嵌套 select，ORM 会按层级拆成 4 条查询；
-   * 这里改成一条扁平 JOIN（层级排序后由 buildMenuVersionPayload 归组），
-   * 缓存命中时同样只付 1 次往返。hash 输入与嵌套写法逐字节一致
-   * （同样的字段、同样的层级顺序），因此 menuVersion 取值保持兼容。
+   * 参与指纹的维度：分类 / 商品的 id + version + 上下架 + 规格组 / 规格项的
+   * id + version。商品与规格维度**必须**进指纹：改价、库存预留（下单即 bump
+   * 商品 version）、上下架、规格增减都只 bump 商品/规格的 version，不动分类
+   * version；若只按分类算，这些最高频的变更不会改变 menuVersion。
+   *
+   * 性能：四层 JOIN 仍在库里完成，但**只回 1 行**（md5 摘要），不再把整店菜单
+   * 行拉回 Node 做 JSON.stringify + sha256 —— 300 商品的店每次重算要传输上千行，
+   * 而真正需要的只有摘要。`string_agg(... ORDER BY ...)` 保证指纹不受执行计划
+   * 影响（否则版本会无故抖动，导致菜单缓存被无意义重建）。md5 在此仅作缓存
+   * 指纹，不承载任何安全语义。
+   *
+   * ⚠️ 指纹取值与旧版「JS 侧 sha256(JSON.stringify(行))」不同：menuVersion 只进
+   * 缓存 key（菜单 30s、版本 10s），且 purelyClub / purelyProfit / purelyPulse
+   * 均未解析或比较该字段（实测只有类型声明），切换后旧 key 自然过期。
    */
   private async computeMenuVersion(storeId: number): Promise<string> {
-    const rows = await this.prisma.$queryRaw<MenuVersionRow[]>`
-      SELECT
-        c."id"        AS "categoryId",
-        c."version"   AS "categoryVersion",
-        p."id"        AS "productId",
-        p."version"   AS "productVersion",
-        p."is_active" AS "productIsActive",
-        g."id"        AS "groupId",
-        g."version"   AS "groupVersion",
-        o."id"        AS "optionId",
-        o."version"   AS "optionVersion"
+    const [row] = await this.prisma.$queryRaw<MenuVersionFingerprintRow[]>`
+      SELECT md5(COALESCE(string_agg(
+        concat_ws(':',
+          c."id", c."version",
+          p."id", p."version", p."is_active",
+          COALESCE(g."id"::text, '-'), COALESCE(g."version"::text, '-'),
+          COALESCE(o."id"::text, '-'), COALESCE(o."version"::text, '-')
+        ),
+        ',' ORDER BY
+          c."sort_order" ASC, c."id" ASC,
+          p."sort_order" ASC, p."id" ASC,
+          g."sort_order" ASC NULLS FIRST, g."id" ASC NULLS FIRST,
+          o."sort_order" ASC NULLS FIRST, o."id" ASC NULLS FIRST
+      ), '')) AS "fingerprint"
       FROM "scan_ordering_menu_categories" AS c
       -- INNER JOIN 已排除「无任何未删除商品」的分类，等价于原
       -- products: { some: { deletedAt: null } } 过滤
@@ -311,51 +309,8 @@ export class ClubScanOrderingMenuQueryService {
       WHERE c."store_id" = ${storeId}
         AND c."is_active" = true
         AND c."deleted_at" IS NULL
-      ORDER BY
-        c."sort_order" ASC, c."id" ASC,
-        p."sort_order" ASC, p."id" ASC,
-        g."sort_order" ASC, g."id" ASC,
-        o."sort_order" ASC, o."id" ASC
     `;
-    return createHash('sha256')
-      .update(JSON.stringify(this.buildMenuVersionPayload(rows)))
-      .digest('hex');
-  }
-
-  /** 把扁平行按层级归组，还原成与嵌套查询一致的 hash 输入结构。 */
-  private buildMenuVersionPayload(
-    rows: MenuVersionRow[],
-  ): MenuVersionCategory[] {
-    const categories: MenuVersionCategory[] = [];
-    let category: MenuVersionCategory | null = null;
-    let product: MenuVersionProduct | null = null;
-    let group: MenuVersionGroup | null = null;
-
-    for (const row of rows) {
-      if (!category || category[0] !== row.categoryId) {
-        category = [row.categoryId, row.categoryVersion, []];
-        categories.push(category);
-        product = null;
-        group = null;
-      }
-      if (!product || product[0] !== row.productId) {
-        product = [row.productId, row.productVersion, row.productIsActive, []];
-        category[2].push(product);
-        group = null;
-      }
-      if (row.groupId === null) {
-        // 该商品没有启用的规格组（LEFT JOIN 未命中）
-        continue;
-      }
-      if (!group || group[0] !== row.groupId) {
-        group = [row.groupId, row.groupVersion ?? 0, []];
-        product[3].push(group);
-      }
-      if (row.optionId !== null) {
-        group[2].push([row.optionId, row.optionVersion ?? 0]);
-      }
-    }
-
-    return categories;
+    // 聚合查询恒返回 1 行（空菜单也已由 COALESCE 兜成空串的 md5）
+    return row.fingerprint;
   }
 }

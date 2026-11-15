@@ -16,7 +16,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AlertService } from '../../shared/alert/alert.service';
 import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
-import { resolveClubOrderTypeByOrderNo } from './club-payment-callback-dispatch.service';
+import { resolveClubOrderTypeByOrderNo } from './club-order-no.constants';
 
 export interface RecordCallbackFailureParams {
   /** 业务订单号（微信 out_trade_no） */

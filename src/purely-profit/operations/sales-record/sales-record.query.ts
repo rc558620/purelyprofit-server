@@ -1,18 +1,17 @@
 import { Prisma } from '@prisma/client';
-import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
-import { formatShanghaiDate } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import type {
   ScanOrderingDetailSource,
   SpaceSessionSpecSource,
 } from './sales-record-enrichment';
+import type { SalesPeriodRange } from './sales-record.utils';
 import {
-  buildOrderNo,
-  type SalesOrderNoVariant,
-  type SalesPeriodRange,
-} from './sales-record.utils';
+  buildSalesRecordListCursorWhere,
+  SALES_RECORD_LIST_ORDER_BY,
+} from './sales-record-list.cursor';
+import type { SalesRecordListCursor } from './sales-record-list.cursor';
 
 export interface SalesStatsAggregation {
   totalRevenue: number;
@@ -179,16 +178,41 @@ export async function querySaleOrders(
      * 传了 cursor 就忽略 skip —— 两者语义互斥，且 keyset 必须 skip: 1 跳过游标自身。
      */
     cursor?: { id: number };
+    /**
+     * 列表接口的游标条件（`(date, id)` 复合键），与上面的 `cursor` 语义互斥：
+     * - 报表 CSV 用 `cursor` + `skip: 1`（Prisma 原生 keyset，跳过游标自身一行）；
+     * - 列表接口用 `listCursor`（把「排在游标之后」写进 where，不传 skip）。
+     *
+     * 二者不能合并成同一个参数：列表游标必须按 `date` 逐级比较，
+     * 只用 id 定位在跨日补录（id 递增但 date 更早）时会漏掉整段记录。
+     */
+    listCursor?: SalesRecordListCursor | null;
   },
 ): Promise<SaleOrderWithItems[]> {
-  return prisma.saleOrder.findMany({
-    where: {
-      storeId: params.storeId,
-      date: {
-        gte: new Date(params.range.start),
-        lte: new Date(params.range.end),
-      },
+  const baseWhere: Prisma.SaleOrderWhereInput = {
+    storeId: params.storeId,
+    date: {
+      gte: new Date(params.range.start),
+      lte: new Date(params.range.end),
     },
+  };
+
+  /*
+   * 三条路径互斥，顺序不能调换：
+   * 1. `cursor`（报表 CSV）：Prisma 原生 keyset，靠 skip: 1 跳过游标自身；
+   * 2. `listCursor`（列表接口）：条件已写进 where，绝不能带 skip，否则每页少一行；
+   * 3. 都没有：兼容期 offset 分页，skip 语义与迁移前逐字一致。
+   */
+  const pagingArgs: { cursor?: { id: number }; skip?: number } = params.cursor
+    ? { cursor: { id: params.cursor.id }, skip: 1 }
+    : params.listCursor
+      ? {}
+      : { skip: params.skip };
+
+  return prisma.saleOrder.findMany({
+    where: params.listCursor
+      ? { AND: [baseWhere, buildSalesRecordListCursorWhere(params.listCursor)] }
+      : baseWhere,
     select: {
       id: true,
       orderNo: true,
@@ -264,10 +288,8 @@ export async function querySaleOrders(
         },
       },
     },
-    orderBy: [{ date: 'desc' }, { id: 'desc' }],
-    ...(params.cursor
-      ? { cursor: { id: params.cursor.id }, skip: 1 }
-      : { skip: params.skip }),
+    orderBy: SALES_RECORD_LIST_ORDER_BY,
+    ...pagingArgs,
     take: params.take,
   });
 }
@@ -352,80 +374,6 @@ export function countSaleOrders(
   });
 }
 
-// ---------------------------------------------------------------------------
-// 订单号生成
-// ---------------------------------------------------------------------------
-
-function buildSalesOrderSequenceLockKey(date: Date): number {
-  // 锁 key 必须与订单号日期段同口径（上海营业日），否则跨零点会串号
-  return Number(formatShanghaiDate(date.getTime()).replace(/-/g, ''));
-}
-
-export async function generateOrderNo(
-  client: Prisma.TransactionClient,
-  storeId: number,
-  date: Date,
-  variant: SalesOrderNoVariant = 'standard',
-): Promise<string> {
-  const dayStart = getStartOfDay(date.getTime());
-  const dayEnd = getEndOfDay(date.getTime());
-  // pg_advisory_xact_lock 在事务提交/回滚后自动释放，确保同日同店订单号串行生成。
-  // 注意：若外层事务持续时间很长（如空间结账），其他并发创建请求会被阻塞直到事务结束。
-  await client.$executeRaw`
-    SELECT pg_advisory_xact_lock(
-      ${storeId},
-      ${buildSalesOrderSequenceLockKey(date)}
-    )
-  `;
-
-  return buildOrderNo(
-    date,
-    (await queryMaxSerial(client, storeId, dayStart, dayEnd, variant)) + 1,
-    variant,
-  );
-}
-
-/**
- * 取当日指定号段已占用的最大序号，在 SQL 侧求 MAX，仅返回 1 行整数。
- *
- * 手工补录单与普通销售单各自独立计数（按 manual_entry 区分），
- * 避免两类号段互相挤占序号导致跳号。
- * 号段必须单调递增：用「当日已有最大序号 + 1」而非「当日单据条数 + 1」。
- * 按条数推导时，删除中间单据会让 count 回落，新单算出已被占用的序号，
- * 撞 @@unique([storeId, orderNo]) 导致后续录单持续失败。
- *
- * 原实现拉取当日全部 order_no 到 Node 侧逐个正则求最大值，此处改为 SQL 侧求值：
- * 网络传输与内存占用从 O(当日单据数) 降为 1 行，并缩短 pg_advisory_xact_lock
- * 的持锁时间（锁持有期间不再读取大结果集），缓解同日同店并发录单的锁等待。
- *
- * ⚠️ 必须按【数值】求 MAX，不能依赖 order_no 的字典序倒序 LIMIT 1：
- * 序号为零填充字符串，超过 999 后 "1000" 的字典序小于 "999"，
- * 字典序取最大值会倒退回已被占用的序号。
- */
-async function queryMaxSerial(
-  client: Prisma.TransactionClient,
-  storeId: number,
-  dayStart: Date,
-  dayEnd: Date,
-  variant: SalesOrderNoVariant,
-): Promise<number> {
-  // regexp_match 无匹配时返回 NULL，::integer 与 MAX 均忽略 NULL，
-  // 由 COALESCE 兜底为 0（当日无单据 / 订单号格式异常时序号从 1 起算）。
-  // 用 [0-9] 而非 \d，规避模板字符串与 SQL 的转义歧义。
-  const rows = await client.$queryRaw<[{ max_serial: number | null }]>`
-    SELECT COALESCE(
-      MAX((regexp_match(order_no, '-([0-9]+)$'))[1]::integer),
-      0
-    )::integer AS max_serial
-    FROM sale_orders
-    WHERE store_id = ${storeId}
-      AND manual_entry = ${variant === 'manual'}
-      AND date >= ${dayStart}
-      AND date <= ${dayEnd}
-  `;
-
-  const value = rows[0]?.max_serial;
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : 0;
-}
+// 订单号生成已外移到 sales-record-order-no.query.ts（本文件已超 400 行），
+// 此处保持 re-export，调用方引用路径不变。
+export { generateOrderNo } from './sales-record-order-no.query';

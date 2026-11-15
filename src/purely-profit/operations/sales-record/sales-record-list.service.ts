@@ -9,10 +9,11 @@ import type {
   SalesRecordListResponseDto,
   SalesStatsResponseDto,
 } from './dto/sales-record.dto';
+import { buildPaginationMeta } from '../../commerce/commerce.utils';
 import {
-  buildPaginationMeta,
-  resolvePagination,
-} from '../../commerce/commerce.utils';
+  encodeSalesRecordListCursor,
+  resolveSalesRecordListPaging,
+} from './sales-record-list.cursor';
 import {
   buildScanOrderingEnrichment,
   buildSpaceSessionSpecsEnrichment,
@@ -51,13 +52,14 @@ export class SalesRecordListService {
       '无权查看该门店销售记录',
     );
 
-    const { page, skip, take } = this.resolvePagination(
-      query.page,
-      query.pageSize,
+    // 入参校验先于取数：cursor 非法时直接 400，不白跑任何查询
+    const paging = resolveSalesRecordListPaging(
+      query,
+      this.resolvePagingBounds(),
     );
 
     if (storeId === null) {
-      return buildEmptySalesListResponse(page, take);
+      return buildEmptySalesListResponse(paging.page, paging.limit);
     }
 
     const callerIsSubAccount =
@@ -68,7 +70,7 @@ export class SalesRecordListService {
       callerIsSubAccount,
     );
     if (range.empty) {
-      return buildEmptySalesListResponse(page, take);
+      return buildEmptySalesListResponse(paging.page, paging.limit);
     }
 
     // 分页数据、「总数」与「汇总」三者互不依赖，提前一并发出，
@@ -76,8 +78,10 @@ export class SalesRecordListService {
     const ordersPromise = querySaleOrders(this.prisma, {
       storeId,
       range: { start: range.start, end: range.end },
-      skip,
-      take,
+      skip: paging.offset,
+      // 游标路径多取一行做「是否还有下一页」探测，省掉一次额外查询
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      listCursor: paging.cursor,
     });
     // 总条数的过滤条件与分页查询完全一致，且与 orders 无数据依赖，
     // 一并发出可省掉一次串行往返（大表 COUNT 可达数十毫秒）。
@@ -94,16 +98,21 @@ export class SalesRecordListService {
       callerIsSubAccount,
     );
 
-    const orders = await ordersPromise;
+    const fetchedOrders = await ordersPromise;
+    // 游标路径多取的那一行只用于探测「还有下一页」，不参与本页映射与增强查询，
+    // 否则会多查一次扫码订单/规格明细却把结果丢掉。
+    const pageOrders = paging.cursor
+      ? fetchedOrders.slice(0, paging.limit)
+      : fetchedOrders;
     // 收集扫码点餐订单 ID（仅餐饮账号的扫码订单存在，普通订单为空）
-    const scanOrderIds = orders
+    const scanOrderIds = pageOrders
       .map((order) => order.scanOrderId)
       .filter((id): id is number => id !== null && id !== undefined);
     // 收集非扫码订单 ID（空间会话结账订单：自助下单 / 追加点单，用于规格展示）。
     // querySaleOrders 已把 spaceSession 一并查出，只有存在会话的订单才可能在
     // space_sessions / session_items 中命中规格行；先收窄再查，避免把整页
     // 普通销售单 ID 塞进 IN 列表做无谓的索引扫描与关联行读取。
-    const nonScanSaleOrderIds = orders
+    const nonScanSaleOrderIds = pageOrders
       .filter(
         (order) => order.scanOrderId === null && order.spaceSession !== null,
       )
@@ -125,7 +134,7 @@ export class SalesRecordListService {
         .filter((session) => session.saleOrderId !== null)
         .map((session) => [session.saleOrderId as number, session]),
     );
-    const items = orders.map((order) => {
+    const items = pageOrders.map((order) => {
       const scanOrderId = order.scanOrderId;
       if (scanOrderId === null) {
         // 非扫码订单（空间会话结账）：回源 sessionItems 的行级规格
@@ -153,10 +162,24 @@ export class SalesRecordListService {
       compareLastPeriod: null,
     };
 
+    /*
+     * 到底判定分两条路径（与 costs / members 等已迁移列表同一口径）：
+     * - 游标路径：探测行 `limit + 1` 的存在即代表还有下一页；
+     * - offset 路径：没有探测行，只能用 `offset + 已取条数 < total` 推导。
+     * 两条路径都产出 nextCursor，前端可逐步从 page 切到游标而不必等后端改造。
+     */
+    const hasMore = paging.cursor
+      ? fetchedOrders.length > paging.limit
+      : paging.offset + pageOrders.length < total;
+    const lastOrder = pageOrders.at(-1);
+
     return {
       items,
-      meta: buildPaginationMeta(total, page, take),
+      meta: buildPaginationMeta(total, paging.page, paging.limit),
       summary,
+      hasMore,
+      nextCursor:
+        hasMore && lastOrder ? encodeSalesRecordListCursor(lastOrder) : null,
     };
   }
 
@@ -192,12 +215,15 @@ export class SalesRecordListService {
     return 'all';
   }
 
-  private resolvePagination(page?: number, pageSize?: number) {
-    const defaultPageSize =
-      this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize =
-      this.configService.get<number>('app.maxPageSize') ?? 100;
-
-    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
+  /** 每页条数边界：defaultPageSize/maxPageSize 沿用配置，不因迁移放大 */
+  private resolvePagingBounds(): {
+    defaultPageSize: number;
+    maxPageSize: number;
+  } {
+    return {
+      defaultPageSize:
+        this.configService.get<number>('app.defaultPageSize') ?? 20,
+      maxPageSize: this.configService.get<number>('app.maxPageSize') ?? 100,
+    };
   }
 }

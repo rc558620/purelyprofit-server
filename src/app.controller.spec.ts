@@ -365,8 +365,14 @@ describe('AppController', () => {
           }),
         ]),
       );
-      expect(metrics.summary.topHighlights).toHaveLength(3);
-      expect(metrics.summary.topHighlights[0]).toMatchObject({
+      // 进程维度来自**运行时真实指标**（heap / rss / cpu），机器负载偏高时会按
+      // 优先级插入 topHighlights，与本用例注入的 http/sql/redis/cachePrewarm 数据
+      // 无关。断言前先过滤掉 process，否则整仓全量跑时这条用例会随堆内存在红绿之间抖动。
+      const injectedTopHighlights = metrics.summary.topHighlights.filter(
+        (highlight) => highlight.domain !== 'process',
+      );
+      expect(injectedTopHighlights).toHaveLength(3);
+      expect(injectedTopHighlights[0]).toMatchObject({
         domain: 'cachePrewarm',
         code: 'CACHE_PREWARM_FAILURES_DETECTED',
         label: '缓存预热异常',
@@ -393,7 +399,7 @@ describe('AppController', () => {
         impactLevel: 'urgent',
         impactScope: 'cache_prewarm',
       });
-      expect(metrics.summary.topHighlights[1]).toMatchObject({
+      expect(injectedTopHighlights[1]).toMatchObject({
         domain: 'http',
         code: 'HTTP_ERROR_RATE_HIGH',
         label: '接口异常率升高',
@@ -420,7 +426,7 @@ describe('AppController', () => {
         impactLevel: 'urgent',
         impactScope: 'route',
       });
-      expect(metrics.summary.topHighlights[2]).toMatchObject({
+      expect(injectedTopHighlights[2]).toMatchObject({
         domain: 'sql',
         code: 'SQL_SLOW_QUERY_RATE_HIGH',
         label: '数据库查询偏慢',

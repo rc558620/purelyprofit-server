@@ -1,6 +1,8 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
-import { escapeLikePattern } from './inventory-product-page.query';
+import { buildContainsPattern } from '../../../shared/like.utils';
+import { buildInventoryAdjustmentCursorSql } from './inventory-adjustments.cursor';
+import type { InventoryAdjustmentCursor } from './inventory-adjustments.cursor';
 import type {
   InventoryAdjustmentRecord,
   InventoryAdjustmentPageResult,
@@ -139,7 +141,8 @@ type InventoryAdjustmentPageRow = InventoryAdjustmentRecord & {
  * inventory-product-page.query.ts 的库存商品分页保持一致。
  *
  * 关键字口径沿用 Prisma contains + insensitive 对应的 ILIKE '%kw%'，
- * 并用同一个 escapeLikePattern 转义，避免「50%」「A_B」被当成通配符。
+ * 并用 shared/like.utils 的 buildContainsPattern 转义，
+ * 避免「50%」「A_B」被当成通配符。
  */
 export async function queryInventoryAdjustmentPage(
   prisma: PrismaService,
@@ -148,13 +151,61 @@ export async function queryInventoryAdjustmentPage(
     query: InventoryAdjustmentsListQueryInput;
     skip: number;
     take: number;
+    /** 游标：非空时走游标路径（此时 skip 被忽略，take 由调用方按 limit+1 传入） */
+    cursor?: InventoryAdjustmentCursor | null;
   },
 ): Promise<InventoryAdjustmentPageResult> {
-  const { storeId, query, skip, take } = params;
+  const { storeId, query, skip, take, cursor } = params;
   const productId = query.productId ?? null;
   const adjustType = query.adjustType ?? null;
-  const keyword = query.keyword?.trim();
-  const keywordPattern = keyword ? `%${escapeLikePattern(keyword)}%` : null;
+  const keywordPattern = buildContainsPattern(query.keyword?.trim());
+
+  // 列表与 count 共用同一份过滤：offset 路径只查一次，游标路径两次并行，
+  // 保证两条路径的 total 都是「与列表同筛选的全量口径」。
+  const filtersSql = Prisma.sql`
+    store_id = ${storeId}
+      AND (${productId}::int IS NULL OR product_id = ${productId})
+      AND (${adjustType}::text IS NULL OR adjust_type::text = ${adjustType})
+      AND (
+        ${keywordPattern}::text IS NULL
+        OR product_name ILIKE ${keywordPattern} ESCAPE '\\'
+      )
+  `;
+
+  /*
+   * 游标路径不能用窗口计数：`COUNT(*) OVER()` 会连同游标条件一起统计，
+   * 算出来的是「剩余条数」，total 会随翻页一路变小。因此退回两趟查询（并行）。
+   * 首次进入（无 cursor）仍走单趟窗口计数，不增加任何既有成本。
+   */
+  if (cursor) {
+    const [rows, totalRows] = await Promise.all([
+      prisma.$queryRaw<InventoryAdjustmentRecord[]>`
+        SELECT
+          id,
+          product_id AS "productId",
+          product_name AS "productName",
+          before_stock AS "beforeStock",
+          after_stock AS "afterStock",
+          delta,
+          adjust_type AS "adjustType",
+          note,
+          purchase_order_id AS "purchaseOrderId",
+          created_at AS "createdAt"
+        FROM inventory_adjustment_logs
+        WHERE ${filtersSql}
+          AND ${buildInventoryAdjustmentCursorSql(cursor)}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ${take}
+      `,
+      prisma.$queryRaw<Array<{ total: number }>>`
+        SELECT COUNT(*)::int AS "total"
+        FROM inventory_adjustment_logs
+        WHERE ${filtersSql}
+      `,
+    ]);
+
+    return { items: rows, total: totalRows[0]?.total ?? 0 };
+  }
 
   const rows = await prisma.$queryRaw<InventoryAdjustmentPageRow[]>`
     SELECT
@@ -170,13 +221,7 @@ export async function queryInventoryAdjustmentPage(
       created_at AS "createdAt",
       COUNT(*) OVER()::int AS "totalCount"
     FROM inventory_adjustment_logs
-    WHERE store_id = ${storeId}
-      AND (${productId}::int IS NULL OR product_id = ${productId})
-      AND (${adjustType}::text IS NULL OR adjust_type::text = ${adjustType})
-      AND (
-        ${keywordPattern}::text IS NULL
-        OR product_name ILIKE ${keywordPattern} ESCAPE '\\'
-      )
+    WHERE ${filtersSql}
     ORDER BY created_at DESC, id DESC
     LIMIT ${take} OFFSET ${skip}
   `;

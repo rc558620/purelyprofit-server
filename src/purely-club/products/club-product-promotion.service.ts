@@ -11,6 +11,7 @@ import {
   firstOrderDiscountParamsSchema,
   reduceParamsSchema,
 } from '../../purely-profit/marketing/schemas/promotion-params.schema';
+import type { MarketingMemberLevelConfigValue } from '../../purely-profit/marketing/marketing.utils';
 import type {
   ClubProductDiscountPromotion,
   ClubProductPricingContext,
@@ -29,11 +30,16 @@ export class ClubProductPromotionService {
   /**
    * 商品定价上下文。`clubUserId` 参与顾客档案定位（两层锚定）——
    * 只按 phone 匹配时，档案错乱场景下会把别人的首单资格/余额当成自己的。
+   *
+   * @param levelSettings 请求级会员等级配置种子（原始配置，含已停用等级）。
+   *   首页一次加载里账户分支已解析过同一份配置，透传后这里不再回源配置表；
+   *   不传时自行读取，行为与历史一致。
    */
   async resolvePricingContext(
     storeId: number,
     clubUserId: number,
     phone: string,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubProductPricingContext> {
     // 会员快照（15s 缓存）自带 customerId，优先复用：首页一次加载里
     // 账户接口已解析过快照，这里再查一次顾客档案是纯重复的库查询。
@@ -49,7 +55,7 @@ export class ClubProductPromotionService {
       (await this.findCustomerId(storeId, clubUserId, phone));
 
     const [memberDiscountRate, promotions, hasConsumption] = await Promise.all([
-      this.resolveMemberDiscountRate(snapshot),
+      this.resolveMemberDiscountRate(snapshot, levelSettings),
       this.clubPromotionRepository.loadActivePromotions(storeId),
       customerId !== null
         ? this.hasConsumptionRecord(storeId, customerId)
@@ -179,13 +185,17 @@ export class ClubProductPromotionService {
 
   private async resolveMemberDiscountRate(
     snapshot: ClubMemberSnapshot | null,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<number | null> {
     if (!snapshot) {
       return null;
     }
 
     const levelConfig =
-      await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
+      await this.clubMemberLevelsService.resolveCurrentLevelConfig(
+        snapshot,
+        levelSettings,
+      );
     return levelConfig.discountRate > 0 && levelConfig.discountRate < 1
       ? levelConfig.discountRate
       : null;

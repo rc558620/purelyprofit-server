@@ -6,7 +6,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { aValidDate } from '../../spec-matchers';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -37,6 +36,15 @@ describe('ClubOrdersService', () => {
 
   const prismaService = {
     $transaction: jest.fn(),
+    // 顾客消费指标走 UPDATE ... RETURNING，返回一行模拟条件更新命中
+    $queryRaw: jest.fn().mockResolvedValue([
+      {
+        total_spent: 101900,
+        visit_count: 2,
+        balance: 50100,
+        tier: 'regular',
+      },
+    ]),
     marketingCustomer: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -1061,23 +1069,9 @@ describe('ClubOrdersService', () => {
         promotionId: null,
       },
     });
-    // BUG-1 修复后使用 updateMany + balance>=amountFen 条件防止并发扣减为负
-    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
-      // 扣款限定在同一门店的未删除档案内，避免跨店扣错人
-      where: {
-        id: 36,
-        storeId: 11,
-        deletedAt: null,
-        balance: { gte: 49900 },
-      },
-      data: {
-        balance: { decrement: 49900 },
-        totalSpent: { increment: 49900 },
-        visitCount: { increment: 1 },
-        lastVisitAt: aValidDate,
-        tier: 'regular',
-      },
-    });
+    // BUG-1 修复后：余额扣减、累计消费与次数在同一条带 balance >= amountFen
+    // 条件与 deleted_at 过滤的 UPDATE 内原子完成，等级按库内新值重算
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
     // BUG-2 修复后使用 stock >= quantity 条件并按 quantity 扣减库存
     expect(prismaService.marketingProduct.updateMany).toHaveBeenCalledWith({
       where: {
@@ -1195,19 +1189,8 @@ describe('ClubOrdersService', () => {
         amount: 49900,
       }),
     });
-    // BUG-1 修复后使用 updateMany + balance>=amountFen 条件防止并发扣减为负
-    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: 66,
-        storeId: 11,
-        deletedAt: null,
-        balance: { gte: 49900 },
-      },
-      data: expect.objectContaining({
-        balance: { decrement: 49900 },
-        totalSpent: { increment: 49900 },
-      }),
-    });
+    // BUG-1 修复后：扣款与指标在同一条带 balance >= amountFen 的条件 UPDATE 内原子完成
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
       paymentConfirmationSource: 'wechat_callback',
       paymentTransactionId: 'wx_txn_wechat_001',

@@ -1,11 +1,34 @@
 import type { Prisma } from '@prisma/client';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
+import {
+  ClubPointsConfigCache,
+  type ClubPointsRatioSource,
+} from './club-order-points.cache';
 
 // ─── 公共积分配置解析 ──────────────────────────────────────────────────
 
 /** 可用于查询积分配置的 Prisma 客户端（PrismaService 或事务客户端） */
 export type PointsConfigPrismaClient = Prisma.TransactionClient;
+
+/** 模块级缓存实例：本文件是纯函数集合，没有 Nest DI 注入通道 */
+const pointsConfigCache = new ClubPointsConfigCache();
+
+/** 清空模块级缓存（仅单测需要，业务代码不应调用） */
+export function clearClubPointsConfigCache(): void {
+  pointsConfigCache.clear();
+}
+
+/** 积分配置读取选项 */
+export interface PointsConfigFetchOptions {
+  /**
+   * 允许命中进程内短 TTL 缓存（5s）与在途去重。
+   *
+   * ⚠️ 仅展示 / 预览路径可开启（积分规则展示、订单价格预览）。
+   * 创建订单与结算属于资金口径，必须保持默认直读，禁止传入本选项。
+   */
+  useCache?: boolean;
+}
 
 /** 积分抵扣配置（创建订单时使用） */
 export interface ClubPointsRedeemConfig {
@@ -84,29 +107,13 @@ export function resolvePointsEarnConfig(
 export async function fetchPointsRedeemConfig(
   prisma: PointsConfigPrismaClient,
   storeId: number,
+  options?: PointsConfigFetchOptions,
 ): Promise<ClubPointsRedeemConfig> {
-  const settings = await prisma.marketingMemberLevelSetting.findUnique({
-    where: { storeId },
-    select: { pointsRatio: true },
-  });
+  const source = await resolvePointsRatioSource(prisma, storeId, options);
+  const config = resolvePointsRedeemConfig(source.pointsRatio);
 
-  const config = resolvePointsRedeemConfig(settings?.pointsRatio);
-
-  if (!config.enabled) {
-    const now = new Date();
-    const promo = await prisma.marketingPromotion.findFirst({
-      where: {
-        storeId,
-        type: 'points_recharge',
-        enabled: true,
-        startAt: { lte: now },
-        endAt: { gte: now },
-      },
-      select: { id: true },
-    });
-    if (promo) {
-      return { ...config, enabled: true };
-    }
+  if (!config.enabled && source.hasPointsRechargePromo) {
+    return { ...config, enabled: true };
   }
 
   return config;
@@ -125,35 +132,126 @@ export async function fetchPointsRedeemConfig(
 export async function fetchPointsEarnConfig(
   prisma: PointsConfigPrismaClient,
   storeId: number,
+  options?: PointsConfigFetchOptions,
 ): Promise<ClubPointsEarnConfig> {
-  const settings = await prisma.marketingMemberLevelSetting.findUnique({
-    where: { storeId },
-    select: { pointsRatio: true },
-  });
+  const source = await resolvePointsRatioSource(prisma, storeId, options);
+  const config = resolvePointsEarnConfig(source.pointsRatio);
 
-  const config = resolvePointsEarnConfig(settings?.pointsRatio);
-
-  if (!config.enabled) {
-    const now = new Date();
-    const promo = await prisma.marketingPromotion.findFirst({
-      where: {
-        storeId,
-        type: 'points_recharge',
-        enabled: true,
-        startAt: { lte: now },
-        endAt: { gte: now },
-      },
-      select: { id: true },
-    });
-    if (promo) {
-      return { ...config, enabled: true };
-    }
+  if (!config.enabled && source.hasPointsRechargePromo) {
+    return { ...config, enabled: true };
   }
 
   return config;
 }
 
+/**
+ * 回源读取门店积分配置：原始 `pointsRatio` JSON + 活动覆盖标记。
+ *
+ * 抵扣与获得共用同一行的同一个 `enabled`，因此活动覆盖判断只需一次；
+ * 合并回源后两种口径不会各自再查一遍配置表。
+ */
+async function loadPointsRatioSource(
+  prisma: PointsConfigPrismaClient,
+  storeId: number,
+): Promise<ClubPointsRatioSource> {
+  const settings = await prisma.marketingMemberLevelSetting.findUnique({
+    where: { storeId },
+    select: { pointsRatio: true },
+  });
+
+  const pointsRatio = settings?.pointsRatio;
+  // 配置本身已启用时无需再判活动覆盖，省掉一次活动表查询
+  if (resolvePointsRedeemConfig(pointsRatio).enabled) {
+    return { pointsRatio, hasPointsRechargePromo: false };
+  }
+
+  const now = new Date();
+  const promo = await prisma.marketingPromotion.findFirst({
+    where: {
+      storeId,
+      type: 'points_recharge',
+      enabled: true,
+      startAt: { lte: now },
+      endAt: { gte: now },
+    },
+    select: { id: true },
+  });
+  return { pointsRatio, hasPointsRechargePromo: promo !== null };
+}
+
+/** 按调用方语义取配置来源：资金路径直读，展示路径允许命中短 TTL 缓存 */
+async function resolvePointsRatioSource(
+  prisma: PointsConfigPrismaClient,
+  storeId: number,
+  options?: PointsConfigFetchOptions,
+): Promise<ClubPointsRatioSource> {
+  if (options?.useCache !== true) {
+    return loadPointsRatioSource(prisma, storeId);
+  }
+
+  return pointsConfigCache.remember(storeId, () =>
+    loadPointsRatioSource(prisma, storeId),
+  );
+}
+
 // ─── 积分抵扣计算（预览 / 创建 / 核销券通用）────────────────────────────
+
+/** 积分为 0 的抵扣结果（早退常量，避免各处重复构造字面量） */
+const ZERO_POINTS_DEDUCTION = { pointsDeductFen: 0, pointsUsed: 0 } as const;
+
+/** 已持有可用积分时的抵扣计算参数 */
+export interface ClubResolvePointsDeductionParams {
+  storeId: number;
+  /** 折后价（分） */
+  priceAfterDiscountFen: number;
+  usePoints: boolean;
+  /** 调用方已读取的可用积分（顾客行不存在时传 0） */
+  availablePoints: number;
+  /**
+   * 允许命中积分配置短 TTL 缓存。**仅价格预览可开启**；
+   * 创建订单、结算与核销属于资金口径，必须保持默认（直读）。
+   */
+  useCachePointsConfig?: boolean;
+}
+
+/**
+ * 积分抵扣计算（**可用积分已经由调用方读取**）。
+ *
+ * 与 {@link resolvePointsDeduction} 的区别：这里不查顾客行，只查积分配置。
+ * 供那些「同一请求内已经读过顾客行」的调用方复用（如订单预览同时需要
+ * points 与 balance，一次读取即可，禁止为两个字段各查一次同一行）。
+ *
+ * 早退语义与 `resolvePointsDeduction` 完全一致：未开启积分抵扣或折后价 ≤ 0 时
+ * 既不查配置也不读顾客行。
+ */
+export async function resolvePointsDeductionFromAvailablePoints(
+  prisma: PointsConfigPrismaClient,
+  params: ClubResolvePointsDeductionParams,
+): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
+  const {
+    storeId,
+    priceAfterDiscountFen,
+    usePoints,
+    availablePoints,
+    useCachePointsConfig,
+  } = params;
+
+  if (!usePoints || priceAfterDiscountFen <= 0) {
+    return { ...ZERO_POINTS_DEDUCTION };
+  }
+
+  // ⚠️ 注意：fetchPointsRedeemConfig 返回的 enabled 字段在此处被有意忽略，
+  // 仅取 redeemRatioPoints / maxRedeemRatio 进行计算（见函数头 JSDoc 设计决策）。
+  const pointsConfig = await fetchPointsRedeemConfig(prisma, storeId, {
+    useCache: useCachePointsConfig === true,
+  });
+
+  return calcPointsRedeemDetail(
+    priceAfterDiscountFen,
+    pointsConfig,
+    availablePoints,
+  );
+}
 
 /**
  * 积分抵扣计算（含 DB 查询，preview / creation / voucher-context 共用）
@@ -173,25 +271,20 @@ export async function resolvePointsDeduction(
   usePoints: boolean,
 ): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
   if (!usePoints || priceAfterDiscountFen <= 0) {
-    return { pointsDeductFen: 0, pointsUsed: 0 };
+    return { ...ZERO_POINTS_DEDUCTION };
   }
-
-  // ⚠️ 注意：fetchPointsRedeemConfig 返回的 enabled 字段在此处被有意忽略，
-  // 仅取 redeemRatioPoints / maxRedeemRatio 进行计算（见函数头 JSDoc 设计决策）。
-  const pointsConfig = await fetchPointsRedeemConfig(prisma, storeId);
 
   const customer = await prisma.marketingCustomer.findUnique({
     where: { id: customerId },
     select: { points: true },
   });
 
-  const availablePoints = customer?.points ?? 0;
-
-  return calcPointsRedeemDetail(
+  return resolvePointsDeductionFromAvailablePoints(prisma, {
+    storeId,
     priceAfterDiscountFen,
-    pointsConfig,
-    availablePoints,
-  );
+    usePoints,
+    availablePoints: customer?.points ?? 0,
+  });
 }
 
 /**

@@ -24,18 +24,23 @@ import type {
 import { enrichRefundGiftCleared } from './marketing.domain';
 import { mapRechargeRow } from './marketing.mapper';
 import {
-  queryCustomerGiftBalanceCents,
   queryCustomerRechargePage,
-  queryCustomerRechargeRefundSums,
   queryCustomerRefundPage,
   queryRechargePage,
+} from './marketing-flow.query';
+import {
+  queryCustomerGiftBalanceCents,
+  queryCustomerRechargeRefundSums,
   queryRechargeRowById,
 } from './marketing.query';
+import {
+  buildMarketingFlowPage,
+  resolveMarketingFlowPaging,
+} from './marketing-flow.cursor';
 import { MarketingSharedService } from './marketing-shared.service';
 import { Money } from '../../shared/money.utils';
 import {
   buildMarketingPaginationMeta,
-  resolveMarketingPagination,
   safeEnumCoerce,
   MARKETING_RECHARGE_TYPE_VALUES,
   type MarketingRechargeTypeValue,
@@ -61,38 +66,34 @@ export class MarketingRechargesService {
         user,
         query.storeId,
       );
+    // 分页参数归一放在取数之前：cursor 非法时直接 400，不白跑一次列表查询
+    const paging = resolveMarketingFlowPaging(query);
     if (!resolvedStoreId) {
       return {
         items: [],
-        meta: buildMarketingPaginationMeta(
-          0,
-          1,
-          resolveMarketingPagination(query.page, query.pageSize).take,
-        ),
+        meta: buildMarketingPaginationMeta(0, 1, paging.limit),
+        hasMore: false,
+        nextCursor: null,
       };
     }
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
-    const listQuery = {
+    const { items: rows, total } = await queryRechargePage(this.prisma, {
       storeId: resolvedStoreId,
       customerId: query.customerId,
       startMs: query.startMs,
       endMs: query.endMs,
-    };
-
-    // 总数由 COUNT(*) OVER() 随分页一起取回，不再单独发一条 count
-    const { items: rows, total } = await queryRechargePage(this.prisma, {
-      ...listQuery,
-      skip,
-      take,
+      skip: paging.offset,
+      // 游标路径多取一行做「是否还有下一页」探测；offset 路径取数成本不变
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      cursor: paging.cursor,
     });
+    const page = buildMarketingFlowPage(rows, total, paging);
 
     return {
-      items: rows.map(mapRechargeRow),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      items: page.rows.map(mapRechargeRow),
+      meta: page.meta,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -109,20 +110,20 @@ export class MarketingRechargesService {
       'marketing:view',
     );
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
+    const paging = resolveMarketingFlowPaging(query);
     const { items: rows, total } = await queryCustomerRechargePage(
       this.prisma,
       customerId,
-      skip,
-      take,
+      paging.offset,
+      paging.limit,
     );
+    const page = buildMarketingFlowPage(rows, total, paging);
 
     return {
-      items: rows.map(mapRechargeRow),
-      meta: buildMarketingPaginationMeta(total, page, take),
+      items: page.rows.map(mapRechargeRow),
+      meta: page.meta,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -139,22 +140,26 @@ export class MarketingRechargesService {
       'marketing:view',
     );
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-    );
+    const paging = resolveMarketingFlowPaging(query);
     const { items: rows, total } = await queryCustomerRefundPage(
       this.prisma,
       customerId,
-      skip,
-      take,
+      paging.offset,
+      paging.limit,
     );
+    const page = buildMarketingFlowPage(rows, total, paging);
 
-    const items = await enrichRefundGiftCleared(this.prisma, customerId, rows);
+    const items = await enrichRefundGiftCleared(
+      this.prisma,
+      customerId,
+      page.rows,
+    );
 
     return {
       items,
-      meta: buildMarketingPaginationMeta(total, page, take),
+      meta: page.meta,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
     };
   }
 

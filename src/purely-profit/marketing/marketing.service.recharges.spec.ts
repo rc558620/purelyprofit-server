@@ -98,6 +98,9 @@ describe('MarketingService recharges', () => {
         total: 1,
         totalPages: 1,
       },
+      // 顾客维度列表仍是 offset 语义：一页取满即可判断到底
+      hasMore: false,
+      nextCursor: null,
     });
   });
 

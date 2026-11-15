@@ -29,6 +29,10 @@ import {
 } from './inventory.mapper';
 import { queryInventoryProductPage } from './inventory-product-page.query';
 import {
+  encodeInventoryAdjustmentCursor,
+  resolveInventoryAdjustmentPaging,
+} from './inventory-adjustments.cursor';
+import {
   queryInventoryAdjustmentPage,
   queryInventoryProducts,
   queryInventoryReportRows,
@@ -227,33 +231,46 @@ export class InventoryReadService {
       'inventory:view',
       '无权查看该门店库存记录',
     );
+    // 入参校验先于取数：cursor 非法时直接 400，不白跑一次查询
+    const paging = resolveInventoryAdjustmentPaging(
+      query,
+      this.resolvePagingBounds(),
+    );
 
     if (storeId === null) {
-      const { page, take } = this.resolvePagination(query.page, query.pageSize);
       return buildPaginatedInventoryAdjustmentsResponse({
         items: [],
         total: 0,
-        page,
-        pageSize: take,
+        page: paging.page,
+        pageSize: paging.limit,
+        hasMore: false,
+        nextCursor: null,
       });
     }
 
-    const { page, skip, take } = this.resolvePagination(
-      query.page,
-      query.pageSize,
-    );
-
-    const result = await queryInventoryAdjustmentPage(this.prisma, {
+    const { items, total } = await queryInventoryAdjustmentPage(this.prisma, {
       storeId,
       query,
-      skip,
-      take,
+      skip: paging.offset,
+      // 游标路径多取一行做「是否还有下一页」探测，省掉一次额外查询
+      take: paging.cursor ? paging.limit + 1 : paging.limit,
+      cursor: paging.cursor,
     });
 
+    const hasMore = paging.cursor
+      ? items.length > paging.limit
+      : paging.offset + items.length < total;
+    const pageItems = paging.cursor ? items.slice(0, paging.limit) : items;
+    const lastItem = pageItems.at(-1);
+
     return buildPaginatedInventoryAdjustmentsResponse({
-      ...result,
-      page,
-      pageSize: take,
+      items: pageItems,
+      total,
+      page: paging.page,
+      pageSize: paging.limit,
+      hasMore,
+      nextCursor:
+        hasMore && lastItem ? encodeInventoryAdjustmentCursor(lastItem) : null,
     });
   }
 
@@ -359,10 +376,23 @@ export class InventoryReadService {
   }
 
   private resolvePagination(page?: number, pageSize?: number) {
-    const defaultPageSize =
-      this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize =
-      this.configService.get<number>('app.maxPageSize') ?? 100;
-    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
+    const bounds = this.resolvePagingBounds();
+    return resolvePagination(
+      page,
+      pageSize,
+      bounds.defaultPageSize,
+      bounds.maxPageSize,
+    );
+  }
+
+  private resolvePagingBounds(): {
+    defaultPageSize: number;
+    maxPageSize: number;
+  } {
+    return {
+      defaultPageSize:
+        this.configService.get<number>('app.defaultPageSize') ?? 20,
+      maxPageSize: this.configService.get<number>('app.maxPageSize') ?? 100,
+    };
   }
 }

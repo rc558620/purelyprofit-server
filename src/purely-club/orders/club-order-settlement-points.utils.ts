@@ -2,6 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { CLUB_ORDER_ERROR_CODE, clubOrderError } from './club-orders.errors';
 import type { Prisma } from '@prisma/client';
 import { fetchPointsEarnConfig } from './club-order-points.utils';
+import type { ClubPointsEarnConfig } from './club-order-points.utils';
 import type {
   ClubOrderDraftPayload,
   ClubServiceOrderMetadata,
@@ -13,6 +14,12 @@ export interface ClubPointsSettlementContext {
   storeId: number;
   description: string;
   paidAmountFen: number;
+}
+
+/** 事务外预加载的积分规则快照；不传时仍在事务内读取，行为不变。 */
+export interface ClubPointsSettlementRules {
+  pointsEarnConfig: ClubPointsEarnConfig;
+  pointsMultiplier: number;
 }
 
 // ─── 积分扣减 ─────────────────────────────────────────────────────────────
@@ -94,6 +101,7 @@ export async function awardConsumptionPoints(
   tx: Prisma.TransactionClient,
   draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   customerId: number,
+  rules?: ClubPointsSettlementRules,
 ): Promise<number> {
   return awardPointsForSettlement(
     tx,
@@ -103,6 +111,7 @@ export async function awardConsumptionPoints(
       paidAmountFen: draft.amountFen,
     },
     customerId,
+    rules,
   );
 }
 
@@ -110,9 +119,12 @@ export async function awardPointsForSettlement(
   tx: Prisma.TransactionClient,
   context: ClubPointsSettlementContext,
   customerId: number,
+  rules?: ClubPointsSettlementRules,
 ): Promise<number> {
-  // 获取积分规则配置
-  const pointsRatioConfig = await fetchPointsEarnConfig(tx, context.storeId);
+  // 优先使用事务外预加载的规则；未传入时回落到事务内读取，保持其它链路兼容
+  const pointsRatioConfig =
+    rules?.pointsEarnConfig ??
+    (await fetchPointsEarnConfig(tx, context.storeId));
 
   // 若积分规则未启用，不增加积分
   if (!pointsRatioConfig.enabled) {
@@ -128,7 +140,9 @@ export async function awardPointsForSettlement(
   );
 
   // 查询是否有生效的 points_2x（双倍积分）活动，若有则将积分翻倍
-  const pointsMultiplier = await resolvePointsMultiplier(tx, context.storeId);
+  const pointsMultiplier =
+    rules?.pointsMultiplier ??
+    (await resolvePointsMultiplier(tx, context.storeId));
   if (pointsMultiplier > 1 && earnedPoints > 0) {
     const bonusPoints = earnedPoints * (pointsMultiplier - 1);
     earnedPoints += bonusPoints;

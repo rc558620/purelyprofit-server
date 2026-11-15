@@ -27,6 +27,8 @@ export interface InventoryAdjustmentsListQueryInput {
   adjustType?: InventoryAdjustType;
   page?: number;
   pageSize?: number;
+  /** 分页游标：传入时优先于 page（兼容期保留 page/pageSize 走旧路径） */
+  cursor?: string;
 }
 
 export interface AdjustInventoryInput {

@@ -9,6 +9,10 @@ import {
   clubSelfOrderingError,
 } from './club-self-ordering.errors';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
+import type {
+  PricedProductSpecs,
+  PriceProductSpecsBatchItem,
+} from '../../purely-profit/goods/products/product-spec-pricing.service';
 import type { SelfOrderItemInputDto } from './dto/create-self-order.dto';
 
 /** 定价后的订单行（含服务端重算的价格与商品快照） */
@@ -59,17 +63,34 @@ export class ClubSelfOrderingPricingService {
   /**
    * 商品定价与快照。
    * 同一商品多行时先合并数量；价格、名称、分类名一律取自商品库当前值并落快照。
+   * 合并后一次批量取回全部商品，避免购物车每行各跑一次定价查询（N+1）。
    */
   async priceItems(
     storeId: number,
     inputs: SelfOrderItemInputDto[],
   ): Promise<SelfOrderPricingResult> {
-    const mergedLines = this.mergeLines(inputs);
-    const items: PricedSelfOrderItem[] = [];
-    for (const line of mergedLines.values()) {
-      items.push(await this.priceLine(storeId, line));
+    const mergedLines = [...this.mergeLines(inputs).values()];
+    const batchItems = mergedLines.map((line) => this.toBatchItem(line));
+
+    let pricedList: PricedProductSpecs[];
+    try {
+      pricedList = await this.specPricing.priceMany(storeId, batchItems);
+    } catch (error) {
+      // 商品不存在/已下架统一映射为「已下架」；规格越界等异常按原语义透传
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(
+          clubSelfOrderingError(
+            CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_PRODUCT_OFF_SHELF,
+            '购物车中存在已下架商品，请刷新后重试',
+          ),
+        );
+      }
+      throw error;
     }
 
+    const items = mergedLines.map((line, index) =>
+      this.toPricedItem(line, pricedList[index]),
+    );
     const itemTotalAmount = items.reduce(
       (sum, item) => sum + item.salePrice * item.quantity,
       0,
@@ -101,11 +122,8 @@ export class ClubSelfOrderingPricingService {
     return mergedLines;
   }
 
-  /** 服务端权威定价：单价 = Product.price + Σ 规格加价，商品名用含规格后缀的展示名 */
-  private async priceLine(
-    storeId: number,
-    line: MergedSelfOrderLine,
-  ): Promise<PricedSelfOrderItem> {
+  /** 非法商品 ID 必须在查库前拦截，保持原有的参数类错误码 */
+  private toBatchItem(line: MergedSelfOrderLine): PriceProductSpecsBatchItem {
     const productId = Number(line.productId);
     if (!Number.isInteger(productId) || productId <= 0) {
       throw new NotFoundException(
@@ -115,26 +133,14 @@ export class ClubSelfOrderingPricingService {
         ),
       );
     }
+    return { productId, specOptionIds: line.specOptionIds };
+  }
 
-    let priced: Awaited<ReturnType<ProductSpecPricingService['price']>>;
-    try {
-      priced = await this.specPricing.price({
-        storeId,
-        productId,
-        specOptionIds: line.specOptionIds,
-      });
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw new NotFoundException(
-          clubSelfOrderingError(
-            CLUB_SELF_ORDERING_ERROR_CODE.RESOURCE_PRODUCT_OFF_SHELF,
-            '购物车中存在已下架商品，请刷新后重试',
-          ),
-        );
-      }
-      throw error;
-    }
-
+  /** 回填订单行快照：单价 = Product.price + Σ 规格加价，展示名带规格后缀 */
+  private toPricedItem(
+    line: MergedSelfOrderLine,
+    priced: PricedProductSpecs,
+  ): PricedSelfOrderItem {
     return {
       productId: line.productId,
       productName: priced.displayName,

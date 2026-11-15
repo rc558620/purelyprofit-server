@@ -184,4 +184,54 @@ describe('ClubWechatPayIdentityService', () => {
       settleMchId: 'SUB_STORE_MCH',
     });
   });
+
+  // ─── 可收款身份（resolvePayableTarget，3-B-9） ────────────────────────────
+  // 下单要求「身份 + 能收钱」齐备，查单 / 关单 / 退款只要身份；
+  // 两个口径分开后，同一份门店配置也不会在一次下单里被读两遍。
+
+  it('resolvePayableTarget：直连模式缺 APIv3 密钥时拒绝，且只读一次配置', async () => {
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      apiV3Key: null,
+    });
+
+    expect(await buildService().resolvePayableTarget(1)).toBeNull();
+    expect(storesService.getWechatPayConfigForStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolvePayableTarget：直连模式配置齐全时返回收款身份', async () => {
+    expect(await buildService().resolvePayableTarget(1)).toEqual({
+      mode: 'store',
+      signMchId: 'SUB_STORE_MCH',
+      settleMchId: 'SUB_STORE_MCH',
+      appId: 'wx_club_appid',
+      notifyUrl: 'https://api.example.com/api/club/payments/wechat/callback',
+    });
+    expect(storesService.getWechatPayConfigForStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolvePayableTarget：服务商模式不要求门店 APIv3 密钥（子商户本就没有）', async () => {
+    configState['wechat.partner.enabled'] = true;
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      apiV3Key: null,
+    });
+
+    expect(await buildService().resolvePayableTarget(1)).toMatchObject({
+      mode: 'partner',
+      settleMchId: 'SUB0001',
+    });
+  });
+
+  it('resolveTarget 不做 APIv3 密钥完整性校验，查单 / 关单 / 退款口径零变化', async () => {
+    storesService.getWechatPayConfigForStore.mockResolvedValue({
+      ...storeConfig,
+      apiV3Key: null,
+    });
+
+    expect(await buildService().resolveTarget(1)).toMatchObject({
+      mode: 'store',
+      settleMchId: 'SUB_STORE_MCH',
+    });
+  });
 });

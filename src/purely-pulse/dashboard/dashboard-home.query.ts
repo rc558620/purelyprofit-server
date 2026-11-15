@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { buildContainsPattern } from '../../shared/like.utils';
 import {
   getShanghaiDayStartMs,
   getShanghaiMonthStartMs,
@@ -13,10 +14,6 @@ import type {
   DashboardRevenueOrderRow,
   DashboardRevenueTypeCountRow,
 } from './dashboard.types';
-
-/** ILIKE 通配符转义：避免筛选值里的 % / _ 被当成通配符 */
-const escapeLikePattern = (value: string): string =>
-  value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 /**
  * 合伙人地区筛选条件。
@@ -41,16 +38,14 @@ function buildPartnerRegionCondition(
   const regionText = Prisma.sql`COALESCE(array_to_string(lp.region, ','), '')`;
   const conditions: Prisma.Sql[] = [];
 
-  if (nameFilter) {
-    conditions.push(
-      Prisma.sql`${regionText} ILIKE ${`%${escapeLikePattern(nameFilter)}%`} ESCAPE '\\'`,
-    );
+  const namePattern = buildContainsPattern(nameFilter);
+  if (namePattern) {
+    conditions.push(Prisma.sql`${regionText} ILIKE ${namePattern} ESCAPE '\\'`);
   }
 
-  if (codeFilter) {
-    conditions.push(
-      Prisma.sql`${regionText} LIKE ${`%${escapeLikePattern(codeFilter)}%`} ESCAPE '\\'`,
-    );
+  const codePattern = buildContainsPattern(codeFilter);
+  if (codePattern) {
+    conditions.push(Prisma.sql`${regionText} LIKE ${codePattern} ESCAPE '\\'`);
   }
 
   return Prisma.sql`AND (${Prisma.join(conditions, ' OR ')})`;

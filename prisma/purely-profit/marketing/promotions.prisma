@@ -31,6 +31,10 @@ model MarketingPromotion {
 
   @@index([storeId, enabled, startAt])
   @@index([storeId, createdAt])
+  /// C 端活动查询的真实形状：storeId + enabled 等值 + type 集合 + endAt 有效期窗口。
+  /// 既有 (storeId, enabled, startAt) 的第三列是 startAt，无法定位 type；
+  /// `type='daily_check_in'` 这类 findFirst 只能靠本索引收敛到索引扫描。
+  @@index([storeId, enabled, type, endAt], map: "idx_promotions_store_enabled_type_end")
   @@map("marketing_promotions")
 }
 

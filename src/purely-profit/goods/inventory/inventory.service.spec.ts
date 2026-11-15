@@ -344,6 +344,9 @@ describe('InventoryService', () => {
         total: 12,
         totalPages: 3,
       },
+      // offset 路径：5 + 1 < 12，因此还有下一页，并顺带产出可续传的游标
+      hasMore: true,
+      nextCursor: expect.any(String) as string,
     });
   });
 

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 
@@ -13,6 +14,12 @@ export interface PriceProductSpecsInput {
   /** Product.id（不是菜单商品 ID） */
   productId: number;
   /** 已选规格选项 ID；不传或空数组表示无规格 */
+  specOptionIds?: number[] | null;
+}
+
+/** 批量定价入参：限定同一门店下的多行购物车，逐行调用 price() 会产生 N+1 */
+export interface PriceProductSpecsBatchItem {
+  productId: number;
   specOptionIds?: number[] | null;
 }
 
@@ -41,6 +48,48 @@ export interface PricedProductSpecs {
 }
 
 /**
+ * 定价所需商品投影：price() 与 priceMany() 共用，保证逐行定价与批量定价
+ * 读到的商品字段、规格组排序、选项范围完全一致，不产生两套价格口径。
+ */
+const PRODUCT_PRICING_SELECT = Prisma.validator<Prisma.ProductSelect>()({
+  id: true,
+  name: true,
+  category: true,
+  price: true,
+  costPrice: true,
+  scanOrderingMenuProducts: {
+    where: { deletedAt: null },
+    orderBy: { id: 'asc' },
+    take: 1,
+    select: {
+      id: true,
+      specGroups: {
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          minSelections: true,
+          maxSelections: true,
+          options: {
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              name: true,
+              extraPrice: true,
+              isActive: true,
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+type ProductPricingRow = Prisma.ProductGetPayload<{
+  select: typeof PRODUCT_PRICING_SELECT;
+}>;
+
+/**
  * 非餐饮商品规格的「校验 + 权威定价」共享服务。
  *
  * 与餐饮扫码点餐的关键差异：**加价基准是 `Product.price`**，不是 `MenuProduct.basePrice`。
@@ -52,12 +101,72 @@ export interface PricedProductSpecs {
 export class ProductSpecPricingService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** 单条定价：保持既有调用方与异常语义不变 */
   async price(input: PriceProductSpecsInput): Promise<PricedProductSpecs> {
     const product = await this.findProduct(input.storeId, input.productId);
+    return this.computePrice(product, input.specOptionIds);
+  }
 
+  /**
+   * 批量定价：一次查询取回整张购物车的商品与规格，再在内存里逐行计算。
+   *
+   * 购物车 K 行原本要串行跑 K 次 price()（每次都带三层嵌套规格查询），
+   * 这里固定为 1 次 DB 往返；商品缺失/下架仍抛同样的 NotFoundException，
+   * 结果顺序与 items 严格一致，便于调用方按下标回填订单行。
+   */
+  async priceMany(
+    storeId: number,
+    items: PriceProductSpecsBatchItem[],
+  ): Promise<PricedProductSpecs[]> {
+    if (items.length === 0) return [];
+
+    const productIds = [...new Set(items.map((item) => item.productId))];
+    const products = await this.prisma.product.findMany({
+      where: {
+        id: { in: productIds },
+        storeId,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: PRODUCT_PRICING_SELECT,
+    });
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
+
+    return items.map((item) => {
+      const product = productMap.get(item.productId);
+      if (!product) throw new NotFoundException('商品不存在或已下架');
+      return this.computePrice(product, item.specOptionIds);
+    });
+  }
+
+  private async findProduct(
+    storeId: number,
+    productId: number,
+  ): Promise<ProductPricingRow> {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        storeId,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: PRODUCT_PRICING_SELECT,
+    });
+
+    if (!product) throw new NotFoundException('商品不存在或已下架');
+    return product;
+  }
+
+  /** 纯计算内核：单条与批量定价共用，不产生额外 DB 访问 */
+  private computePrice(
+    product: ProductPricingRow,
+    specOptionIds?: number[] | null,
+  ): PricedProductSpecs {
     const basePriceMoney = Money.fromDbCents(product.price);
     const costPriceCents = product.costPrice ?? 0;
-    const selectedIds = normalizeOptionIds(input.specOptionIds);
+    const selectedIds = normalizeOptionIds(specOptionIds);
     const menuProduct = product.scanOrderingMenuProducts[0] ?? null;
 
     // 未配置任何规格组时才按「无规格商品」定价；此时若仍传入选项 ID，说明
@@ -93,53 +202,6 @@ export class ProductSpecPricingService {
       costPriceCents,
       selectedOptions,
     });
-  }
-
-  private async findProduct(storeId: number, productId: number) {
-    const product = await this.prisma.product.findFirst({
-      where: {
-        id: productId,
-        storeId,
-        isActive: true,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        price: true,
-        costPrice: true,
-        scanOrderingMenuProducts: {
-          where: { deletedAt: null },
-          orderBy: { id: 'asc' },
-          take: 1,
-          select: {
-            id: true,
-            specGroups: {
-              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              select: {
-                id: true,
-                name: true,
-                minSelections: true,
-                maxSelections: true,
-                options: {
-                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                  select: {
-                    id: true,
-                    name: true,
-                    extraPrice: true,
-                    isActive: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!product) throw new NotFoundException('商品不存在或已下架');
-    return product;
   }
 
   /** 匹配已选选项；存在不属于该商品、或已停用的选项时直接拒绝 */

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { ClubPaymentCallbackDispatchService } from '../purely-club/payments/club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackFailureService } from '../purely-club/payments/club-payment-callback-failure.service';
+import { CLUB_PAYMENT_CALLBACK_QUEUE_NAME } from '../purely-club/payments/club-payment-callback-queue.constants';
 import type { ClubPaymentCallbackJobData } from './club-payment-callback.types';
 
 /**
@@ -13,7 +14,7 @@ import type { ClubPaymentCallbackJobData } from './club-payment-callback.types';
  * 写 purchase 流水」，见 ClubCardOrderService.confirmOrderPaidByCallback。
  * 落账侧带状态抢占与流水号唯一约束，因此本 job 的重复投递不会重复发卡。
  */
-@Processor('club-payment-callback', { concurrency: 8 })
+@Processor(CLUB_PAYMENT_CALLBACK_QUEUE_NAME, { concurrency: 8 })
 export class ClubPaymentCallbackProcessor extends WorkerHost {
   private readonly logger = new Logger(ClubPaymentCallbackProcessor.name);
 

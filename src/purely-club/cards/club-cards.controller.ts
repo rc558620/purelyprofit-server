@@ -11,6 +11,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import {
   ApiBearerAuth,
@@ -82,6 +83,12 @@ export class ClubCardsController {
     description:
       '返回当前用户本人购卡订单的支付状态；verify=true 时先回微信侧核对并补落账，用于支付结果未知时确认是否已扣款。',
   })
+  /**
+   * verify=true 是**同步回查微信**并可能当场落账的重接口，不能按全局默认
+   * 100 次/分钟/IP 放行：前端支付后轮询若因某次网络抖动进入重试风暴，
+   * 会把同步 HTTP 与落账事务一起打满。20 次/分钟足够 2~3s 间隔的正常轮询。
+   */
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @ApiOkResponse({ type: ClubMemberCardOrderDto })
   getOrder(
     @CurrentClubContext() currentContext: ClubCurrentContext,

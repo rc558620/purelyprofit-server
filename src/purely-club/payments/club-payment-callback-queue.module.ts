@@ -1,31 +1,26 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import {
+  CLUB_PAYMENT_CALLBACK_DEFAULT_JOB_OPTIONS,
+  CLUB_PAYMENT_CALLBACK_QUEUE_NAME,
+} from './club-payment-callback-queue.constants';
 
 /**
  * 微信支付回调队列注册模块。
  *
- * 只负责注册 `club-payment-callback` 队列本身，
- * 不包含业务处理器，避免队列基础设施与业务消费逻辑相互纠缠。
+ * 只负责注册队列本身，不包含业务处理器，避免队列基础设施与业务消费逻辑相互纠缠。
  *
- * ⚠️ 这里的重试策略**覆盖**全局默认的 `attempts: 1`：
- * 支付回调没有「下一周期」可等（微信只重投有限次），落账失败若不重试
- * 就是「钱已扣、余额永久不到账」。采用指数退避而不是固定间隔，
- * 避免依赖方短暂抖动时把重试打在同一秒内。
+ * 重试 / 退避 / 保留策略**只在这里定义一次**（见
+ * `club-payment-callback-queue.constants.ts`）：入队侧只传 jobId，
+ * 禁止再写第二份 `attempts` / `backoff` —— per-job 参数会静默覆盖本文件默认值，
+ * 两处漂移后「以为在重试、其实没重试」不会报错。仅当**单笔任务**确实需要
+ * 不同策略时才在入队处显式覆盖，并在覆盖处写明理由。
  */
-const CALLBACK_MAX_ATTEMPTS = 5;
-const CALLBACK_BACKOFF_DELAY_MS = 2000;
-
 @Module({
   imports: [
     BullModule.registerQueue({
-      name: 'club-payment-callback',
-      defaultJobOptions: {
-        attempts: CALLBACK_MAX_ATTEMPTS,
-        backoff: {
-          type: 'exponential',
-          delay: CALLBACK_BACKOFF_DELAY_MS,
-        },
-      },
+      name: CLUB_PAYMENT_CALLBACK_QUEUE_NAME,
+      defaultJobOptions: CLUB_PAYMENT_CALLBACK_DEFAULT_JOB_OPTIONS,
     }),
   ],
   exports: [BullModule],

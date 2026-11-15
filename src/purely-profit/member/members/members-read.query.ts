@@ -1,10 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { buildContainsPattern } from '../../../shared/like.utils';
 import { type MemberRecord, type MemberRechargeRecord } from './members.mapper';
 import {
   buildStoreIdWhereClause,
   MEMBER_LEVEL_CASE_SQL,
 } from './members-query.shared';
+import { buildMemberListCursorSql } from './members.cursor';
+import type { MemberListCursor } from './members.cursor';
 import type {
   MemberLevelMetaRow,
   MemberOverviewRow,
@@ -46,11 +49,13 @@ function buildListWhereClause(
     filters.push(Prisma.sql`m.is_partner = true`);
   }
 
-  if (keyword) {
+  // 关键词转义后作为字面量匹配：搜「%」「_」不再退化成通配符
+  const keywordPattern = buildContainsPattern(keyword);
+  if (keywordPattern) {
     filters.push(
       Prisma.sql`(
-        m.name ILIKE ${`%${keyword}%`}
-        OR m.phone ILIKE ${`%${keyword}%`}
+        m.name ILIKE ${keywordPattern} ESCAPE '\\'
+        OR m.phone ILIKE ${keywordPattern} ESCAPE '\\'
       )`,
     );
   }
@@ -70,11 +75,12 @@ function buildSnapshotWhereClause(
     filters.push(Prisma.sql`m.is_partner = true`);
   }
 
-  if (keyword) {
+  const keywordPattern = buildContainsPattern(keyword);
+  if (keywordPattern) {
     filters.push(
       Prisma.sql`(
-        m.name ILIKE ${`%${keyword}%`}
-        OR m.phone ILIKE ${`%${keyword}%`}
+        m.name ILIKE ${keywordPattern} ESCAPE '\\'
+        OR m.phone ILIKE ${keywordPattern} ESCAPE '\\'
       )`,
     );
   }
@@ -86,6 +92,61 @@ interface MemberRecordWithTotal extends MemberRecord {
   _total: number;
 }
 
+/**
+ * 列表投影：offset 与游标两条路径共用同一份字段清单，
+ * 避免新增字段时只改一处、另一条路径静默丢字段。
+ */
+const MEMBER_LIST_SELECT_SQL = Prisma.sql`
+  m.id,
+  m.store_id AS "storeId",
+  m.customer_id AS "customerId",
+  m.name,
+  m.phone,
+  m.gender,
+  m.note,
+  m.birthday,
+  m.bean_balance AS "beanBalance",
+  m.is_partner AS "isPartner",
+  m.partner_level AS "partnerLevel",
+  m.banned_reason AS "bannedReason",
+  m.status,
+  m.created_at AS "createdAt",
+  m.updated_at AS "updatedAt",
+  CASE WHEN mc.id IS NOT NULL THEN
+    jsonb_build_object(
+      'id', mc.id,
+      'tier', mc.tier::text,
+      'points', mc.points,
+      'totalSpent', mc.total_spent,
+      'visitCount', mc.visit_count,
+      'lastVisitAt', mc.last_visit_at,
+      'balance', mc.balance
+    )
+  ELSE NULL END AS "customer"
+`;
+
+/** 会员列表的关联与过滤（两条路径共用，保证口径完全一致） */
+const MEMBER_LIST_FROM_SQL = Prisma.sql`
+  FROM members m
+  LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
+    AND mc.deleted_at IS NULL
+`;
+
+/**
+ * 会员列表排序链：`created_at DESC, id DESC`。
+ *
+ * 排序键必须不可变：`updated_at` 是 Prisma `@updatedAt` 自动刷新列，任何会员编辑
+ * （改备注、绑手机、调纯利豆等）都会把该行顶到首页，keyset 分页的「不漏不重」
+ * 在并发写下立刻失效——未读行被顶上首页后落在游标之前，本次会话再也取不到；
+ * 已读行被顶上首页后与客户端已加载页重复。`created_at` 不随写入变化，
+ * 排序位置恒定，才能兑现游标承诺（与库存流水 / 销售记录 / 资金流水等列表口径一致）。
+ *
+ * 两条路径（游标 / offset）必须共用同一排序链，否则翻页与跳页会看到不同顺序；
+ * 排序链与 `buildMemberListCursorSql` 的比较条件、以及 schema 的部分索引
+ * `members_store_id_created_at_id_idx` 三者必须同时对齐。
+ */
+const MEMBER_LIST_ORDER_BY_SQL = Prisma.sql`ORDER BY m.created_at DESC, m.id DESC`;
+
 export async function queryMembersPage(
   prisma: PrismaService,
   params: {
@@ -96,6 +157,8 @@ export async function queryMembersPage(
     onlyPartners?: boolean;
     skip: number;
     take: number;
+    /** 游标：非空时走游标路径（此时 skip 被忽略，take 由调用方按 limit+1 传入） */
+    cursor?: MemberListCursor | null;
   },
 ): Promise<{ items: MemberRecord[]; total: number }> {
   const whereClause = buildListWhereClause(
@@ -106,40 +169,33 @@ export async function queryMembersPage(
     params.onlyPartners,
   );
 
+  /*
+   * 游标路径不能用窗口计数：`COUNT(*) OVER()` 会连同游标条件一起统计，
+   * 算出来的是「剩余条数」而不是总数，total 会随翻页一路变小。
+   * 因此这里退回「列表 + 独立 count」两趟查询（并行发出），
+   * 全量口径的 total 语义与 offset 路径完全一致。
+   */
+  if (params.cursor) {
+    const [rows, total] = await Promise.all([
+      prisma.$queryRaw<MemberRecord[]>`
+        SELECT ${MEMBER_LIST_SELECT_SQL}
+        ${MEMBER_LIST_FROM_SQL}
+        WHERE ${whereClause} AND ${buildMemberListCursorSql(params.cursor)}
+        ${MEMBER_LIST_ORDER_BY_SQL}
+        LIMIT ${params.take}
+      `,
+      queryMembersTotal(prisma, whereClause),
+    ]);
+
+    return { items: rows, total };
+  }
+
   const rows = await prisma.$queryRaw<MemberRecordWithTotal[]>`
-    SELECT
-      m.id,
-      m.store_id AS "storeId",
-      m.customer_id AS "customerId",
-      m.name,
-      m.phone,
-      m.gender,
-      m.note,
-      m.birthday,
-      m.bean_balance AS "beanBalance",
-      m.is_partner AS "isPartner",
-      m.partner_level AS "partnerLevel",
-      m.banned_reason AS "bannedReason",
-      m.status,
-      m.created_at AS "createdAt",
-      m.updated_at AS "updatedAt",
-      CASE WHEN mc.id IS NOT NULL THEN
-        jsonb_build_object(
-          'id', mc.id,
-          'tier', mc.tier::text,
-          'points', mc.points,
-          'totalSpent', mc.total_spent,
-          'visitCount', mc.visit_count,
-          'lastVisitAt', mc.last_visit_at,
-          'balance', mc.balance
-        )
-      ELSE NULL END AS "customer",
+    SELECT ${MEMBER_LIST_SELECT_SQL},
       COUNT(*) OVER()::int AS "_total"
-    FROM members m
-    LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
-      AND mc.deleted_at IS NULL
+    ${MEMBER_LIST_FROM_SQL}
     WHERE ${whereClause}
-    ORDER BY m.updated_at DESC, m.id DESC
+    ${MEMBER_LIST_ORDER_BY_SQL}
     OFFSET ${params.skip}
     LIMIT ${params.take}
   `;
@@ -148,6 +204,19 @@ export async function queryMembersPage(
   const items: MemberRecord[] = rows.map(({ _total: _t, ...row }) => row);
 
   return { items, total };
+}
+
+/** 全量口径总数：与列表同筛选、不含游标，供游标路径单独聚合 */
+async function queryMembersTotal(
+  prisma: PrismaService,
+  whereClause: Prisma.Sql,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS "total"
+    ${MEMBER_LIST_FROM_SQL}
+    WHERE ${whereClause}
+  `;
+  return rows[0]?.total ?? 0;
 }
 
 export async function queryMembersMeta(
@@ -217,6 +286,10 @@ export async function queryMemberSnapshots(
 
   // 快照是「积分/纯利豆调整弹窗」的会员选择器数据源，本来就是有限候选集；
   // 加硬上限兜底，避免会员量增长后一次性把整张表拉进内存。
+  //
+  // 排序刻意保留 `updated_at`：这里不是分页游标，每次都是「一次取满 + 硬上限」，
+  // 没有游标可比，可变排序键不会产生漏读/重复；而「最近操作过的会员靠前」
+  // 正是调整弹窗想要的便利。
   return prisma.$queryRaw<MemberSnapshotRow[]>`
     SELECT
       m.id,

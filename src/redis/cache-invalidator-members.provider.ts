@@ -16,10 +16,12 @@ export const membersCacheInvalidatorProvider: CacheInvalidatorProvider<
 > = (input: MembershipCacheInvalidatorInput) => ({
   invalidateMembersDerived: async (storeId: number): Promise<void> => {
     await Promise.all([
-      input.redisService.delByPattern(buildMembersListPattern(storeId)),
+      input.redisService.delByPatterns([
+        buildMembersListPattern(storeId),
+        buildMembersSnapshotsPattern(storeId),
+      ]),
       input.redisService.del(buildMembersMetaCacheKey(storeId)),
       input.redisService.del(buildMembersOverviewCacheKey(storeId)),
-      input.redisService.delByPattern(buildMembersSnapshotsPattern(storeId)),
     ]);
   },
 });

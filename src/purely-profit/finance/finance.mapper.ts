@@ -12,14 +12,24 @@ import type {
 } from './finance.types';
 import { buildPaginationMeta } from './finance-pagination.utils';
 
+/**
+ * 现金流水列表响应组装。
+ *
+ * `cursor` 承载「到底判定」结果：游标路径由调用方的探测行（take = limit + 1）得出，
+ * offset 路径由 `offset + 已取条数 < total` 得出，两条路径都恒有
+ * `hasMore === (nextCursor !== null)`。原 items/meta 结构保持不变，只新增两个字段。
+ */
 export function buildPaginatedCashFlowRecordsResponse(
   records: FinanceCashFlowRecordWithAmount[],
   pageState: PaginationState,
   total: number,
+  cursor: { hasMore: boolean; nextCursor: string | null },
 ): PaginatedFinanceCashFlowRecordsResponseDto {
   return {
     items: records.map((record) => mapCashFlowRecord(record)),
     meta: buildPaginationMeta(pageState.page, pageState.pageSize, total),
+    hasMore: cursor.hasMore,
+    nextCursor: cursor.nextCursor,
   };
 }
 

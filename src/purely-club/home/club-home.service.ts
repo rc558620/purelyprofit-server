@@ -5,6 +5,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import type { MarketingMemberLevelConfigValue } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubMemberLevelConfigDto } from '../member/dto/club-member-account.dto';
 import { ClubMemberService } from '../member/club-member.service';
 import { ClubProductsService } from '../products/club-products.service';
@@ -13,6 +14,20 @@ import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubStoresService } from '../stores/club-stores.service';
 import type { ClubHomeResponseDto } from './dto/club-home.dto';
+
+/**
+ * 首页等级配置种子（3-B-4）。
+ *
+ * 一次 `getHome` 内「等级列表 / 账户等级 / 商品定价」三条分支读的是**同一份**
+ * `marketing_member_level_settings`。由 `getHome` 在 `Promise.all` 之前发起
+ * 唯一一次解析，三条分支共享同一个 Promise：
+ *  - 不是时间缓存，后台改配置仍立即生效（失败即三条分支各自降级）；
+ *  - 保留 `ClubMemberLevelsService` 的 in-flight 去重，与其它接口的并发语义不变。
+ *
+ * 必须传**原始**配置（含已停用等级）：`resolveLevelResolution` 用原始配置推导
+ * `heldLevelLabel`，只传可见等级会让「已停用但顾客仍持有」的等级丢 label。
+ */
+type ClubHomeLevelSettingsSeed = Promise<MarketingMemberLevelConfigValue[]>;
 
 @Injectable()
 export class ClubHomeService {
@@ -38,14 +53,17 @@ export class ClubHomeService {
       );
     }
 
+    // 等级配置：本请求内唯一一次解析，三条分支共享（不 await，避免把主链路串行化）
+    const levelSettingsSeed = this.resolveLevelSettingsSeed(currentContext);
+
     // 并行请求所有首页数据，对非关键数据做降级处理
     const [currentStore, account, levelConfigs, promotions, featuredProducts] =
       await Promise.all([
         this.fetchCurrentStore(currentContext),
-        this.fetchAccount(currentContext),
-        this.fetchLevelConfigs(currentContext),
+        this.fetchAccount(currentContext, levelSettingsSeed),
+        this.fetchLevelConfigs(currentContext, levelSettingsSeed),
         this.fetchPromotions(currentContext),
-        this.fetchFeaturedProducts(currentContext),
+        this.fetchFeaturedProducts(currentContext, levelSettingsSeed),
       ]);
 
     if (!currentStore) {
@@ -79,11 +97,28 @@ export class ClubHomeService {
     }
   }
 
+  /**
+   * 发起本请求唯一的等级配置解析。
+   *
+   * 不在这里 catch：失败语义由三条分支各自的 try/catch 承担
+   * （等级列表 → `[]`、账户 → `null`、商品 → 空列表），与共享前保持一致。
+   */
+  private resolveLevelSettingsSeed(
+    currentContext: ClubCurrentContext,
+  ): ClubHomeLevelSettingsSeed {
+    return this.clubMemberService.loadLevelSettings(currentContext.store.id);
+  }
+
   private async fetchAccount(
     currentContext: ClubCurrentContext,
+    levelSettingsSeed: ClubHomeLevelSettingsSeed,
   ): Promise<Awaited<ReturnType<ClubMemberService['getAccount']>> | null> {
     try {
-      return await this.clubMemberService.getAccount(currentContext);
+      const levelSettings = await levelSettingsSeed;
+      return await this.clubMemberService.getAccount(
+        currentContext,
+        levelSettings,
+      );
     } catch (error) {
       this.logger.warn('首页会员账户获取失败，降级返回', error);
       return null;
@@ -92,9 +127,14 @@ export class ClubHomeService {
 
   private async fetchLevelConfigs(
     currentContext: ClubCurrentContext,
+    levelSettingsSeed: ClubHomeLevelSettingsSeed,
   ): Promise<ClubMemberLevelConfigDto[]> {
     try {
-      return await this.clubMemberService.getLevels(currentContext);
+      const levelSettings = await levelSettingsSeed;
+      return await this.clubMemberService.getLevels(
+        currentContext,
+        levelSettings,
+      );
     } catch (error) {
       this.logger.warn('首页会员等级配置获取失败，降级返回空列表', error);
       return [];
@@ -114,6 +154,7 @@ export class ClubHomeService {
 
   private async fetchFeaturedProducts(
     currentContext: ClubCurrentContext,
+    levelSettingsSeed: ClubHomeLevelSettingsSeed,
   ): Promise<Awaited<ReturnType<ClubProductsService['list']>>> {
     // 餐饮门店首页没有服务商品入口：扫码点餐菜单由 scan-ordering/menu 独立提供，
     // 这里查商品（含定价上下文）是纯粹的浪费，直接跳过。
@@ -122,15 +163,21 @@ export class ClubHomeService {
     }
 
     try {
+      // 定价上下文需要会员等级折扣率：复用本请求已解析的配置种子，不再回源
+      const levelSettings = await levelSettingsSeed;
       // F9 修复：C 端首页展示当前门店所有可购商品（不再 featured 过滤）。
       // 原因：club-products.service.ts 的 resolveHotProductIds 临时占位仅取最新 3 个，
       // B 端上架的商品只要不在这 3 个之内就会被全部隐藏——这导致营销商品上架后不可见。
       // MarketingProduct 表也没有 isHot/isFeatured 字段，hot 概念无法落地。
       // 首页只展示前 N 个卡片，不需要把默认上限（50）全部查出来。
-      return await this.clubProductsService.list(currentContext, {
-        featured: false,
-        limit: CLUB_FEATURED_PRODUCT_LIMIT,
-      });
+      return await this.clubProductsService.list(
+        currentContext,
+        {
+          featured: false,
+          limit: CLUB_FEATURED_PRODUCT_LIMIT,
+        },
+        levelSettings,
+      );
     } catch (error) {
       this.logger.warn('首页推荐商品获取失败，降级返回空列表', error);
       return { items: [], nextCursor: null };

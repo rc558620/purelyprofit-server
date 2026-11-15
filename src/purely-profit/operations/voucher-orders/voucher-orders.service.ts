@@ -16,21 +16,25 @@ import type {
   QueryVoucherOrdersDto,
   VoucherOrderListResponseDto,
 } from './dto/voucher-order-management.dto';
-import { VoucherOrderStatusFilter } from './dto/voucher-order-management.dto';
 import {
-  buildTimeRange,
+  buildVoucherOrderCursorWhere,
+  buildVoucherOrderListWhere,
   CONFIRMABLE_STATUS,
+  encodeVoucherOrderCursor,
   EXPIRE_SCAN_BATCH_SIZE,
   EXPIRE_SCAN_MAX_BATCHES,
-  MERCHANT_VISIBLE_STATUSES,
+  resolveVoucherOrderListPaging,
   toConfirmResult,
   toListItem,
   VOUCHER_ORDER_CONFIRM_SELECT,
   VOUCHER_ORDER_MANAGE_LIST_SELECT,
+  VOUCHER_ORDER_MANAGE_ORDER_BY,
 } from './voucher-order-management.helper';
 import type {
   VoucherOrderConfirmResult,
   VoucherOrderConfirmRow,
+  VoucherOrderListPaging,
+  VoucherOrderManageListRow,
   VoucherOrderRejectResult,
 } from './voucher-order-management.helper';
 
@@ -51,7 +55,7 @@ export class VoucherOrdersService {
     private readonly refundService: ClubVoucherOrderRefundService,
   ) {}
 
-  /** 当前门店团购券订单分页列表（按 createdAt desc） */
+  /** 当前门店团购券订单分页列表（游标优先，offset 兼容；按 createdAt desc, id desc） */
   async listVoucherOrders(
     user: AuthenticatedUser,
     query: QueryVoucherOrdersDto,
@@ -62,43 +66,55 @@ export class VoucherOrdersService {
       'space:view',
       '无权查看该门店团购券订单',
     );
+    // 先把入参校验完再动库：cursor / date 非法时不必白跑一次过期翻转写操作
+    const paging = resolveVoucherOrderListPaging(query);
+    // 列表与 count 共用同一份筛选（不含游标），保证 total 始终是全量口径
+    const baseWhere = buildVoucherOrderListWhere(storeId, query);
+
     // 惰性过期放在查询之前且覆盖整个门店：只翻当前页会让「已过期」Tab 系统性漏单，
-    // 并且 count 与结果集状态口径不一致、下一页 offset 因状态漂移跳过记录。
+    // 并且 count 与结果集状态口径不一致。游标路径不依赖行位置，翻转不会造成跳读。
     await this.expireOverdueStoreOrders(storeId);
-    const timeRange = buildTimeRange(query);
-    const where: Prisma.ClubVoucherOrderWhereInput = {
-      storeId,
-      // 未支付草稿单（用户弃付）不进商家端列表：与用户端列表口径一致
-      status: { in: [...MERCHANT_VISIBLE_STATUSES] },
-      ...(query.status && query.status !== VoucherOrderStatusFilter.ALL
-        ? { status: query.status }
-        : {}),
-      ...(timeRange ? { createdAt: timeRange } : {}),
-      // 关键词搜索：匹配订单号、买家姓名、券码（与前端搜索框契约一致）
-      ...(query.keyword
-        ? {
-            OR: [
-              { orderNo: { contains: query.keyword, mode: 'insensitive' } },
-              { guestName: { contains: query.keyword, mode: 'insensitive' } },
-              { voucherCode: { contains: query.keyword, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
+
     const [rows, total] = await Promise.all([
       this.prisma.clubVoucherOrder.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: query.offset ?? 0,
-        take: query.limit ?? 20,
+        where: paging.cursor
+          ? { AND: [baseWhere, buildVoucherOrderCursorWhere(paging.cursor)] }
+          : baseWhere,
+        orderBy: VOUCHER_ORDER_MANAGE_ORDER_BY,
+        // 游标路径不需要 skip：where 已排除游标之前的行；offset 路径保留旧语义
+        ...(paging.cursor ? {} : { skip: paging.offset }),
+        // 游标路径多取一行做「是否还有下一页」探测，省掉一次额外查询
+        take: paging.cursor ? paging.limit + 1 : paging.limit,
         // 字段裁剪 + 商品图（取营销商品当前图，商品被删后为 null，前端占位展示）
         select: VOUCHER_ORDER_MANAGE_LIST_SELECT,
       }),
-      this.prisma.clubVoucherOrder.count({ where }),
+      this.prisma.clubVoucherOrder.count({ where: baseWhere }),
     ]);
+    return this.toListResponse(rows, total, paging);
+  }
+
+  /**
+   * 列表响应组装。
+   *
+   * 到底判定分两条路径：游标路径靠 `take = limit + 1` 的探测行；offset 路径没有
+   * 探测行，只能用 `offset + 已取条数 < total` 推导。两条路径都产出 `nextCursor`，
+   * 前端可以逐步从 offset 切到游标而不必等待后端改造。
+   */
+  private toListResponse(
+    rows: VoucherOrderManageListRow[],
+    total: number,
+    paging: VoucherOrderListPaging,
+  ): VoucherOrderListResponseDto {
+    const hasMore = paging.cursor
+      ? rows.length > paging.limit
+      : paging.offset + rows.length < total;
+    const pageRows = paging.cursor ? rows.slice(0, paging.limit) : rows;
+    const lastRow = pageRows.at(-1);
     return {
-      items: rows.map((row) => toListItem(row)),
+      items: pageRows.map((row) => toListItem(row)),
       total,
+      hasMore,
+      nextCursor: hasMore && lastRow ? encodeVoucherOrderCursor(lastRow) : null,
     };
   }
 

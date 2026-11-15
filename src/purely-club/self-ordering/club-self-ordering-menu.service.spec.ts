@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
 
@@ -11,6 +12,7 @@ import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
  * - 未配置规格的商品 specGroups 为空数组；已配置的下发真实规格组（含 isDefault）
  * - 库存直取商品库 Product.stock，按 finite 下发
  * - 无归属商品归入「其他」兜底分类；空分类被过滤
+ * - 菜单缓存命中 / 降级 / 并发去重，且会话门禁不被缓存绕过
  */
 describe('ClubSelfOrderingMenuService', () => {
   let service: ClubSelfOrderingMenuService;
@@ -19,6 +21,11 @@ describe('ClubSelfOrderingMenuService', () => {
     spaceSession: { findFirst: jest.fn() },
     productCategory: { findMany: jest.fn() },
     product: { findMany: jest.fn() },
+  };
+
+  const redisService = {
+    getJson: jest.fn(),
+    setJson: jest.fn(),
   };
 
   const currentStoreContext = { requireCurrentContext: jest.fn() };
@@ -30,11 +37,15 @@ describe('ClubSelfOrderingMenuService', () => {
       store: { id: 1, businessMode: 'general' },
     });
     prisma.spaceSession.findFirst.mockResolvedValue({ id: 42 });
+    // 默认不命中缓存，保证原有菜单组装用例仍走实时查询
+    redisService.getJson.mockResolvedValue(null);
+    redisService.setJson.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubSelfOrderingMenuService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redisService },
         {
           provide: ClubCurrentStoreContextService,
           useValue: currentStoreContext,
@@ -244,5 +255,83 @@ describe('ClubSelfOrderingMenuService', () => {
     const result = await service.getMenu(user, 42);
 
     expect(result).toEqual({ menuVersion: 'empty', categories: [] });
+  });
+
+  describe('菜单读缓存', () => {
+    const cacheKey = 'club:self-ordering-menu:store:1';
+
+    it('命中缓存时直接返回，不再查询商品库', async () => {
+      const cached = {
+        menuVersion: 'v123:0:0',
+        categories: [{ id: 1, name: '酒水饮料', sortOrder: 1, products: [] }],
+      };
+      redisService.getJson.mockResolvedValue(cached);
+
+      const result = await service.getMenu(user, 42);
+
+      expect(result).toEqual(cached);
+      expect(redisService.getJson).toHaveBeenCalledWith(cacheKey);
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+      expect(prisma.productCategory.findMany).not.toHaveBeenCalled();
+      expect(redisService.setJson).not.toHaveBeenCalled();
+      // 会话门禁仍实时校验，不能被缓存绕过
+      expect(prisma.spaceSession.findFirst).toHaveBeenCalledTimes(1);
+    });
+
+    it('未命中时回源并回填 30s 缓存，空菜单同样缓存', async () => {
+      prisma.productCategory.findMany.mockResolvedValue([]);
+      prisma.product.findMany.mockResolvedValue([]);
+
+      const result = await service.getMenu(user, 42);
+
+      expect(result).toEqual({ menuVersion: 'empty', categories: [] });
+      expect(redisService.setJson).toHaveBeenCalledWith(cacheKey, result, 30);
+    });
+
+    it('会话不可用时拒绝，且不会读取缓存', async () => {
+      redisService.getJson.mockResolvedValue({
+        menuVersion: 'v1:0:0',
+        categories: [],
+      });
+      prisma.spaceSession.findFirst.mockResolvedValue(null);
+
+      await expect(service.getMenu(user, 42)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(redisService.getJson).not.toHaveBeenCalled();
+    });
+
+    it('Redis 读失败时降级回源，菜单仍可返回', async () => {
+      redisService.getJson.mockRejectedValue(new Error('redis down'));
+      prisma.productCategory.findMany.mockResolvedValue([]);
+      prisma.product.findMany.mockResolvedValue([]);
+
+      await expect(service.getMenu(user, 42)).resolves.toEqual({
+        menuVersion: 'empty',
+        categories: [],
+      });
+      expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('回填缓存失败不影响本次返回', async () => {
+      redisService.setJson.mockRejectedValue(new Error('redis down'));
+      prisma.productCategory.findMany.mockResolvedValue([]);
+      prisma.product.findMany.mockResolvedValue([]);
+
+      await expect(service.getMenu(user, 42)).resolves.toEqual({
+        menuVersion: 'empty',
+        categories: [],
+      });
+    });
+
+    it('并发未命中时共用一次回源', async () => {
+      prisma.productCategory.findMany.mockResolvedValue([]);
+      prisma.product.findMany.mockResolvedValue([]);
+
+      await Promise.all([service.getMenu(user, 42), service.getMenu(user, 42)]);
+
+      expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+      expect(redisService.setJson).toHaveBeenCalledTimes(1);
+    });
   });
 });

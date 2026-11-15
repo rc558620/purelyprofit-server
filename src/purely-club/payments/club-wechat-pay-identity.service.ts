@@ -38,6 +38,16 @@ export interface ClubWechatPayTarget {
   notifyUrl: string;
 }
 
+/**
+ * 门店收款配置快照。
+ *
+ * 直接取 `StoresWechatPayService` 的返回类型而不是手写一遍：配置加字段时
+ * 这里跟着变，不会出现「本地拷贝漏字段 → 灰度口径漂移」。
+ */
+type StorePayConfig = Awaited<
+  ReturnType<StoresWechatPayService['getWechatPayConfigForStore']>
+>;
+
 @Injectable()
 export class ClubWechatPayIdentityService {
   private readonly logger = new Logger(ClubWechatPayIdentityService.name);
@@ -72,9 +82,66 @@ export class ClubWechatPayIdentityService {
    *          那会把钱收进平台而不是商家，属资金归属事故。
    */
   async resolveTarget(storeId: number): Promise<ClubWechatPayTarget | null> {
-    const config =
-      await this.storesWechatPayService.getWechatPayConfigForStore(storeId);
+    const config = await this.loadStorePayConfig(storeId);
+    return this.buildTarget(storeId, config);
+  }
 
+  /**
+   * 解析「本次能否真的收下这笔钱」的支付身份：在 {@link resolveTarget} 之上补
+   * 收款链路的完整性校验，供**下单**这一个入口使用。
+   *
+   * 与 {@link resolveTarget} 拆开的理由（不要合并成同一个方法）：
+   * - 查单 / 关单 / 退款只需要「用谁签名、往哪退」，直连模式下完全不需要
+   *   APIv3 密钥（退款密钥走签名传输层，回调解密才用 APIv3 密钥）；
+   * - 下单则必须两者齐备，否则会出现「能付、钱也进了商户号，但回调解不开、
+   *   用户永远不到账」的资金事故。
+   *
+   * **配置只读一次**：调用方若在同一请求里既要做缺配前置校验、又要真正预下单，
+   * 应当复用本方法返回的 target（见 `ClubWechatJsapiService` 的 `target` 入参），
+   * 不要每个步骤各解析一遍——apiV3Key 解密是敏感字段解密，重复做纯属浪费。
+   */
+  async resolvePayableTarget(
+    storeId: number,
+  ): Promise<ClubWechatPayTarget | null> {
+    const config = await this.loadStorePayConfig(storeId);
+    const target = this.buildTarget(storeId, config);
+    if (!target) {
+      return null;
+    }
+
+    // 直连模式的回调由门店自己的密钥加密，缺密钥等于「能付但收不到通知」
+    if (target.mode === 'store' && !config.apiV3Key) {
+      this.logger.warn(
+        `门店 ${storeId} 处于直连模式但未配置 APIv3 密钥，拒绝收款（回调将无法解密）`,
+      );
+      return null;
+    }
+
+    return target;
+  }
+
+  // ─── 私有方法 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 读取门店收款配置（**每次调用只读一次**）。
+   *
+   * 抽成私有方法的唯一目的：让所有解析入口共用同一次读取，
+   * 避免「解析身份」与「校验密钥」各自读一遍库、各自解密一遍 apiV3Key。
+   */
+  private loadStorePayConfig(storeId: number): Promise<StorePayConfig> {
+    return this.storesWechatPayService.getWechatPayConfigForStore(storeId);
+  }
+
+  /**
+   * 门店配置 → 支付身份（纯函数，不做任何额外查询）。
+   *
+   * partner 分支里的「绑定必须已校验」属于身份口径而非可用性口径，因此保留在此，
+   * 使查单 / 关单 / 退款也享受到同一道保护。
+   */
+  private buildTarget(
+    storeId: number,
+    config: StorePayConfig,
+  ): ClubWechatPayTarget | null {
     if (!config.mchId) {
       return null;
     }
@@ -109,8 +176,6 @@ export class ClubWechatPayIdentityService {
     }
     return this.resolveStoreTarget({ mchId });
   }
-
-  // ─── 私有方法 ─────────────────────────────────────────────────────────────
 
   /**
    * 服务商模式：签名主体是服务商商户号，商户

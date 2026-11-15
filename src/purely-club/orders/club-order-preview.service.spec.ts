@@ -227,4 +227,55 @@ describe('ClubOrderPreviewService', () => {
       '当前余额 ¥0.00，本次需支付 ¥280.00，请先充值',
     );
   });
+
+  // ─── 3-B-5 顾客行只读一次 ───────────────────────────────────────────
+
+  it('previewServiceOrder 开启积分抵扣时同一顾客行只读一次', async () => {
+    clubOrderPromotionsService.resolvePricing.mockResolvedValue({
+      amountFen: 10000,
+      memberBaselineFen: 10000,
+      discountAmountFen: 0,
+      promotionId: null,
+      promotionType: null,
+      discountRate: null,
+      promotionTag: null,
+      promotionDiscountAmountFen: 0,
+      totalReduceFen: 0,
+      amountFenBeforeReduce: 10000,
+    });
+    clubOrderPromotionsService.resolveOrderReduceDetail.mockResolvedValue({
+      totalReduceFen: 0,
+      reduceRules: [],
+    });
+    prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue({
+      pointsRatio: {
+        earnRatioCents: 100,
+        redeemRatioPoints: 100,
+        maxRedeemRatio: 0.5,
+        enabled: true,
+        updatedAt: 0,
+      },
+    });
+    // 同一次读取同时返回积分与余额（对应 select: { points, balance }）
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      points: 5000,
+      balance: 100000,
+    });
+
+    const result = await service.previewServiceOrder(currentContext, {
+      storeId: 11,
+      productId: 18,
+      quantity: 1,
+      usePoints: true,
+    });
+
+    // 一次预览内顾客行的 points 与 balance 同源，只查一次
+    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledTimes(1);
+    // 积分抵扣口径不变：5000 积分 / 100 = ¥50，余额 ¥1000 充足
+    expect(result.pointsDeductionAmount).toBe(50);
+    expect(result.pointsUsed).toBe(5000);
+    expect(result.afterPointsPrice).toBe(50);
+    expect(result.balanceEnough).toBe(true);
+    expect(result.insufficientBalanceMessage).toBeNull();
+  });
 });

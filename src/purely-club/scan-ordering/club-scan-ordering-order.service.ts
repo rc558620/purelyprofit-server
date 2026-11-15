@@ -145,13 +145,14 @@ export class ClubScanOrderingOrderService {
         ),
       );
     }
-    const promotionResult = await this.cartPricingService.resolvePromotions(
-      session.storeId,
-      user.id,
-      session.id,
+    // 下单是写路径：允许在此补建 / 认领顾客档案（预览已不再建档）
+    const promotionResult = await this.cartPricingService.resolvePromotions({
+      storeId: session.storeId,
+      clubUserId: user.id,
       pricedItems,
-      dto.usePoints === true,
-    );
+      usePoints: dto.usePoints === true,
+      customerLookup: 'ensure',
+    });
     const amounts = this.cartPricingService.calculateAmounts(
       pricedItems,
       promotionResult,

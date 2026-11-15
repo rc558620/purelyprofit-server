@@ -87,7 +87,12 @@ export class MembersController {
 
   @Get()
   @RequirePermissions('members:view')
-  @ApiOperation({ summary: '获取会员列表' })
+  @ApiOperation({
+    summary: '获取会员列表',
+    description:
+      '固定按「会员新增时间倒序」（created_at DESC, id DESC）返回。' +
+      '排序键不可变，因此游标翻页期间即使会员被编辑，也不会重复或漏读。',
+  })
   @ApiOkResponse({
     description: '返回当前用户可管理的会员列表与分页信息',
     type: PaginatedMembersResponseDto,

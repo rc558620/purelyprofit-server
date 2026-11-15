@@ -39,4 +39,33 @@ describe('QueryVoucherOrdersDto', () => {
     expect(errors).toHaveLength(0);
     expect(dto.keyword).toBeUndefined();
   });
+
+  it('接受 cursor 游标参数（与 offset 并存，白名单不拦截）', async () => {
+    const dto = plainToInstance(QueryVoucherOrdersDto, {
+      cursor: 'v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMF0sImlkIjo0Mn0',
+      limit: 20,
+      offset: 0,
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.cursor).toBe('v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMF0sImlkIjo0Mn0');
+  });
+
+  it('拒绝超长 cursor，避免把任意字符串当游标塞进查询', async () => {
+    const dto = plainToInstance(QueryVoucherOrdersDto, {
+      cursor: `v1:${'a'.repeat(300)}`,
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors.map((error) => error.property)).toEqual(['cursor']);
+  });
 });

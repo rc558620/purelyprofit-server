@@ -72,10 +72,21 @@ describe('ClubRechargeService', () => {
     isProduction: jest.fn((): boolean => false),
   };
 
+  /** 默认门店已配置收款：稳定的支付身份，用于断言「同一请求内只解析一次」 */
+  const storePayTarget = {
+    mode: 'store' as const,
+    signMchId: 'STORE_MCH',
+    settleMchId: 'STORE_MCH',
+    appId: 'wx_club_appid',
+    notifyUrl: 'https://api.example.com/club/callback',
+  };
+
   const clubWechatJsapiService = {
     createJsapiPaymentParams: jest.fn(),
     // 默认门店已配置收款
-    assertStorePayConfigured: jest.fn(() => Promise.resolve(undefined)),
+    resolvePayableTargetOrThrow: jest.fn(
+      (): Promise<typeof storePayTarget> => Promise.resolve(storePayTarget),
+    ),
   };
 
   /** 微信侧主动核对 + 补落账桩 */
@@ -189,8 +200,8 @@ describe('ClubRechargeService', () => {
     });
     clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(true);
     clubPaymentModeService.isProduction.mockReturnValue(false);
-    clubWechatJsapiService.assertStorePayConfigured.mockResolvedValue(
-      undefined,
+    clubWechatJsapiService.resolvePayableTargetOrThrow.mockResolvedValue(
+      storePayTarget,
     );
     // 默认行为：显式传入优先；未传则视为查不到 openid
     clubWechatOpenidService.resolveOpenid.mockImplementation(
@@ -626,6 +637,8 @@ describe('ClubRechargeService', () => {
         description: '会员充值',
         amountFen: 50000,
         openid: 'oOPENID123',
+        // 3-B-9：前置校验解析出的支付身份必须透传，避免预下单再解析一遍
+        target: storePayTarget,
       }),
     );
     expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
@@ -1153,7 +1166,7 @@ describe('ClubRechargeService', () => {
   it('createOrder 在真实模式下门店未配置微信收款时直接失败，不下单也不建草稿', async () => {
     // 真实模式：钱真要收，配置缺失必须提前拦
     clubPaymentModeService.isManualConfirmPaidAllowed.mockResolvedValue(false);
-    clubWechatJsapiService.assertStorePayConfigured.mockRejectedValue(
+    clubWechatJsapiService.resolvePayableTargetOrThrow.mockRejectedValue(
       new BadRequestException({
         code: 'STORE_PAY_CONFIG_MISSING',
         message: '该门店暂不支持在线充值，请联系门店',
@@ -1187,7 +1200,7 @@ describe('ClubRechargeService', () => {
     ).resolves.toEqual(expect.objectContaining({ id: 'RC123' }));
 
     expect(
-      clubWechatJsapiService.assertStorePayConfigured,
+      clubWechatJsapiService.resolvePayableTargetOrThrow,
     ).not.toHaveBeenCalled();
     expect(
       clubWechatJsapiService.createJsapiPaymentParams,

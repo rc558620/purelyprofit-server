@@ -26,14 +26,13 @@ export const marketingCustomerDerivedCacheInvalidatorProvider: CacheInvalidatorP
   ): Promise<void> => {
     await Promise.all([
       input.redisService.del(buildMarketingOverviewCacheKey(storeId)),
-      input.redisService.delByPattern(
+      // 三个模式合并成一次 keyspace 遍历，删除集合与逐模式扫描一致
+      input.redisService.delByPatterns([
         buildMarketingCustomersListPattern(storeId),
-      ),
-      input.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
-      ),
-      // club 会员快照缓存（club:member-snapshot:store:{storeId}:user:*）
-      input.redisService.delByPattern(buildClubMemberSnapshotPattern(storeId)),
+        // club 会员快照缓存（club:member-snapshot:store:{storeId}:user:*）
+        buildClubMemberSnapshotPattern(storeId),
+      ]),
     ]);
   },
 });

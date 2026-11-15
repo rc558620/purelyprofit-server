@@ -85,16 +85,21 @@ export class ClubOrderPromotionsService {
    *
    * 语义不变性：消费次数只参与「首单折扣」判定，同一请求内本就是同一个值，
    * 预加载一次不会改变任何一行的判定结果。
+   *
+   * `customerId` 为 null 表示顾客尚未建档（只读预览路径不建档）：此时没有任何
+   * 消费流水，消费次数按 0 处理，跳过 COUNT 查询。
    */
   async preloadPricingContext(
     storeId: number,
-    customerId: number,
+    customerId: number | null,
   ): Promise<ClubPricingSharedContext> {
     const [promotions, consumptionCount] = await Promise.all([
       this.clubPromotionRepository.loadActivePromotions(storeId),
-      this.prisma.marketingConsumption.count({
-        where: { storeId, customerId },
-      }),
+      customerId === null
+        ? Promise.resolve(0)
+        : this.prisma.marketingConsumption.count({
+            where: { storeId, customerId },
+          }),
     ]);
     return { promotions, consumptionCount };
   }
@@ -118,7 +123,7 @@ export class ClubOrderPromotionsService {
    */
   async resolvePricing(
     storeId: number,
-    customerId: number,
+    customerId: number | null,
     amountFen: number,
     options?: {
       skipReduce?: boolean;

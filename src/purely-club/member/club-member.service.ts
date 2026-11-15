@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import type { MarketingMemberLevelConfigValue } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { fetchPointsRedeemConfig } from '../orders/club-order-points.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
@@ -61,13 +62,21 @@ export class ClubMemberService {
     return this.toProfileDto(profile.user);
   }
 
+  /**
+   * @param levelSettings 请求级种子（原始配置，含已停用等级）。
+   *   首页一次聚合内由调用方解析一次后透传；不传时自行读取，行为与历史一致。
+   */
   async getAccount(
     currentContext: ClubCurrentContext,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubMemberAccountDto> {
     const snapshot =
       await this.clubMemberProfileService.getCurrentSnapshot(currentContext);
     const levelResolution =
-      await this.clubMemberLevelsService.resolveLevelResolution(snapshot);
+      await this.clubMemberLevelsService.resolveLevelResolution(
+        snapshot,
+        levelSettings,
+      );
     return this.toAccountDto(snapshot, levelResolution);
   }
 
@@ -79,10 +88,34 @@ export class ClubMemberService {
     return this.clubMemberLevelsService.buildLevelStatus(snapshot);
   }
 
-  getLevels(
+  /**
+   * @param levelSettings 请求级种子（原始配置，含已停用等级）。
+   *   传入时与 `listConfigs` 共用同一套可见等级映射（`toActiveConfigDtos`），
+   *   保证首页等级列表与账户内可见等级列表不会出现两套口径。
+   */
+  async getLevels(
     currentContext: ClubCurrentContext,
+    levelSettings?: MarketingMemberLevelConfigValue[],
   ): Promise<ClubMemberLevelConfigDto[]> {
+    if (levelSettings !== undefined) {
+      return this.clubMemberLevelsService.listConfigsFromSettings(
+        levelSettings,
+      );
+    }
+
     return this.clubMemberLevelsService.listConfigs(currentContext.store.id);
+  }
+
+  /**
+   * 请求级种子入口：解析一次原始等级配置，供同一请求内的多个分支复用。
+   *
+   * 复用 `ClubMemberLevelsService.loadLevelSettings` 的 in-flight 去重，
+   * 因此不会额外放大配置表读取；也不引入 TTL 缓存，后台改配置仍立即生效。
+   */
+  loadLevelSettings(
+    storeId: number,
+  ): Promise<MarketingMemberLevelConfigValue[]> {
+    return this.clubMemberLevelsService.loadLevelSettings(storeId);
   }
 
   async getPointsRatio(
@@ -92,7 +125,10 @@ export class ClubMemberService {
     // ⚠️ 设计决策：返回的 enabled 字段仅供前端展示抵扣比例提示，
     //   前端不消费 enabled 来禁用积分开关（积分抵扣不受 enabled 限制）。
     //   禁止在调用侧根据 enabled=false 拦截积分抵扣功能。
-    return fetchPointsRedeemConfig(this.prisma, currentContext.store.id);
+    // 纯展示接口：允许命中 5s 短 TTL 缓存，与订单预览共用同一份配置来源。
+    return fetchPointsRedeemConfig(this.prisma, currentContext.store.id, {
+      useCache: true,
+    });
   }
 
   async getBenefits(

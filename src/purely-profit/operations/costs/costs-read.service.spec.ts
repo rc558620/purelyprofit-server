@@ -91,6 +91,8 @@ describe('CostsReadService', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
   });
 
@@ -248,6 +250,8 @@ describe('CostsReadService', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
   });
 

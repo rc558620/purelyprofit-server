@@ -26,6 +26,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AlertService } from '../../shared/alert/alert.service';
+import {
+  CLUB_BATCH_DEFAULT_CONCURRENCY,
+  runClubBatchWithConcurrency,
+} from '../shared/club-batch-concurrency.helper';
 import { ClubRechargeWechatVerifyService } from './club-recharge-wechat-verify.service';
 
 /** 分布式锁 key */
@@ -124,9 +128,13 @@ export class ClubRechargeReconciliationService
         failed: 0,
       };
 
-      for (const order of staleOrders) {
-        await this.reconcileOneOrder(order.orderNo, summary);
-      }
+      // 逐笔串行打微信查单：200 笔 × 网络往返会让单轮耗时逼近锁 TTL，
+      // 并发上限见 helper 注释（handler 内部已逐笔 catch，单笔失败不会中断整批）
+      await runClubBatchWithConcurrency(
+        staleOrders,
+        (order) => this.reconcileOneOrder(order.orderNo, summary),
+        CLUB_BATCH_DEFAULT_CONCURRENCY,
+      );
 
       this.reportSummary(summary);
       return summary;

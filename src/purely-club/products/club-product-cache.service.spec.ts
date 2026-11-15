@@ -127,12 +127,28 @@ describe('ClubProductCacheService', () => {
     const listKey = await service.buildListCacheKey({ storeId: 11, take: 6 });
     const detailKey = await service.buildDetailCacheKey(11, 18);
 
-    await service.writeDetail(detailKey, buildRecord());
+    await service.writeDetailHit(detailKey, buildRecord());
 
     expect(detailKey).not.toBe(listKey);
     expect(detailKey).toContain(':detail:18');
-    expect(await service.readDetail(detailKey)).toEqual(buildRecord());
+    expect(await service.readDetailEntry(detailKey)).toEqual(buildRecord());
+    // 未写入的 key 必须返回 undefined（未命中），不能被误判成负缓存
+    expect(await service.readDetailEntry(listKey)).toBeUndefined();
     expect(await service.readList(listKey)).toBeNull();
+  });
+
+  it('商品不存在的负缓存：读返回 null（区别于未命中），TTL 短于正向缓存', async () => {
+    const detailKey = await service.buildDetailCacheKey(11, 404);
+
+    await service.writeDetailAbsent(detailKey);
+
+    // null = 确认不存在；query service 据此跳过回源
+    expect(await service.readDetailEntry(detailKey)).toBeNull();
+    expect(redisService.setJson).toHaveBeenCalledWith(
+      detailKey,
+      { found: false },
+      5,
+    );
   });
 
   it('Redis 读异常时降级回源，缓存不成为唯一数据源', async () => {

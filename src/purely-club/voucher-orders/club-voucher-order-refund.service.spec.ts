@@ -3,15 +3,23 @@
 import { restoreVoucherBalance } from './club-voucher-order-refund-restore.helper';
 
 describe('ClubVoucherOrderRefundService.restoreBalance', () => {
+  /**
+   * 事务桩：`$queryRaw` 返回一行 = 原子回滚命中。
+   * 返回的 total_spent 与 tier 保持自洽，避免跨档触发额外的 tier 写回。
+   */
   const buildTx = () => ({
+    $queryRaw: jest
+      .fn()
+      .mockResolvedValue([
+        { total_spent: 0, visit_count: 0, balance: 0, tier: 'regular' },
+      ]),
     marketingCustomer: {
       findFirst: jest.fn().mockResolvedValue({
         id: 324,
-        totalSpent: 160169,
-        visitCount: 27,
         points: 0,
       }),
       update: jest.fn().mockResolvedValue(undefined),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     marketingConsumption: { create: jest.fn().mockResolvedValue({ id: 1 }) },
     marketingPointsRecord: { create: jest.fn().mockResolvedValue({ id: 1 }) },
@@ -34,7 +42,10 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
     pointsAwarded: 0,
   };
 
-  it('退款时写负向消费流水（金额含积分抵扣）并对称回滚物化字段', async () => {
+  const deltasOf = (tx: ReturnType<typeof buildTx>): unknown[] =>
+    tx.$queryRaw.mock.calls[0].slice(1) as unknown[];
+
+  it('退款时按实付 + 积分抵扣同口径原子回滚，且不写负向消费流水', async () => {
     const tx = buildTx();
 
     await restoreVoucherBalance(
@@ -46,16 +57,11 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
     // 展示侧由退款单据冲减（computeCustomerConsumptionStats）
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
 
-    // 物化字段：累计消费按同一口径回滚（含积分抵扣），次数 -1
-    expect(tx.marketingCustomer.update).toHaveBeenCalledWith({
-      where: { id: 324 },
-      data: {
-        balance: { increment: 3520 },
-        totalSpent: 160169 - 7040,
-        visitCount: 26,
-        tier: expect.any(String),
-      },
-    });
+    // 余额退回 3520、累计消费回滚 -(3520+3520)、到店次数 -1，三个增量一次原子写
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(deltasOf(tx).slice(0, 3)).toEqual([3520, -7040, -1]);
+    // 回滚改走增量语义，不再用读到的旧值做绝对赋值
+    expect(tx.marketingCustomer.update).not.toHaveBeenCalled();
   });
 
   it('积分抵扣为 0 时仍按实付金额冲减', async () => {
@@ -72,13 +78,6 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
     );
 
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
-    expect(tx.marketingCustomer.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          totalSpent: 160169 - 7040,
-          visitCount: 26,
-        }),
-      }),
-    );
+    expect(deltasOf(tx).slice(0, 3)).toEqual([7040, -7040, -1]);
   });
 });

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { buildContainsPattern } from '../../../shared/like.utils';
 import type {
   InventoryProductListQueryInput,
   InventoryProductPageResult,
@@ -14,14 +15,6 @@ export interface InventoryProductPageParams {
   query: InventoryProductListQueryInput;
   skip: number;
   take: number;
-}
-
-/**
- * 转义 ILIKE 通配符，与 Prisma `contains` 的转义口径一致（反斜杠为转义符）。
- * 不转义的话，搜索「50%」「A_B」会被当成通配符。
- */
-export function escapeLikePattern(keyword: string): string {
-  return keyword.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 /**
@@ -88,8 +81,8 @@ export async function queryInventoryProductPage(
   params: InventoryProductPageParams,
 ): Promise<Required<InventoryProductPageResult>> {
   const { storeId, query, skip, take } = params;
-  const keyword = query.keyword?.trim();
-  const keywordPattern = keyword ? `%${escapeLikePattern(keyword)}%` : null;
+  // 通配符统一走 shared/like.utils：关键词里的 % / _ / \ 必须当字面量处理
+  const keywordPattern = buildContainsPattern(query.keyword?.trim());
   const category = query.category ?? null;
   const alertFilter = buildAlertFilter(query);
   const orderByClause = buildOrderByClause(query.sortBy);

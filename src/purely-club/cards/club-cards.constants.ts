@@ -22,6 +22,24 @@ export const CLUB_CARD_LIST_MAX_LIMIT = 50;
 /** 卡详情返回的使用记录条数上限（页面只展示最近若干条） */
 export const CLUB_CARD_USAGE_RECORD_LIMIT = 50;
 
+/**
+ * 购卡页单店可售档位返回上限。
+ *
+ * 业务依据（为什么这个上限在业务上必然够用）：
+ * 1. 卡模板是「档位」配置而不是商品：`MemberCardKind` 只有时长卡（月 / 季 / 年 3 档）
+ *    与次数卡（若干档）两种形态，且同门店未删除模板名称唯一
+ *    （`uq_member_card_plans_store_name`），运营实际维护的档位在个位数到十几个量级；
+ * 2. 购卡页是一屏内平铺的 Tab 列表（前端 `{ items }` 一次性渲染），没有无限下拉、
+ *    没有分页参数，用户不会滑动浏览几十个档位；
+ * 3. 排序已在 SQL 侧完成（`price asc, id asc`），加 `take` 只截断最贵的尾部档位，
+ *    前 N 条结果与不加 `take` 时逐条相同，不存在「多取一条做探测」的语义。
+ *
+ * 取值与卡包单页最大条数同口径：即便某门店被批量写入上百个档位（异常数据），
+ * 也不让一次 C 端请求把整店模板拉回内存；命中上限时会落一条 warn 日志，
+ * 便于发现异常数据而不是静默截断。
+ */
+export const CLUB_CARD_PLAN_LIST_MAX_LIMIT = 50;
+
 export const CLUB_CARD_PLAN_NOT_FOUND_MESSAGE = '会员卡模板不存在或已下架';
 export const CLUB_CARD_NOT_FOUND_MESSAGE = '会员卡不存在';
 export const CLUB_CARD_ORDER_NOT_FOUND_MESSAGE = '购卡订单不存在';

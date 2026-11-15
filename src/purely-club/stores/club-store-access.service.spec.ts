@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubStoreAccessService } from './club-store-access.service';
+import { ClubCurrentContextCache } from './club-current-context.cache';
 import { ClubInviteAttributionService } from './club-invite-attribution.service';
 import { ClubInviteCodeMapService } from './club-invite-code-map.service';
 import { ClubMemberBindingService } from './club-member-binding.service';
@@ -22,6 +23,7 @@ describe('ClubStoreAccessService', () => {
   };
 
   const redisService = {
+    get: jest.fn(),
     getJson: jest.fn(),
     setJson: jest.fn(),
     del: jest.fn(),
@@ -47,6 +49,7 @@ describe('ClubStoreAccessService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubStoreAccessService,
+        ClubCurrentContextCache,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: ClubInviteCodeMapService, useValue: inviteCodeMapService },

@@ -66,9 +66,11 @@ export abstract class ClubPaymentSettlementTemplate<
     }
 
     try {
+      // 门店级只读规则在事务外并行预加载，避免占用交互式事务的单连接并缩短持锁时间
+      const rules = await this.preloadSettlementRules(draft);
       await this.prisma.$transaction(
         async (tx) => {
-          await this.persistPaidDraft(tx, draft);
+          await this.persistPaidDraft(tx, draft, rules);
         },
         { timeout: TX_TIMEOUT_MEDIUM },
       );
@@ -101,9 +103,23 @@ export abstract class ClubPaymentSettlementTemplate<
     status: ClubOrderStatusResponseDto['status'],
   ): void;
 
+  /**
+   * 事务外预加载门店级只读规则（等级阈值 / 积分规则等）。
+   *
+   * 基类默认不预加载；需要规则快照的子类 override，结果经第三个参数透传给
+   * persistPaidDraft。返回 unknown 是为了让模板不依赖任何具体业务配置类型。
+   */
+  protected preloadSettlementRules(
+    draft: ClubOrderDraftPayload<TMetadata, TOrderType>,
+  ): Promise<unknown> {
+    void draft;
+    return Promise.resolve(undefined);
+  }
+
   protected abstract persistPaidDraft(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<TMetadata, TOrderType>,
+    rules?: unknown,
   ): Promise<void>;
 
   protected abstract toResponse(

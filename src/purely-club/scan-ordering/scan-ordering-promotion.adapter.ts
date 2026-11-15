@@ -2,11 +2,20 @@ import { Injectable } from '@nestjs/common';
 import { ClubMarketingPreviewService } from '../orders/club-marketing-preview.service';
 import type { ClubMarketingPreviewResult } from '../orders/club-order-preview.types';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
+import type { ClubActiveMarketingCustomer } from './club-scan-ordering-marketing-customer.service';
+
+/**
+ * 顾客档案定位口径。
+ *
+ * - `existing`：只读已有档案（购物车预览）。不存在的档案不会被创建，
+ *   未建档顾客按「无会员资产」计价（积分 0、消费次数 0）；
+ * - `ensure`：允许建档 / 归并（下单、支付落账）。
+ */
+export type PromotionCustomerLookup = 'existing' | 'ensure';
 
 export interface PromotionAdapterInput {
   storeId: number;
   clubUserId: number;
-  sessionId: number;
   items: Array<{
     productId: number;
     quantity: number;
@@ -15,6 +24,8 @@ export interface PromotionAdapterInput {
   }>;
   couponId?: number;
   usePoints: boolean;
+  /** 缺省按 `ensure` 处理，只有明确只读的预览路径才传 `existing`。 */
+  customerLookup?: PromotionCustomerLookup;
 }
 
 export interface PromotionAdapterResult {
@@ -71,15 +82,12 @@ export class ScanOrderingPromotionAdapter {
   async resolvePromotions(
     input: PromotionAdapterInput,
   ): Promise<PromotionAdapterResult> {
-    const customer = await this.marketingCustomerService.resolveActiveCustomer(
-      input.storeId,
-      input.clubUserId,
-    );
+    const customer = await this.lookupCustomer(input);
     const result = await this.marketingPreviewService.previewMarketingLines(
       input.storeId,
-      customer.id,
+      customer?.id ?? null,
       input.clubUserId,
-      customer.phone ?? '',
+      customer?.phone ?? '',
       input.items.map((item) => ({
         unitAmountFen: item.unitPriceAmount,
         quantity: item.quantity,
@@ -87,6 +95,27 @@ export class ScanOrderingPromotionAdapter {
       input.usePoints,
     );
     return this.toPromotionResult(result);
+  }
+
+  /**
+   * 按口径定位顾客档案。
+   *
+   * 预览（`existing`）必须走只读路径：该接口每次改购物车都会调用，写库会带来
+   * 建档 / 归并事务与行锁争用，而顾客档案本身只在下单或支付落账时才该产生。
+   */
+  private lookupCustomer(
+    input: PromotionAdapterInput,
+  ): Promise<ClubActiveMarketingCustomer | null> {
+    if (input.customerLookup === 'existing') {
+      return this.marketingCustomerService.findExistingCustomer(
+        input.storeId,
+        input.clubUserId,
+      );
+    }
+    return this.marketingCustomerService.resolveActiveCustomer(
+      input.storeId,
+      input.clubUserId,
+    );
   }
 
   private toPromotionResult(

@@ -14,6 +14,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ORDER_NO_TYPE_MAP } from './club-order-no.constants';
 
 /** 已接入商户号落库/读取的订单类型 */
 export type ClubPaymentRecordKind =
@@ -46,6 +47,28 @@ const SELF_ORDER_FIELDS = {
   order: { select: { storeId: true } },
 } as const;
 
+/** 兜底扫描顺序：与改造前的逐表顺序严格一致 */
+const ORDER_TABLE_KINDS: readonly ClubPaymentRecordKind[] = [
+  'recharge',
+  'voucher',
+  'card',
+  'scan_ordering',
+  'self_ordering',
+];
+
+/**
+ * 正常路径按订单号前缀直查单表（1 次 DB 往返）；
+ * 前缀未知或该表未命中时仍按原顺序扫其余表，兼容历史单号与草稿态订单，
+ * 避免「前缀与实际落库表不一致」时静默跳过资金归属校验。
+ */
+const buildLookupOrder = (
+  orderNo: string,
+): readonly ClubPaymentRecordKind[] => {
+  const kind = ORDER_NO_TYPE_MAP[orderNo.slice(0, 2).toUpperCase()];
+  if (!kind || kind === 'service') return ORDER_TABLE_KINDS;
+  return [kind, ...ORDER_TABLE_KINDS.filter((item) => item !== kind)];
+};
+
 @Injectable()
 export class ClubPaymentOrderRecordService {
   private readonly logger = new Logger(ClubPaymentOrderRecordService.name);
@@ -61,43 +84,10 @@ export class ClubPaymentOrderRecordService {
   async findByOrderNo(
     orderNo: string,
   ): Promise<ClubPaymentRecordSnapshot | null> {
-    const recharge = await this.prisma.clubRechargeOrder.findUnique({
-      where: { orderNo },
-      select: MERCHANT_FIELDS,
-    });
-    if (recharge) return { kind: 'recharge', ...recharge };
-
-    const voucher = await this.prisma.clubVoucherOrder.findUnique({
-      where: { orderNo },
-      select: MERCHANT_FIELDS,
-    });
-    if (voucher) return { kind: 'voucher', ...voucher };
-
-    const card = await this.prisma.memberCardOrder.findUnique({
-      where: { orderNo },
-      select: MERCHANT_FIELDS,
-    });
-    if (card) return { kind: 'card', ...card };
-
-    const scan = await this.prisma.scanOrderPaymentAttempt.findUnique({
-      where: { merchantPaymentNo: orderNo },
-      select: MERCHANT_FIELDS,
-    });
-    if (scan) return { kind: 'scan_ordering', ...scan };
-
-    const self = await this.prisma.selfOrderPaymentAttempt.findUnique({
-      where: { merchantPaymentNo: orderNo },
-      select: SELF_ORDER_FIELDS,
-    });
-    if (self) {
-      return {
-        kind: 'self_ordering',
-        storeId: self.order.storeId,
-        spMchId: self.spMchId,
-        subMchId: self.subMchId,
-      };
+    for (const kind of buildLookupOrder(orderNo)) {
+      const record = await this.readRecord(kind, orderNo);
+      if (record) return record;
     }
-
     return null;
   }
 
@@ -111,39 +101,125 @@ export class ClubPaymentOrderRecordService {
     spMchId: string | null,
     subMchId: string | null,
   ): Promise<ClubPaymentRecordKind | null> {
-    const recharge = await this.prisma.clubRechargeOrder.updateMany({
-      where: { orderNo },
-      data: { spMchId, subMchId },
-    });
-    if (recharge.count > 0) return 'recharge';
-
-    const voucher = await this.prisma.clubVoucherOrder.updateMany({
-      where: { orderNo },
-      data: { spMchId, subMchId },
-    });
-    if (voucher.count > 0) return 'voucher';
-
-    const card = await this.prisma.memberCardOrder.updateMany({
-      where: { orderNo },
-      data: { spMchId, subMchId },
-    });
-    if (card.count > 0) return 'card';
-
-    const scan = await this.prisma.scanOrderPaymentAttempt.updateMany({
-      where: { merchantPaymentNo: orderNo },
-      data: { spMchId, subMchId },
-    });
-    if (scan.count > 0) return 'scan_ordering';
-
-    const self = await this.prisma.selfOrderPaymentAttempt.updateMany({
-      where: { merchantPaymentNo: orderNo },
-      data: { spMchId, subMchId },
-    });
-    if (self.count > 0) return 'self_ordering';
+    for (const kind of buildLookupOrder(orderNo)) {
+      if (await this.writeRecord(kind, orderNo, spMchId, subMchId)) {
+        return kind;
+      }
+    }
 
     this.logger.warn(
       `订单 ${orderNo} 未匹配到任何支付记录表，商户号未落库（订单类型可能尚未接入）`,
     );
     return null;
+  }
+
+  private async readRecord(
+    kind: ClubPaymentRecordKind,
+    orderNo: string,
+  ): Promise<ClubPaymentRecordSnapshot | null> {
+    switch (kind) {
+      case 'recharge': {
+        const row = await this.prisma.clubRechargeOrder.findUnique({
+          where: { orderNo },
+          select: MERCHANT_FIELDS,
+        });
+        return row ? { kind, ...row } : null;
+      }
+      case 'voucher': {
+        const row = await this.prisma.clubVoucherOrder.findUnique({
+          where: { orderNo },
+          select: MERCHANT_FIELDS,
+        });
+        return row ? { kind, ...row } : null;
+      }
+      case 'card': {
+        const row = await this.prisma.memberCardOrder.findUnique({
+          where: { orderNo },
+          select: MERCHANT_FIELDS,
+        });
+        return row ? { kind, ...row } : null;
+      }
+      case 'scan_ordering': {
+        const row = await this.prisma.scanOrderPaymentAttempt.findUnique({
+          where: { merchantPaymentNo: orderNo },
+          select: MERCHANT_FIELDS,
+        });
+        return row ? { kind, ...row } : null;
+      }
+      case 'self_ordering': {
+        const row = await this.prisma.selfOrderPaymentAttempt.findUnique({
+          where: { merchantPaymentNo: orderNo },
+          select: SELF_ORDER_FIELDS,
+        });
+        return row
+          ? {
+              kind,
+              storeId: row.order.storeId,
+              spMchId: row.spMchId,
+              subMchId: row.subMchId,
+            }
+          : null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  private async writeRecord(
+    kind: ClubPaymentRecordKind,
+    orderNo: string,
+    spMchId: string | null,
+    subMchId: string | null,
+  ): Promise<boolean> {
+    const data = { spMchId, subMchId };
+    switch (kind) {
+      case 'recharge':
+        return (
+          (
+            await this.prisma.clubRechargeOrder.updateMany({
+              where: { orderNo },
+              data,
+            })
+          ).count > 0
+        );
+      case 'voucher':
+        return (
+          (
+            await this.prisma.clubVoucherOrder.updateMany({
+              where: { orderNo },
+              data,
+            })
+          ).count > 0
+        );
+      case 'card':
+        return (
+          (
+            await this.prisma.memberCardOrder.updateMany({
+              where: { orderNo },
+              data,
+            })
+          ).count > 0
+        );
+      case 'scan_ordering':
+        return (
+          (
+            await this.prisma.scanOrderPaymentAttempt.updateMany({
+              where: { merchantPaymentNo: orderNo },
+              data,
+            })
+          ).count > 0
+        );
+      case 'self_ordering':
+        return (
+          (
+            await this.prisma.selfOrderPaymentAttempt.updateMany({
+              where: { merchantPaymentNo: orderNo },
+              data,
+            })
+          ).count > 0
+        );
+      default:
+        return false;
+    }
   }
 }

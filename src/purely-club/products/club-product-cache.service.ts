@@ -28,6 +28,16 @@ const CLUB_PRODUCTS_CACHE_TTL_SECONDS = 30;
  */
 const CLUB_PRODUCTS_VERSION_CACHE_TTL_SECONDS = 10;
 
+/**
+ * 商品详情「确认不存在」负缓存 TTL（秒）。
+ *
+ * 详情 key 里嵌了商品版本（上架数量 + 最大 updated_at），上架 / 重新上架 /
+ * 改价都会切换版本 → 旧负缓存键自动失效，因此负缓存**不会**把新上架商品
+ * 挡住一个 TTL。5s 只是最后一道保险，作用是把「已删除 / 被枚举的 productId」
+ * 的裸穿透从每请求一次压到每 5s 一次。
+ */
+const CLUB_PRODUCT_ABSENT_CACHE_TTL_SECONDS = 5;
+
 /** Date 经过 JSON 往返会退化为字符串，缓存统一用毫秒时间戳保存。 */
 type CachedClubProductRecord = Omit<
   ClubProductRecord,
@@ -36,6 +46,15 @@ type CachedClubProductRecord = Omit<
   createdAt: number;
   updatedAt: number;
 };
+
+/**
+ * 详情缓存载荷：显式区分「命中」与「确认不存在」。
+ *
+ * 若只用 null 表示不存在，就没法与「缓存未命中」区分，负缓存会被当成 miss。
+ */
+type CachedDetailEntry =
+  | { found: true; record: CachedClubProductRecord }
+  | { found: false };
 
 export interface ClubProductListCacheParams {
   storeId: number;
@@ -103,16 +122,42 @@ export class ClubProductCacheService {
     await this.write(cacheKey, records.map(toCachedRecord));
   }
 
-  async readDetail(cacheKey: string): Promise<ClubProductRecord | null> {
-    const cached = await this.read<CachedClubProductRecord>(cacheKey);
-    return cached ? fromCachedRecord(cached) : null;
+  /**
+   * 读取详情缓存。
+   *
+   * @returns `undefined` 缓存未命中（需回源）；`null` 已确认商品不存在（负缓存）；
+   *          否则为命中的商品记录
+   */
+  async readDetailEntry(
+    cacheKey: string,
+  ): Promise<ClubProductRecord | null | undefined> {
+    const cached = await this.read<CachedDetailEntry>(cacheKey);
+    if (!cached) {
+      return undefined;
+    }
+    if (!cached.found) {
+      return null;
+    }
+    return fromCachedRecord(cached.record);
   }
 
-  async writeDetail(
+  async writeDetailHit(
     cacheKey: string,
     record: ClubProductRecord,
   ): Promise<void> {
-    await this.write(cacheKey, toCachedRecord(record));
+    await this.write(cacheKey, {
+      found: true,
+      record: toCachedRecord(record),
+    });
+  }
+
+  /** 写入「商品不存在」负缓存（短 TTL，见 CLUB_PRODUCT_ABSENT_CACHE_TTL_SECONDS）。 */
+  async writeDetailAbsent(cacheKey: string): Promise<void> {
+    await this.write(
+      cacheKey,
+      { found: false },
+      CLUB_PRODUCT_ABSENT_CACHE_TTL_SECONDS,
+    );
   }
 
   /** 版本缓存未命中时并发回源，命中路径不进这里。 */

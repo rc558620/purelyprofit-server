@@ -219,12 +219,13 @@ describe('ClubPromotionsService', () => {
       ],
     });
 
+    // 只按 endAt 过滤：未开始的活动也要取回来算「开始」边界；DB 不再 take，
+    // 展示上限在排序之后截断（否则截掉的是「最优」而不是「最近创建」）
     expect(prismaService.marketingPromotion.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 11,
         enabled: true,
         type: { in: [...MARKETING_PROMOTION_TYPE_VALUES] },
-        startAt: { lte: new Date('2026-06-12T12:00:00.000Z') },
         endAt: { gte: new Date('2026-06-12T12:00:00.000Z') },
       },
       select: {
@@ -238,7 +239,6 @@ describe('ClubPromotionsService', () => {
         createdAt: true,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 20,
     });
   });
 
@@ -284,6 +284,66 @@ describe('ClubPromotionsService', () => {
     redisService.getJson.mockResolvedValue([]);
     await service.list(currentContext);
     expect(prismaService.marketingPromotion.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('TTL 被最近的结束边界截断（到点即失效，不会把已结束活动再发一轮）', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({ id: 1, endAt: new Date('2026-06-12T12:00:10.000Z') }),
+      createPromotion({ id: 2, endAt: new Date('2026-06-12T13:00:00.000Z') }),
+    ]);
+
+    await service.list(currentContext);
+
+    expect(redisService.setJson).toHaveBeenCalledWith(
+      expect.stringContaining('club:promotions:store:11:list'),
+      expect.any(Array),
+      10,
+    );
+  });
+
+  it('未开始的活动不进结果，但它的开始时间决定 TTL（到点即出现）', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({
+        id: 1,
+        startAt: new Date('2026-06-12T12:00:05.000Z'),
+        endAt: new Date('2026-06-12T18:00:00.000Z'),
+      }),
+    ]);
+
+    await expect(service.list(currentContext)).resolves.toEqual({ items: [] });
+
+    expect(redisService.setJson).toHaveBeenCalledWith(
+      expect.stringContaining('club:promotions:store:11:list'),
+      [],
+      5,
+    );
+  });
+
+  it('展示上限在排序后截断：高优先级的老活动不会被 DB 截掉', async () => {
+    // 21 条：最高优先级的首单活动 createdAt 最老（排在 DB 结果最后），
+    // 20 条低优先级折扣活动 createdAt 较新（占满若在 DB 侧 take 20 的名额）
+    const rows = [
+      ...Array.from({ length: 20 }, (_, index) =>
+        createPromotion({
+          id: 100 + index,
+          type: 'discount',
+          createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        }),
+      ),
+      createPromotion({
+        id: 1,
+        type: 'first_order_discount',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    ];
+    prismaService.marketingPromotion.findMany.mockResolvedValue(rows);
+
+    const result = await service.list(currentContext);
+
+    expect(result.items).toHaveLength(20);
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({ id: '1', type: 'first_order_discount' }),
+    );
   });
 });
 

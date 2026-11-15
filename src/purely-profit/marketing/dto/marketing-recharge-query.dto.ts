@@ -18,7 +18,25 @@ import {
 } from '../marketing.utils';
 import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 
-export class ListRechargesQueryDto extends MarketingPageQueryDto {
+/**
+ * 流水列表（储值 / 退款 / 积分）共用的分页参数：
+ * 在 page/pageSize 之上增加游标，cursor 优先，未传时保持旧 offset 语义。
+ */
+export class MarketingFlowListQueryDto extends MarketingPageQueryDto {
+  @ApiPropertyOptional({
+    description:
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。' +
+      '传入时优先于 page（兼容期保留 page/pageSize 走旧路径）',
+    example:
+      'v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMCwxNzYzMjI1NjAwMDAwXSwiaWQiOjQyfQ',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(256, { message: 'cursor 长度不合法' })
+  cursor?: string;
+}
+
+export class ListRechargesQueryDto extends MarketingFlowListQueryDto {
   @ApiPropertyOptional({ example: 1, description: '顾客 ID（不传则查全店）' })
   @IsOptional()
   @Transform(transformOptionalInt)
@@ -49,7 +67,7 @@ export class ListRechargesQueryDto extends MarketingPageQueryDto {
 
 export class ListCustomerRechargesQueryDto extends MarketingPageQueryDto {}
 
-export class ListPointsRecordsQueryDto extends MarketingPageQueryDto {
+export class ListPointsRecordsQueryDto extends MarketingFlowListQueryDto {
   @ApiPropertyOptional({ example: 1, description: '顾客 ID（不传则查全店）' })
   @IsOptional()
   @Transform(transformOptionalInt)

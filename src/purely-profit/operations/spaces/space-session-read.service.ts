@@ -10,10 +10,15 @@ import {
   buildStoreSpaceSessionListWhere,
 } from './space-sessions.query-builder';
 import {
-  resolveSpaceSessionPageQuery,
   SPACE_SESSION_FULL_INCLUDE,
   toSpaceSessionListQuery,
 } from './space-sessions.query';
+import {
+  buildSpaceSessionListCursorWhere,
+  encodeSpaceSessionListCursor,
+  resolveSpaceSessionListPaging,
+  SPACE_SESSION_LIST_ORDER_BY,
+} from './space-sessions.cursor';
 import {
   ListSpaceSessionsQueryDto,
   type PaginatedSpaceSessionsResponseDto,
@@ -152,29 +157,45 @@ export class SpaceSessionReadService {
       status: query.status ?? PrismaSpaceSessionStatus.active,
       includeActive: true,
     };
-    const { page, skip, take } = resolveSpaceSessionPageQuery(
-      this.configService,
-      normalizedQuery.page,
-      normalizedQuery.pageSize,
-    );
-    const where = buildSpaceSessionListWhere(space.id, normalizedQuery);
+    // 入参校验先于取数：cursor 非法时直接 400，不白跑一次查询
+    const paging = resolveSpaceSessionListPaging(this.configService, queryDto);
+    const baseWhere = buildSpaceSessionListWhere(space.id, normalizedQuery);
+    // total 恒为全量口径：COUNT 只带筛选条件，不含游标，否则翻页时总数会变小
+    const listWhere = paging.cursor
+      ? { AND: [baseWhere, buildSpaceSessionListCursorWhere(paging.cursor)] }
+      : baseWhere;
 
     const queryResult: [SpaceSessionRecord[], number] = await Promise.all([
       this.prisma.spaceSession.findMany({
-        where,
+        where: listWhere,
         include: SPACE_SESSION_FULL_INCLUDE,
-        orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
-        skip,
-        take,
+        orderBy: SPACE_SESSION_LIST_ORDER_BY,
+        // 游标路径不需要 skip：where 已排除游标之前的行；offset 路径保留旧语义
+        ...(paging.cursor ? {} : { skip: paging.offset }),
+        // 游标路径多取一行做「是否还有下一页」探测，省掉一次额外查询
+        take: paging.cursor ? paging.limit + 1 : paging.limit,
       }),
-      this.prisma.spaceSession.count({ where }),
+      this.prisma.spaceSession.count({ where: baseWhere }),
     ]);
 
-    const [sessions, total] = queryResult;
+    const [fetchedSessions, total] = queryResult;
+    const sessions = paging.cursor
+      ? fetchedSessions.slice(0, paging.limit)
+      : fetchedSessions;
+    // 游标路径靠探测行判定到底；offset 路径没有探测行，改用 offset + 已取条数 < total
+    const hasMore = paging.cursor
+      ? fetchedSessions.length > paging.limit
+      : paging.offset + sessions.length < total;
+    const lastSession = sessions.at(-1);
 
     return {
       items: sessions.map((session) => toSpaceSessionResponse(session)),
-      meta: buildPaginationMeta(total, page, take),
+      meta: buildPaginationMeta(total, paging.page, paging.limit),
+      hasMore,
+      nextCursor:
+        hasMore && lastSession
+          ? encodeSpaceSessionListCursor(lastSession)
+          : null,
     };
   }
 
@@ -218,7 +239,9 @@ export class SpaceSessionReadService {
     const sessions = await this.prisma.spaceSession.findMany({
       where,
       include: SPACE_SESSION_FULL_INCLUDE,
-      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+      // 门店维度仍是「活跃会话快照」（裸数组 + take 200，不分页），
+      // 排序与分页列表共用同一份 orderBy 常量，避免两处排序键漂移
+      orderBy: SPACE_SESSION_LIST_ORDER_BY,
       take: 200,
     });
 

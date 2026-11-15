@@ -10,7 +10,7 @@
  *
  * 依赖：
  *   - ClubWechatPayIdentityService  解析本次收款身份（签名商户号 / 子商户号 / AppID / 回调地址）
- *   - StoresWechatPayService        读取门店收款配置（子商户号的唯一来源）
+ *                                   —— 门店收款配置只经它读取，本服务不直接查库
  *   - ClubWechatPayHttpService      私钥加载、鉴权头、请求超时与错误解析（与查单 / 关单 / 退款共用）
  *
  * ⚠️ 凭据口径（务必看清，历史上这里写错过）：**证书序列号与私钥一律取全局/服务商配置，
@@ -26,7 +26,6 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { StoresWechatPayService } from '../../purely-profit/stores/stores-wechat-pay.service';
 import type { ClubWechatPaymentParamsDto } from '../orders/dto/club-order.dto';
 import type { ClubWechatPayTarget } from './club-wechat-pay-identity.service';
 import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
@@ -48,6 +47,13 @@ export interface WechatJsapiOrderRequest {
   description: string;
   amountFen: number;
   openid: string;
+  /**
+   * 同一请求内已经解析好的收款身份（缺配前置校验刚解析出来的那一份）。
+   *
+   * 传入即跳过身份解析，省掉一次门店收款配置读库 + apiV3Key 解密。
+   * ⚠️ 只在**同一个请求**内传递：跨请求复用会让「配置刚变更」不生效。
+   */
+  target?: ClubWechatPayTarget;
 }
 
 interface WechatJsapiPrePayResponse {
@@ -59,22 +65,35 @@ export class ClubWechatJsapiService {
   private readonly logger = new Logger(ClubWechatJsapiService.name);
 
   constructor(
-    private readonly storesWechatPayService: StoresWechatPayService,
     private readonly wechatPayHttpService: ClubWechatPayHttpService,
     private readonly identityService: ClubWechatPayIdentityService,
   ) {}
 
   /**
-   * 校验门店已配置微信收款。
+   * 解析「门店现在能否真的收下这笔钱」，缺失时抛统一的业务异常。
    *
    * 下单前显式调用：门店没配收款时不要等微信返回错误再翻译，
    * 那样前端只能拿到通用「支付失败」，用户不知道是门店侧问题。
    *
-   * 服务商模式下**不要求** APIv3 密钥：子商户在微信侧不存在也不支持设置它
-   * （回调统一由服务商密钥加密）。直连模式下仍必须提供，否则回调解不开。
+   * 判定口径（含直连模式必须配 APIv3 密钥）全部收敛在
+   * {@link ClubWechatPayIdentityService.resolvePayableTarget}，
+   * 本服务不再自己读门店收款配置——同一份配置读两遍纯属浪费，
+   * 且「谁能收款」的判定必须有唯一真相源。
+   *
+   * @returns 已解析的收款身份：调用方可在同一请求内把它传给
+   *          {@link createJsapiPaymentParams} 的 `target`，避免重复解析。
    */
-  async assertStorePayConfigured(storeId: number): Promise<void> {
-    await this.resolveTargetOrThrow(storeId);
+  async resolvePayableTargetOrThrow(
+    storeId: number,
+  ): Promise<ClubWechatPayTarget> {
+    const target = await this.identityService.resolvePayableTarget(storeId);
+    if (!target) {
+      this.logger.warn(
+        `门店 ${storeId} 未配置可用的微信收款，拒绝创建在线支付订单`,
+      );
+      throw buildStorePayConfigMissingError();
+    }
+    return target;
   }
 
   /**
@@ -83,19 +102,25 @@ export class ClubWechatJsapiService {
   async createJsapiPaymentParams(
     params: WechatJsapiOrderRequest,
   ): Promise<ClubWechatPaymentParamsDto> {
-    const target = await this.resolveTargetOrThrow(params.storeId);
-    const privateKeyPem = await this.wechatPayHttpService.loadPrivateKeyPem(
-      target.mode,
-    );
+    const target =
+      params.target ?? (await this.resolvePayableTargetOrThrow(params.storeId));
 
-    const prepayId = await this.requestPrepayId({
-      target,
-      orderNo: params.orderNo,
-      storeId: params.storeId,
-      description: params.description,
-      amountFen: params.amountFen,
-      openid: params.openid,
-    });
+    /*
+     * 私钥加载（首次是磁盘读，之后是进程内缓存）与预下单（远程 HTTP）互不依赖，
+     * 并行执行可省掉一段串行等待。预下单失败时 Promise.all 直接 reject，
+     * 私钥加载没有副作用，不会留下脏状态。
+     */
+    const [privateKeyPem, prepayId] = await Promise.all([
+      this.wechatPayHttpService.loadPrivateKeyPem(target.mode),
+      this.requestPrepayId({
+        target,
+        orderNo: params.orderNo,
+        storeId: params.storeId,
+        description: params.description,
+        amountFen: params.amountFen,
+        openid: params.openid,
+      }),
+    ]);
 
     // 启用 sub_appid 后，实际调起支付的是该小程序，paySign 必须用它的 appId
     const paySignAppId = target.subAppId ?? target.appId;
@@ -103,36 +128,6 @@ export class ClubWechatJsapiService {
   }
 
   // ─── 统一下单请求 ─────────────────────────────────────────────────────────
-
-  /**
-   * 解析门店收款身份，缺失时抛统一的业务异常。
-   *
-   * 这里是「门店能不能收这笔钱」的唯一判定入口，四个调用点（下单 / 查单 / 关单 / 退款）
-   * 都不允许自己拼判断条件，否则灰度期口径会漂移。
-   */
-  private async resolveTargetOrThrow(
-    storeId: number,
-  ): Promise<ClubWechatPayTarget> {
-    const target = await this.identityService.resolveTarget(storeId);
-    if (!target) {
-      this.logger.warn(`门店 ${storeId} 未配置微信收款，拒绝创建在线支付订单`);
-      throw buildStorePayConfigMissingError();
-    }
-
-    // 直连模式的回调由门店自己的密钥加密，缺密钥等于「能付但收不到通知」
-    if (target.mode === 'store') {
-      const config =
-        await this.storesWechatPayService.getWechatPayConfigForStore(storeId);
-      if (!config.apiV3Key) {
-        this.logger.warn(
-          `门店 ${storeId} 处于直连模式但未配置 APIv3 密钥，拒绝下单（回调将无法解密）`,
-        );
-        throw buildStorePayConfigMissingError();
-      }
-    }
-
-    return target;
-  }
 
   private async requestPrepayId(opts: {
     target: ClubWechatPayTarget;
