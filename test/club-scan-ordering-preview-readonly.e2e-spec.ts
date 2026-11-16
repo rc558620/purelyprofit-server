@@ -283,17 +283,17 @@ describe('扫码点餐预览只读顾客档案 (e2e, real database)', () => {
     expect(await countCustomers()).toBe(before);
   });
 
-  it('未建档顾客的定价上下文：消费次数 0、可用积分 0', async () => {
+  it('未建档顾客的定价上下文：无消费标记、可用积分 0', async () => {
     const clubUserId = await createClubUser('pricing-null');
 
     const unregistered = await promotionsService.preloadPricingContext(
       storeId,
       null,
     );
-    expect(unregistered.consumptionCount).toBe(0);
+    expect(unregistered.hasConsumption).toBe(false);
 
-    // 建档并补一条消费流水后：同一门店下「未建档」口径仍为 0，
-    // 已建档口径才读出真实次数——这正是预览不建档也不会算错首单折扣的原因
+    // 建档并补一条消费流水后：同一门店下「未建档」口径仍为无消费，
+    // 已建档口径才判定为已有消费——这正是预览不建档也不会算错首单折扣的原因
     const customer = await customerService.resolveActiveCustomer(
       storeId,
       clubUserId,
@@ -306,10 +306,10 @@ describe('扫码点餐预览只读顾客档案 (e2e, real database)', () => {
       storeId,
       customer.id,
     );
-    expect(registered.consumptionCount).toBe(1);
+    expect(registered.hasConsumption).toBe(true);
     expect(
       (await promotionsService.preloadPricingContext(storeId, null))
-        .consumptionCount,
-    ).toBe(0);
+        .hasConsumption,
+    ).toBe(false);
   });
 });

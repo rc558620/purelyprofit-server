@@ -12,6 +12,7 @@ import { AuthMembershipResolverService } from './auth-membership-resolver.servic
 import { AuthMembershipQueryService } from './auth-membership-query.service';
 import { AuthLegacyOwnerRepairService } from './auth-legacy-owner-repair.service';
 import { AuthStaffActivationService } from './auth-staff-activation.service';
+import { AuthUserCacheService } from './auth-user-cache.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
@@ -71,6 +72,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthMembershipQueryService,
     AuthLegacyOwnerRepairService,
     AuthStaffActivationService,
+    AuthUserCacheService,
     AuthAuthenticationService,
     AuthCapabilityService,
     AuthCodeLoginService,
@@ -103,6 +105,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthCodeVerifyService,
     CaptchaTokenService,
     AuthSessionService,
+    AuthBanGuardService,
+    AuthUserCacheService,
+    AuthLegacyOwnerRepairService,
     AuthMembershipResolverService,
     AuthStaffActivationService,
     JwtAuthGuard,

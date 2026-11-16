@@ -146,10 +146,14 @@ export class ClubCustodyWriteService {
       memberId,
     });
 
-    const latest = await this.prisma.custodyOrder.findFirstOrThrow({
-      where: { id: orderId, deletedAt: null },
-    });
-    return { order: mapClubCustodyOrder(latest, context.store.name, now) };
+    // 事务只改了 status，其余字段以事务前读到的草稿为准，无需再回库取整行。
+    return {
+      order: mapClubCustodyOrder(
+        { ...order, status: 'stored' },
+        context.store.name,
+        now,
+      ),
+    };
   }
 
   /**

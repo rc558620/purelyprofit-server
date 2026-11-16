@@ -123,7 +123,9 @@ export class ClubScanOrderingSessionService {
     // 切门店后两者恒等，「到店即入店」与门店邀请码路径语义一致。
     // 必须在 ensureStoreMembership 之后：切换前会按 Member 关系校验可访问性，
     // 会员关系还没建立时会查不到这家店。
-    await this.currentStoreContextService.switchCurrentStore(
+    // 用 ensureCurrentStore 而非 switchCurrentStore：当前门店已是这家店时
+    // （多门店用户反复扫同一家的常态）不需要再做一次可访问性查询与 Redis SET。
+    await this.currentStoreContextService.ensureCurrentStore(
       user,
       scanContext.storeId,
     );
@@ -222,7 +224,9 @@ export class ClubScanOrderingSessionService {
       },
       // findFirst 无 orderBy 时返回顺序不确定，多会话下会随机命中一个
       orderBy: { lastActiveAt: 'desc' },
-      include: { table: true },
+      // 这里只需要会话 ID 用于 update 定位：原先 include 整行桌台（额外一次关系查询
+      // + 整行回传）没有任何消费方，改后写路径少一次关系查询。
+      select: { id: true },
     });
     if (!session)
       throw new ConflictException(

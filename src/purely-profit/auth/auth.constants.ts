@@ -54,6 +54,16 @@ export const AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX =
   'auth:user-related-stores:';
 /** JWT validate 链路中用户关联门店 ID 缓存的 TTL（秒），用户加入/退出门店时主动失效 */
 export const AUTH_USER_RELATED_STORE_IDS_CACHE_TTL_SECONDS = 300;
+/** 遗留店主补齐「该账号无 owner 门店」负缓存的 key 前缀 */
+export const AUTH_LEGACY_OWNER_ABSENT_KEY_PREFIX = 'auth:legacy-owner-absent:';
+/**
+ * 遗留店主补齐负缓存的 TTL（秒）：5 分钟，与 user 缓存对齐。
+ *
+ * 主要收益来自 C 端会员账号——它们永远不会有 stores.owner_id，但 membership rows
+ * 为空时每次鉴权都会跑一次 owner 门店查询。TTL 不能过长：账号获得门店 ownership
+ * （账号合并迁移）时只做了主动失效，没有其他兜底路径。
+ */
+export const AUTH_LEGACY_OWNER_ABSENT_TTL_SECONDS = 300;
 
 export const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 export const ADMIN_LOGIN_ALIAS = 'admin';

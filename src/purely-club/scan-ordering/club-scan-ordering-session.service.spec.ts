@@ -39,7 +39,7 @@ describe('ClubScanOrderingSessionService - createOrRestoreSession', () => {
 
   /** 当前门店上下文：桌码进店即入店，建会话时必须把当前门店切到桌台所属门店 */
   const currentStoreContextService = {
-    switchCurrentStore: jest.fn().mockResolvedValue({ id: 100 }),
+    ensureCurrentStore: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -130,7 +130,7 @@ describe('ClubScanOrderingSessionService - createOrRestoreSession', () => {
 
     await service.createOrRestoreSession(user, { scanToken: 'scan-token' });
 
-    expect(currentStoreContextService.switchCurrentStore).toHaveBeenCalledWith(
+    expect(currentStoreContextService.ensureCurrentStore).toHaveBeenCalledWith(
       user,
       100,
     );

@@ -1,6 +1,7 @@
 import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuthLegacyOwnerRepairService } from '../../purely-profit/auth/auth-legacy-owner-repair.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { buildClubWechatMemberPhone } from '../../purely-profit/auth/auth.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../prisma/prisma.service';
@@ -44,6 +45,7 @@ export class ClubAccountMergeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authSessionService: AuthSessionService,
+    private readonly legacyOwnerRepairService: AuthLegacyOwnerRepairService,
   ) {}
 
   /**
@@ -308,6 +310,12 @@ export class ClubAccountMergeService {
         ),
       );
     }
+
+    // 门店 ownership 已迁到目标账号：必须清掉「该账号无 owner 门店」负缓存，
+    // 否则目标账号在 TTL 窗口内不会被遗留店主补齐，进商家端看不到刚迁过来的门店。
+    await this.legacyOwnerRepairService.invalidateOwnerAbsentCache(
+      targetUserId,
+    );
 
     // 失效两端的旧登录态，确保合并后旧 token 立即无效。
     //

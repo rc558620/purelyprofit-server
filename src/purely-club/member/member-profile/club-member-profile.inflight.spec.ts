@@ -15,7 +15,6 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
   };
   let redis: {
     getJson: jest.Mock;
-    exists: jest.Mock;
     setJson: jest.Mock;
   };
 
@@ -28,7 +27,6 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
     };
     redis = {
       getJson: jest.fn().mockResolvedValue(null),
-      exists: jest.fn().mockResolvedValue(false),
       setJson: jest.fn().mockResolvedValue(undefined),
     };
     service = new ClubMemberProfileService(
@@ -100,7 +98,7 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
     expect(prisma.member.findFirst).toHaveBeenCalledTimes(2);
   });
 
-  it('缓存命中时不查库，且 null 哨兵仍按原有语义返回 null', async () => {
+  it('缓存命中时不查库，且空结果哨兵仍按原有语义返回 null', async () => {
     redis.getJson.mockResolvedValueOnce({
       customerId: 55,
       memberId: 9,
@@ -115,11 +113,26 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
     await service.getSnapshotByStoreIdentity(STORE_ID, 201, PHONE);
     expect(prisma.member.findFirst).not.toHaveBeenCalled();
 
-    redis.getJson.mockResolvedValueOnce(null);
-    redis.exists.mockResolvedValueOnce(true);
+    // 空结果用显式哨兵对象表达，单次 GET 即可判定，无需 EXISTS 兜底
+    redis.getJson.mockResolvedValueOnce({ found: false });
     await expect(
       service.getSnapshotByStoreIdentity(STORE_ID, 202, PHONE),
     ).resolves.toBeNull();
     expect(prisma.member.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('无档案时写入空结果哨兵并复用短 TTL，不再额外 EXISTS 判定', async () => {
+    prisma.member.findFirst.mockResolvedValue(null);
+    prisma.marketingCustomer.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.getSnapshotByStoreIdentity(STORE_ID, 203, PHONE),
+    ).resolves.toBeNull();
+
+    expect(redis.setJson).toHaveBeenCalledWith(
+      expect.stringContaining('club:member-snapshot:store:11:user:203'),
+      { found: false },
+      expect.any(Number),
+    );
   });
 });

@@ -37,7 +37,7 @@ describe('ClubStoresService', () => {
       upsert: jest.fn(),
     },
     marketingCustomer: {
-      findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       upsert: jest.fn(),
@@ -128,7 +128,7 @@ describe('ClubStoresService', () => {
     redisService.mget.mockResolvedValue([null, null]);
     // 真实事务链路：member / marketingCustomer 均不存在时走创建路径
     prismaService.member.findFirst.mockResolvedValue(null);
-    prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
+    prismaService.marketingCustomer.findMany.mockResolvedValue([]);
     inviteAttributionService.resolveIssueScanAttribution.mockResolvedValue({
       continueScan: true,
     });
@@ -206,7 +206,8 @@ describe('ClubStoresService', () => {
     const store12 = createStore({ id: 12, name: '三里屯店' });
 
     prismaService.store.findMany.mockResolvedValueOnce([store11, store12]);
-    redisService.get.mockResolvedValue('12');
+    // 门店列表与选中门店由一次 MGET 读回：首项未命中走回源，次项为已选门店
+    redisService.mget.mockResolvedValue([null, '12']);
     storesProfileService.batchReadStoreProfileMetadata.mockResolvedValue([
       mockMetadata,
       mockMetadata,
@@ -216,6 +217,12 @@ describe('ClubStoresService', () => {
       currentStoreId: 12,
     });
     expect(redisService.set).not.toHaveBeenCalled();
+    // 不再单独 GET 选中门店 key
+    expect(redisService.get).not.toHaveBeenCalled();
+    expect(redisService.mget).toHaveBeenCalledWith([
+      'club:accessible-stores:201',
+      'club:selected-store:201',
+    ]);
   });
 
   it('getCurrent 返回当前上下文中的门店信息', async () => {

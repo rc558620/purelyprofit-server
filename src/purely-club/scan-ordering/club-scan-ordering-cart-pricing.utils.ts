@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
   CLUB_SCAN_ORDERING_ERROR_CODE,
   clubScanOrderingError,
@@ -126,6 +127,69 @@ export const resolveCartItemSpecs = (
   }
   return specs;
 };
+
+/**
+ * 购物车行取列白名单：定价与定价版本 hash 只需行版本 / 数量 / 选中规格选项，
+ * 不把整行快照文案拉回 Node。
+ */
+export const CART_PRICING_CART_ITEM_SELECT = {
+  id: true,
+  version: true,
+  quantity: true,
+  menuProductId: true,
+  specSignature: true,
+  specs: { select: { specOptionId: true } },
+} satisfies Prisma.ScanOrderingCartItemSelect;
+
+/**
+ * 菜单商品取列白名单：定价、售罄校验与定价版本 hash 只消费下列字段。
+ *
+ * 规格组必须与加购（loadProduct）和菜单查询同口径过滤 isActive，
+ * 否则已停用的规格组仍会参与 minSelections 校验，把老购物车行判成
+ * 「规格已更新」，而加购时却根本看不到这些组——前后口径打架。
+ *
+ * 规格项**不加** isActive 过滤：一是与定价版本计算同口径（失效但仍在
+ * 用的规格也要进 hash），二是 resolveCartItemSpecs 自身已按 isActive 过滤，
+ * 放开过滤不会改变它的判定结果。
+ */
+export const CART_PRICING_PRODUCT_SELECT = {
+  id: true,
+  version: true,
+  basePrice: true,
+  isActive: true,
+  deletedAt: true,
+  stockMode: true,
+  stockQuantity: true,
+  reservedQuantity: true,
+  name: true,
+  imageUrl: true,
+  productId: true,
+  product: {
+    select: { image: true, isActive: true, deletedAt: true, stock: true },
+  },
+  category: { select: { name: true } },
+  specGroups: {
+    where: { isActive: true },
+    select: {
+      id: true,
+      version: true,
+      selectionType: true,
+      minSelections: true,
+      maxSelections: true,
+      isActive: true,
+      options: {
+        select: {
+          id: true,
+          version: true,
+          name: true,
+          extraPrice: true,
+          isActive: true,
+          stockQuantity: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.ScanOrderingMenuProductSelect;
 
 /** 行金额：单价 = 基准价 + Σ 规格加价；行小计 = 单价 × 数量。 */
 export const priceLineItem = (

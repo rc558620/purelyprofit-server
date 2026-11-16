@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from './jwt.strategy';
+import { AuthUserCacheService } from '../auth-user-cache.service';
 import { aValidDate } from '../../../spec-matchers';
 
 describe('JwtStrategy', () => {
@@ -41,7 +42,7 @@ describe('JwtStrategy', () => {
     new JwtStrategy(
       configService as never,
       prisma as never,
-      redisService as never,
+      new AuthUserCacheService(prisma as never, redisService as never),
       authBanGuardService as never,
       authMembershipResolverService as never,
       authSessionService as never,

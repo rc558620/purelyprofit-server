@@ -243,11 +243,42 @@ export class ClubScanOrderingOrderQueryService {
         product.product?.image ?? product.imageUrl,
       ]),
     );
+    // 只处理当前页：hasMore 时末条仅用于游标探测；没有在途订单的会话不返回。
+    const hasMore = sessions.length === take;
+    const visibleSessions = (hasMore ? sessions.slice(0, -1) : sessions).filter(
+      (session) => session.orders.length > 0,
+    );
+
     // 金额统一在后端换算为「元」，前端只负责展示。
-    const hydratedSessions = sessions.map((session) => ({
+    // 这里单趟完成「会话 → 订单 → 明细」的映射：原实现先深拷贝出 hydratedSessions
+    // 再整体 map 一次，同一批行会分配两份对象，追踪页 30s 轮询时被成倍放大。
+    const items = visibleSessions.map((session) => ({
       ...session,
+      createdAt: session.createdAt.toISOString(),
+      lastActiveAt: session.lastActiveAt.toISOString(),
       orders: session.orders.map((order) => ({
         ...order,
+        ...toOrderAmountSummary(order),
+        pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+          order.pickupNumber,
+        ),
+        pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+        pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
+        createdAt: order.createdAt.toISOString(),
+        paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
+        acceptedAt: order.acceptedAt?.toISOString() ?? null,
+        refundTasks: order.refundTasks.map((task) => ({
+          ...task,
+          refundSucceededAt:
+            task.refundSucceededAt?.toISOString() ??
+            task.processedAt?.toISOString() ??
+            task.triggeredAt?.toISOString() ??
+            order.balanceTransactions[0]?.createdAt.toISOString() ??
+            null,
+        })),
+        balanceTransactions: order.balanceTransactions.map((transaction) => ({
+          createdAt: transaction.createdAt.toISOString(),
+        })),
         items: order.items.map((item) => ({
           ...item,
           unitPriceAmount: fenToYuan(item.unitPriceAmount),
@@ -260,44 +291,9 @@ export class ClubScanOrderingOrderQueryService {
         })),
       })),
     }));
-    const hasMore = hydratedSessions.length === take;
-    const items = hydratedSessions
-      .slice(0, hasMore ? -1 : undefined)
-      .filter((session) => session.orders.length > 0);
+
     return {
-      items: items.map((session) => ({
-        ...session,
-        createdAt: session.createdAt.toISOString(),
-        lastActiveAt: session.lastActiveAt.toISOString(),
-        orders: session.orders.map((order) => {
-          return {
-            ...order,
-            ...toOrderAmountSummary(order),
-            pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-              order.pickupNumber,
-            ),
-            pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
-            pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
-            createdAt: order.createdAt.toISOString(),
-            paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
-            acceptedAt: order.acceptedAt?.toISOString() ?? null,
-            refundTasks: order.refundTasks.map((task) => ({
-              ...task,
-              refundSucceededAt:
-                task.refundSucceededAt?.toISOString() ??
-                task.processedAt?.toISOString() ??
-                task.triggeredAt?.toISOString() ??
-                order.balanceTransactions[0]?.createdAt.toISOString() ??
-                null,
-            })),
-            balanceTransactions: order.balanceTransactions.map(
-              (transaction) => ({
-                createdAt: transaction.createdAt.toISOString(),
-              }),
-            ),
-          };
-        }),
-      })),
+      items,
       nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
     };
   }

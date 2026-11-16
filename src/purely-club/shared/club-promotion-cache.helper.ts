@@ -7,20 +7,23 @@
  *  - 12:00 才开始的活动 → 12:00:59 之前都看不到。
  * 因此 TTL 必须被「最近的活动边界」截断：缓存活不到任何边界之后。
  *
- * 口径：TTL = clamp(ceil(最近的开始/结束边界 - now), 下限 1s, 上限 60s)
+ * 口径：TTL = clamp(ceil(最近的开始/结束边界 - now), 下限 5s, 上限 60s)
  *  - 上限沿用改造前的 60s：无边界门店（空活动/长周期活动）仍需一个兜底刷新，
  *    覆盖「将来新增的活动写路径漏挂失效」；
- *  - 下限 1s：`RedisService.set` 的 `if (ttlSeconds)` 会把 0 当成「不设 TTL」，
- *    0 / 负数必须先夹到 1，否则缓存永不过期。
+ *  - 下限 5s：原为 1s，导致活动结束前几秒 TTL 退化成 1~2s —— 缓存等于不存在，
+ *    而每次请求都要回源 + 重写 Redis，等于用高频 IO 换 1s 的边界精度。
+ *    活动边界的业务容忍度是分钟级展示，5s 误差换来缓存真正生效；
+ *    同时也保证 TTL 非 0（`RedisService.set` 的 `if (ttlSeconds)` 会把 0
+ *    当成「不设 TTL」，那样缓存永不过期）。
  *
- * 精度：边界处最多 1s 误差（秒级 TTL + ceil），满足「到点即生效 / 即失效」。
+ * 精度：边界处最多 5s 误差（秒级 TTL + ceil），满足「到点即生效 / 即失效」。
  */
 
 /** 无边界可截断时的兜底 TTL（秒），与改造前保持一致 */
 export const CLUB_PROMOTION_CACHE_MAX_TTL_SECONDS = 60;
 
-/** 下限 1s，见文件头「RedisService.set 把 0 当不设 TTL」的说明 */
-const CLUB_PROMOTION_CACHE_MIN_TTL_SECONDS = 1;
+/** 下限 5s，见文件头「用高频 IO 换 1s 边界精度不划算」的说明 */
+const CLUB_PROMOTION_CACHE_MIN_TTL_SECONDS = 5;
 
 /** 参与边界计算的最小字段集（只读时间窗，不关心其它业务字段） */
 export interface ClubPromotionTimeWindow {

@@ -288,7 +288,7 @@ describe('ClubSelfOrderingMenuService', () => {
       expect(redisService.setJson).toHaveBeenCalledWith(cacheKey, result, 30);
     });
 
-    it('会话不可用时拒绝，且不会读取缓存', async () => {
+    it('会话不可用时拒绝，不返回缓存中的菜单', async () => {
       redisService.getJson.mockResolvedValue({
         menuVersion: 'v1:0:0',
         categories: [],
@@ -298,7 +298,9 @@ describe('ClubSelfOrderingMenuService', () => {
       await expect(service.getMenu(user, 42)).rejects.toThrow(
         ForbiddenException,
       );
-      expect(redisService.getJson).not.toHaveBeenCalled();
+      // 门禁与缓存读取并行（省一次串行往返），但缓存内容绝不会被返回
+      expect(prisma.productCategory.findMany).not.toHaveBeenCalled();
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
     });
 
     it('Redis 读失败时降级回源，菜单仍可返回', async () => {

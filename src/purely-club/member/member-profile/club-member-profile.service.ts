@@ -15,8 +15,16 @@ const CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS = 15;
 /** null 快照缓存 TTL（秒）：防穿透，比正常 TTL 更短 */
 const CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS = 5;
 
-/** 缓存 null 哨兵：JSON.stringify(null) === 'null'，getJson 会解析回 null */
-const NULL_SENTINEL = null;
+/**
+ * 空结果哨兵。
+ *
+ * 用显式对象而非 `null` 表达「已确认无档案」：`getJson` 返回 null 同时覆盖
+ * 「key 不存在」与「缓存了 null」两种语义，选 null 就得多跑一次 EXISTS 兜底。
+ * 换成 `{ found: false }` 后可单次 GET 判定，每次未命中少一次 RTT。
+ */
+const MISS_SENTINEL = { found: false } as const;
+
+type ClubMemberSnapshotCacheValue = ClubMemberSnapshot | typeof MISS_SENTINEL;
 
 interface ClubMemberAccountRecord {
   id: number;
@@ -134,17 +142,10 @@ export class ClubMemberProfileService {
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
     // 读缓存：门店+用户粒度，TTL 15s
-    const cached = await this.redisService.getJson<ClubMemberSnapshot | null>(
-      cacheKey,
-    );
+    const cached =
+      await this.redisService.getJson<ClubMemberSnapshotCacheValue>(cacheKey);
     if (cached !== null) {
-      return cached;
-    }
-    // 区分「缓存了 null 哨兵」与「未命中」：getJson 返回 null 有两种含义
-    // —— 已缓存 null（哨兵）或 key 不存在。用 exists 做二次确认。
-    const hasNullSentinel = await this.redisService.exists(cacheKey);
-    if (hasNullSentinel) {
-      return NULL_SENTINEL;
+      return 'found' in cached ? null : cached;
     }
 
     const [member, marketingCustomer] = await Promise.all([
@@ -157,12 +158,12 @@ export class ClubMemberProfileService {
       marketingCustomer,
     );
 
-    // 写缓存：非 null 写 15s，null 写 5s 防穿透
+    // 写缓存：有快照写 15s，空结果写哨兵 5s 防穿透
     const ttl =
       snapshot !== null
         ? CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS
         : CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS;
-    await this.redisService.setJson(cacheKey, snapshot, ttl);
+    await this.redisService.setJson(cacheKey, snapshot ?? MISS_SENTINEL, ttl);
 
     return snapshot;
   }

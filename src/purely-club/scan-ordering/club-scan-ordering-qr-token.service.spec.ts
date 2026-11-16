@@ -34,6 +34,7 @@ describe('ClubScanOrderingQrTokenService - resolveQrToken', () => {
     get: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
+    getJsonAndDelete: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -179,21 +180,26 @@ describe('ClubScanOrderingQrTokenService - resolveQrToken', () => {
 
   describe('consumeScanToken', () => {
     it('换取进店上下文后立即作废，防止凭据被重放', async () => {
-      redisService.get.mockResolvedValue(
-        JSON.stringify({ storeId: 100, tableId: 1 }),
-      );
+      // GETDEL 原子取删：并发下同一凭据只可能被一个请求拿到
+      redisService.getJsonAndDelete.mockResolvedValue({
+        storeId: 100,
+        tableId: 1,
+      });
 
       await expect(service.consumeScanToken('scan-token')).resolves.toEqual({
         storeId: 100,
         tableId: 1,
       });
-      expect(redisService.del).toHaveBeenCalledWith(
+      expect(redisService.getJsonAndDelete).toHaveBeenCalledWith(
         expect.stringContaining('club:scan-ordering:token:'),
       );
+      // 读删已合并为一条命令，不再有独立的 GET / DEL 往返
+      expect(redisService.get).not.toHaveBeenCalled();
+      expect(redisService.del).not.toHaveBeenCalled();
     });
 
     it('凭据不存在时报错，不返回空上下文', async () => {
-      redisService.get.mockResolvedValue(null);
+      redisService.getJsonAndDelete.mockResolvedValue(null);
 
       await expect(service.consumeScanToken('scan-token')).rejects.toThrow(
         BadRequestException,

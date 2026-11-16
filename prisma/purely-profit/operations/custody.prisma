@@ -71,6 +71,10 @@ model CustodyOrder {
   /// 本索引补齐「全部状态按创建时间倒序」的默认分页路径。
   @@index([storeId, createdAt(sort: Desc)], map: "idx_custody_orders_store_created", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, memberId, status], map: "idx_custody_orders_store_member_status", where: raw("(deleted_at IS NULL)"))
+  /// C 端「我的客存」列表：`memberId` 等值 + `ORDER BY created_at DESC` keyset 有序扫描。
+  /// 上面那条索引第三列是 status，默认 Tab（status=all）不带 status 条件时无法
+  /// 用 memberId 定位有序扫描，只能沿 (store_id, created_at DESC) 扫全店再回表过滤会员。
+  @@index([storeId, memberId, createdAt(sort: Desc)], map: "idx_custody_orders_store_member_created", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, productId, status], map: "idx_custody_orders_store_product_status", where: raw("((deleted_at IS NULL) AND (product_id IS NOT NULL))"))
   @@index([storeId, expireAt], map: "idx_custody_orders_store_expire", where: raw("((status = 'stored'::\"CustodyStatus\") AND (deleted_at IS NULL))"))
   @@map("custody_orders")

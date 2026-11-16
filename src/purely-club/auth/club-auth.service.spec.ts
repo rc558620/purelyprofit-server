@@ -9,6 +9,7 @@ import type { PhoneUserRecord } from '../../shared/auth/auth-account.types';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthCodeVerifyService } from '../../purely-profit/auth/auth-code-verify.service';
 import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-lookup.service';
+import { AuthLegacyOwnerRepairService } from '../../purely-profit/auth/auth-legacy-owner-repair.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
@@ -124,6 +125,10 @@ describe('ClubAuthService', () => {
           useValue: authAccountLookupServiceMock,
         },
         { provide: AuthSessionService, useValue: authSessionServiceMock },
+        {
+          provide: AuthLegacyOwnerRepairService,
+          useValue: { invalidateOwnerAbsentCache: jest.fn() },
+        },
         {
           provide: ClubStoreAccessService,
           useValue: clubStoreAccessServiceMock,
@@ -1082,12 +1087,23 @@ describe('ClubAuthService', () => {
       prismaService.marketingCustomer.updateMany.mockImplementation(
         (args: { where?: Record<string, unknown> }) => {
           const where = args?.where ?? {};
-          if (typeof where.id === 'number' && where.clubUserId === null) {
-            const claimed = unboundCustomers.find(
-              (item) => item.id === where.id,
-            );
-            if (claimed) {
-              claimedStoreIds.add(claimed.storeId);
+          if (where.clubUserId === null) {
+            // 认领孤儿档案现按门店取首条后一次批量写入（id: { in: [...] }），
+            // 同时兼容旧的单条（id: number）形态，确保认领门店都进入 claimedStoreIds
+            const idFilter = where.id as number | { in: number[] } | undefined;
+            const claimedIds =
+              typeof idFilter === 'number'
+                ? [idFilter]
+                : Array.isArray(idFilter?.in)
+                  ? idFilter.in
+                  : [];
+            for (const claimedId of claimedIds) {
+              const claimed = unboundCustomers.find(
+                (item) => item.id === claimedId,
+              );
+              if (claimed) {
+                claimedStoreIds.add(claimed.storeId);
+              }
             }
           }
           return { count: storeIds.length };
@@ -1390,9 +1406,10 @@ describe('ClubAuthService', () => {
 
       await service.rebindPhone(42, dto);
 
-      // 认领本身带 clubUserId 为 null 的条件，防止并发抢绑写到他人名下
+      // 认领本身带 clubUserId 为 null 的条件，防止并发抢绑写到他人名下；
+      // 现实现按门店取首条后一次批量认领，单条场景等价为 id in [901]
       expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
-        where: { id: 901, clubUserId: null },
+        where: { id: { in: [901] }, clubUserId: null },
         data: { clubUserId: 42 },
       });
       // 被认领的门店必须进入 Member 兜底的门店范围，否则该店整家漏同步

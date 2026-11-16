@@ -510,27 +510,27 @@ export class ClubPhoneRebindService {
 
     // 同一门店可能存在多条同号孤儿记录（历史重复导入）：只认领一条，
     // 其余保持不动，交给人工/迁移脚本处理，避免连锁改写。
-    const claimedStoreIds = new Set<number>();
-    let claimedCount = 0;
-
+    const firstIdPerStore = new Map<number, number>();
     for (const customer of unboundCustomers) {
-      if (claimedStoreIds.has(customer.storeId)) continue;
-
-      // 二次确认：并发写可能刚好把这行绑到别的用户名下，updateMany 会静默命中 0 条
-      const result = await tx.marketingCustomer.updateMany({
-        where: { id: customer.id, clubUserId: null },
-        data: { clubUserId: userId },
-      });
-      if (result.count > 0) {
-        claimedStoreIds.add(customer.storeId);
-        claimedCount += 1;
+      if (!firstIdPerStore.has(customer.storeId)) {
+        firstIdPerStore.set(customer.storeId, customer.id);
       }
     }
+
+    // 一条 updateMany 覆盖全部门店：原实现在事务内按门店逐条 updateMany，
+    // 事务长度与门店数线性相关，换绑这种多表写链路会把行锁一直持到事务结束。
+    // 仍保留 `clubUserId: null` 前置条件：并发被他人抢先认领的行静默跳过，
+    // 语义与逐条二次确认完全一致。
+    const result = await tx.marketingCustomer.updateMany({
+      where: { id: { in: [...firstIdPerStore.values()] }, clubUserId: null },
+      data: { clubUserId: userId },
+    });
+    const claimedCount = result.count;
 
     if (claimedCount > 0) {
       this.logger.log(
         `rebindPhone 认领孤儿顾客档案：user ${userId}，${claimedCount} 条，` +
-          `门店 [${[...claimedStoreIds].join(', ')}]`,
+          `候选门店 [${[...firstIdPerStore.keys()].join(', ')}]`,
       );
     }
 

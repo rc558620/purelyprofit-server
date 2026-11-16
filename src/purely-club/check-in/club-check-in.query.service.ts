@@ -50,26 +50,13 @@ export class ClubCheckInQueryService {
   async findCustomer(
     context: ClubCurrentContext,
   ): Promise<ClubCheckInCustomerRecord | null> {
-    const storeId = context.store.id;
-    const anchored =
-      await this.clubPointsQueryService.findCustomerByStoreAndPhone(
-        storeId,
-        context.user.phone,
-        context.user.id,
-      );
-    if (!anchored) {
-      return null;
-    }
-
-    return this.prisma.marketingCustomer.findFirst({
-      where: { id: anchored.id, storeId, deletedAt: null },
-      select: {
-        id: true,
-        points: true,
-        memberId: true,
-        clubUserId: true,
-      },
-    });
+    // 一次查询取全积分与会员绑定字段；原实现先按锚定查 id/points，
+    // 再按 id 回读同一行补 memberId/clubUserId，等于两次同表往返。
+    return this.clubPointsQueryService.findCustomerWithMemberLink(
+      context.store.id,
+      context.user.phone,
+      context.user.id,
+    );
   }
 
   buildHistoryFromDate(serverTime: number): string {

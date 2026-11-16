@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
@@ -9,7 +10,7 @@ const STORE_ID = 11;
 const CUSTOMER_ID = 36;
 const BASE_FEN = 10000;
 
-/** 首单 8 折：consumptionCount > 0 时不生效（见 toDiscountCandidate）。 */
+/** 首单 8 折：hasConsumption 为 true 时不生效（见 toDiscountCandidate）。 */
 const firstOrderPromotion = {
   id: 5,
   name: '新客首单',
@@ -20,20 +21,26 @@ const firstOrderPromotion = {
 describe('ClubOrderPromotionsService', () => {
   let service: ClubOrderPromotionsService;
 
-  const prisma = { marketingConsumption: { count: jest.fn() } };
+  const prisma = { marketingConsumption: { findFirst: jest.fn() } };
   const clubPromotionRepository = { loadActivePromotions: jest.fn() };
+  const redisService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     clubPromotionRepository.loadActivePromotions.mockResolvedValue([
       firstOrderPromotion,
     ]);
-    prisma.marketingConsumption.count.mockResolvedValue(0);
+    // 无消费流水 → 首单资格成立
+    prisma.marketingConsumption.findFirst.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubOrderPromotionsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redisService },
         { provide: ClubPromotionRepository, useValue: clubPromotionRepository },
         { provide: ClubMemberProfileService, useValue: {} },
         { provide: ClubMemberLevelsService, useValue: {} },
@@ -42,16 +49,16 @@ describe('ClubOrderPromotionsService', () => {
     service = module.get(ClubOrderPromotionsService);
   });
 
-  it('preloadPricingContext 一次加载活动与消费次数', async () => {
+  it('preloadPricingContext 一次加载活动与首单资格', async () => {
     const context = await service.preloadPricingContext(STORE_ID, CUSTOMER_ID);
 
     expect(clubPromotionRepository.loadActivePromotions).toHaveBeenCalledTimes(
       1,
     );
-    expect(prisma.marketingConsumption.count).toHaveBeenCalledTimes(1);
+    expect(prisma.marketingConsumption.findFirst).toHaveBeenCalledTimes(1);
     expect(context).toEqual({
       promotions: [firstOrderPromotion],
-      consumptionCount: 0,
+      hasConsumption: false,
     });
   });
 
@@ -71,19 +78,19 @@ describe('ClubOrderPromotionsService', () => {
     ]);
 
     expect(clubPromotionRepository.loadActivePromotions).not.toHaveBeenCalled();
-    expect(prisma.marketingConsumption.count).not.toHaveBeenCalled();
+    expect(prisma.marketingConsumption.findFirst).not.toHaveBeenCalled();
     expect(first.amountFen).toBe(8000);
     expect(second.amountFen).toBe(7040);
   });
 
-  it('首单资格按 context 里的消费次数判定（预加载不改变语义）', async () => {
+  it('首单资格按 context 里的消费标记判定（预加载不改变语义）', async () => {
     const firstOrder = await service.resolvePricing(
       STORE_ID,
       CUSTOMER_ID,
       BASE_FEN,
       {
         skipReduce: true,
-        context: { promotions: [firstOrderPromotion], consumptionCount: 0 },
+        context: { promotions: [firstOrderPromotion], hasConsumption: false },
       },
     );
     const notFirstOrder = await service.resolvePricing(
@@ -92,7 +99,7 @@ describe('ClubOrderPromotionsService', () => {
       BASE_FEN,
       {
         skipReduce: true,
-        context: { promotions: [firstOrderPromotion], consumptionCount: 1 },
+        context: { promotions: [firstOrderPromotion], hasConsumption: true },
       },
     );
 
@@ -113,7 +120,7 @@ describe('ClubOrderPromotionsService', () => {
     expect(clubPromotionRepository.loadActivePromotions).toHaveBeenCalledTimes(
       1,
     );
-    expect(prisma.marketingConsumption.count).toHaveBeenCalledTimes(1);
+    expect(prisma.marketingConsumption.findFirst).toHaveBeenCalledTimes(1);
     expect(resolution.amountFen).toBe(8000);
   });
 

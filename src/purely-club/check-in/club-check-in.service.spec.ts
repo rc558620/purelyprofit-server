@@ -76,7 +76,7 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
   let cacheInvalidatorService: {
     invalidateMarketingCustomerDerived: jest.Mock;
   };
-  let clubPointsQueryService: { findCustomerByStoreAndPhone: jest.Mock };
+  let clubPointsQueryService: { findCustomerWithMemberLink: jest.Mock };
 
   const promotionRow = (overrides: Record<string, unknown> = {}) => ({
     id: 7,
@@ -116,9 +116,7 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
         .mockResolvedValue(undefined),
     };
     clubPointsQueryService = {
-      findCustomerByStoreAndPhone: jest
-        .fn()
-        .mockResolvedValue({ id: 55, points: CUSTOMER_POINTS }),
+      findCustomerWithMemberLink: jest.fn().mockResolvedValue(customerDetail()),
     };
 
     tx.marketingPromotion.findFirst.mockResolvedValue(promotionRow());
@@ -221,7 +219,7 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
 
     tx.marketingPromotion.findFirst.mockResolvedValue(promotionRow());
     tx.marketingCustomer.findFirst.mockClear();
-    clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(null);
+    clubPointsQueryService.findCustomerWithMemberLink.mockResolvedValue(null);
     const noCustomer = await service.getStatus(makeContext());
     expect(noCustomer.activityEnabled).toBe(false);
     expect(noCustomer.pointsBalance).toBe(0);
@@ -304,7 +302,7 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
   });
 
   it('memberId 为空时不写 MemberPointsLog，其余账务仍一致', async () => {
-    tx.marketingCustomer.findFirst.mockResolvedValue(
+    clubPointsQueryService.findCustomerWithMemberLink.mockResolvedValue(
       customerDetail({ memberId: null }),
     );
     const result = await service.submit(makeContext(), 'req-3');
@@ -322,18 +320,11 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
         where: expect.objectContaining({ storeId: 99, type: 'daily_check_in' }),
       }),
     );
+    // 档案定位一次完成（含 memberId / clubUserId），不再二次同表回读
     expect(
-      clubPointsQueryService.findCustomerByStoreAndPhone,
+      clubPointsQueryService.findCustomerWithMemberLink,
     ).toHaveBeenCalledWith(99, '13800138000', 201);
-    expect(tx.marketingCustomer.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: 55,
-          storeId: 99,
-          deletedAt: null,
-        }),
-      }),
-    );
+    expect(tx.marketingCustomer.findFirst).not.toHaveBeenCalled();
     expect(
       (
         tx.clubDailyCheckInRecord.create.mock.calls[0][0] as {

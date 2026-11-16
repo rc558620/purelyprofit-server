@@ -120,8 +120,10 @@ export class ClubCareRecordsService {
         }
       : baseWhere;
 
-    // 多取一行判断是否还有下一页；count 用不含游标的基础条件
-    const [rawRows, total] = await Promise.all([
+    // 多取一行判断是否还有下一页；count 用不含游标的基础条件。
+    // 对比区间（仅首屏需要）不依赖本页行，与列表、count 一起并行发起，
+    // 避免「首页多等一轮 compareRange」的串行往返。
+    const [rawRows, total, compareRange] = await Promise.all([
       this.prisma.careRecord.findMany({
         where,
         orderBy: CARE_ORDER_BY,
@@ -129,11 +131,6 @@ export class ClubCareRecordsService {
         select: CARE_RECORD_ROW_SELECT,
       }),
       this.prisma.careRecord.count({ where: baseWhere }),
-    ]);
-
-    const rows = rawRows.slice(0, pageSize);
-    const [items, compareRange] = await Promise.all([
-      mapCareRecordRows(this.prisma, storeId, rows, toClubCareRecordDto),
       position
         ? Promise.resolve(undefined)
         : queryCareRecordCompareRange(
@@ -143,6 +140,14 @@ export class ClubCareRecordsService {
             toClubCareRecordDto,
           ),
     ]);
+
+    const rows = rawRows.slice(0, pageSize);
+    const items = await mapCareRecordRows(
+      this.prisma,
+      storeId,
+      rows,
+      toClubCareRecordDto,
+    );
 
     return {
       technicianLabel,

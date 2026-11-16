@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { SCAN_ORDER_BLOCKED_MESSAGE } from '../../purely-profit/member/platform-membership/membership-downgrade.messages';
 import { computeCartVersion } from './club-scan-ordering-cart-pricing.utils';
+import { buildClubCartItemUpsertQuery } from './club-scan-ordering-cart-write.helper';
 import type {
   AddClubScanCartItemDto,
   UpdateClubScanCartItemDto,
@@ -25,6 +26,51 @@ import type {
 type CartItemWithSpecs = Prisma.ScanOrderingCartItemGetPayload<{
   include: { specs: true };
 }>;
+
+/**
+ * 会话归属校验所需的最小字段集。
+ *
+ * ensureSessionOwner 只看归属/状态/有效期，改量还要用 storeId 读商品；
+ * 用整行 `session: true` 会把桌台关系、扫码上下文等宽列一起拉回来。
+ */
+const SESSION_OWNERSHIP_SELECT = {
+  clubUserId: true,
+  status: true,
+  expiresAt: true,
+  deletedAt: true,
+  storeId: true,
+} as const;
+
+/**
+ * 点餐链路读会话（requireSession）的字段白名单。
+ *
+ * 归属校验只需上面 5 列，这里再补会话主键与 `createdAt`（会员过期门店的
+ * 「已开台会话允许继续加点」判定要用）。桌台关系、`session_token_hash`、
+ * 设备信息等列在加购/改量/读购物车路径上没有任何消费方：原先的
+ * `include: { table: true }` 会额外回表整行桌台，把每次点餐请求都多付一次
+ * 关联查询与更宽的列读取。
+ */
+const SESSION_READ_SELECT = {
+  ...SESSION_OWNERSHIP_SELECT,
+  id: true,
+  createdAt: true,
+} as const;
+
+/**
+ * 会话购物车快照。
+ *
+ * 加购一次要同时用到「该商品已占总量」「各规格选项已占数量」「购物车响应体」
+ * 三份数据，而三者的 where 完全一致（sessionId + active + 未删除）。原实现分别用
+ * aggregate、专用 findMany、include findMany 各查一次，重复读同一批行；这里合并成
+ * 一次读取后在内存聚合，行数本来就要回传前端，不存在额外传输成本。
+ */
+interface CartSnapshot {
+  items: CartItemWithSpecs[];
+  /** menuProductId → 该商品在购物车中的活跃行数量合计 */
+  productQuantities: Map<number, number>;
+  /** specOptionId → 该规格选项在购物车中的已占数量合计 */
+  specOptionQuantities: Map<number, number>;
+}
 
 @Injectable()
 export class ClubScanOrderingCartService {
@@ -46,6 +92,28 @@ export class ClubScanOrderingCartService {
       orderBy: { updatedAt: 'asc' },
       include: { specs: true },
     });
+  }
+
+  /** 一次读回购物车并聚合出商品级 / 规格级占用数量（替代两条重复查询）。 */
+  private async loadCartSnapshot(sessionId: number): Promise<CartSnapshot> {
+    const items = await this.loadCartItems(sessionId);
+    const productQuantities = new Map<number, number>();
+    const specOptionQuantities = new Map<number, number>();
+
+    for (const item of items) {
+      productQuantities.set(
+        item.menuProductId,
+        (productQuantities.get(item.menuProductId) ?? 0) + item.quantity,
+      );
+      for (const spec of item.specs) {
+        specOptionQuantities.set(
+          spec.specOptionId,
+          (specOptionQuantities.get(spec.specOptionId) ?? 0) + item.quantity,
+        );
+      }
+    }
+
+    return { items, productQuantities, specOptionQuantities };
   }
 
   /**
@@ -74,13 +142,14 @@ export class ClubScanOrderingCartService {
     >,
   ): Promise<{ unitPriceAmount: number }> {
     const session = await this.requireSession(user, dto.sessionId);
-    const product = await this.loadProduct(session.storeId, dto.productId);
+    // 商品快照与购物车规格占用互不依赖（都只需要 session），并行发起省一次往返
+    const [product, quotedSpecQuantities] = await Promise.all([
+      this.loadProduct(session.storeId, dto.productId),
+      // 报价同样要校验规格库存，否则弹窗会给出「可加购」的价格却加不进去
+      this.resolveCartSpecOptionQuantities(session.id),
+    ]);
     this.assertPurchasable(product, 1);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
-    // 报价同样要校验规格库存，否则弹窗会给出「可加购」的价格却加不进去
-    const quotedSpecQuantities = await this.resolveCartSpecOptionQuantities(
-      session.id,
-    );
     for (const option of options) {
       quotedSpecQuantities.set(
         option.id,
@@ -108,19 +177,20 @@ export class ClubScanOrderingCartService {
       session.createdAt,
     );
 
-    const product = await this.loadProduct(session.storeId, dto.productId);
+    // 商品快照与购物车快照互不依赖（都只需要 session），并行发起省一次往返；
+    // 购物车快照一次读回活跃行，同时提供「该商品已占总量」与「规格已占数量」，
+    // 替代原先 aggregate + 专用 findMany 两次重复读同一批行。
+    const [product, cartSnapshot] = await Promise.all([
+      this.loadProduct(session.storeId, dto.productId),
+      this.loadCartSnapshot(session.id),
+    ]);
     // 同一商品的不同规格会落在多条购物车行，库存必须按「该商品在购物车中的总量」校验，
     // 与下单时的 ClubScanOrderingInventoryReservationService 聚合口径保持一致。
-    const cartQuantity = await this.resolveCartProductQuantity(
-      session.id,
-      product.id,
-    );
+    const cartQuantity = cartSnapshot.productQuantities.get(product.id) ?? 0;
     this.assertPurchasable(product, cartQuantity + dto.quantity);
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
     // 规格库存必须与商品库存同口径：本次数量 + 购物车中该规格已占数量
-    const specQuantities = await this.resolveCartSpecOptionQuantities(
-      session.id,
-    );
+    const specQuantities = cartSnapshot.specOptionQuantities;
     for (const option of options) {
       specQuantities.set(
         option.id,
@@ -135,32 +205,31 @@ export class ClubScanOrderingCartService {
       product.basePrice +
       options.reduce((sum, item) => sum + item.extraPrice, 0);
 
-    // 并发首次加购同一规格会撞 (sessionId, menuProductId, specSignature) 的部分唯一
-    // 索引：这里捕获 P2002 重试一次，重试时已能查到对方提交的行并走累加分支。
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        await this.writeCartItem(
-          session.id,
-          product.id,
-          specSignature,
-          dto.quantity,
-          unitPriceAmount,
-          options.map((option) => ({
-            specOptionId: option.id,
-            extraPriceSnapshot: option.extraPrice,
-          })),
-        );
-        break;
-      } catch (error) {
-        if (attempt === 0 && this.isUniqueViolation(error)) continue;
-        throw error;
-      }
-    }
+    // 写入交给数据库原子完成：并发首购同一规格由 ON CONFLICT 排队后走累加分支，
+    // 不再依赖捕获 P2002 后重试（详见 writeCartItem 注释）。
+    await this.writeCartItem(
+      session.id,
+      product.id,
+      specSignature,
+      dto.quantity,
+      unitPriceAmount,
+      options.map((option) => ({
+        specOptionId: option.id,
+        extraPriceSnapshot: option.extraPrice,
+      })),
+    );
     // 会话与购物车行都已在本次写操作中取过，直接组装响应
     return this.toCartPayload(session.id, await this.loadCartItems(session.id));
   }
 
-  /** 购物车行写入：同规格已存在则累加，否则新建。 */
+  /**
+   * 购物车行原子写入：同规格已存在则累加，否则新建。
+   *
+   * 原实现用交互式事务包 `findFirst → create/update → 规格 create`，单次加购要付
+   * 5 次往返（BEGIN / SELECT / 写行 / 写规格 / COMMIT），并发首购还要靠捕获 P2002
+   * 重试一次才能收敛。现在合并为一条 `INSERT … ON CONFLICT DO UPDATE`（含 CTE 联写
+   * 规格行），语句细节、推断谓词约束与列默认值注意事项见 helper 注释。
+   */
   private async writeCartItem(
     sessionId: number,
     menuProductId: number,
@@ -169,49 +238,15 @@ export class ClubScanOrderingCartService {
     unitPriceAmount: number,
     specs: Array<{ specOptionId: number; extraPriceSnapshot: number }>,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.scanOrderingCartItem.findFirst({
-        where: {
-          sessionId,
-          menuProductId,
-          specSignature,
-          status: 'active',
-          deletedAt: null,
-        },
-      });
-      if (existing) {
-        const nextQuantity = existing.quantity + quantity;
-        await tx.scanOrderingCartItem.update({
-          where: { id: existing.id },
-          data: {
-            quantity: nextQuantity,
-            lineTotalAmount: nextQuantity * unitPriceAmount,
-            unitPriceAmount,
-            version: { increment: 1 },
-          },
-        });
-        return;
-      }
-      await tx.scanOrderingCartItem.create({
-        data: {
-          sessionId,
-          menuProductId,
-          specSignature,
-          quantity,
-          unitPriceAmount,
-          lineTotalAmount: quantity * unitPriceAmount,
-          specs: { create: specs },
-        },
-      });
-    });
-  }
-
-  /** Prisma 唯一约束冲突（P2002）判定。 */
-  private isUniqueViolation(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      (error as { code?: unknown }).code === 'P2002'
+    await this.prisma.$executeRaw(
+      buildClubCartItemUpsertQuery({
+        sessionId,
+        menuProductId,
+        specSignature,
+        quantity,
+        unitPriceAmount,
+        specs,
+      }),
     );
   }
 
@@ -222,7 +257,8 @@ export class ClubScanOrderingCartService {
   ): Promise<unknown> {
     const item = await this.prisma.scanOrderingCartItem.findFirst({
       where: { id: itemId, status: 'active', deletedAt: null },
-      include: { session: true },
+      // 只取归属校验与后续步骤需要的会话字段，避免整行会话回表
+      include: { session: { select: SESSION_OWNERSHIP_SELECT } },
     });
     if (!item)
       throw new NotFoundException(
@@ -273,7 +309,7 @@ export class ClubScanOrderingCartService {
   ): Promise<unknown> {
     const item = await this.prisma.scanOrderingCartItem.findFirst({
       where: { id: itemId, status: 'active', deletedAt: null },
-      include: { session: true },
+      include: { session: { select: SESSION_OWNERSHIP_SELECT } },
     });
     if (!item)
       throw new NotFoundException(
@@ -374,7 +410,9 @@ export class ClubScanOrderingCartService {
     menuProductId: number,
     excludeCartItemId?: number,
   ): Promise<number> {
-    const items = await this.prisma.scanOrderingCartItem.findMany({
+    // 求和下推到数据库：原实现把每一行 quantity 拉回 Node 再 reduce，
+    // 加购/改量每次都回传 N 行，现在只回传一个标量。
+    const aggregated = await this.prisma.scanOrderingCartItem.aggregate({
       where: {
         sessionId,
         menuProductId,
@@ -382,9 +420,9 @@ export class ClubScanOrderingCartService {
         deletedAt: null,
         ...(excludeCartItemId ? { id: { not: excludeCartItemId } } : {}),
       },
-      select: { quantity: true },
+      _sum: { quantity: true },
     });
-    return items.reduce((sum, item) => sum + item.quantity, 0);
+    return aggregated._sum.quantity ?? 0;
   }
 
   private async requireSession(
@@ -399,7 +437,7 @@ export class ClubScanOrderingCartService {
         expiresAt: { gt: new Date() },
         deletedAt: null,
       },
-      include: { table: true },
+      select: SESSION_READ_SELECT,
     });
     if (!session)
       throw new ForbiddenException(
@@ -523,9 +561,12 @@ export class ClubScanOrderingCartService {
         ),
       );
     for (const group of groups) {
-      const count = options.filter((option) =>
-        group.options.some((candidate) => candidate.id === option.id),
-      ).length;
+      // 选中项数量：先建选中集合，再线性统计该组命中的选项数，
+      // 避免 options × group.options 的嵌套扫描。
+      let count = 0;
+      for (const candidate of group.options) {
+        if (selected.has(candidate.id)) count += 1;
+      }
       if (
         count < group.minSelections ||
         (group.maxSelections !== null && count > group.maxSelections)

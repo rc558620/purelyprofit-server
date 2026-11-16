@@ -15,6 +15,8 @@ import type {
   PromotionCustomerLookup,
 } from './scan-ordering-promotion.adapter';
 import {
+  CART_PRICING_CART_ITEM_SELECT,
+  CART_PRICING_PRODUCT_SELECT,
   allocateLineDiscounts,
   buildPreviewBreakdownItems,
   computeCartVersion,
@@ -92,7 +94,9 @@ export class ClubScanOrderingCartPricingService {
   }> {
     const cartItems = await this.prisma.scanOrderingCartItem.findMany({
       where: { sessionId, status: 'active', deletedAt: null },
-      include: { specs: true },
+      // 白名单取列：预览只需行版本 / 数量 / 选中规格选项，
+      // 不把整行快照文案（商品名、图片、类目等冗余列）拉回 Node。
+      select: CART_PRICING_CART_ITEM_SELECT,
       // 与定价版本计算同口径：hash 输入里的 cartItems 不做排序，行序必须稳定
       orderBy: { id: 'asc' },
     });
@@ -109,23 +113,9 @@ export class ClubScanOrderingCartPricingService {
         storeId,
         deletedAt: null,
       },
-      include: {
-        category: true,
-        product: {
-          select: { image: true, isActive: true, deletedAt: true, stock: true },
-        },
-        // 必须与加购（loadProduct）和菜单查询同口径过滤 isActive，
-        // 否则已停用的规格组仍会参与 minSelections 校验，把老购物车行判成
-        // 「规格已更新」，而加购时却根本看不到这些组——前后口径打架。
-        //
-        // 规格项**不加** isActive 过滤：一是与定价版本计算同口径（失效但仍在
-        // 用的规格也要进 hash），二是 resolveCartItemSpecs 自身已按 isActive 过滤，
-        // 放开过滤不会改变它的判定结果。
-        specGroups: {
-          where: { isActive: true },
-          include: { options: true },
-        },
-      },
+      // 白名单取列：定价 / 售罄校验 / hash 只消费所选字段，
+      // 分类不拉整行、规格项不拉描述与图片等展示列（口径见常量注释）。
+      select: CART_PRICING_PRODUCT_SELECT,
     });
     // 同一商品的不同规格会形成多条购物车行，但菜单商品查询按 ID 去重。
     // 必须与去重后的商品 ID 数量比较，不能与购物车行数比较。

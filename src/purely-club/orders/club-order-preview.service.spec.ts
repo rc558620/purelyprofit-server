@@ -61,7 +61,7 @@ describe('ClubOrderPreviewService', () => {
     // 行级定价与订单级满减必须复用同一份活动快照
     clubOrderPromotionsService.preloadPricingContext.mockResolvedValue({
       promotions: [],
-      consumptionCount: 0,
+      hasConsumption: false,
     });
     // 默认余额充足（¥1000），余额不足场景单独覆盖
     prismaService.marketingCustomer.findUnique.mockResolvedValue({
@@ -313,7 +313,7 @@ describe('ClubOrderPreviewService', () => {
             );
           }),
         ]);
-        return { promotions: [], consumptionCount: 0 };
+        return { promotions: [], hasConsumption: false };
       },
     );
     prismaService.marketingCustomer.findUnique.mockImplementation(() => {

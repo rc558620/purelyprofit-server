@@ -215,20 +215,23 @@ export class ClubScanOrderingMarketingCustomerService {
     storeId: number,
     clubUserId: number,
   ): Promise<ClubActiveMarketingCustomer | null> {
-    const [boundCustomer, user] = await Promise.all([
-      this.prisma.marketingCustomer.findFirst({
-        where: { storeId, clubUserId, status: 'active', deletedAt: null },
-        select: ACTIVE_CUSTOMER_SELECT,
-      }),
-      // 仅用于 legacy 档案定位（wechatPhone），命中绑定档案时结果被丢弃
-      this.prisma.user.findUnique({
-        where: { id: clubUserId },
-        select: { wechatPhone: true },
-      }),
-    ]);
-    // 快路径：已按 club_user_id 绑定，无需再按手机号兜底（绑定档案才是权威）
-    if (boundCustomer || !user?.wechatPhone) {
+    const boundCustomer = await this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, status: 'active', deletedAt: null },
+      select: ACTIVE_CUSTOMER_SELECT,
+    });
+    // 快路径：已按 club_user_id 绑定，无需再按手机号兜底（绑定档案才是权威）。
+    // 预览链路上绝大多数请求命中这条路径，因此不再预取 user.wechatPhone ——
+    // 只有未绑定档案（新客 / 历史档案）才多花一次往返去取手机号。
+    if (boundCustomer) {
       return boundCustomer;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: clubUserId },
+      select: { wechatPhone: true },
+    });
+    if (!user?.wechatPhone) {
+      return null;
     }
 
     return this.prisma.marketingCustomer.findFirst({

@@ -222,7 +222,12 @@ export class ClubCheckInService {
     requestId: string,
   ): Promise<ClubCheckInSubmitState> {
     const storeId = context.store.id;
-    const promotionRow = await this.queryService.findPromotion(storeId);
+    // 活动配置与会员档案互不依赖：并行取数省一次串行往返，
+    // 校验与抛错顺序保持原样（先活动、后档案），错误码语义不变。
+    const [promotionRow, customer] = await Promise.all([
+      this.queryService.findPromotion(storeId),
+      this.queryService.findCustomer(context),
+    ]);
     if (!promotionRow) {
       this.logger.warn(`[${requestId}] 签到活动未配置 storeId=${storeId}`);
       throw buildCheckInBusinessError(CHECK_IN_ACTIVITY_NOT_FOUND_CODE);
@@ -232,7 +237,6 @@ export class ClubCheckInService {
       this.logger.warn(`[${requestId}] 签到活动未生效 storeId=${storeId}`);
       throw buildCheckInBusinessError(CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE);
     }
-    const customer = await this.queryService.findCustomer(context);
     if (!customer) {
       this.logger.warn(`[${requestId}] 会员档案缺失 storeId=${storeId}`);
       throw buildCheckInBusinessError(CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE);

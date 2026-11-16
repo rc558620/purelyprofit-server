@@ -3,7 +3,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
+import { AuthBanGuardService } from '../../purely-profit/auth/auth-ban-guard.service';
 import { AuthMembershipResolverService } from '../../purely-profit/auth/auth-membership-resolver.service';
+import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
+import { AuthUserCacheService } from '../../purely-profit/auth/auth-user-cache.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { RedisService } from '../../redis/redis.service';
@@ -62,6 +65,19 @@ describe('ScanOrderingGateway', () => {
     resolveAuthenticatedMembership: jest.fn(),
   };
 
+  const authUserCacheService = {
+    resolveUser: jest.fn(),
+  };
+
+  const authBanGuardService = {
+    ensureUserNotBanned: jest.fn(),
+  };
+
+  const authSessionService = {
+    getTokenVersion: jest.fn(),
+    isSessionActive: jest.fn(),
+  };
+
   const realtimeService = {
     bindServer: jest.fn(),
     orderRoom: jest.fn((id: number) => `order:${id}`),
@@ -105,6 +121,10 @@ describe('ScanOrderingGateway', () => {
 
     jwtService.verify.mockReturnValue(validPayload);
     prismaService.user.findUnique.mockResolvedValue(validAccount);
+    authUserCacheService.resolveUser.mockResolvedValue(validAccount);
+    authBanGuardService.ensureUserNotBanned.mockResolvedValue(undefined);
+    authSessionService.getTokenVersion.mockResolvedValue(0);
+    authSessionService.isSessionActive.mockResolvedValue(true);
     authMembershipResolverService.resolveAuthenticatedMembership.mockResolvedValue(
       validMembership,
     );
@@ -122,6 +142,9 @@ describe('ScanOrderingGateway', () => {
           provide: AuthMembershipResolverService,
           useValue: authMembershipResolverService,
         },
+        { provide: AuthUserCacheService, useValue: authUserCacheService },
+        { provide: AuthBanGuardService, useValue: authBanGuardService },
+        { provide: AuthSessionService, useValue: authSessionService },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },
         { provide: RedisService, useValue: redisService },
       ],
@@ -171,7 +194,7 @@ describe('ScanOrderingGateway', () => {
     // ── 3. 用户不存在时连接被拒绝 ──────────────────────────────
 
     it('3. 用户不存在时连接被拒绝', async () => {
-      prismaService.user.findUnique.mockResolvedValue(null);
+      authUserCacheService.resolveUser.mockResolvedValue(null);
       const client = createMockSocket({
         auth: { token: 'valid-but-user-deleted' },
       });

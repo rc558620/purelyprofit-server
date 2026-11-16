@@ -291,6 +291,9 @@ export class ClubCardOrderService {
   ): Promise<ClubMemberCardOrderView> {
     const order = await this.findOwnedOrder(currentContext, orderId);
 
+    // 只有真的发生了落账，库内状态才可能变化；否则复用已读订单，
+    // 省掉前端轮询 getOrderStatus 时每次一次的整行重读。
+    let latest = order;
     if (query?.verify === true && order.status === 'unpaid') {
       const verified = await this.wechatVerifyService.confirmPaidOnWechat({
         scope: 'card',
@@ -304,10 +307,10 @@ export class ClubCardOrderService {
           order.amount,
           verified,
         );
+        latest = await this.reloadOrder(order.id);
       }
     }
 
-    const latest = await this.reloadOrder(order.id);
     const firstCard = await this.prisma.memberCard.findFirst({
       where: { orderId: latest.id },
       orderBy: { id: 'asc' },

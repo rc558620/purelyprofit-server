@@ -138,7 +138,7 @@ describe('ClubOrderServiceCreationService（并行化后契约不变）', () => 
     quotaService.assertAvailableForOrder.mockResolvedValue(true);
     promotionsService.preloadPricingContext.mockResolvedValue({
       promotions: [],
-      consumptionCount: 0,
+      hasConsumption: false,
     });
     promotionsService.resolvePricing.mockResolvedValue(PRICING);
     promotionsService.resolveOrderReduceFen.mockResolvedValue(500);
@@ -263,7 +263,7 @@ describe('ClubOrderServiceCreationService（并行化后契约不变）', () => 
     });
     promotionsService.preloadPricingContext.mockImplementation(() => {
       releasePreload();
-      return Promise.resolve({ promotions: [], consumptionCount: 0 });
+      return Promise.resolve({ promotions: [], hasConsumption: false });
     });
 
     await expect(

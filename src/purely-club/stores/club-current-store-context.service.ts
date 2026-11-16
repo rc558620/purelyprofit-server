@@ -200,6 +200,34 @@ export class ClubCurrentStoreContextService {
   }
 
   /**
+   * 入店路径的「确保当前门店是目标门店」：已经是该门店时直接返回，不走
+   * 可访问性查询 + Redis SET。
+   *
+   * 语义安全性：选中值只可能由 {@link switchCurrentStore} /
+   * {@link resolveCurrentStoreIdFromValue} 在通过可访问性校验后写入，
+   * 因此「已是选中门店」本身代表此前校验通过；若期间失去该门店访问权，
+   * {@link getCurrentStore} 会用最新门店列表把失效选中值过滤掉，不会因此放行。
+   *
+   * 与 `switchCurrentStore` 的差异仅在于省掉一次 `members.some` OR 查询与一次 SET——
+   * 扫码进桌是最高频链路，多门店用户反复扫同一家店时这次查询纯属重复。
+   */
+  async ensureCurrentStore(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): Promise<void> {
+    const memoized = this.clubCurrentContextCache.get(user.id);
+    if (memoized?.selectedStoreId === storeId) {
+      return;
+    }
+
+    if ((await this.readSelectedStoreId(user.id)) === storeId) {
+      return;
+    }
+
+    await this.switchCurrentStore(user, storeId);
+  }
+
+  /**
    * 解析当前门店 ID；返回 null 表示「需要用户显式选店」。
    *
    * 只在单门店时自动选中。多门店且没有有效选店时若回落 `stores[0]`，
@@ -252,6 +280,31 @@ export class ClubCurrentStoreContextService {
   async clearSelectedStoreId(userId: number): Promise<void> {
     this.clubCurrentContextCache.delete(userId);
     await this.redisService.del(this.buildSelectedStoreKey(userId));
+  }
+
+  /**
+   * 选店页组合读取：一次 MGET 同时取回「可访问门店」与「已选门店」，再据此定夺当前门店。
+   *
+   * 原 `/club/stores` 走的是 findAccessibleStores（1 次 GET）+ resolveCurrentStoreId
+   * （再 1 次 GET 同一个选中门店 key），两次往返读的本来就是同一批 key。
+   * 复用 loadAccessSnapshot 后固定 1 次 MGET。
+   *
+   * 返回 `currentStoreId = null` 表示「需要用户显式选店」，语义与 resolveCurrentStoreId 一致。
+   */
+  async resolveStoresAndCurrentStoreId(user: AuthenticatedUser): Promise<{
+    stores: ClubAccessibleStoreRecord[];
+    currentStoreId: number | null;
+  }> {
+    const snapshot = await this.loadAccessSnapshot(user);
+    const currentStoreId =
+      snapshot.stores.length === 0
+        ? null
+        : await this.resolveCurrentStoreIdFromValue(
+            user.id,
+            snapshot.stores,
+            snapshot.selectedStoreId,
+          );
+    return { stores: snapshot.stores, currentStoreId };
   }
 
   private async readSelectedStoreId(userId: number): Promise<number | null> {

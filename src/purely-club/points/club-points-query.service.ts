@@ -24,6 +24,14 @@ export interface ClubPointsCustomerRecord {
   points: number;
 }
 
+/** 顾客档案 + 会员绑定关系（签到链路一次性取全所需字段，避免回读同一行） */
+export interface ClubPointsCustomerLinkRecord extends ClubPointsCustomerRecord {
+  /** 关联会员档案 ID，无则为 null */
+  memberId: number | null;
+  /** 绑定的小程序用户 ID，无主档案为 null */
+  clubUserId: number | null;
+}
+
 /** 积分记录游标载荷（解码后）：时间 + ID 用于定位（同刻记录按 ID 补足次序） */
 export interface ClubPointsCursorPayload {
   /** 上一页最后一条记录的创建时间 ISO 字符串 */
@@ -97,6 +105,42 @@ export class ClubPointsQueryService {
     return this.prisma.marketingCustomer.findFirst({
       where: { storeId, phone, clubUserId: null, deletedAt: null },
       select: { id: true, points: true },
+    });
+  }
+
+  /**
+   * 与 findCustomerByStoreAndPhone 同锚定口径，但一次性带回 memberId / clubUserId。
+   *
+   * 签到链路既需要积分又需要会员绑定关系：先调上面的方法再按 id 回查同一行，
+   * 会让单请求多出一次同表往返。这里把字段合并进同一条查询，命中锚点即结束。
+   */
+  async findCustomerWithMemberLink(
+    storeId: number,
+    phone: string,
+    clubUserId: number,
+  ): Promise<ClubPointsCustomerLinkRecord | null> {
+    const bound = await this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, deletedAt: null },
+      select: {
+        id: true,
+        points: true,
+        memberId: true,
+        clubUserId: true,
+      },
+    });
+
+    if (bound) {
+      return bound;
+    }
+
+    return this.prisma.marketingCustomer.findFirst({
+      where: { storeId, phone, clubUserId: null, deletedAt: null },
+      select: {
+        id: true,
+        points: true,
+        memberId: true,
+        clubUserId: true,
+      },
     });
   }
 

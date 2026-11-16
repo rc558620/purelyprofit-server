@@ -5,6 +5,14 @@ import { ClubMemberLevelsService } from '../member-levels/club-member-levels.ser
 import { ClubMemberProfileService } from '../member-profile/club-member-profile.service';
 import type { ClubMemberBenefitsDto } from './dto/club-member-benefit.dto';
 
+/** 等级序位表：模块级常量，避免每次权益比对都重建一次对象字面量 */
+const CLUB_MEMBER_LEVEL_RANK: Record<ClubMemberLevelValue, number> = {
+  regular: 0,
+  gold: 1,
+  platinum: 2,
+  diamond: 3,
+};
+
 @Injectable()
 export class ClubMemberBenefitsService {
   constructor(
@@ -42,16 +50,9 @@ export class ClubMemberBenefitsService {
     currentLevel: ClubMemberLevelValue,
     targetLevel: ClubMemberLevelValue,
   ): boolean {
-    return this.getLevelRank(currentLevel) >= this.getLevelRank(targetLevel);
-  }
-
-  private getLevelRank(level: ClubMemberLevelValue): number {
-    const rankMap: Record<ClubMemberLevelValue, number> = {
-      regular: 0,
-      gold: 1,
-      platinum: 2,
-      diamond: 3,
-    };
-    return rankMap[level];
+    return (
+      CLUB_MEMBER_LEVEL_RANK[currentLevel] >=
+      CLUB_MEMBER_LEVEL_RANK[targetLevel]
+    );
   }
 }

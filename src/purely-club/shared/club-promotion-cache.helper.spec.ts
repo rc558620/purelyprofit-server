@@ -52,13 +52,13 @@ describe('resolveClubPromotionCacheTtlSeconds', () => {
     expect(ttl).toBe(7);
   });
 
-  it('边界不足 1s 时夹到 1s：RedisService 会把 0 当成「不设 TTL」', () => {
+  it('边界不足下限时夹到 5s：避免 TTL 退化成 1s 让缓存形同虚设', () => {
     const ttl = resolveClubPromotionCacheTtlSeconds(
       [timeWindow('2026-06-01T00:00:00.000Z', '2026-06-12T12:00:00.200Z')],
       NOW,
     );
 
-    expect(ttl).toBe(1);
+    expect(ttl).toBe(5);
   });
 
   it('边界超过上限时夹到上限', () => {

@@ -101,7 +101,8 @@ describe('ClubPromotionRepository', () => {
     const result = await repository.loadActivePromotions(11);
 
     expect(result).toEqual([]);
-    expect(redisService.setJson).toHaveBeenCalledWith(CACHE_KEY, [], 4);
+    // 边界只剩 4s，夹到 TTL 下限 5s（避免 TTL 退化成 1s 让缓存形同虚设）
+    expect(redisService.setJson).toHaveBeenCalledWith(CACHE_KEY, [], 5);
   });
 
   it('已开始活动按 4 类投影返回，TTL 由最近结束边界决定', async () => {

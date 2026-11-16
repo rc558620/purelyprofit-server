@@ -10,6 +10,7 @@ import {
   AUTH_USER_CACHE_KEY_PREFIX,
   AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX,
   AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX,
+  AUTH_LEGACY_OWNER_ABSENT_KEY_PREFIX,
   PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX,
   STORE_PROFILE_KEY_PREFIX,
 } from './auth.constants';
@@ -416,4 +417,14 @@ export function buildMembershipRowsCacheKey(
  */
 export function buildUserRelatedStoreIdsCacheKey(userId: number): string {
   return `${AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX}${userId}`;
+}
+
+/**
+ * 构建「该账号无 owner 门店」负缓存 key。
+ *
+ * 用于短路遗留店主补齐的落空查询：C 端会员账号永远不会有 stores.owner_id，
+ * 但每次鉴权（membership rows 为空时）都会跑一次 owner 门店查询。
+ */
+export function buildLegacyOwnerAbsentCacheKey(userId: number): string {
+  return `${AUTH_LEGACY_OWNER_ABSENT_KEY_PREFIX}${userId}`;
 }

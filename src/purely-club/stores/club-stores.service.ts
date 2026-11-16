@@ -22,7 +22,11 @@ export class ClubStoresService {
   ) {}
 
   async list(user: AuthenticatedUser): Promise<ClubStoresResponseDto> {
-    const stores = await this.clubStoreAccessService.findAccessibleStores(user);
+    // 门店列表与选中门店一次 MGET 读回：原实现分两次 GET 同一批 key
+    const { stores, currentStoreId } =
+      await this.clubCurrentStoreContextService.resolveStoresAndCurrentStoreId(
+        user,
+      );
     if (stores.length === 0) {
       await this.clubCurrentStoreContextService.clearSelectedStoreId(user.id);
       return {
@@ -30,12 +34,6 @@ export class ClubStoresService {
         currentStoreId: null,
       };
     }
-
-    const currentStoreId =
-      await this.clubCurrentStoreContextService.resolveCurrentStoreId(
-        user.id,
-        stores,
-      );
 
     return {
       items: await this.clubStoreViewService.toSummaries(stores),

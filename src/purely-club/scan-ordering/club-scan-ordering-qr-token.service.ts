@@ -135,7 +135,10 @@ export class ClubScanOrderingQrTokenService {
    */
   async consumeScanToken(scanToken: string): Promise<ResolvedScanToken> {
     const key = `${SCAN_TOKEN_PREFIX}${this.hash(scanToken)}`;
-    const value = await this.redisService.get(key);
+    // GETDEL 单条原子命令：把「读 + 删」从 2 次 RTT 压到 1 次，
+    // 同时消除并发下「都读到、都放行」的 TOCTOU 窗口。
+    const value =
+      await this.redisService.getJsonAndDelete<ResolvedScanToken>(key);
     if (!value)
       throw new BadRequestException(
         clubScanOrderingError(
@@ -143,8 +146,7 @@ export class ClubScanOrderingQrTokenService {
           '扫码凭据无效或已过期，请重新扫码',
         ),
       );
-    await this.redisService.del(key);
-    return JSON.parse(value) as ResolvedScanToken;
+    return value;
   }
 
   /** 签发一次性凭据：Redis 只存 hash，凭据出现在日志 / 快照里也不能被反用。 */

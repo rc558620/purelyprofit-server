@@ -52,6 +52,23 @@ const CARD_LIST_ORDER_BY: Prisma.MemberCardOrderByWithRelationInput[] = [
   { id: 'desc' },
 ];
 
+/**
+ * 使用记录投影：详情页只消费这几列，操作人 / 操作来源 / 关联开台场次等
+ * B 端审计列一律不拉，避免高频详情页产生无效回表与反序列化开销。
+ */
+const CARD_TRANSACTION_VIEW_SELECT = {
+  id: true,
+  storeId: true,
+  changeType: true,
+  status: true,
+  deltaTimes: true,
+  afterTimes: true,
+  relatedSpaceNameSnapshot: true,
+  relatedSaleOrderNo: true,
+  remark: true,
+  createdAt: true,
+} as const satisfies Prisma.MemberCardTransactionSelect;
+
 /** 卡视图字段白名单：列表与详情共用，避免读取不参与展示的快照/审计列 */
 const CARD_VIEW_SELECT = {
   id: true,
@@ -241,6 +258,7 @@ export class ClubCardQueryService {
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: CLUB_CARD_USAGE_RECORD_LIMIT,
+        select: CARD_TRANSACTION_VIEW_SELECT,
       }),
     ]);
     const storeName = storeNames.get(card.storeId) ?? '未知门店';

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import type { ClubActivePromotionRecord } from '../shared/club-promotion.repository';
 import {
@@ -13,6 +14,17 @@ import {
 
 export type { ClubServicePromotionType };
 
+/** 「该顾客在本店已有消费流水」缓存的 key 前缀 */
+const CLUB_HAS_CONSUMPTION_KEY_PREFIX = 'club:has-consumption:';
+/**
+ * 「已有消费」缓存 TTL（秒）：30 天。
+ *
+ * 只缓存 true：消费流水是单调追加的（退款走独立退款流水，不物理删除），
+ * 一旦为真不会回退；false 不缓存，否则首单资格会被缓存拖成「永远有资格」的反向错误。
+ * 键按 (storeId, customerId) 拆分，与首单折扣的判定维度一致。
+ */
+const CLUB_HAS_CONSUMPTION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 /**
  * 同一请求内可复用的定价上下文。
  *
@@ -23,7 +35,13 @@ export type { ClubServicePromotionType };
  */
 export interface ClubPricingSharedContext {
   promotions: ClubActivePromotionRecord[];
-  consumptionCount: number;
+  /**
+   * 该顾客在本店是否已有消费流水（首单折扣的唯一判定输入）。
+   *
+   * 原字段为 `consumptionCount`（消费流水条数），但唯一下游用法是「> 0」布尔判断，
+   * 计数本身是无效精度：老客流水越多，count 越要在索引里逐行累加。
+   */
+  hasConsumption: boolean;
 }
 
 export interface ClubServicePricingResolution {
@@ -78,30 +96,82 @@ export class ClubOrderPromotionsService {
     private readonly clubMemberProfileService: ClubMemberProfileService,
     private readonly clubMemberLevelsService: ClubMemberLevelsService,
     private readonly clubPromotionRepository: ClubPromotionRepository,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
-   * 预加载一次门店定价上下文（活动列表 + 消费次数），供多行定价复用。
+   * 预加载一次门店定价上下文（活动列表 + 首单资格），供多行定价复用。
    *
-   * 语义不变性：消费次数只参与「首单折扣」判定，同一请求内本就是同一个值，
+   * 语义不变性：首单资格只参与「首单折扣」判定，同一请求内本就是同一个值，
    * 预加载一次不会改变任何一行的判定结果。
    *
    * `customerId` 为 null 表示顾客尚未建档（只读预览路径不建档）：此时没有任何
-   * 消费流水，消费次数按 0 处理，跳过 COUNT 查询。
+   * 消费流水，按「无消费」处理，跳过存在性查询。
    */
   async preloadPricingContext(
     storeId: number,
     customerId: number | null,
   ): Promise<ClubPricingSharedContext> {
-    const [promotions, consumptionCount] = await Promise.all([
+    const [promotions, hasConsumption] = await Promise.all([
       this.clubPromotionRepository.loadActivePromotions(storeId),
       customerId === null
-        ? Promise.resolve(0)
-        : this.prisma.marketingConsumption.count({
-            where: { storeId, customerId },
-          }),
+        ? Promise.resolve(false)
+        : this.hasConsumption(storeId, customerId),
     ]);
-    return { promotions, consumptionCount };
+    return { promotions, hasConsumption };
+  }
+
+  /**
+   * 该顾客在本店是否已有消费流水。
+   *
+   * 只服务「首单折扣」的布尔判定，因此用 LIMIT 1 的存在性查询而不是 count(*)：
+   * count 必须在索引里把命中的全部流水逐行累加，门店消费量越大越慢；存在性查询
+   * 命中第一行即停。与 products/club-product-promotion.service.ts 的同口径写法一致。
+   *
+   * 结果为 true 时写长 TTL 缓存：购物车每次改量都会跑一次本查询，而老客的答案
+   * 一旦为真就不再变化——不缓存等于让老客每次加购都重复验证同一件事。
+   */
+  private async hasConsumption(
+    storeId: number,
+    customerId: number,
+  ): Promise<boolean> {
+    const cacheKey = `${CLUB_HAS_CONSUMPTION_KEY_PREFIX}${storeId}:${customerId}`;
+    if (await this.readHasConsumptionCache(cacheKey)) {
+      return true;
+    }
+
+    const row = await this.prisma.marketingConsumption.findFirst({
+      where: { storeId, customerId },
+      select: { id: true },
+    });
+    if (row === null) {
+      return false;
+    }
+
+    void this.writeHasConsumptionCache(cacheKey);
+    return true;
+  }
+
+  /** 读缓存；缓存不可用时按未命中处理（宁可多查一次库，也不能误判首单资格） */
+  private async readHasConsumptionCache(cacheKey: string): Promise<boolean> {
+    try {
+      return (await this.redisService.get(cacheKey)) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** 回填缓存；失败不影响定价（下一请求多查一次库即可） */
+  private async writeHasConsumptionCache(cacheKey: string): Promise<void> {
+    try {
+      await this.redisService.set(
+        cacheKey,
+        '1',
+        CLUB_HAS_CONSUMPTION_TTL_SECONDS,
+      );
+    } catch {
+      // 缓存写入失败不影响首单资格判定
+    }
   }
 
   /**
@@ -130,7 +200,7 @@ export class ClubOrderPromotionsService {
       context?: ClubPricingSharedContext;
     },
   ): Promise<ClubServicePricingResolution> {
-    const { promotions, consumptionCount } =
+    const { promotions, hasConsumption } =
       options?.context ??
       (await this.preloadPricingContext(storeId, customerId));
 
@@ -155,7 +225,7 @@ export class ClubOrderPromotionsService {
       const candidate = toDiscountCandidate(
         promotion,
         baselineAmountFen,
-        consumptionCount,
+        hasConsumption,
       );
       if (
         candidate &&

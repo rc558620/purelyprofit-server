@@ -284,11 +284,17 @@ export class ClubSelfOrderingMenuService {
     // 与建单/扫码同一道业态门禁：餐饮门店使用既有扫码点餐，不走商品库菜单
     assertGeneralStoreForSelfOrdering(currentContext.store);
 
-    // 会话门禁必须实时校验，不能进缓存：会话失效后必须立刻拒绝看菜单
-    const session = await this.prisma.spaceSession.findFirst({
-      where: { id: sessionId, storeId, status: 'active' },
-      select: { id: true },
-    });
+    // 会话门禁必须实时校验，不能进缓存：会话失效后必须立刻拒绝看菜单。
+    // 门禁查询与菜单缓存读取互不依赖，并行发起省一次串行往返；
+    // 门禁未通过时直接抛错，缓存结果不会被返回。
+    const cacheKey = buildClubSelfOrderingMenuCacheKey(storeId);
+    const [session, cached] = await Promise.all([
+      this.prisma.spaceSession.findFirst({
+        where: { id: sessionId, storeId, status: 'active' },
+        select: { id: true },
+      }),
+      this.readMenuCache(cacheKey),
+    ]);
     if (!session) {
       throw new ForbiddenException(
         clubSelfOrderingError(
@@ -297,9 +303,6 @@ export class ClubSelfOrderingMenuService {
         ),
       );
     }
-
-    const cacheKey = buildClubSelfOrderingMenuCacheKey(storeId);
-    const cached = await this.readMenuCache(cacheKey);
     if (cached) return cached;
 
     return this.loadMenuOnce(cacheKey, () => this.buildMenu(storeId, cacheKey));

@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
+import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
@@ -63,6 +64,8 @@ describe('ClubOrdersService', () => {
     marketingConsumption: {
       create: jest.fn(),
       count: jest.fn(),
+      // 首单资格改为 LIMIT 1 存在性查询：findFirst 命中即「已有消费」
+      findFirst: jest.fn(),
     },
     member: {
       findFirst: jest.fn(),
@@ -273,7 +276,7 @@ describe('ClubOrdersService', () => {
       paymentConfirmationSource: null,
       statusReason: '待支付，等待微信支付结果',
     });
-    prismaService.marketingConsumption.count.mockResolvedValue(0);
+    prismaService.marketingConsumption.findFirst.mockResolvedValue(null);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
     clubPromotionRepository.loadActivePromotions.mockResolvedValue([]);
     // 默认无会员折扣
@@ -294,6 +297,14 @@ describe('ClubOrdersService', () => {
           useValue: { verifyAndSettle: jest.fn() },
         },
         { provide: PrismaService, useValue: prismaService },
+        // 首单资格的「已有消费」长 TTL 缓存：本 spec 一律按未命中处理
+        {
+          provide: RedisService,
+          useValue: {
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: ClubOrderPreviewService, useValue: clubOrderPreviewService },
         { provide: ConfigService, useValue: configService },
         {
@@ -649,7 +660,7 @@ describe('ClubOrdersService', () => {
         params: { discountRate: 70 },
       },
     ]);
-    prismaService.marketingConsumption.count.mockResolvedValue(1);
+    prismaService.marketingConsumption.findFirst.mockResolvedValue({ id: 901 });
 
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
@@ -731,7 +742,7 @@ describe('ClubOrdersService', () => {
         params: { discountRate: 85 },
       },
     ]);
-    prismaService.marketingConsumption.count.mockResolvedValue(1);
+    prismaService.marketingConsumption.findFirst.mockResolvedValue({ id: 901 });
 
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
@@ -813,7 +824,7 @@ describe('ClubOrdersService', () => {
         params: { threshold: 20000, reduceAmount: 3000 },
       },
     ]);
-    prismaService.marketingConsumption.count.mockResolvedValue(1);
+    prismaService.marketingConsumption.findFirst.mockResolvedValue({ id: 901 });
 
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
@@ -896,7 +907,7 @@ describe('ClubOrdersService', () => {
         params: { threshold: 20000, reduceAmount: 3000 },
       },
     ]);
-    prismaService.marketingConsumption.count.mockResolvedValue(1);
+    prismaService.marketingConsumption.findFirst.mockResolvedValue({ id: 901 });
 
     prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({

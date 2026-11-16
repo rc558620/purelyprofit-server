@@ -76,7 +76,7 @@ describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
   let cacheInvalidatorService: {
     invalidateMarketingCustomerDerived: jest.Mock;
   };
-  let clubPointsQueryService: { findCustomerByStoreAndPhone: jest.Mock };
+  let clubPointsQueryService: { findCustomerWithMemberLink: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -108,9 +108,12 @@ describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
         .mockResolvedValue(undefined),
     };
     clubPointsQueryService = {
-      findCustomerByStoreAndPhone: jest
-        .fn()
-        .mockResolvedValue({ id: 55, points: 128 }),
+      findCustomerWithMemberLink: jest.fn().mockResolvedValue({
+        id: 55,
+        points: 128,
+        memberId: null,
+        clubUserId: 201,
+      }),
     };
     tx.marketingPromotion.findFirst.mockResolvedValue(promotionRow());
     tx.marketingCustomer.findFirst.mockResolvedValue({
@@ -236,7 +239,7 @@ describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
     }
 
     tx.marketingPromotion.findFirst.mockResolvedValue(promotionRow());
-    clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(null);
+    clubPointsQueryService.findCustomerWithMemberLink.mockResolvedValue(null);
     expect(await errorCodeOf(() => service.submit(makeContext(), 'r'))).toBe(
       CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE,
     );

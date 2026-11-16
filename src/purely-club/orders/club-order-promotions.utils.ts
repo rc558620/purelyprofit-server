@@ -113,7 +113,7 @@ export function resolveReduceConfig(
 export function toDiscountCandidate(
   promotion: ClubPromotionRecord,
   baseAmountFen: number,
-  consumptionCount: number,
+  hasConsumption: boolean,
 ): ClubPricingCandidate | null {
   switch (promotion.type) {
     case 'discount':
@@ -121,7 +121,7 @@ export function toDiscountCandidate(
     case 'discount_day':
       return buildDiscountDayCandidate(promotion, baseAmountFen);
     case 'first_order_discount':
-      return consumptionCount > 0
+      return hasConsumption
         ? null
         : buildFirstOrderCandidate(promotion, baseAmountFen);
     default:

@@ -24,6 +24,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
 import { AuthMembershipResolverService } from '../../purely-profit/auth/auth-membership-resolver.service';
+import { AuthBanGuardService } from '../../purely-profit/auth/auth-ban-guard.service';
+import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
+import { AuthUserCacheService } from '../../purely-profit/auth/auth-user-cache.service';
 import type { AuthenticatedMembership } from '../../purely-profit/access-control/access-control.service';
 import type {
   AuthenticatedUser,
@@ -82,6 +85,9 @@ export class ScanOrderingGateway
     private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly authMembershipResolverService: AuthMembershipResolverService,
+    private readonly authUserCacheService: AuthUserCacheService,
+    private readonly authBanGuardService: AuthBanGuardService,
+    private readonly authSessionService: AuthSessionService,
     private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
@@ -411,10 +417,20 @@ export class ScanOrderingGateway
           '访问令牌无效',
         ),
       );
-    const account = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { email: true },
-    });
+    // 与 HTTP 侧 JwtStrategy 同源校验：用户快照走 5 分钟 Redis 缓存，
+    // tokenVersion / 会话活性 / 封禁三者并行检查。
+    //
+    // 此前这里直查 `users` 表且只验签名：小程序弱网重连风暴下每个 socket 都打一次
+    // DB，同时踢下线与封禁的账号仍能建连成功（HTTP 侧已拒绝）。
+    const [account, currentTokenVersion, sessionActive] = await Promise.all([
+      this.authUserCacheService.resolveUser(payload.sub),
+      this.authSessionService.getTokenVersion(payload.sub),
+      payload.sid
+        ? this.authSessionService.isSessionActive(payload.sub, payload.sid)
+        : Promise.resolve(true),
+      this.authBanGuardService.ensureUserNotBanned(payload.sub),
+    ] as const);
+
     if (!account)
       throw new UnauthorizedException(
         clubScanOrderingError(
@@ -422,6 +438,25 @@ export class ScanOrderingGateway
           '用户不存在',
         ),
       );
+
+    if ((payload.sessionVersion ?? 0) < currentTokenVersion) {
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_REVOKED,
+          '登录态已失效，请重新登录',
+        ),
+      );
+    }
+
+    if (!sessionActive) {
+      throw new UnauthorizedException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_REVOKED,
+          '您的账号已在其他设备登录，当前会话已失效',
+        ),
+      );
+    }
+
     const currentMembership =
       await this.authMembershipResolverService.resolveAuthenticatedMembership(
         payload,

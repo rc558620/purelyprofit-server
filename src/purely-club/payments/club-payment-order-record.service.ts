@@ -84,11 +84,17 @@ export class ClubPaymentOrderRecordService {
   async findByOrderNo(
     orderNo: string,
   ): Promise<ClubPaymentRecordSnapshot | null> {
-    for (const kind of buildLookupOrder(orderNo)) {
-      const record = await this.readRecord(kind, orderNo);
-      if (record) return record;
-    }
-    return null;
+    const kinds = buildLookupOrder(orderNo);
+    // 快路径：前缀可识别时第一个 kind 就是最可能的落库表，1 次往返命中即返回
+    const first = await this.readRecord(kinds[0], orderNo);
+    if (first) return first;
+    if (kinds.length === 1) return null;
+
+    // 兜底：其余表互不依赖，并发探测（原先串行最多 4 次往返，现收敛为 1 次往返）
+    const restRecords = await Promise.all(
+      kinds.slice(1).map((kind) => this.readRecord(kind, orderNo)),
+    );
+    return restRecords.find((record) => record !== null) ?? null;
   }
 
   /**
@@ -101,16 +107,37 @@ export class ClubPaymentOrderRecordService {
     spMchId: string | null,
     subMchId: string | null,
   ): Promise<ClubPaymentRecordKind | null> {
-    for (const kind of buildLookupOrder(orderNo)) {
-      if (await this.writeRecord(kind, orderNo, spMchId, subMchId)) {
-        return kind;
-      }
+    const kinds = buildLookupOrder(orderNo);
+    // 快路径：先写最可能的表，正常回调 1 次往返完成
+    if (await this.writeRecord(kinds[0], orderNo, spMchId, subMchId)) {
+      return kinds[0];
+    }
+
+    // 兜底：并发探出真实落库表后再单表写，避免逐表串行写（最坏 4 写 → 1 读 + 1 写）
+    const restMatched = await this.findFirstMatched(orderNo, kinds.slice(1));
+    if (
+      restMatched &&
+      (await this.writeRecord(restMatched.kind, orderNo, spMchId, subMchId))
+    ) {
+      return restMatched.kind;
     }
 
     this.logger.warn(
       `订单 ${orderNo} 未匹配到任何支付记录表，商户号未落库（订单类型可能尚未接入）`,
     );
     return null;
+  }
+
+  /** 并发探测给定表，返回按 `kinds` 顺序的第一个命中记录 */
+  private async findFirstMatched(
+    orderNo: string,
+    kinds: readonly ClubPaymentRecordKind[],
+  ): Promise<ClubPaymentRecordSnapshot | null> {
+    if (kinds.length === 0) return null;
+    const records = await Promise.all(
+      kinds.map((kind) => this.readRecord(kind, orderNo)),
+    );
+    return records.find((record) => record !== null) ?? null;
   }
 
   private async readRecord(
