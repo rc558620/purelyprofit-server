@@ -10,6 +10,18 @@ import {
   buildClubMenuCacheKey,
   buildClubMenuVersionCacheKey,
 } from '../../redis/keys/club-cache-keys';
+import {
+  CLUB_MENU_CATEGORY_SELECT,
+  type ClubMenuCategory,
+  type ClubMenuCategoryRow,
+  type ClubMenuProduct,
+  type ClubMenuProductRow,
+  type ClubMenuResponse,
+  type ClubMenuSpecGroup,
+  type ClubMenuSpecGroupRow,
+  type ClubMenuSpecOption,
+  type ClubMenuSpecOptionRow,
+} from './club-scan-ordering-menu.types';
 
 const CLUB_MENU_CACHE_TTL_SECONDS = 30;
 /**
@@ -36,7 +48,10 @@ interface MenuVersionFingerprintRow {
 export class ClubScanOrderingMenuQueryService {
   private readonly logger = new Logger(ClubScanOrderingMenuQueryService.name);
   /** 未命中路径的进程内并发去重：同一缓存 key 共用一次回源。 */
-  private readonly inflightMenuLoads = new Map<string, Promise<unknown>>();
+  private readonly inflightMenuLoads = new Map<
+    string,
+    Promise<ClubMenuResponse>
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,7 +70,12 @@ export class ClubScanOrderingMenuQueryService {
     }
   }
 
-  async getMenu(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
+  async getMenu(
+    user: AuthenticatedUser,
+    sessionId: number,
+  ): Promise<ClubMenuResponse> {
+    // 只取 storeId：整行会话含二维码 token 哈希/设备信息等敏感字段，读回内存
+    // 没有任何消费方，属于无谓的敏感数据面。
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
         id: sessionId,
@@ -64,6 +84,7 @@ export class ClubScanOrderingMenuQueryService {
         expiresAt: { gt: new Date() },
         deletedAt: null,
       },
+      select: { storeId: true },
     });
     if (!session)
       throw new ForbiddenException(
@@ -80,9 +101,9 @@ export class ClubScanOrderingMenuQueryService {
     // 缓存命中检查：menuVersion 不变即命中。
     // Redis 异常时降级回源，缓存只是加速层，不能让菜单接口因此不可用。
     const cacheKey = buildClubMenuCacheKey(session.storeId, menuVersion);
-    let cached: unknown = null;
+    let cached: ClubMenuResponse | null = null;
     try {
-      cached = await this.redisService.getJson<unknown>(cacheKey);
+      cached = await this.redisService.getJson<ClubMenuResponse>(cacheKey);
     } catch (error) {
       this.logger.warn(
         `读取菜单缓存失败 cacheKey=${cacheKey}，回退实时菜单: ${error instanceof Error ? error.message : String(error)}`,
@@ -102,8 +123,8 @@ export class ClubScanOrderingMenuQueryService {
   /** 未命中路径的并发去重（singleflight）；不改变既有缓存 value 格式。 */
   private loadMenuOnce(
     cacheKey: string,
-    load: () => Promise<unknown>,
-  ): Promise<unknown> {
+    load: () => Promise<ClubMenuResponse>,
+  ): Promise<ClubMenuResponse> {
     const inflight = this.inflightMenuLoads.get(cacheKey);
     if (inflight) return inflight;
     const task = load().finally(() => {
@@ -118,7 +139,7 @@ export class ClubScanOrderingMenuQueryService {
     storeId: number,
     menuVersion: string,
     cacheKey: string,
-  ): Promise<unknown> {
+  ): Promise<ClubMenuResponse> {
     const categories = await this.prisma.scanOrderingMenuCategory.findMany({
       where: {
         storeId,
@@ -127,68 +148,11 @@ export class ClubScanOrderingMenuQueryService {
         products: { some: { deletedAt: null } },
       },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      include: {
-        products: {
-          where: { isActive: true, deletedAt: null },
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: {
-            product: {
-              select: {
-                stock: true,
-                image: true,
-                isActive: true,
-                deletedAt: true,
-              },
-            },
-            specGroups: {
-              where: { isActive: true },
-              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: {
-                options: {
-                  where: { isActive: true },
-                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                },
-              },
-            },
-          },
-        },
-      },
+      select: CLUB_MENU_CATEGORY_SELECT,
     });
-    const result = {
+    const result: ClubMenuResponse = {
       menuVersion,
-      categories: categories.map((category) => ({
-        ...category,
-        products: category.products.map((product) => {
-          const baseStock = product.product
-            ? product.product.stock
-            : (product.stockQuantity ?? 0);
-          return {
-            ...product,
-            imageUrl: product.product?.image ?? product.imageUrl,
-            stockMode: product.product ? 'finite' : product.stockMode,
-            // 可用库存 = 总库存 - 已下单未接单的预留量
-            stockQuantity: Math.max(
-              0,
-              baseStock - (product.reservedQuantity ?? 0),
-            ),
-            // 规格可用库存同样扣除预留量
-            specGroups: product.specGroups.map((group) => ({
-              ...group,
-              options: group.options.map((option) => ({
-                ...option,
-                stockQuantity:
-                  option.stockQuantity === null
-                    ? null
-                    : Math.max(
-                        0,
-                        option.stockQuantity - (option.reservedQuantity ?? 0),
-                      ),
-              })),
-            })),
-            product: undefined,
-          };
-        }),
-      })),
+      categories: categories.map((category) => this.mapMenuCategory(category)),
     };
 
     await this.writeMenuCacheQuietly(cacheKey, result);
@@ -196,10 +160,67 @@ export class ClubScanOrderingMenuQueryService {
     return result;
   }
 
+  private mapMenuCategory(category: ClubMenuCategoryRow): ClubMenuCategory {
+    return {
+      id: category.id,
+      name: category.name,
+      sortOrder: category.sortOrder,
+      products: category.products.map((product) =>
+        this.mapMenuProduct(product),
+      ),
+    };
+  }
+
+  private mapMenuProduct(product: ClubMenuProductRow): ClubMenuProduct {
+    // 关联了普通商品时以其库存为准，否则回落到菜单商品自身库存
+    const baseStock = product.product
+      ? product.product.stock
+      : (product.stockQuantity ?? 0);
+    return {
+      id: product.id,
+      categoryId: product.categoryId,
+      name: product.name,
+      description: product.description,
+      imageUrl: product.product?.image ?? product.imageUrl,
+      basePrice: product.basePrice,
+      stockMode: product.product ? 'finite' : product.stockMode,
+      // 可用库存 = 总库存 - 已下单未接单的预留量
+      stockQuantity: Math.max(0, baseStock - (product.reservedQuantity ?? 0)),
+      salesCount: product.salesCount,
+      specGroups: product.specGroups.map((group) => this.mapSpecGroup(group)),
+    };
+  }
+
+  private mapSpecGroup(group: ClubMenuSpecGroupRow): ClubMenuSpecGroup {
+    return {
+      id: group.id,
+      name: group.name,
+      selectionType: group.selectionType,
+      minSelections: group.minSelections,
+      maxSelections: group.maxSelections,
+      options: group.options.map((option) => this.mapSpecOption(option)),
+    };
+  }
+
+  private mapSpecOption(option: ClubMenuSpecOptionRow): ClubMenuSpecOption {
+    return {
+      id: option.id,
+      name: option.name,
+      extraPrice: option.extraPrice,
+      isDefault: option.isDefault,
+      isActive: option.isActive,
+      // 规格可用库存同样扣除预留量；null 表示不限库存
+      stockQuantity:
+        option.stockQuantity === null
+          ? null
+          : Math.max(0, option.stockQuantity - (option.reservedQuantity ?? 0)),
+    };
+  }
+
   /** 回填菜单缓存：写失败不影响本次返回，由短 TTL 与后续请求自愈。 */
   private async writeMenuCacheQuietly(
     cacheKey: string,
-    menu: unknown,
+    menu: ClubMenuResponse,
   ): Promise<void> {
     try {
       await this.redisService.setJson(

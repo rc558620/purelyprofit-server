@@ -94,7 +94,13 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
-        balanceRecords: rows,
+        balanceWindow: {
+          totalEffect: 70,
+          cumulativeEffectByRecordId: new Map([
+            [18, 120],
+            [19, 70],
+          ]),
+        },
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 800,
@@ -137,7 +143,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: [],
         total: 0,
-        balanceRecords: [],
+        balanceWindow: null,
       });
       // summary 仍返回真实全量统计
       clubPointsQueryService.calculateSummary.mockResolvedValue({
@@ -179,7 +185,10 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 20,
-        balanceRecords: rows,
+        balanceWindow: {
+          totalEffect: 120,
+          cumulativeEffectByRecordId: new Map([[18, 120]]),
+        },
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 800,
@@ -230,7 +239,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: [],
         total: 0,
-        balanceRecords: [],
+        balanceWindow: null,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 800,
@@ -290,19 +299,15 @@ describe('ClubPointsService', () => {
           createdAt: new Date('2024-11-20T10:00:00.000Z'),
         },
       ];
-      const balanceRecords = [
-        {
-          id: 11,
-          amount: 100,
-          createdAt: new Date('2024-11-20T10:00:00.000Z'),
-        },
-        {
-          id: 12,
-          amount: -30,
-          createdAt: new Date('2024-11-20T12:00:00.000Z'),
-        },
-        { id: 13, amount: 50, createdAt: new Date('2024-11-21T10:00:00.000Z') },
-      ];
+      // 窗口聚合：合计 100 - 30 + 50 = 120；累计 11→100、12→70、13→120
+      const balanceWindow = {
+        totalEffect: 120,
+        cumulativeEffectByRecordId: new Map([
+          [11, 100],
+          [12, 70],
+          [13, 120],
+        ]),
+      };
 
       clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
         customer,
@@ -310,7 +315,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
-        balanceRecords,
+        balanceWindow,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 150,
@@ -348,10 +353,14 @@ describe('ClubPointsService', () => {
           createdAt: sameTime,
         },
       ];
-      const balanceRecords = [
-        { id: 21, amount: -30, createdAt: sameTime },
-        { id: 22, amount: 100, createdAt: sameTime },
-      ];
+      // 窗口聚合（同刻按 ID 升序累计）：21→-30、22→70，合计 70
+      const balanceWindow = {
+        totalEffect: 70,
+        cumulativeEffectByRecordId: new Map([
+          [21, -30],
+          [22, 70],
+        ]),
+      };
 
       clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
         customer,
@@ -359,7 +368,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
-        balanceRecords,
+        balanceWindow,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 100,
@@ -377,7 +386,7 @@ describe('ClubPointsService', () => {
       ]);
     });
 
-    it('P1：旧调用未返回 balanceRecords 时，倒序 rows 的同刻记录仍按 ID 定序', async () => {
+    it('P1：旧调用未返回 balanceWindow 时，倒序 rows 的同刻记录仍按 ID 定序', async () => {
       const customer = { id: 98, points: 110 };
       const sameTime = new Date('2024-11-20T10:00:00.000Z');
       const rows = [
@@ -404,7 +413,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
-        balanceRecords: [],
+        balanceWindow: null,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
         totalEarned: 100,

@@ -15,28 +15,30 @@ import {
 import { MARKETING_MAX_PAGE_SIZE } from '../../../purely-profit/marketing/marketing.utils';
 import {
   CARE_RECORD_CONTENT_MAX_LENGTH,
-  CARE_RECORD_MAX_PAGE,
   CARE_RECORD_MAX_PHOTOS,
 } from '../../../purely-profit/operations/spaces/dto/space-care-record.dto';
 
 /**
  * 会员端护理档案分页查询。
  *
- * 真分页（页码从 1 开始）：第 1 页即「最近一次护理」，翻页向更早回溯，
+ * 游标分页（keyset）：第 1 页即「最近一次护理」，翻页向更早回溯，
  * 与时间线自上而下的阅读顺序一致（与 B 端空间域护理档案同口径）。
  *
- * 入参解析与 B 端 `ListSpaceCareRecordsQueryDto` 保持同一套写法
- * （`@Type(() => Number)`）：`transformOptionalInt` 会用 parseInt 把 `1.9`
- * 静默截断成 1，让 `@IsInt` 形同虚设；B 端遇到 `1.9` 是 400，C 端不能是 200。
+ * 页码 `page` 已随游标改造下线：offset 深分页在护理记录累积后会随页码线性变慢，
+ * 且翻页期间新增记录会顶位造成重复/漏读。`pageSize` 语义保持不变（每页条数）。
+ *
+ * 入参解析沿用 `@Type(() => Number)`：`transformOptionalInt` 会用 parseInt 把 `1.9`
+ * 静默截断成 1，让 `@IsInt` 形同虚设。
  */
 export class ListClubCareRecordsQueryDto {
-  @ApiPropertyOptional({ example: 1, description: '页码，从 1 开始' })
+  @ApiPropertyOptional({
+    example: 'v1:eyJrZXlzIjpbMTc2MTAwMDAwMDAwMF0sImlkIjozNX0',
+    description:
+      '分页游标（上一页返回的 nextCursor）；不传表示第一页，需原样回传',
+  })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'page 必须是整数' })
-  @Min(1, { message: 'page 最小为 1' })
-  @Max(CARE_RECORD_MAX_PAGE, { message: `page 最大为 ${CARE_RECORD_MAX_PAGE}` })
-  page?: number;
+  @IsString({ message: 'cursor 必须是字符串' })
+  cursor?: string;
 
   @ApiPropertyOptional({
     example: 10,
@@ -136,16 +138,23 @@ export class ClubCareCompareRangeDto {
 
 /** 分页元信息（与营销域 / 空间域列表一致） */
 export class ClubCarePaginationMetaDto {
-  @ApiProperty({ example: 1, description: '当前页码' })
+  @ApiProperty({
+    example: 1,
+    description:
+      '当前页码；游标分页下固定为 1（仅保留字段兼容，不再用于翻页判定）',
+  })
   page: number;
 
   @ApiProperty({ example: 10, description: '每页条数' })
   pageSize: number;
 
-  @ApiProperty({ example: 36, description: '总条数' })
+  @ApiProperty({ example: 36, description: '总条数（全量，非本页剩余数）' })
   total: number;
 
-  @ApiProperty({ example: 4, description: '总页数' })
+  @ApiProperty({
+    example: 4,
+    description: '总页数（total / pageSize 向上取整，仅供参考）',
+  })
   totalPages: number;
 }
 
@@ -172,6 +181,13 @@ export class ClubCareRecordsResponseDto {
       '效果对比的首尾记录（最早 / 最近一次有照片的护理）；仅第 1 页下发，后续翻页不重复计算',
   })
   compareRange?: ClubCareCompareRangeDto;
+
+  @ApiProperty({
+    example: 'v1:eyJrZXlzIjpbMTc2MTAwMDAwMDAwMF0sImlkIjozNX0',
+    nullable: true,
+    description: '下一页游标；null 表示已到最后一页，需原样回传给 cursor 参数',
+  })
+  nextCursor: string | null;
 
   @ApiProperty({ type: ClubCarePaginationMetaDto, description: '分页元信息' })
   meta: ClubCarePaginationMetaDto;

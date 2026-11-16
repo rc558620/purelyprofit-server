@@ -16,6 +16,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
+import { RedisLockService } from '../../redis/redis-lock.service';
+import { runClubLockedLoad } from '../shared/club-cache-load-lock.helper';
 
 export interface WechatCode2SessionResult {
   openid: string;
@@ -64,6 +66,7 @@ export class ClubWechatAuthService {
   constructor(
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
+    private readonly redisLockService: RedisLockService,
   ) {}
 
   /**
@@ -219,22 +222,72 @@ export class ClubWechatAuthService {
     'club:wechat:access_token:';
   /** access_token 有效期 7200s，提前 5 分钟刷新以避免边界问题 */
   private static readonly ACCESS_TOKEN_CACHE_TTL_SECONDS = 7200 - 300;
+  /** 跨 worker 单飞的锁资源前缀（value 是随机 UUID，不含任何凭据） */
+  private static readonly ACCESS_TOKEN_LOCK_RESOURCE_PREFIX =
+    'club-wechat-access-token:refresh:';
+  /**
+   * 抢锁失败方的等待预算：10 × 150ms = 1.5s。
+   *
+   * 取值依据：微信 `cgi-bin/token` 正常耗时 100–300ms，1.5s 足以覆盖正常刷新；
+   * 不覆盖 5s 网络超时病态场景（否则登录要陪着等 5s+）。病态场景下羊群被压到
+   * 「每 1.5s 一轮」，仍远好于原实现「4 worker × 每请求各打一次」。
+   */
+  private static readonly ACCESS_TOKEN_LOAD_WAIT_ATTEMPTS = 10;
+  private static readonly ACCESS_TOKEN_LOAD_WAIT_INTERVAL_MS = 150;
 
   /**
    * 获取微信小程序 access_token（用于调用 getPhoneNumber 等服务端接口）
    *
-   * 优先从 Redis 缓存读取，命中则直接返回；
-   * 未命中时调用微信 API 换取新 token 并写入缓存（TTL 6900s，提前 5 分钟过期）。
+   * 优先从 Redis 缓存读取，命中则直接返回；未命中时在**跨 worker 单飞**保护下
+   * 调用微信 API 换取新 token 并写入缓存（TTL 6900s，提前 5 分钟过期）。
+   *
+   * 未接入单飞前，4 个 worker 在缓存过期瞬间会同时请求 `cgi-bin/token`：
+   * 微信侧有频率限制，且各自写回的 token 会互相覆盖。现在只有抢到短租约的
+   * worker 回源，其余等待缓存出现；任何锁异常都直接回源，登录链路不受影响。
+   *
+   * ⚠️ 凭据不复制：token 仍只存于 `club:wechat:access_token:<appId>` 单点，
+   * 租约 key 的 value 是随机 UUID，日志只打错误码与布尔标志位。
    */
   private async getAccessToken(appId: string): Promise<string> {
-    // 1. 尝试从 Redis 缓存获取
     const cacheKey = ClubWechatAuthService.buildAccessTokenCacheKey(appId);
-    const cached = await this.redisService.get(cacheKey);
+    // 1. 尝试从 Redis 缓存获取（Redis 异常按未命中处理，与降级口径一致）
+    const cached = await this.readAccessTokenCache(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // 2. 缓存未命中，向微信服务器换取
+    // 2. 未命中：同一 appId 的并发未命中在集群内共用一次回源
+    return runClubLockedLoad(
+      this.redisLockService,
+      {
+        lockResource: `${ClubWechatAuthService.ACCESS_TOKEN_LOCK_RESOURCE_PREFIX}${appId}`,
+        readCached: () => this.readAccessTokenCache(cacheKey),
+        loadAndPublish: () => this.refreshAccessToken(appId, cacheKey),
+        waitAttempts: ClubWechatAuthService.ACCESS_TOKEN_LOAD_WAIT_ATTEMPTS,
+        waitIntervalMs:
+          ClubWechatAuthService.ACCESS_TOKEN_LOAD_WAIT_INTERVAL_MS,
+      },
+      this.logger,
+    );
+  }
+
+  /** 读 access_token 缓存：异常降级为未命中，不阻断登录。 */
+  private async readAccessTokenCache(cacheKey: string): Promise<string | null> {
+    try {
+      return await this.redisService.get(cacheKey);
+    } catch (error) {
+      this.logger.warn(
+        `读取微信 access_token 缓存失败，回退回源: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /** 回源换取 access_token 并写回缓存（未接入单飞时的原实现）。 */
+  private async refreshAccessToken(
+    appId: string,
+    cacheKey: string,
+  ): Promise<string> {
     const appSecret = this.getRequiredConfig('wechat.appSecret');
 
     const url = new URL('https://api.weixin.qq.com/cgi-bin/token');
@@ -269,9 +322,8 @@ export class ClubWechatAuthService {
       throw new InternalServerErrorException('微信服务暂时不可用，请稍后重试');
     }
 
-    // 3. 写入 Redis 缓存
     await this.redisService.set(
-      ClubWechatAuthService.buildAccessTokenCacheKey(appId),
+      cacheKey,
       result.access_token,
       ClubWechatAuthService.ACCESS_TOKEN_CACHE_TTL_SECONDS,
     );

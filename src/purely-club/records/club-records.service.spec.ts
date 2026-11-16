@@ -85,7 +85,7 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: entries,
       total: 1,
-      balanceEntries: entries,
+      balanceWindow: null,
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
       totalRechargeAmount: 580,
@@ -117,7 +117,7 @@ describe('ClubRecordsService', () => {
     );
     expect(clubRecordViewService.buildRecordItems).toHaveBeenCalledWith({
       entries,
-      balanceEntries: entries,
+      balanceWindow: null,
       filterType: 'all',
       customer,
       storeName: 'purelyClub · 望京旗舰店',
@@ -138,7 +138,7 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: [],
       total: 0,
-      balanceEntries: [],
+      balanceWindow: null,
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
       totalRechargeAmount: 580,
@@ -244,7 +244,7 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: entries,
       total: 4, // 查询层按类型筛选后的总数
-      balanceEntries: entries,
+      balanceWindow: null,
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
       totalRechargeAmount: 500,

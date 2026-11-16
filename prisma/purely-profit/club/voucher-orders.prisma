@@ -102,7 +102,15 @@ model ClubVoucherOrder {
   @@unique([userId, idempotencyKey])
   @@index([storeId, status, createdAt(sort: Desc)])
   @@index([userId, status, createdAt(sort: Desc)])
+  /// C 端「我的团购券」keyset 分页全序：userId 等值 + (createdAt DESC, id DESC) 有序扫描。
+  /// 既有 (user_id, status, created_at) 在 status 为范围谓词（!= 'unpaid'）时无法保证
+  /// createdAt 有序，且缺 id 兜底，深页会退化为「取出该用户全部订单再排序」。
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "club_voucher_orders_user_created_id_idx")
   @@index([usedSessionId])
+  /// C 端券订单过期翻转定时任务：WHERE status='pending' AND expires_at < now 的全局扫描。
+  /// 既有 (store_id, status, expires_at) 前导列是门店，无法服务跨门店的全局扫描；
+  /// 谓词排除没有有效期的未支付草稿，索引体积与写放大都收敛在已支付订单。
+  @@index([status, expiresAt], map: "club_voucher_orders_status_expires_idx", where: raw("(expires_at IS NOT NULL)"))
   /// 商家端列表每次请求先做门店惰性过期：storeId/status 等值后按 expiresAt 范围
   /// 直接在索引内定位已过期行，避免扫描该店全部 pending 历史订单。谓词排除
   /// 未支付草稿（草稿无有效期），索引体积与写放大都收敛在已支付订单。

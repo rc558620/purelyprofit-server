@@ -56,6 +56,8 @@ export interface AppConfig {
   platformPaymentReconcileIntervalMs: number;
   platformPaymentReconcileBatchSize: number;
   platformPaymentReconcileMinPendingMinutes: number;
+  clubVoucherOrderExpiryEnabled: boolean;
+  clubVoucherOrderExpiryIntervalMs: number;
 }
 
 /**
@@ -101,8 +103,17 @@ export function resolveAppConfig(): AppConfig {
       process.env.APP_SLOW_REQUEST_THRESHOLD_MS,
       800,
     ),
+    /**
+     * 应用层逐条 SQL 慢查询日志。
+     *
+     * 关闭时 Prisma 不再注册 `query` 事件监听（`log` 传空数组），省掉每条 SQL 的
+     * 事件发射与回调开销；开启时对每条 SQL 触发回调，N+1 / 批量写入会被成倍放大。
+     * 生产默认关闭，慢 SQL 由 PG 侧 `log_min_duration_statement` 与
+     * `pg_stat_statements` 兜底；排查期可通过环境变量临时打开。
+     */
     slowQueryLogEnabled:
-      (process.env.APP_SLOW_QUERY_LOG_ENABLED ?? 'true') === 'true',
+      (process.env.APP_SLOW_QUERY_LOG_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
     slowQueryThresholdMs: parseIntValue(
       process.env.APP_SLOW_QUERY_THRESHOLD_MS,
       80,
@@ -276,6 +287,24 @@ export function resolveAppConfig(): AppConfig {
     platformPaymentReconcileMinPendingMinutes: parsePositiveInt(
       process.env.PROFIT_PAYMENT_RECONCILE_MIN_PENDING_MINUTES,
       5,
+    ),
+    /**
+     * 团购券订单过期翻转开关（替代原先挂在 C 端读接口里的懒过期写）。
+     * 对应环境变量：CLUB_VOUCHER_ORDER_EXPIRY_ENABLED
+     */
+    clubVoucherOrderExpiryEnabled:
+      (process.env.CLUB_VOUCHER_ORDER_EXPIRY_ENABLED ?? 'true') === 'true',
+    /**
+     * 团购券订单过期翻转执行间隔（毫秒），默认 5 分钟。
+     *
+     * 间隔决定「券到期」到「DB 状态翻转为 expired」的最大滞后；
+     * 用户侧展示不依赖翻转（读接口按 expiresAt 派生），
+     * 因此这里只需保证商家端券列表的状态收敛不过度滞后。
+     * 对应环境变量：CLUB_VOUCHER_ORDER_EXPIRY_INTERVAL_MS
+     */
+    clubVoucherOrderExpiryIntervalMs: parsePositiveInt(
+      process.env.CLUB_VOUCHER_ORDER_EXPIRY_INTERVAL_MS,
+      300_000,
     ),
   };
 }

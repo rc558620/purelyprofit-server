@@ -2,7 +2,11 @@
  * `tencentCos` 配置块：腾讯云 COS 对象存储。
  *
  * 用于头像、商品图等文件上传。
- * 未配置时上传接口返回 501（功能未启用）。
+ * 未配置（缺 secretId / secretKey / bucket / region 任一项）时，
+ * 上传接口返回 503 ServiceUnavailable（功能未启用）。
+ *
+ * 取值约束：bucket 须为 `BucketName-AppId` 完整形式，region 须为地域简称，
+ * 且 AppId 与地域必须和存储桶一致，否则 COS 侧报 NoSuchBucket。
  */
 export interface TencentCosConfig {
   /** 腾讯云 SecretId */

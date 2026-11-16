@@ -13,6 +13,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -47,6 +48,25 @@ interface ClubCardSettlementInput {
   params?: ClubCardSettleParams;
   /** 余额支付：在同一事务内扣减储值余额并记消费流水 */
   viaBalance?: boolean;
+}
+
+/**
+ * 落账后补绑所需的订单快照。
+ *
+ * 事务内已经整行读过订单，提交后的补绑直接复用这份快照，
+ * 不再为同一行订单重复回表一次。
+ */
+interface ClubCardSettleBindContext {
+  orderNo: string;
+  storeId: number;
+  customerId: number;
+  clubUserId: number | null;
+}
+
+/** 事务返回值：落账结果 + 补绑上下文（仅真实落账成功时非空） */
+interface ClubCardSettlementTxResult {
+  outcome: ClubCardSettleOutcome;
+  bind: ClubCardSettleBindContext | null;
 }
 
 @Injectable()
@@ -91,8 +111,8 @@ export class ClubCardSettlementService {
     input: ClubCardSettlementInput,
   ): Promise<ClubCardSettleOutcome> {
     const { orderId, expectedAmountFen, params } = input;
-    const outcome = await this.prisma.$transaction(
-      async (tx): Promise<ClubCardSettleOutcome> => {
+    const result = await this.prisma.$transaction(
+      async (tx): Promise<ClubCardSettlementTxResult> => {
         const order = await tx.memberCardOrder.findUnique({
           where: { id: orderId },
         });
@@ -150,9 +170,12 @@ export class ClubCardSettlementService {
             );
           }
           return {
-            settled: false,
-            cardId: current.cards[0]?.id ?? null,
-            storeId: order.storeId,
+            outcome: {
+              settled: false,
+              cardId: current.cards[0]?.id ?? null,
+              storeId: order.storeId,
+            },
+            bind: null,
           };
         }
 
@@ -188,34 +211,58 @@ export class ClubCardSettlementService {
         const totalTimes =
           order.kind === 'times' ? (plan.totalTimes ?? 0) : null;
 
-        let firstCardId: number | null = null;
-        for (let index = 0; index < order.quantity; index += 1) {
-          const card = await tx.memberCard.create({
-            data: {
-              storeId: order.storeId,
-              planId: order.planId,
-              cardNo: buildCardNo(order.orderNo, index),
-              kind: order.kind,
-              nameSnapshot: order.planNameSnapshot,
-              customerId: order.customerId,
-              status: 'active',
-              startsAt: paidAt,
-              expiresAt,
-              totalTimes,
-              usedTimes: totalTimes === null ? null : 0,
-              remainTimes: totalTimes,
-              pricePaid: order.unitAmount,
-              sourceType: 'club_order',
-              orderId: order.id,
-            },
-            select: { id: true },
-          });
+        // 批量发卡：原先「每张卡 2 条串行 INSERT」在 quantity 较大时会把事务持锁
+        // 窗口拉长数倍，更容易撞 TX_TIMEOUT_MEDIUM；createManyAndReturn 一条
+        // INSERT ... RETURNING 即可拿回全部卡主键，办卡流水再 createMany 一次落库，
+        // DB 往返从 2N 降到 2。
+        const cardDrafts: Prisma.MemberCardCreateManyInput[] = Array.from(
+          { length: order.quantity },
+          (_, index) => ({
+            storeId: order.storeId,
+            planId: order.planId,
+            cardNo: buildCardNo(order.orderNo, index),
+            kind: order.kind,
+            nameSnapshot: order.planNameSnapshot,
+            customerId: order.customerId,
+            status: 'active',
+            startsAt: paidAt,
+            expiresAt,
+            totalTimes,
+            usedTimes: totalTimes === null ? null : 0,
+            remainTimes: totalTimes,
+            pricePaid: order.unitAmount,
+            sourceType: 'club_order',
+            orderId: order.id,
+          }),
+        );
 
-          // 办卡流水：append-only，后续核销 / 释放都追加新行，绝不改写这一条
-          await tx.memberCardTransaction.create({
-            data: {
+        // createManyAndReturn 不保证返回顺序，统一用 cardNo 反查卡主键
+        const createdCards = cardDrafts.length
+          ? await tx.memberCard.createManyAndReturn({
+              data: cardDrafts,
+              select: { id: true, cardNo: true },
+            })
+          : [];
+        const cardIdByNo = new Map(
+          createdCards.map((card) => [card.cardNo, card.id] as const),
+        );
+
+        // 办卡流水：append-only，后续核销 / 释放都追加新行，绝不改写这一条
+        const transactionDrafts: Prisma.MemberCardTransactionCreateManyInput[] =
+          cardDrafts.map((draft) => {
+            const cardId = cardIdByNo.get(draft.cardNo);
+            if (cardId === undefined) {
+              // 返回值与入参一一对应，缺失说明数据库返回异常，整笔落账回滚
+              throw new ConflictException(
+                clubCardError(
+                  CLUB_CARD_ERROR_CODE.STATUS_SETTLEMENT_NOT_ALLOWED,
+                  '购卡发卡结果不完整，落账已回滚',
+                ),
+              );
+            }
+            return {
               storeId: order.storeId,
-              cardId: card.id,
+              cardId,
               changeType: 'purchase',
               status: 'done',
               deltaTimes: totalTimes ?? 0,
@@ -224,11 +271,17 @@ export class ClubCardSettlementService {
               relatedOrderId: order.id,
               operatorType: 'club',
               remark: 'C 端购卡开通',
-            },
+            };
           });
 
-          firstCardId ??= card.id;
+        if (transactionDrafts.length > 0) {
+          await tx.memberCardTransaction.createMany({
+            data: transactionDrafts,
+          });
         }
+
+        const firstCardId =
+          cardIdByNo.get(buildCardNo(order.orderNo, 0)) ?? null;
 
         await tx.memberCardOrder.update({
           where: { id: orderId },
@@ -248,22 +301,34 @@ export class ClubCardSettlementService {
           `购卡订单支付成功: orderNo=${order.orderNo}, 发卡 ${order.quantity} 张, expiresAt=${expiresAt.toISOString()}`,
         );
 
-        return { settled: true, cardId: firstCardId, storeId: order.storeId };
+        return {
+          outcome: {
+            settled: true,
+            cardId: firstCardId,
+            storeId: order.storeId,
+          },
+          bind: {
+            orderNo: order.orderNo,
+            storeId: order.storeId,
+            customerId: order.customerId,
+            clubUserId: order.clubUserId,
+          },
+        };
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
-    if (outcome.settled) {
+    if (result.outcome.settled && result.bind) {
       // 卡包与顾客详情是商家端营销衍生数据，落账后必须失效，
       // 否则商家端要等缓存 TTL 才看得到新卡
       await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
-        outcome.storeId,
+        result.outcome.storeId,
       );
       // 无主档案补绑必须在提交后执行：它是读侧归因修正，不能让事务因唯一约束冲突回滚
-      await this.bindPurchasedCustomerToClubUser(orderId);
+      await this.bindPurchasedCustomerToClubUser(result.bind);
     }
 
-    return outcome;
+    return result.outcome;
   }
 
   /**
@@ -272,21 +337,14 @@ export class ClubCardSettlementService {
    * 下单侧允许按手机号降级落到「无主档案」（clubUserId = null），而卡包 / 卡详情只按
    * clubUserId 聚合本人档案——不补绑就会出现「钱付了、卡发了，卡包里却没有这张卡」。
    * 因此落账成功后必须把这条档案的归属补齐，让下单口径与查询口径重新对齐。
+   *
+   * 订单快照由事务内已读行直接传入：提交后不再为同一行订单重复回表一次。
    */
   private async bindPurchasedCustomerToClubUser(
-    orderId: number,
+    order: ClubCardSettleBindContext,
   ): Promise<void> {
     try {
-      const order = await this.prisma.memberCardOrder.findUnique({
-        where: { id: orderId },
-        select: {
-          orderNo: true,
-          storeId: true,
-          customerId: true,
-          clubUserId: true,
-        },
-      });
-      if (!order || order.clubUserId === null) {
+      if (order.clubUserId === null) {
         return;
       }
 
@@ -330,7 +388,7 @@ export class ClubCardSettlementService {
     } catch (error) {
       // 补绑只影响卡包可见性，不能让已完成的落账报错；失败可凭日志人工修复
       this.logger.warn(
-        `购卡补绑顾客档案失败: orderId=${orderId}, reason=${
+        `购卡补绑顾客档案失败: orderNo=${order.orderNo}, reason=${
           error instanceof Error ? error.message : String(error)
         }`,
       );

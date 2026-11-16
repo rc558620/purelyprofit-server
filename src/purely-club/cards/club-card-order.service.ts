@@ -20,12 +20,17 @@ import { CLUB_CARD_ERROR_CODE, clubCardError } from './club-cards.errors';
 import type { MemberCardOrder } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
+import { settleClubTasksInOrder } from '../shared/club-parallel-settle.helper';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import type {
+  ClubCardCustomerSnapshot,
+  ClubCardPlanContextRecord,
+} from './club-card-context.service';
 import { ClubCardContextService } from './club-card-context.service';
 import { buildCardOrderNo, parseCardId } from './club-card-code.utils';
 import { ClubCardImmediateSettlementService } from './club-card-immediate-settlement.service';
@@ -79,66 +84,27 @@ export class ClubCardOrderService {
       }
     }
 
-    const planId = parseCardId(dto.planId);
-    if (planId === null) {
-      throw new BadRequestException(
-        clubCardError(
-          CLUB_CARD_ERROR_CODE.PARAM_PLAN_ID_INVALID,
-          '卡模板 ID 不合法',
-        ),
-      );
-    }
-
-    const { plan } = await this.contextService.resolvePlan(
+    const planId = this.parsePlanIdOrThrow(dto.planId);
+    const paymentMethod: ClubCardPaymentMethod = dto.paymentMethod ?? 'wechat';
+    const { plan, customer, skipWechatPrepay } = await this.resolveOrderContext(
       currentContext,
       planId,
+      paymentMethod,
     );
-    const customer =
-      await this.contextService.resolveOwnCustomer(currentContext);
-    const paymentMethod: ClubCardPaymentMethod = dto.paymentMethod ?? 'wechat';
-
-    // 每人限购：以「已持有的未退款卡数」为准。
-    // 不含未支付订单——用户在支付页反复取消不应被自己的废单拦住。
-    if (plan.purchaseLimit !== null) {
-      const owned = await this.contextService.countOwnedCards(this.prisma, {
-        customerId: customer.id,
-        planId,
-      });
-      if (owned >= plan.purchaseLimit) {
-        throw new BadRequestException(
-          clubCardError(
-            CLUB_CARD_ERROR_CODE.RULE_PURCHASE_LIMIT_EXCEEDED,
-            `${CLUB_CARD_PURCHASE_LIMIT_MESSAGE_PREFIX} ${plan.purchaseLimit} 张`,
-          ),
-        );
-      }
-    }
-
-    // 余额支付前置校验：余额不足直接拒绝，避免落库永远付不掉的 unpaid 脏单（比较与文案均在后端）
-    if (paymentMethod === 'balance' && customer.balanceFen < plan.price) {
-      throw new BadRequestException(
-        clubCardError(
-          CLUB_CARD_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
-          buildCardBalanceInsufficientMessage(customer.balanceFen, plan.price),
-        ),
-      );
-    }
 
     const orderNo = buildCardOrderNo(Date.now());
-    // 测试模式不向微信预下单：订单照常落 unpaid，响应不带 paymentParams，
-    // 前端据此不拉起收银台，改由 confirm-paid 直接发卡。
-    // 必须在这里短路——预下单要求门店已配置微信收款，门店没配时会抛
-    // STORE_PAY_CONFIG_MISSING，把本可走通的联调流程拦死在建单阶段。
-    // 余额支付不需要微信预下单，同样短路（且不会被门店收款配置影响）。
-    const skipWechatPrepay =
-      paymentMethod === 'wechat' &&
-      (await this.paymentModeService.isManualConfirmPaidAllowed());
+    // 门禁（限购 / 余额）与 openid 解析互不依赖：并行，且门禁异常优先抛出。
     // openid 解析不到时不调微信下单（保持既有降级口径），前端拿不到
     // paymentParams 就不会去拉起支付；零元卡与余额支付同样不走微信。
-    const openid =
-      paymentMethod === 'wechat' && plan.price > 0 && !skipWechatPrepay
-        ? await this.openidService.resolveOpenid(currentContext.user.id)
-        : null;
+    const needWechatPrepay =
+      paymentMethod === 'wechat' && plan.price > 0 && !skipWechatPrepay;
+    const [, openid] = await settleClubTasksInOrder([
+      this.assertPurchasable(planId, plan, customer, paymentMethod),
+      needWechatPrepay
+        ? this.openidService.resolveOpenid(currentContext.user.id)
+        : Promise.resolve<string | null>(null),
+    ]);
+
     const paymentParams = openid
       ? await this.jsapiService.createJsapiPaymentParams({
           storeId: currentContext.store.id,
@@ -226,6 +192,89 @@ export class ClubCardOrderService {
         }
       }
       throw error;
+    }
+  }
+
+  /** 卡模板 ID 解析：非法直接 400，不进入任何 IO */
+  private parsePlanIdOrThrow(rawPlanId: string): number {
+    const planId = parseCardId(rawPlanId);
+    if (planId === null) {
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.PARAM_PLAN_ID_INVALID,
+          '卡模板 ID 不合法',
+        ),
+      );
+    }
+
+    return planId;
+  }
+
+  /**
+   * 三个互不依赖的读取并行：卡模板 / 本人顾客档案 / 支付模式。
+   *
+   * 支付模式只在微信支付时才需要读（余额与零元卡不经过收银台），
+   * 非微信路径直接给 false，保持「不读不必要的配置」。
+   * 错误优先级 = 声明顺序：模板不存在 → 顾客档案不存在 → 支付模式读失败，
+   * 与改前串行 await 完全一致。
+   */
+  private async resolveOrderContext(
+    currentContext: ClubCurrentContext,
+    planId: number,
+    paymentMethod: ClubCardPaymentMethod,
+  ): Promise<{
+    plan: ClubCardPlanContextRecord;
+    customer: ClubCardCustomerSnapshot;
+    skipWechatPrepay: boolean;
+  }> {
+    const [planContext, customer, skipWechatPrepay] =
+      await settleClubTasksInOrder([
+        this.contextService.resolvePlan(currentContext, planId),
+        this.contextService.resolveOwnCustomer(currentContext),
+        paymentMethod === 'wechat'
+          ? this.paymentModeService.isManualConfirmPaidAllowed()
+          : Promise.resolve(false),
+      ]);
+
+    return { plan: planContext.plan, customer, skipWechatPrepay };
+  }
+
+  /**
+   * 下单门禁：每人限购 + 余额支付前置校验。
+   *
+   * 顺序不可交换（限购先于余额），错误码是对外契约。
+   */
+  private async assertPurchasable(
+    planId: number,
+    plan: ClubCardPlanContextRecord,
+    customer: ClubCardCustomerSnapshot,
+    paymentMethod: ClubCardPaymentMethod,
+  ): Promise<void> {
+    // 每人限购：以「已持有的未退款卡数」为准。
+    // 不含未支付订单——用户在支付页反复取消不应被自己的废单拦住。
+    if (plan.purchaseLimit !== null) {
+      const owned = await this.contextService.countOwnedCards(this.prisma, {
+        customerId: customer.id,
+        planId,
+      });
+      if (owned >= plan.purchaseLimit) {
+        throw new BadRequestException(
+          clubCardError(
+            CLUB_CARD_ERROR_CODE.RULE_PURCHASE_LIMIT_EXCEEDED,
+            `${CLUB_CARD_PURCHASE_LIMIT_MESSAGE_PREFIX} ${plan.purchaseLimit} 张`,
+          ),
+        );
+      }
+    }
+
+    // 余额支付前置校验：余额不足直接拒绝，避免落库永远付不掉的 unpaid 脏单（比较与文案均在后端）
+    if (paymentMethod === 'balance' && customer.balanceFen < plan.price) {
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_BALANCE_INSUFFICIENT,
+          buildCardBalanceInsufficientMessage(customer.balanceFen, plan.price),
+        ),
+      );
     }
   }
 

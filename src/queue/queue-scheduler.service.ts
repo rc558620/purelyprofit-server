@@ -6,6 +6,7 @@ import type { CachePrewarmJobData } from './cache-prewarm.processor';
 import type { RetentionCleanupJobData } from './retention-cleanup.processor';
 import type { SaleOrderItemsArchiveJobData } from './sale-order-items-archive.processor';
 import { PROFIT_PAYMENT_RECONCILE_QUEUE } from './profit-payment-reconcile.processor';
+import { CLUB_VOUCHER_ORDER_EXPIRY_QUEUE } from './club-voucher-order-expiry.processor';
 
 /**
  * 队列调度服务
@@ -41,6 +42,8 @@ export class QueueSchedulerService implements OnModuleInit {
     private readonly smsDeliveryReconcileQueue: Queue<void>,
     @InjectQueue(PROFIT_PAYMENT_RECONCILE_QUEUE)
     private readonly profitPaymentReconcileQueue: Queue<void>,
+    @InjectQueue(CLUB_VOUCHER_ORDER_EXPIRY_QUEUE)
+    private readonly clubVoucherOrderExpiryQueue: Queue<void>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -52,6 +55,7 @@ export class QueueSchedulerService implements OnModuleInit {
     await this.registerSmsBroadcastRecoveryJob();
     await this.registerSmsDeliveryReconcileJob();
     await this.registerProfitPaymentReconcileJob();
+    await this.registerClubVoucherOrderExpiryJob();
   }
 
   /**
@@ -315,6 +319,36 @@ export class QueueSchedulerService implements OnModuleInit {
 
     this.logger.log(
       `[queue-scheduler] profit-payment-reconcile registered intervalMs=${intervalMs}`,
+    );
+  }
+
+  /**
+   * 注册团购券订单过期翻转定时任务。
+   *
+   * 该任务替代原先挂在 C 端列表 / 详情读接口里的懒过期写：
+   * 读接口只按 expiresAt 派生展示态，DB 状态由本任务收敛。
+   */
+  private async registerClubVoucherOrderExpiryJob(): Promise<void> {
+    const enabled =
+      this.configService.get<boolean>('app.clubVoucherOrderExpiryEnabled') ??
+      true;
+
+    if (!enabled) {
+      this.logger.log('[queue-scheduler] club-voucher-order-expiry disabled');
+      return;
+    }
+
+    const intervalMs =
+      this.configService.get<number>('app.clubVoucherOrderExpiryIntervalMs') ??
+      300_000;
+
+    await this.clubVoucherOrderExpiryQueue.add('expire', undefined, {
+      repeat: { every: intervalMs },
+      jobId: 'club-voucher-order-expiry-cycle', // 固定 jobId，防止重复注册
+    });
+
+    this.logger.log(
+      `[queue-scheduler] club-voucher-order-expiry registered intervalMs=${intervalMs}`,
     );
   }
 }

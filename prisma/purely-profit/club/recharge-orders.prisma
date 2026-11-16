@@ -56,6 +56,13 @@ model ClubRechargeOrder {
   /// 用户维度列表查询
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([promotionId])
+  /// 定时任务：扫描待支付超时订单（status=pending AND expires_at<=now），
+  /// 既有两个定时任务都不带 storeId，历史索引前导列全是 storeId/userId，
+  /// 只能全表扫描后排序；谓词排除非 pending 与已软删行，索引体积收敛在在途订单。
+  @@index([expiresAt], map: "idx_club_recharge_orders_pending_expiry", where: raw("(status = 'pending' AND deleted_at IS NULL)"))
+  /// 定时任务：对账扫描陈旧的 pending 订单（status=pending AND created_at<今日），
+  /// 排序键 created_at + id 补齐键集推进所需的稳定次序。
+  @@index([createdAt, id], map: "idx_club_recharge_orders_pending_created", where: raw("(status = 'pending' AND deleted_at IS NULL)"))
   @@map("club_recharge_orders")
 }
 

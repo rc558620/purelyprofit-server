@@ -10,74 +10,16 @@ import type {
   ListLedgerEntriesResult,
 } from './club-records.types';
 import type { ClubRecordSummaryDto } from './dto/club-record.dto';
+import {
+  LEDGER_KIND_RANK,
+  RECHARGE_TYPE_KIND_RANK,
+  compareLedgerEntriesDesc,
+  parseCompositeId,
+} from './club-record-ledger-order.util';
+import { queryLedgerBalanceWindow } from './club-record-balance-window.query';
 
 /** 每页查询时从数据库多取的冗余条数，用于合并排序后仍能填满 limit */
 const QUERY_OVERFETCH = 2;
-
-/**
- * 流水 kind 权重：desc 排序时值大的在前。
- * 取值与复合 id 前缀的字典序一致（refund > recharge > consume > bonus），
- * 使「排序 tie-break」与「游标 tie-break 过滤」基于同一个全序键 (createdAt, kindRank, numericId)。
- *
- * 为什么必须统一：PostgreSQL 事务内 now() 恒定，同事务批量写入的流水 createdAt 完全相同，
- * 同刻记录真实存在。若排序按复合 id 字典序、过滤却按数字主键比较，两者规则不一致，
- * 会把排序在游标之后的同刻记录整段漏掉（分页永远取不到）。
- */
-const LEDGER_KIND_RANK: Record<string, number> = {
-  refund: 4,
-  recharge: 3,
-  consume: 2,
-  bonus: 1,
-};
-
-/** 充值表 type → kind 权重（gift 展示为 bonus，故取 bonus 的权重） */
-const RECHARGE_TYPE_KIND_RANK: ReadonlyArray<
-  readonly ['recharge' | 'gift' | 'refund', number]
-> = [
-  ['refund', LEDGER_KIND_RANK.refund],
-  ['recharge', LEDGER_KIND_RANK.recharge],
-  ['gift', LEDGER_KIND_RANK.bonus],
-];
-
-/** 解析复合 id（如 "recharge-18"）为 kind 权重与数字主键 */
-const parseCompositeId = (
-  compositeId: string,
-): { kindRank: number; numericId: number } => {
-  const separatorIndex = compositeId.lastIndexOf('-');
-  const prefix = compositeId.slice(0, separatorIndex);
-  const numericId = Number.parseInt(compositeId.slice(separatorIndex + 1), 10);
-
-  return {
-    kindRank: LEDGER_KIND_RANK[prefix] ?? 0,
-    numericId: Number.isNaN(numericId) ? 0 : numericId,
-  };
-};
-
-/** 流水条目倒序比较：createdAt desc → kindRank desc → numericId desc（全序，与游标过滤同源） */
-const compareLedgerEntriesDesc = (
-  left: ClubLedgerEntry,
-  right: ClubLedgerEntry,
-): number => {
-  const timeDiff = right.createdAt.getTime() - left.createdAt.getTime();
-  if (timeDiff !== 0) {
-    return timeDiff;
-  }
-
-  const leftKey = parseCompositeId(left.id);
-  const rightKey = parseCompositeId(right.id);
-  const rankDiff = rightKey.kindRank - leftKey.kindRank;
-  if (rankDiff !== 0) {
-    return rankDiff;
-  }
-
-  return rightKey.numericId - leftKey.numericId;
-};
-
-/** 流水条目升序比较（余额快照正推用）：与倒序严格互逆，保证同刻条目先后关系一致 */
-const compareLedgerEntriesAsc = (
-  left: ClubLedgerEntry,
-  right: ClubLedgerEntry,
-): number => -compareLedgerEntriesDesc(left, right);
 
 @Injectable()
 export class ClubRecordQueryService {
@@ -256,74 +198,24 @@ export class ClubRecordQueryService {
 
     const items = this.mergeAndSliceEntries(recharges, consumptions, limit);
 
+    const oldestItem = items.length > 0 ? items[items.length - 1] : null;
+    // 余额快照基准：取「不早于本页最旧一条」的全量流水（不受 filterType 影响），
+    // 在 DB 侧用窗口函数求合计与逐条累计，只回传本页 ≤limit 条标量。
+    // 本页最旧一条之后（含）的流水已全部覆盖，因此可由当前余额精确反推出该时点余额。
+    const balanceWindow = oldestItem
+      ? await queryLedgerBalanceWindow(this.prisma, {
+          storeId,
+          customerId,
+          since: oldestItem.createdAt,
+          entryIds: items.map((item) => item.id),
+        })
+      : null;
+
     return {
       items,
       total: rechargeCount + consumptionCount,
-      // 余额快照基准：取「不早于本页最旧一条」的全量流水（不受 filterType 影响）。
-      // 本页最旧一条之后（含）的流水已全部覆盖，因此可由当前余额精确反推出该时点余额。
-      balanceEntries:
-        items.length > 0
-          ? await this.listBalanceEntriesSince(
-              storeId,
-              customerId,
-              items[items.length - 1].createdAt,
-              balanceConsumptionWhere,
-            )
-          : [],
+      balanceWindow,
     };
-  }
-
-  /**
-   * 查询「不早于 since」的全部储值账户流水（充值与消费，不分 Tab 类型），按时间升序返回。
-   * 仅供余额快照回推使用，不参与分页与展示。
-   */
-  private async listBalanceEntriesSince(
-    storeId: number,
-    customerId: number,
-    since: Date,
-    balanceConsumptionWhere: { balancePaid: { gt: number } },
-  ): Promise<ClubLedgerEntry[]> {
-    const [recharges, consumptions] = await Promise.all([
-      this.prisma.marketingRecharge.findMany({
-        where: { storeId, customerId, createdAt: { gte: since } },
-        select: {
-          id: true,
-          amount: true,
-          giftAmount: true,
-          totalAmount: true,
-          type: true,
-          note: true,
-          createdAt: true,
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      }),
-      this.prisma.marketingConsumption.findMany({
-        where: {
-          storeId,
-          customerId,
-          ...balanceConsumptionWhere,
-          createdAt: { gte: since },
-        },
-        select: {
-          id: true,
-          amount: true,
-          balancePaid: true,
-          itemsSummary: true,
-          createdAt: true,
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      }),
-    ]);
-
-    return (
-      [
-        ...recharges.map((row) => this.mapRechargeRow(row)),
-        ...consumptions.map((row) => this.mapConsumptionRow(row)),
-      ]
-        .filter((entry): entry is ClubLedgerEntry => entry !== null)
-        // 与展示排序严格互逆：同刻条目按同样的 kind/主键次序正推，避免快照错序
-        .sort(compareLedgerEntriesAsc)
-    );
   }
 
   /**

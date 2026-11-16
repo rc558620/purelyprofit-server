@@ -5,6 +5,8 @@ import type {
   ClubPointsFilterValue,
   ClubPointsSummaryDto,
 } from './dto/club-points-record.dto';
+import type { ClubPointsBalanceWindow } from './club-points-snapshot.util';
+import { queryPointsBalanceWindow } from './club-points-balance-window.query';
 
 /** 积分记录查询结果行（对齐 MarketingPointsRecord 表字段） */
 export interface ClubPointsRecordRow {
@@ -28,13 +30,6 @@ export interface ClubPointsCursorPayload {
   createdAt: string;
   /** 上一页最后一条记录的数字 ID */
   id: number;
-}
-
-/** 积分余额快照基准行：不受类型筛选影响的积分流水（仅供快照正推） */
-export interface ClubPointsBalanceRecordRow {
-  id: number;
-  amount: number;
-  createdAt: Date;
 }
 
 /** 积分记录分页查询参数 */
@@ -146,8 +141,9 @@ export class ClubPointsQueryService {
    * 列出指定顾客在指定门店的积分明细（按时间倒序）。
    * 支持按类型筛选与游标分页，筛选条件下推到 DB 层确保 total 与 items 一致。
    *
-   * 同时返回 balanceRecords（不早于本页最旧一条的**全量**积分流水，不含类型筛选），
+   * 同时返回 balanceWindow（不早于本页最旧一条的**全量**积分流水聚合值，不含类型筛选），
    * 供上层做余额快照正推——快照若基于筛选后的记录，被排除的流水会凭空抬高压低余额。
+   * 窗口求和已下推到 DB（窗口函数），只回传标量，不再随流水长度拉回全量行。
    */
   async listPointsRecords(
     storeId: number,
@@ -157,8 +153,8 @@ export class ClubPointsQueryService {
   ): Promise<{
     items: ClubPointsRecordRow[];
     total: number;
-    /** 余额快照基准：不早于本页最旧一条的全量积分流水（按时间 + ID 升序） */
-    balanceRecords: ClubPointsBalanceRecordRow[];
+    /** 余额快照基准：不早于本页最旧一条的全量积分流水聚合值 */
+    balanceWindow: ClubPointsBalanceWindow | null;
   }> {
     const { limit = 50, cursor } = options;
 
@@ -202,39 +198,18 @@ export class ClubPointsQueryService {
     ]);
 
     // 余额快照基准：本页最旧一条之后（含）的全量流水已全部覆盖，
-    // 因此可由当前余额精确反推出该时点余额（与储值流水 listBalanceEntriesSince 同理）。
+    // 因此可由当前余额精确反推出该时点余额（与储值流水同理）。
+    // 求和下推到 DB 窗口函数，只回传本页 ≤limit 条标量。
     const oldestRow = items.length > 0 ? items[items.length - 1] : null;
+    const balanceWindow = oldestRow
+      ? await queryPointsBalanceWindow(this.prisma, {
+          storeId,
+          customerId,
+          since: oldestRow.createdAt,
+          recordIds: items.map((item) => item.id),
+        })
+      : null;
 
-    return {
-      items,
-      total,
-      balanceRecords: oldestRow
-        ? await this.listBalanceRecordsSince(
-            storeId,
-            customerId,
-            oldestRow.createdAt,
-          )
-        : [],
-    };
-  }
-
-  /**
-   * 查询「不早于 since」的全部积分流水（不分类型），按时间 + ID 升序返回。
-   * 仅供余额快照正推使用，不参与分页与展示。
-   *
-   * 升序必须与展示排序（createdAt desc, id desc）严格互逆：
-   * 同一事务内写入的记录 createdAt 相同（Postgres now() 取事务开始时间），
-   * 此时只能靠 ID 定序，否则快照会按 id 逆序错配到相邻记录上。
-   */
-  private async listBalanceRecordsSince(
-    storeId: number,
-    customerId: number,
-    since: Date,
-  ): Promise<ClubPointsBalanceRecordRow[]> {
-    return this.prisma.marketingPointsRecord.findMany({
-      where: { storeId, customerId, createdAt: { gte: since } },
-      select: { id: true, amount: true, createdAt: true },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
+    return { items, total, balanceWindow };
   }
 }

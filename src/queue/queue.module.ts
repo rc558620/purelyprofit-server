@@ -16,6 +16,11 @@ import { SaleOrderItemsArchiveService } from './sale-order-items-archive.service
 import { SmsBroadcastRecoveryProcessor } from './sms-broadcast-recovery.processor';
 import { SmsDeliveryReconcileProcessor } from './sms-delivery-reconcile.processor';
 import { ProfitPaymentReconcileProcessor } from './profit-payment-reconcile.processor';
+import {
+  CLUB_VOUCHER_ORDER_EXPIRY_QUEUE,
+  ClubVoucherOrderExpiryProcessor,
+} from './club-voucher-order-expiry.processor';
+import { ClubVoucherOrderExpiryService } from './club-voucher-order-expiry.service';
 import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
 import { ClubPaymentCallbackProcessorModule } from '../purely-club/payments/club-payment-callback-processor.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -40,6 +45,7 @@ import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platfo
  * - `sms-broadcast-recovery`：定时补发卡在 sending 的群发短信任务（每 60s）
  * - `sms-delivery-reconcile`：定时补拉丢失的送达回执并退费（每 24h）
  * - `profit-payment-reconcile`：定时主动查单补入账平台收款丢失的支付回调（每 30min）
+ * - `club-voucher-order-expiry`：定时翻转 C 端已过期团购券订单状态（每 5min）
  */
 @Global()
 @Module({
@@ -95,6 +101,9 @@ import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platfo
       {
         name: 'profit-payment-reconcile',
       },
+      {
+        name: CLUB_VOUCHER_ORDER_EXPIRY_QUEUE,
+      },
     ),
     ClubPaymentCallbackQueueModule,
     // 回调 worker 的装配模块：只注册队列不 import 本模块，等于没有消费者
@@ -117,6 +126,8 @@ import { PlatformPaymentReconcileModule } from '../purely-profit/payments/platfo
     SmsBroadcastRecoveryProcessor,
     SmsDeliveryReconcileProcessor,
     ProfitPaymentReconcileProcessor,
+    ClubVoucherOrderExpiryProcessor,
+    ClubVoucherOrderExpiryService,
     QueueSchedulerService,
   ],
   exports: [],

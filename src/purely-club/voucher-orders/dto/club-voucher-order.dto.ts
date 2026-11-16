@@ -58,15 +58,14 @@ export class ListClubVoucherOrdersQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    example: 0,
-    default: 0,
-    description: '偏移量（默认 0）',
+    example: 'v1:eyJrZXlzIjpbMTc2MTAwMDAwMDAwMF0sImlkIjoxOH0',
+    description:
+      '分页游标（上一页返回的 nextCursor）；不传表示第一页，需原样回传。' +
+      '游标与当前 status 的排序键绑定，切换 Tab 必须丢弃旧游标',
   })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'offset 必须是整数' })
-  @Min(0, { message: 'offset 最少为 0' })
-  offset?: number;
+  @IsString({ message: 'cursor 必须是字符串' })
+  cursor?: string;
 }
 
 /** 创建团购券订单入参 */
@@ -434,11 +433,21 @@ export class ClubVoucherOrderResponseDto {
   reused?: boolean;
 }
 
-/** 团购券订单列表响应（分页） */
+/** 团购券订单列表响应（游标分页） */
 export class ClubVoucherOrderListResponseDto {
   @ApiProperty({ type: [ClubVoucherOrderItemDto], description: '订单列表' })
   items: ClubVoucherOrderItemDto[];
 
-  @ApiProperty({ example: false, description: '是否还有下一页' })
+  @ApiProperty({
+    example: false,
+    description: '是否还有下一页（等价于 nextCursor !== null，保留兼容字段）',
+  })
   hasMore: boolean;
+
+  @ApiProperty({
+    example: 'v1:eyJrZXlzIjpbMTc2MTAwMDAwMDAwMF0sImlkIjoxOH0',
+    nullable: true,
+    description: '下一页游标；null 表示已到最后一页，需原样回传给 cursor 参数',
+  })
+  nextCursor: string | null;
 }

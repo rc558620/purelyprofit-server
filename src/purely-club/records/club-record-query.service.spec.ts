@@ -18,10 +18,13 @@ describe('ClubRecordQueryService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    // 余额快照窗口走单条原生 SQL（窗口函数下推），由 $queryRaw 承担
+    $queryRaw: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prismaService.$queryRaw.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -179,6 +182,20 @@ describe('ClubRecordQueryService', () => {
 
       prismaService.marketingRecharge.count.mockResolvedValue(2);
       prismaService.marketingConsumption.count.mockResolvedValue(1);
+      // 窗口聚合（分）：bonus-16 +5000 → consume-31 -19900 → recharge-18 +58000，合计 43100
+      prismaService.$queryRaw.mockResolvedValue([
+        { id: 'bonus-16', cumulativeEffectFen: 5000n, totalEffectFen: 43100n },
+        {
+          id: 'consume-31',
+          cumulativeEffectFen: -14900n,
+          totalEffectFen: 43100n,
+        },
+        {
+          id: 'recharge-18',
+          cumulativeEffectFen: 43100n,
+          totalEffectFen: 43100n,
+        },
+      ]);
 
       const result = await service.listLedgerEntries(11, 98);
 
@@ -211,12 +228,53 @@ describe('ClubRecordQueryService', () => {
         },
       ]);
       expect(result.total).toBe(3);
-      // 余额快照基准：全量流水按时间升序，供 view 层反推每笔流水后的真实余额
-      expect(result.balanceEntries.map((entry) => entry.id)).toEqual([
-        'bonus-16',
-        'consume-31',
-        'recharge-18',
+      // 余额快照基准：DB 侧窗口聚合只回传标量（合计 + 逐条累计），不再拉回全量流水
+      expect(result.balanceWindow).toEqual({
+        totalEffectFen: 43100,
+        cumulativeEffectFenById: {
+          'bonus-16': 5000,
+          'consume-31': -14900,
+          'recharge-18': 43100,
+        },
+      });
+    });
+
+    it('余额快照窗口以单条原生 SQL 下推，参数限定门店 + 顾客 + 起点', async () => {
+      prismaService.marketingRecharge.findMany.mockResolvedValue([
+        {
+          id: 18,
+          amount: 50000,
+          giftAmount: 8000,
+          totalAmount: 58000,
+          type: 'recharge',
+          note: null,
+          createdAt: new Date('2024-11-20T10:30:00.000Z'),
+        },
       ]);
+      prismaService.marketingConsumption.findMany.mockResolvedValue([]);
+      prismaService.marketingRecharge.count.mockResolvedValue(1);
+      prismaService.marketingConsumption.count.mockResolvedValue(0);
+
+      await service.listLedgerEntries(11, 98);
+
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+      const rawCall = prismaService.$queryRaw.mock.calls[0] as unknown as [
+        readonly string[],
+        ...unknown[],
+      ];
+      const sqlText = rawCall[0].join('?');
+      // 口径复刻要点：两表统一账本 + 窗口函数累计 + 与展示排序互逆的升序
+      expect(sqlText).toContain('marketing_recharges');
+      expect(sqlText).toContain('marketing_consumptions');
+      expect(sqlText).toContain('ROWS UNBOUNDED PRECEDING');
+      expect(sqlText).toContain(
+        'ORDER BY created_at ASC, kind_rank ASC, numeric_id ASC',
+      );
+      // 门店 + 顾客双等值限定，禁止跨店/跨顾客
+      expect(rawCall[1]).toBe(11);
+      expect(rawCall[2]).toBe(98);
+      // 窗口起点 = 本页最旧一条的 createdAt
+      expect(rawCall).toContainEqual(new Date('2024-11-20T10:30:00.000Z'));
     });
 
     it('过滤无效赠送与无效消费记录', async () => {
@@ -248,7 +306,7 @@ describe('ClubRecordQueryService', () => {
         items: [],
         total: 2,
         // 无可展示条目时不触发余额快照窗口查询
-        balanceEntries: [],
+        balanceWindow: null,
       });
     });
 
@@ -391,7 +449,7 @@ describe('ClubRecordQueryService', () => {
       expect(rechargeCall.where.OR).toBeUndefined();
     });
 
-    it('recharge 筛选时消费表不参与过滤分页（仅余额快照窗口查询）', async () => {
+    it('recharge 筛选时消费表不参与过滤分页，余额快照由其原生 SQL 统一覆盖', async () => {
       prismaService.marketingRecharge.findMany.mockResolvedValue([
         {
           id: 18,
@@ -413,17 +471,11 @@ describe('ClubRecordQueryService', () => {
 
       // 分页过滤不查消费表（count 只在过滤分页阶段调用）
       expect(prismaService.marketingConsumption.count).not.toHaveBeenCalled();
-      // 消费表仅在余额快照窗口查询中被访问：不带 Tab 过滤，按时间升序
-      expect(prismaService.marketingConsumption.findMany).toHaveBeenCalledTimes(
-        1,
-      );
-      const snapshotConsumptionCall =
-        prismaService.marketingConsumption.findMany.mock.calls[0][0];
-      expect(snapshotConsumptionCall.orderBy).toEqual([
-        { createdAt: 'asc' },
-        { id: 'asc' },
-      ]);
-      expect(snapshotConsumptionCall.where.balancePaid).toEqual({ gt: 0 });
+      // 消费表分页也不再查：余额快照改由单条原生 SQL 覆盖两表，不再整表拉回
+      expect(
+        prismaService.marketingConsumption.findMany,
+      ).not.toHaveBeenCalled();
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
       // 充值表类型过滤：排除退款
@@ -504,7 +556,7 @@ describe('ClubRecordQueryService', () => {
 
       const result = await service.listLedgerEntries(11, 98);
       expect(result.items).toHaveLength(0);
-      expect(result.balanceEntries).toHaveLength(0);
+      expect(result.balanceWindow).toBeNull();
     });
   });
 });

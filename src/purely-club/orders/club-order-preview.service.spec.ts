@@ -278,4 +278,57 @@ describe('ClubOrderPreviewService', () => {
     expect(result.balanceEnough).toBe(true);
     expect(result.insufficientBalanceMessage).toBeNull();
   });
+
+  it('顾客资产读取与定价上下文并行：总额不变', async () => {
+    clubOrderPromotionsService.resolvePricing.mockResolvedValue({
+      amountFen: 9000,
+      memberBaselineFen: 10000,
+      discountAmountFen: 1000,
+      promotionId: null,
+      promotionType: null,
+      discountRate: null,
+      promotionTag: null,
+      promotionDiscountAmountFen: 1000,
+      totalReduceFen: 0,
+      amountFenBeforeReduce: 9000,
+    });
+    clubOrderPromotionsService.resolveOrderReduceDetail.mockResolvedValue({
+      totalReduceFen: 0,
+      reduceRules: [],
+    });
+
+    // 定价上下文必须等顾客行被读取后才放行：若两者串行，这里会超时失败
+    let releaseCustomerRead: () => void = () => {};
+    const customerGate = new Promise<void>((resolve) => {
+      releaseCustomerRead = resolve;
+    });
+    clubOrderPromotionsService.preloadPricingContext.mockImplementation(
+      async () => {
+        await Promise.race([
+          customerGate,
+          new Promise<never>((_resolve, reject) => {
+            setTimeout(
+              () => reject(new Error('顾客资产读取未与定价上下文并行')),
+              2000,
+            );
+          }),
+        ]);
+        return { promotions: [], consumptionCount: 0 };
+      },
+    );
+    prismaService.marketingCustomer.findUnique.mockImplementation(() => {
+      releaseCustomerRead();
+      return Promise.resolve({ points: 0, balance: 100000 });
+    });
+
+    const result = await service.previewServiceOrder(currentContext, {
+      storeId: 11,
+      productId: 18,
+      quantity: 1,
+    });
+
+    expect(result.afterDiscountPrice).toBe(90);
+    expect(result.finalPrice).toBe(90);
+    expect(result.balanceEnough).toBe(true);
+  });
 });

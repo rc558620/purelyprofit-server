@@ -8,12 +8,16 @@ import type {
   ListClubPointsRecordsQueryDto,
 } from './dto/club-points-record.dto';
 import type {
-  ClubPointsBalanceRecordRow,
   ClubPointsCursorPayload,
   ClubPointsCustomerRecord,
   ClubPointsRecordRow,
 } from './club-points-query.service';
 import { ClubPointsQueryService } from './club-points-query.service';
+import type { ClubPointsBalanceWindow } from './club-points-snapshot.util';
+import {
+  buildPointsSnapshotsFromRecords,
+  buildPointsSnapshotsFromWindow,
+} from './club-points-snapshot.util';
 
 /** Prisma 积分类型 → 前端 DTO 类型映射 */
 const POINTS_TYPE_MAP: Record<
@@ -54,13 +58,13 @@ export class ClubPointsService {
     }
 
     // 筛选条件下推到 DB 层，确保 total 与 items 语义一致；
-    // 余额快照基准由查询层另取全量流水（balanceRecords），不受筛选影响
+    // 余额快照基准由查询层另取全量流水聚合值（balanceWindow），不受筛选影响
     const filterType = query.type ?? 'all';
     const cursor = this.buildCursor(query);
     const {
       items: rows,
       total,
-      balanceRecords,
+      balanceWindow,
     } = await this.clubPointsQueryService.listPointsRecords(
       currentContext.store.id,
       customer.id,
@@ -77,7 +81,7 @@ export class ClubPointsService {
           rows,
           customer,
           currentContext.store.name,
-          balanceRecords,
+          balanceWindow,
         ),
       ),
       this.clubPointsQueryService.calculateSummary(
@@ -170,42 +174,32 @@ export class ClubPointsService {
    * 将积分记录行转换为前端 DTO，并计算每条记录后的积分余额快照。
    *
    * 余额快照算法（正推法，与 ClubRecordViewService 一致）：
-   * 1. 对 balanceRecords（不早于本页最旧一条的全量流水）按时间 + ID 正序排列
-   * 2. 起始积分 = customer.points - balanceRecords 变动量之和 = 最旧一条发生前的积分
-   * 3. 从最旧到最新逐条累加，得到每条记录后的快照
-   * 4. 最终仍按倒序输出（最新在前）
+   * 1. 起始积分 = customer.points − 窗口内全部流水变动之和 = 最旧一条发生前的积分
+   * 2. 每条快照 = 起始积分 + 该条在窗口内的累计变动（含自身）
+   * 3. 最终仍按倒序输出（最新在前）
    *
-   * ⚠️ 快照基准必须是**不受类型筛选影响的全量流水**（balanceRecords）。
+   * ⚠️ 快照基准必须是**不受类型筛选影响的全量流水**（balanceWindow）。
    * 若误用按 Tab 过滤后的 rows，被排除的流水（如筛选「获得」时被排除的消耗）
    * 会让反推起点偏离真实余额，除最新一条外的快照全部失真。
    * 升序必须与展示排序（createdAt desc, id desc）严格互逆：同一事务写入的记录
    * createdAt 相同（Postgres now() 取事务开始时间），此时只能靠 ID 定序。
+   *
+   * 窗口求和已下推到 DB（只回传标量）；balanceWindow 缺省（旧调用/查询层未返回）时
+   * 降级为本页 rows 全量反推，保持旧行为不变。
    */
   private buildItems(
     rows: ClubPointsRecordRow[],
     customer: ClubPointsCustomerRecord,
     storeName: string,
-    balanceRecords: ClubPointsBalanceRecordRow[] = [],
+    balanceWindow: ClubPointsBalanceWindow | null = null,
   ): ClubPointsRecordDto[] {
     if (rows.length === 0) {
       return [];
     }
 
-    // 快照基准缺省（旧调用/查询层未返回）时回退为本页 rows，保证向后兼容
-    const balanceRows = balanceRecords.length > 0 ? balanceRecords : rows;
-
-    const ascending = [...balanceRows].sort(
-      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id,
-    );
-
-    const totalEffect = ascending.reduce((sum, r) => sum + r.amount, 0);
-    let runningPoints = customer.points - totalEffect;
-
-    const snapshotMap = new Map<number, number>();
-    for (const row of ascending) {
-      runningPoints += row.amount;
-      snapshotMap.set(row.id, runningPoints);
-    }
+    const snapshotMap = balanceWindow
+      ? buildPointsSnapshotsFromWindow(balanceWindow, customer.points)
+      : buildPointsSnapshotsFromRecords(rows, customer.points);
 
     return rows.map((row) => ({
       id: `points-${row.id}`,

@@ -140,10 +140,10 @@ export class ClubVoucherOrdersService {
     };
   }
 
-  /** 我的团购券订单列表 */
+  /** 我的团购券订单列表（游标分页） */
   listVoucherOrders(
     currentContext: ClubCurrentContext,
-    query: { status?: string; limit?: number; offset?: number },
+    query: { status?: string; limit?: number; cursor?: string },
   ): Promise<ClubVoucherOrderListResponseDto> {
     return this.queryService.listVoucherOrders(currentContext, query);
   }

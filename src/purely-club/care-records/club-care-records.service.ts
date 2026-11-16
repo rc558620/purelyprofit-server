@@ -14,7 +14,7 @@ import {
 } from '../../purely-profit/operations/spaces/space-care-record-read.shared';
 import {
   buildMarketingPaginationMeta,
-  resolveMarketingPagination,
+  MARKETING_MAX_PAGE_SIZE,
 } from '../../purely-profit/marketing/marketing.utils';
 import { normalizeTechnicianLabel } from '../../purely-profit/stores/dto/store-response.dto';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
@@ -23,9 +23,31 @@ import type {
   ClubCareRecordsResponseDto,
   ListClubCareRecordsQueryDto,
 } from './dto/club-care-record.dto';
+import type { Prisma } from '@prisma/client';
+import { resolveCursorLimit } from '../../shared/cursor-pagination.utils';
+import {
+  buildClubKeysetWhere,
+  decodeClubCursor,
+  encodeClubCursor,
+  type ClubCursorKeySpec,
+} from '../shared/club-keyset-cursor.util';
 
 /** 时间线默认每页条数：与前端 CARE_RECORDS_PAGE_SIZE 保持一致 */
 const CLUB_CARE_RECORD_DEFAULT_PAGE_SIZE = 10;
+
+/**
+ * 护理记录排序键：`visitAt` 是录入即固定的业务时间（补录也写入护理发生时间），
+ * 排序位置不随记录编辑变化，可作为稳定游标键。
+ */
+const CARE_CURSOR_KEYS: ReadonlyArray<ClubCursorKeySpec> = [
+  { field: 'visitAt', nullable: false },
+];
+
+/** 时间线排序（与 CARE_CURSOR_KEYS 同序：先 visitAt，再由 id 兜底） */
+const CARE_ORDER_BY: Prisma.CareRecordOrderByWithRelationInput[] = [
+  { visitAt: 'desc' },
+  { id: 'desc' },
+];
 
 /**
  * 会员护理档案 C 端只读服务。
@@ -43,10 +65,13 @@ export class ClubCareRecordsService {
   ) {}
 
   /**
-   * 分页查询会员本人的护理档案（真分页，按 visitAt 倒序）。
+   * 游标分页查询会员本人的护理档案（按 visitAt 倒序）。
    *
    * 第 1 页即「最近一次护理」，翻页向更早回溯；效果对比的首尾记录
    * 只在第 1 页随页下发（翻页不会改变首尾，无需重复计算）。
+   *
+   * `total` 始终是「门店 + 顾客」全量条数（不叠加游标条件），
+   * 否则会随翻页递减，与「共 N 次护理」的展示口径冲突。
    */
   async list(
     currentContext: ClubCurrentContext,
@@ -63,11 +88,11 @@ export class ClubCareRecordsService {
       );
     }
 
-    const { page, skip, take } = resolveMarketingPagination(
-      query.page,
-      query.pageSize,
-      CLUB_CARE_RECORD_DEFAULT_PAGE_SIZE,
-    );
+    const pageSize = resolveCursorLimit(query.pageSize, {
+      defaultLimit: CLUB_CARE_RECORD_DEFAULT_PAGE_SIZE,
+      maxLimit: MARKETING_MAX_PAGE_SIZE,
+    });
+    const position = decodeClubCursor(query.cursor, CARE_CURSOR_KEYS);
     const customerId = await this.resolveOwnedCustomerId(currentContext);
     // 门店服务人员称呼：C 端把「护理师」列名替换为门店配置（空值 / 旧缓存回落「技师」）
     const technicianLabel = normalizeTechnicianLabel(
@@ -78,42 +103,67 @@ export class ClubCareRecordsService {
         technicianLabel,
         items: [],
         compareRange: { earliest: null, latest: null },
-        meta: buildMarketingPaginationMeta(0, page, take),
+        nextCursor: null,
+        meta: buildMarketingPaginationMeta(0, 1, pageSize),
       };
     }
 
     const storeId = currentContext.store.id;
-    const where = { storeId, customerId };
+    const baseWhere: Prisma.CareRecordWhereInput = { storeId, customerId };
+    const where: Prisma.CareRecordWhereInput = position
+      ? {
+          ...baseWhere,
+          ...buildClubKeysetWhere<Prisma.CareRecordWhereInput>(
+            CARE_CURSOR_KEYS,
+            position,
+          ),
+        }
+      : baseWhere;
 
-    const [rows, total] = await Promise.all([
+    // 多取一行判断是否还有下一页；count 用不含游标的基础条件
+    const [rawRows, total] = await Promise.all([
       this.prisma.careRecord.findMany({
         where,
-        orderBy: [{ visitAt: 'desc' }, { id: 'desc' }],
-        skip,
-        take,
+        orderBy: CARE_ORDER_BY,
+        take: pageSize + 1,
         select: CARE_RECORD_ROW_SELECT,
       }),
-      this.prisma.careRecord.count({ where }),
+      this.prisma.careRecord.count({ where: baseWhere }),
     ]);
 
+    const rows = rawRows.slice(0, pageSize);
     const [items, compareRange] = await Promise.all([
       mapCareRecordRows(this.prisma, storeId, rows, toClubCareRecordDto),
-      page === 1
-        ? queryCareRecordCompareRange(
+      position
+        ? Promise.resolve(undefined)
+        : queryCareRecordCompareRange(
             this.prisma,
             storeId,
             customerId,
             toClubCareRecordDto,
-          )
-        : Promise.resolve(undefined),
+          ),
     ]);
 
     return {
       technicianLabel,
       items,
       compareRange,
-      meta: buildMarketingPaginationMeta(total, page, take),
+      nextCursor: this.buildNextCursor(rawRows, rows, pageSize),
+      meta: buildMarketingPaginationMeta(total, 1, pageSize),
     };
+  }
+
+  /** 下一页游标：由本页最后一行编码；末页返回 null */
+  private buildNextCursor(
+    rawRows: Array<{ id: number; visitAt: Date }>,
+    rows: Array<{ id: number; visitAt: Date }>,
+    pageSize: number,
+  ): string | null {
+    if (rawRows.length <= pageSize || rows.length === 0) {
+      return null;
+    }
+    const last = rows[rows.length - 1];
+    return encodeClubCursor([last.visitAt], last.id);
   }
 
   /**

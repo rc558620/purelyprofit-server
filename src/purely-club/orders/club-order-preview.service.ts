@@ -35,6 +35,7 @@ import type {
 import { resolvePointsDeductionFromAvailablePoints } from './club-order-points.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown.service';
+import { settleClubTasksInOrder } from '../shared/club-parallel-settle.helper';
 import type {
   ClubBalanceCheckResult,
   ClubBuildPreviewResponseParams,
@@ -67,20 +68,29 @@ export class ClubOrderPreviewService {
         currentContext,
         { storeId: dto.storeId, productId: dto.productId },
       );
-    // 定价上下文（门店活动 + 消费次数）与会员等级折扣率互不依赖，并行预加载。
+    // 定价上下文（门店活动 + 消费次数）、会员等级折扣率、顾客资产（积分 + 余额）
+    // 三者互不依赖，并行预加载；结算顺序固定为声明顺序，异常优先级不随调度漂移。
     // 同一请求只取一次活动快照：既省一次 Redis GET，也保证行级定价与订单级满减
     // 基于同一份活动配置，避免缓存恰好在两次加载之间失效导致金额口径不一致。
-    const [pricingContext, memberDiscountRate] = await Promise.all([
-      this.clubOrderPromotionsService.preloadPricingContext(
-        context.store.id,
-        context.customer.id,
-      ),
-      this.clubOrderPromotionsService.resolveMemberDiscountRate(
-        context.store.id,
-        currentContext.user.id,
-        currentContext.user.phone,
-      ),
-    ]);
+    // 顾客资产同源读取一次：积分抵扣与余额充足性判断关注的是同一行，
+    // 分两次 findUnique 会重复读同一行。这里只读、不锁：预览是纯只读路径，
+    // 真正扣减由创建/结算在事务内重新校验。
+    const [pricingContext, memberDiscountRate, customer] =
+      await settleClubTasksInOrder([
+        this.clubOrderPromotionsService.preloadPricingContext(
+          context.store.id,
+          context.customer.id,
+        ),
+        this.clubOrderPromotionsService.resolveMemberDiscountRate(
+          context.store.id,
+          currentContext.user.id,
+          currentContext.user.phone,
+        ),
+        this.prisma.marketingCustomer.findUnique({
+          where: { id: context.customer.id },
+          select: { points: true, balance: true },
+        }),
+      ]);
     const pricing = await this.clubOrderPromotionsService.resolvePricing(
       context.store.id,
       context.customer.id,
@@ -98,13 +108,6 @@ export class ClubOrderPreviewService {
       pricing,
       memberDiscountRate,
       promotions: pricingContext.promotions,
-    });
-    // 顾客资产（积分 + 余额）同源读取一次：
-    // 积分抵扣与余额充足性判断关注的是同一行，分两次 findUnique 会重复读同一行。
-    // 注意这里只读、不锁：预览是纯只读路径，真正扣减由创建/结算在事务内重新校验。
-    const customer = await this.prisma.marketingCustomer.findUnique({
-      where: { id: context.customer.id },
-      select: { points: true, balance: true },
     });
     // 积分抵扣计算（基于乘以数量后的金额）
     const { pointsDeductFen, pointsUsed } =

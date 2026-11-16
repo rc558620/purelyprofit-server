@@ -8,6 +8,7 @@ import {
   CLUB_CHANNEL_WECHAT_JSAPI,
 } from '../payments/club-payment-channels.constants';
 import type { ClubVoucherOrderStatusValue } from './club-voucher-orders.types';
+import { encodeClubCursor } from '../shared/club-keyset-cursor.util';
 
 /** 状态 → 展示文案 */
 export const STATUS_LABEL_MAP: Record<string, string> = {
@@ -27,32 +28,145 @@ export const PAYMENT_METHOD_LABEL_MAP: Record<string, string> = {
 };
 
 /**
+ * 单个状态 Tab 的排序声明。
+ *
+ * `keys` 与 `orderBy` **必须同序同字段**（`orderBy` 末位恒为 id 兜底）：
+ * keyset 分页的 WHERE 条件由 `keys` 生成，排序由 `orderBy` 决定，
+ * 两者一旦漂移就会出现「排序按 A、过滤按 B」的漏读 / 重读。
+ * 该约束由 `club-voucher-order-query.spec.ts` 的断言固化。
+ */
+/** 可参与券订单排序的字段（限定范围，避免 spec 写入不存在的列） */
+export type VoucherOrderSortField =
+  | 'createdAt'
+  | 'expiresAt'
+  | 'usedAt'
+  | 'verifyAt'
+  | 'refundAt';
+
+/** 券订单排序键：字段名限定在 VoucherOrderSortField 内，可空键按 NULLS LAST */
+export interface VoucherOrderSortKey {
+  readonly field: VoucherOrderSortField;
+  readonly nullable: boolean;
+}
+
+export interface VoucherOrderSortSpec {
+  /** 游标键（不含 id，id 由 keyset 工具内置兜底） */
+  readonly keys: ReadonlyArray<VoucherOrderSortKey>;
+  /** Prisma 排序：keys 逐项 DESC（可空键 NULLS LAST）+ id DESC */
+  readonly orderBy: Prisma.ClubVoucherOrderOrderByWithRelationInput[];
+}
+
+/** 排序键读取器：把 spec 里的字段名映射到行数据，避免在 service 内写 switch */
+const VOUCHER_SORT_KEY_READERS: Record<
+  VoucherOrderSortField,
+  (row: {
+    createdAt: Date;
+    expiresAt: Date | null;
+    usedAt: Date | null;
+    verifyAt: Date | null;
+    refundAt: Date | null;
+  }) => Date | null
+> = {
+  createdAt: (row) => row.createdAt,
+  expiresAt: (row) => row.expiresAt,
+  usedAt: (row) => row.usedAt,
+  verifyAt: (row) => row.verifyAt,
+  refundAt: (row) => row.refundAt,
+};
+
+/**
+ * 由「本页最后一行」构造下一页游标。
+ *
+ * 取值顺序严格跟随 spec.keys，保证游标位置与 orderBy 一致；
+ * 必须传本页最后一行（不是多取的那一行），否则会跳过一条记录。
+ */
+export const buildVoucherOrderCursor = (
+  spec: VoucherOrderSortSpec,
+  row: {
+    id: number;
+    createdAt: Date;
+    expiresAt: Date | null;
+    usedAt: Date | null;
+    verifyAt: Date | null;
+    refundAt: Date | null;
+  },
+): string =>
+  encodeClubCursor(
+    spec.keys.map((key) => VOUCHER_SORT_KEY_READERS[key.field](row)),
+    row.id,
+  );
+
+/**
  * 各状态 Tab 的列表排序：按该状态对应的业务时间倒序（最新发生状态变化的排最前）。
  * - all/pending：按下单时间倒序（pending 自下单起即为该状态）
  * - used：优先按开台核销时间（usedAt），未开台回退用户核销时间（verifyAt），再回退下单时间
  * - refunded：按退款时间倒序，回退下单时间
  * - expired：按过期时间倒序，回退下单时间
+ *
+ * 每档末位补 `id DESC`：原有排序在三行同秒写入时不构成全序，
+ * 游标翻页会在并列值上漏读或重读。
  */
-export const VOUCHER_ORDER_SORT_MAP: Record<
-  string,
-  Prisma.ClubVoucherOrderOrderByWithRelationInput[]
-> = {
-  all: [{ createdAt: 'desc' }],
-  pending: [{ createdAt: 'desc' }],
-  used: [
-    { usedAt: { sort: 'desc', nulls: 'last' } },
-    { verifyAt: { sort: 'desc', nulls: 'last' } },
-    { createdAt: 'desc' },
-  ],
-  refunded: [
-    { refundAt: { sort: 'desc', nulls: 'last' } },
-    { createdAt: 'desc' },
-  ],
-  expired: [
-    { expiresAt: { sort: 'desc', nulls: 'last' } },
-    { createdAt: 'desc' },
-  ],
+export const VOUCHER_ORDER_SORT_MAP: Record<string, VoucherOrderSortSpec> = {
+  all: {
+    keys: [{ field: 'createdAt', nullable: false }],
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  },
+  pending: {
+    keys: [{ field: 'createdAt', nullable: false }],
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  },
+  used: {
+    keys: [
+      { field: 'usedAt', nullable: true },
+      { field: 'verifyAt', nullable: true },
+      { field: 'createdAt', nullable: false },
+    ],
+    orderBy: [
+      { usedAt: { sort: 'desc', nulls: 'last' } },
+      { verifyAt: { sort: 'desc', nulls: 'last' } },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
+  },
+  refunded: {
+    keys: [
+      { field: 'refundAt', nullable: true },
+      { field: 'createdAt', nullable: false },
+    ],
+    orderBy: [
+      { refundAt: { sort: 'desc', nulls: 'last' } },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
+  },
+  expired: {
+    keys: [
+      { field: 'expiresAt', nullable: true },
+      { field: 'createdAt', nullable: false },
+    ],
+    orderBy: [
+      { expiresAt: { sort: 'desc', nulls: 'last' } },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
+  },
 };
+
+/**
+ * 展示态派生：pending 且已过有效期 → expired。
+ *
+ * 读路径不再写库（过期翻转由 `club-voucher-order-expiry` 定时任务承担），
+ * 但「过期券不可用」的语义由核销 / 退款链路各自按 `expiresAt` 独立拦截，
+ * 因此这里只做展示口径派生，与定时任务的条件完全一致（status=pending 且 expiresAt<now）。
+ */
+export const deriveVoucherOrderStatus = (
+  status: string,
+  expiresAt: Date | null,
+  now: Date,
+): string =>
+  status === 'pending' && expiresAt !== null && expiresAt < now
+    ? 'expired'
+    : status;
 
 /** 时间格式：YYYY-MM-DD HH:mm（上海时区固定偏移） */
 export const formatDateTime = (date: Date): string => {

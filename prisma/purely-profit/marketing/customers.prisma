@@ -89,6 +89,10 @@ model MarketingRecharge {
   // 原 [customerId, createdAt] 需扫描该顾客全部流水再过滤 type，随充值流水增长线性变慢。
   @@index([customerId, type], map: "idx_marketing_recharges_customer_type")
   @@index([storeId, type, createdAt])
+  /// C 端储值账户余额快照：门店 + 顾客等值定位后，按 created_at 顺序扫描该顾客全部充值流水
+  /// （窗口函数求前缀和 / 合计，深分页时窗口可跨越多年）。既有索引前导列都缺
+  /// (store_id, customer_id)，只能按顾客扫描后回表过滤门店，扫描量随单店充值流水增长。
+  @@index([storeId, customerId, createdAt], map: "idx_marketing_recharges_store_customer_created")
   @@index([promotionId])
   @@index([transactionId], where: raw("(transaction_id IS NOT NULL)"))
   @@map("marketing_recharges")

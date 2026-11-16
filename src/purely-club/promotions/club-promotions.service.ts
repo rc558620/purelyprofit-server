@@ -112,6 +112,15 @@ export class ClubPromotionsService {
    *    截断。窗口过滤已排除历史活动，正常门店只有几条到几十条；
    *  - 空数组同样缓存；
    *  - Redis 异常降级回源，缓存不许变成故障点。
+   *
+   * 【已评估：不下推 ORDER BY / LIMIT】单店行数有业务硬上界——`ensurePromotionTypeUnique`
+   * 强制 `(storeId, type, enabled=true)` 唯一，白名单 9 种类型 → 每店 ≤9 行
+   * （本地真实库实测窗口内 5–6 行，avg 5.67，max 6）。下推只能省 ≤9 行传输与一次
+   * ≤9 元素 sort（<0.1ms），却要在 SQL 复刻 resolvePresentation 的 (sort, priority)
+   * 常量映射；漂移代价远高于收益，故维持现状。
+   * 复测：`SELECT store_id, count(*) FROM marketing_promotions WHERE enabled AND
+   * end_at >= now() GROUP BY 1 ORDER BY 2 DESC LIMIT 20;` 出现单店 >50 行（唯一
+   * 约束被绕过）时再重新评估下推。
    */
   private async loadActivePromotions(
     storeId: number,

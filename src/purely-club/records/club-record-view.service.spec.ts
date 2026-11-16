@@ -313,11 +313,11 @@ describe('ClubRecordViewService', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 余额快照基准必须为「全量储值账户流水」（balanceEntries）：
+// 余额快照基准必须为「全量储值账户流水」（balanceWindow）：
 // 若只拿 Tab 过滤后的结果回推，另一类流水被排除会让反推起点被抬高，
 // 展示出虚假的「余额」（典型现象：真实余额 3.8 万却显示 11 万）。
 // ─────────────────────────────────────────────────────────────────────────────
-describe('ClubRecordViewService 余额快照基准（balanceEntries）', () => {
+describe('ClubRecordViewService 余额快照基准（balanceWindow）', () => {
   const service = new ClubRecordViewService();
 
   // 账本（分）：R0 +300000 → C1 -30000 → R1 +500000 → C2 -50000
@@ -357,15 +357,29 @@ describe('ClubRecordViewService 余额快照基准（balanceEntries）', () => {
   const customer = { id: 98, balance: 720000 };
   const storeName = 'purelyClub · 望京旗舰店';
 
-  it('传入 balanceEntries 时中间充值被计入，各笔快照等于真实余额', () => {
+  it('传入 balanceWindow 时中间充值被计入，各笔快照等于真实余额', () => {
+    // 窗口 = 不早于 C1（本页最旧一条）的全量流水：C1 → R1 → C2（R0 早于窗口起点）
+    const windowEntries = [C1, R1, C2];
+    let cumulativeEffectFen = 0;
+    const cumulativeEffectFenById: Record<string, number> = {};
+    for (const entry of windowEntries) {
+      cumulativeEffectFen += entry.balanceEffectFen;
+      cumulativeEffectFenById[entry.id] = cumulativeEffectFen;
+    }
+
     const result = service.buildRecordItems({
       entries: [C2, C1],
-      balanceEntries: [R0, C1, R1, C2],
+      balanceWindow: {
+        totalEffectFen: cumulativeEffectFen,
+        cumulativeEffectFenById,
+      },
       filterType: 'consume',
       customer,
       storeName,
     });
 
+    // 窗口起点之前的 R0 不参与累计
+    expect(cumulativeEffectFenById[R0.id]).toBeUndefined();
     expect(result.map((item) => item.id)).toEqual(['consume-2', 'consume-1']);
     expect(result.map((item) => item.balanceSnapshot)).toEqual([
       7200, // C2 之后 = 当前余额 720000 分
@@ -373,7 +387,7 @@ describe('ClubRecordViewService 余额快照基准（balanceEntries）', () => {
     ]);
   });
 
-  it('缺省 balanceEntries 时回退过滤结果，反推起点被抬高（回归防护）', () => {
+  it('缺省 balanceWindow 时回退过滤结果，反推起点被抬高（回归防护）', () => {
     const result = service.buildRecordItems({
       entries: [C2, C1],
       filterType: 'consume',
@@ -385,10 +399,10 @@ describe('ClubRecordViewService 余额快照基准（balanceEntries）', () => {
     expect(result.map((item) => item.balanceSnapshot)).toEqual([7200, 7700]);
   });
 
-  it('balanceEntries 为空数组时回退过滤结果', () => {
+  it('balanceWindow 为 null 时回退过滤结果', () => {
     const result = service.buildRecordItems({
       entries: [C2, C1],
-      balanceEntries: [],
+      balanceWindow: null,
       filterType: 'consume',
       customer,
       storeName,

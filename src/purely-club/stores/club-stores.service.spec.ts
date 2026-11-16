@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { StoresProfileService } from '../../purely-profit/stores/stores-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisLockService } from '../../redis/redis-lock.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubCurrentContextCache } from './club-current-context.cache';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
@@ -142,6 +143,9 @@ describe('ClubStoresService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: StoresProfileService, useValue: storesProfileService },
+        // ClubInviteCodeMapService 依赖分布式锁做跨 worker 单飞；
+        // 本用例不触发未命中回源路径，只保证装配可解析。
+        RedisLockService,
         ClubInviteCodeMapService,
         {
           provide: ClubInviteAttributionService,

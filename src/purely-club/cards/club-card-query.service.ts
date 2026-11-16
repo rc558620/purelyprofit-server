@@ -26,17 +26,31 @@ import type {
 } from './club-cards.types';
 import { buildMemberCardStatusWhere } from '../../purely-profit/member/cards/member-card-status.query';
 import type { ListClubCardsQueryDto } from './dto/club-cards.dto';
+import {
+  buildClubKeysetWhere,
+  decodeClubCursor,
+  encodeClubCursor,
+  type ClubCursorKeySpec,
+} from '../shared/club-keyset-cursor.util';
 
 /** 前端状态枚举 → 数据库枚举（exhausted 在前端叫 usedUp） */
 const toDbCardStatus = (
   status: ClubMemberCardListStatusValue,
 ): MemberCardStatus => (status === 'usedUp' ? 'exhausted' : status);
 
-/** 游标：前端回传的分页偏移，解析失败按第一页处理 */
-const parseOffset = (cursor?: string): number => {
-  const parsed = Number(cursor);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-};
+/**
+ * 卡包列表排序键：`createdAt` 不可变（办卡后不会被写操作刷新），
+ * 因此游标位置恒定，翻页不漏不重；末级 id 由工具内置保证全序。
+ */
+const CARD_LIST_CURSOR_KEYS: ReadonlyArray<ClubCursorKeySpec> = [
+  { field: 'createdAt', nullable: false },
+];
+
+/** 卡包列表排序（与 CARD_LIST_CURSOR_KEYS 同序：先 createdAt，再由 id 兜底） */
+const CARD_LIST_ORDER_BY: Prisma.MemberCardOrderByWithRelationInput[] = [
+  { createdAt: 'desc' },
+  { id: 'desc' },
+];
 
 /** 卡视图字段白名单：列表与详情共用，避免读取不参与展示的快照/审计列 */
 const CARD_VIEW_SELECT = {
@@ -106,31 +120,43 @@ export class ClubCardQueryService {
       query?.limit ?? CLUB_CARD_LIST_DEFAULT_LIMIT,
       CLUB_CARD_LIST_MAX_LIMIT,
     );
-    const offset = parseOffset(query?.cursor);
     // 状态派生与筛选共用同一时间基准，避免列表内不同卡片出现跨秒的状态跳变
     const now = new Date();
+    const position = decodeClubCursor(query?.cursor, CARD_LIST_CURSOR_KEYS);
 
+    // 状态派生过滤（不含游标）供 total 复用；列表再追加游标条件
+    const filters = this.buildListFilters(query?.status, now);
     const where: Prisma.MemberCardWhereInput = {
       customerId: { in: customerIds },
-      // 已退款的卡不属于「我的卡包」：前端状态枚举也没有 refunded，
-      // 不显式筛选时默认隐藏，按状态筛选时才放开
-      ...(query?.status
-        ? (buildMemberCardStatusWhere(toDbCardStatus(query.status), now) ?? {})
-        : { status: { not: 'refunded' } }),
+      AND: filters,
     };
+    const pageWhere: Prisma.MemberCardWhereInput = position
+      ? {
+          customerId: { in: customerIds },
+          AND: [
+            ...filters,
+            buildClubKeysetWhere<Prisma.MemberCardWhereInput>(
+              CARD_LIST_CURSOR_KEYS,
+              position,
+            ),
+          ],
+        }
+      : where;
 
-    // 同一事务里取总数与当页数据：分页期间新增卡时 total 与 items 不会互相矛盾
-    const [total, cards] = await this.prisma.$transaction([
+    // 总数只用于展示参考，与当页数据并行发出：不再为两个只读查询独占一个事务连接。
+    // count 不叠加游标条件，否则 total 会随翻页递减
+    const [total, rows] = await Promise.all([
       this.prisma.memberCard.count({ where }),
       this.prisma.memberCard.findMany({
-        where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip: offset,
-        take: limit,
+        where: pageWhere,
+        orderBy: CARD_LIST_ORDER_BY,
+        // 多取一行判断是否还有下一页：游标由「本页最后一行」编码，末页直接给 null
+        take: limit + 1,
         select: CARD_VIEW_SELECT,
       }),
     ]);
 
+    const cards = rows.slice(0, limit);
     const storeNames = await this.contextService.resolveStoreNames(
       cards.map((card) => card.storeId),
     );
@@ -143,11 +169,34 @@ export class ClubCardQueryService {
           now,
         }),
       ),
-      // 用「已取条数」判断是否还有下一页，避免为翻页多查一行
       nextCursor:
-        offset + cards.length < total ? String(offset + cards.length) : null,
+        rows.length > limit && cards.length > 0
+          ? encodeClubCursor(
+              [cards[cards.length - 1].createdAt],
+              cards[cards.length - 1].id,
+            )
+          : null,
       total,
     };
+  }
+
+  /**
+   * 卡包列表的筛选条件（不含归属与游标）。
+   *
+   * 状态派生（expired / exhausted）本身是 OR 结构；后续追加的游标条件（多级排序键）
+   * 也是 OR——两者必须作为同一个 AND 数组的独立元素，直接 spread 会互相覆盖。
+   */
+  private buildListFilters(
+    status: ClubMemberCardListStatusValue | undefined,
+    now: Date,
+  ): Prisma.MemberCardWhereInput[] {
+    // 已退款的卡不属于「我的卡包」：前端状态枚举也没有 refunded，
+    // 不显式筛选时默认隐藏，按状态筛选时才放开
+    return [
+      status
+        ? (buildMemberCardStatusWhere(toDbCardStatus(status), now) ?? {})
+        : { status: { not: 'refunded' } },
+    ];
   }
 
   /** 卡详情（含最近使用记录） */

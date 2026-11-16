@@ -4,6 +4,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubCareRecordsService } from './club-care-records.service';
+import {
+  decodeClubCursor,
+  encodeClubCursor,
+} from '../shared/club-keyset-cursor.util';
 
 const CARE_ROW = {
   id: 35,
@@ -92,7 +96,7 @@ describe('ClubCareRecordsService', () => {
     );
   });
 
-  it('默认取第 1 页（每页 10 条，skip 0）并返回分页元信息', async () => {
+  it('默认取第 1 页（每页 10 条，多取 1 行判末页）并返回分页元信息', async () => {
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
       customerId: 55,
     });
@@ -102,8 +106,11 @@ describe('ClubCareRecordsService', () => {
     const result = await service.list(buildContext());
 
     expect(prismaService.careRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: 10 }),
+      expect.objectContaining({ take: 11 }),
     );
+    // 首屏不带游标条件
+    const firstWhere = prismaService.careRecord.findMany.mock.calls[0][0].where;
+    expect(firstWhere).not.toHaveProperty('OR');
     expect(result.meta).toEqual({
       page: 1,
       pageSize: 10,
@@ -135,23 +142,56 @@ describe('ClubCareRecordsService', () => {
     expect(result.items).toEqual([]);
   });
 
-  it('翻页按页码换算 skip，且不再计算对比首尾', async () => {
+  it('翻页用游标条件替代 skip，同 visitAt 时用 id 兜底，且不再计算对比首尾', async () => {
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
       customerId: 55,
     });
     prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
     prismaService.careRecord.count.mockResolvedValue(23);
 
-    const result = await service.list(buildContext(), {
-      page: 3,
-      pageSize: 10,
-    });
+    const cursor = encodeClubCursor([CARE_ROW.visitAt], CARE_ROW.id);
+    const result = await service.list(buildContext(), { cursor });
 
-    expect(prismaService.careRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 20, take: 10 }),
-    );
+    const findManyArg = prismaService.careRecord.findMany.mock.calls[0][0];
+    expect(findManyArg).toMatchObject({ take: 11 });
+    expect(findManyArg).not.toHaveProperty('skip');
+    // 全序条件：更早的 visitAt，或同 visitAt 但 id 更小（不漏不重）
+    expect(findManyArg.where.OR).toEqual([
+      { visitAt: { lt: CARE_ROW.visitAt } },
+      {
+        visitAt: CARE_ROW.visitAt,
+        id: { lt: CARE_ROW.id },
+      },
+    ]);
     expect(result.compareRange).toBeUndefined();
     expect(prismaService.careRecord.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('末页 nextCursor 为 null，有下一页时由本页最后一行编码', async () => {
+    clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
+      customerId: 55,
+    });
+    prismaService.careRecord.count.mockResolvedValue(23);
+
+    // 恰好一页（多取的那一行不存在）→ 末页
+    prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
+    const lastPage = await service.list(buildContext(), { pageSize: 1 });
+    expect(lastPage.nextCursor).toBeNull();
+
+    // 多取到一行 → 还有下一页，游标由「本页最后一行」而不是多取行编码
+    const secondRow = {
+      ...CARE_ROW,
+      id: 34,
+      visitAt: new Date(1_761_000_000_000),
+    };
+    prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW, secondRow]);
+    const firstPage = await service.list(buildContext(), { pageSize: 1 });
+    expect(firstPage.items).toHaveLength(1);
+    expect(
+      decodeClubCursor(firstPage.nextCursor ?? undefined, [
+        { field: 'visitAt', nullable: false },
+      ]),
+    ).toEqual({ values: [CARE_ROW.visitAt], id: CARE_ROW.id });
   });
 
   it('响应只含会员可见字段，不含 customerId 等商家内部字段', async () => {
@@ -243,39 +283,38 @@ describe('ClubCareRecordsService', () => {
     expect(result.compareRange?.earliest).not.toHaveProperty('sessionId');
   });
 
-  it('total 与 items 同口径：count 与 findMany 收到同一个 where', async () => {
+  it('total 是全量计数：count 的 where 不叠加游标条件', async () => {
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
       customerId: 55,
     });
     prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
     prismaService.careRecord.count.mockResolvedValue(23);
 
-    await service.list(buildContext());
+    const cursor = encodeClubCursor([CARE_ROW.visitAt], CARE_ROW.id);
+    const result = await service.list(buildContext(), { cursor });
 
     const findManyWhere =
       prismaService.careRecord.findMany.mock.calls[0][0].where;
     const countWhere = prismaService.careRecord.count.mock.calls[0][0].where;
-    expect(countWhere).toEqual(findManyWhere);
+    // 列表按游标收敛，计数不收敛：否则 total 会随翻页递减
+    expect(findManyWhere).toHaveProperty('OR');
+    expect(countWhere).toEqual({ storeId: 11, customerId: 55 });
     // 分页 where 不含照片过滤：total 是全量护理次数，不是「有照片的次数」
     expect(countWhere).not.toHaveProperty('photos');
+    expect(result.meta.total).toBe(23);
   });
 
-  it('page 非法（0 / 负数 / undefined）时归一为第 1 页', async () => {
+  it('游标非法（格式错 / 键数不符）返回 400 而不是静默回到第一页', async () => {
     clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
       customerId: 55,
     });
     prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
     prismaService.careRecord.count.mockResolvedValue(23);
 
-    for (const page of [undefined, 0, -3]) {
-      prismaService.careRecord.findMany.mockClear();
-      const result = await service.list(buildContext(), { page });
-
-      expect(prismaService.careRecord.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 0, take: 10 }),
-      );
-      expect(result.meta.page).toBe(1);
-    }
+    await expect(
+      service.list(buildContext(), { cursor: '20' }),
+    ).rejects.toThrow('cursor 格式不合法');
+    expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
   });
 
   it('pageSize 超上限时钳制到 MARKETING_MAX_PAGE_SIZE', async () => {
@@ -288,8 +327,9 @@ describe('ClubCareRecordsService', () => {
     // DTO 层有 @Max(200)，service 是唯一真兜底：直接传 500 也必须被钳制
     const result = await service.list(buildContext(), { pageSize: 500 });
 
+    // 每页 200 条，多取 1 行判末页
     expect(prismaService.careRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: MARKETING_MAX_PAGE_SIZE }),
+      expect.objectContaining({ take: MARKETING_MAX_PAGE_SIZE + 1 }),
     );
     expect(result.meta.pageSize).toBe(MARKETING_MAX_PAGE_SIZE);
   });
@@ -313,6 +353,7 @@ describe('ClubCareRecordsService', () => {
       technicianLabel: '技师',
       items: [],
       compareRange: { earliest: null, latest: null },
+      nextCursor: null,
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
     });
     expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();

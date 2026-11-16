@@ -134,8 +134,10 @@ export class PrismaService
       1,
       configService.get<number>('app.sqlMetricsSampleRate') ?? 1,
     );
-    // 仅当 sqlMetricsEnabled 或 slowQueryLogEnabled 任一开启时，才注册 Prisma query 事件监听
-    // 生产环境建议关闭 sqlMetricsEnabled，只保留 slowQueryLogEnabled
+    // 仅当 sqlMetricsEnabled 或 slowQueryLogEnabled 任一开启时才注册 Prisma query 事件。
+    // 两项生产默认均为 false：事件对每条 SQL 都触发回调，N+1 / 批量写入场景下
+    // 事件发射与字符串处理会被成倍放大；慢 SQL 由 PG 侧 log_min_duration_statement
+    // 与 pg_stat_statements 兜底，排查期可用环境变量临时打开。
     const queryListenerEnabled = sqlMetricsEnabled || slowQueryLogEnabled;
 
     super({

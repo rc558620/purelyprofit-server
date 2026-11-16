@@ -14,10 +14,13 @@ describe('ClubPointsQueryService', () => {
       count: jest.fn(),
       aggregate: jest.fn(),
     },
+    // 余额快照窗口走单条原生 SQL（窗口函数下推），由 $queryRaw 承担
+    $queryRaw: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prismaService.$queryRaw.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -231,7 +234,7 @@ describe('ClubPointsQueryService', () => {
   });
 
   describe('listPointsRecords', () => {
-    it('返回积分明细，并额外返回余额快照基准（全量流水）', async () => {
+    it('返回积分明细，并额外返回余额快照窗口（DB 侧聚合标量）', async () => {
       const rows = [
         {
           id: 18,
@@ -244,24 +247,35 @@ describe('ClubPointsQueryService', () => {
 
       prismaService.marketingPointsRecord.findMany.mockResolvedValue(rows);
       prismaService.marketingPointsRecord.count.mockResolvedValue(1);
+      prismaService.$queryRaw.mockResolvedValue([
+        { recordId: 18, cumulativeEffect: 120n, totalEffect: 120n },
+      ]);
 
       const result = await service.listPointsRecords(11, 98, 'all');
 
       expect(result.items).toEqual(rows);
       expect(result.total).toBe(1);
-      // 快照基准：不早于本页最旧一条（含被类型筛选排除的流水），按时间 + ID 升序
-      const balanceCall =
-        prismaService.marketingPointsRecord.findMany.mock.calls[1][0];
-      expect(balanceCall.where).toEqual({
-        storeId: 11,
-        customerId: 98,
-        createdAt: { gte: new Date('2024-11-20T10:30:00.000Z') },
+      expect(result.balanceWindow).toEqual({
+        totalEffect: 120,
+        cumulativeEffectByRecordId: new Map([[18, 120]]),
       });
-      expect(balanceCall.orderBy).toEqual([
-        { createdAt: 'asc' },
-        { id: 'asc' },
-      ]);
-      expect(result.balanceRecords).toEqual(rows);
+      // 分页只查一次；窗口求和不再整表拉回
+      expect(
+        prismaService.marketingPointsRecord.findMany,
+      ).toHaveBeenCalledTimes(1);
+      const rawCall = prismaService.$queryRaw.mock.calls[0] as unknown as [
+        readonly string[],
+        ...unknown[],
+      ];
+      const sqlText = rawCall[0].join('?');
+      expect(sqlText).toContain('marketing_points_records');
+      expect(sqlText).toContain('ROWS UNBOUNDED PRECEDING');
+      expect(sqlText).toContain('ORDER BY p.created_at ASC, p.id ASC');
+      // 门店 + 顾客双等值限定
+      expect(rawCall[1]).toBe(11);
+      expect(rawCall[2]).toBe(98);
+      // 窗口起点 = 本页最旧一条的 createdAt
+      expect(rawCall).toContainEqual(new Date('2024-11-20T10:30:00.000Z'));
     });
 
     it('按 earn 筛选时 where 条件包含 amount > 0', async () => {

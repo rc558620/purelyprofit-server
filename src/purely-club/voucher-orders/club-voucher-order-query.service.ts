@@ -9,6 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE } from './club-voucher-orders.constants';
 import {
+  buildVoucherOrderCursor,
+  deriveVoucherOrderStatus,
   toDetailDto,
   toListItem,
   VOUCHER_ORDER_SORT_MAP,
@@ -17,6 +19,10 @@ import type {
   ClubVoucherOrderDetailDto,
   ClubVoucherOrderListResponseDto,
 } from './dto/club-voucher-order.dto';
+import {
+  buildClubKeysetWhere,
+  decodeClubCursor,
+} from '../shared/club-keyset-cursor.util';
 
 /**
  * 读路径字段白名单：订单表含 breakdownItems Json 与多处文本快照，全字段查询会在
@@ -39,6 +45,10 @@ const VOUCHER_ORDER_LIST_SELECT = {
   status: true,
   expiresAt: true,
   createdAt: true,
+  // 排序键列：仅用于构造 keyset 游标（不回传前端），三种状态 Tab 各用其中一列
+  usedAt: true,
+  verifyAt: true,
+  refundAt: true,
 } satisfies Prisma.ClubVoucherOrderSelect;
 
 /** 详情在列表字段基础上补齐支付/核销/退款信息（breakdownItems 仅详情需要） */
@@ -76,34 +86,99 @@ const VOUCHER_ORDER_CODE_SELECT = {
 export class ClubVoucherOrderQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 我的团购券订单列表（状态筛选 + offset 分页） */
+  /** 我的团购券订单列表（状态筛选 + keyset 游标分页） */
   async listVoucherOrders(
     currentContext: ClubCurrentContext,
-    query: { status?: string; limit?: number; offset?: number },
+    query: { status?: string; limit?: number; cursor?: string },
   ): Promise<ClubVoucherOrderListResponseDto> {
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 50);
-    const offset = Math.max(query.offset ?? 0, 0);
     const now = new Date();
+    // 按状态 Tab 对应的业务时间倒序排序（未知状态回退按下单时间倒序）
+    const sortSpec =
+      VOUCHER_ORDER_SORT_MAP[query.status ?? 'all'] ??
+      VOUCHER_ORDER_SORT_MAP.all;
+    const position = decodeClubCursor(query.cursor, sortSpec.keys);
 
-    const where: Prisma.ClubVoucherOrderWhereInput = {
-      userId: currentContext.user.id,
+    const where = this.buildListWhere(
+      currentContext.user.id,
+      query.status,
+      now,
+      position
+        ? buildClubKeysetWhere<Prisma.ClubVoucherOrderWhereInput>(
+            sortSpec.keys,
+            position,
+          )
+        : null,
+    );
+
+    const rows = await this.prisma.clubVoucherOrder.findMany({
+      where,
+      orderBy: sortSpec.orderBy,
+      // 多取一行判断是否还有下一页（游标由本页最后一行编码）
+      take: limit + 1,
+      select: VOUCHER_ORDER_LIST_SELECT,
+    });
+
+    // 读接口不再写库：过期只在展示层派生，翻转由 club-voucher-order-expiry 定时任务承担
+    const normalized = rows.map((order) => ({
+      ...order,
+      status: deriveVoucherOrderStatus(order.status, order.expiresAt, now),
+    }));
+    // 两次批量补映射互不依赖（仍各自 in 批量查询，避免 N+1），并行发出省一次往返
+    const pageRows = normalized.slice(0, limit);
+    const [storeNameMap, productImageMap] = await Promise.all([
+      this.loadStoreNameMap(pageRows.map((order) => order.storeId)),
+      this.loadProductImageMap(pageRows.map((order) => order.productId)),
+    ]);
+
+    const items = pageRows.map((order) =>
+      toListItem(
+        order,
+        storeNameMap.get(order.storeId) ?? '',
+        productImageMap.get(order.productId) ?? '',
+      ),
+    );
+
+    return {
+      items,
+      hasMore: normalized.length > limit,
+      nextCursor:
+        normalized.length > limit && pageRows.length > 0
+          ? buildVoucherOrderCursor(sortSpec, pageRows[pageRows.length - 1])
+          : null,
+    };
+  }
+
+  /**
+   * 列表 WHERE：归属过滤 + 状态筛选 + 游标条件。
+   *
+   * 状态筛选在 expired / pending 两档本身就是 OR 结构，游标条件（多级排序键）也是 OR，
+   * 直接平铺到同一个对象会互相覆盖，必须用 AND 数组串起来。
+   */
+  private buildListWhere(
+    userId: number,
+    status: string | undefined,
+    now: Date,
+    cursorWhere: Prisma.ClubVoucherOrderWhereInput | null,
+  ): Prisma.ClubVoucherOrderWhereInput {
+    const base: Prisma.ClubVoucherOrderWhereInput = {
+      userId,
       status: { not: 'unpaid' },
     };
-    if (query.status && query.status !== 'all') {
-      if (query.status === 'expired') {
-        // 「已过期」不能只按 DB 的 expired 状态查：过期翻转是惰性的（只在列表/详情被
-        // 读到时才翻转），而列表按下单时间倒序，最容易过期的老单排在末页，可能长期
-        // 未被翻阅而一直停在 pending，从本 Tab 系统性漏出。这里直接按 expiresAt 取并集。
-        where.OR = [
+    if (status && status !== 'all') {
+      if (status === 'expired') {
+        // 「已过期」不能只按 DB 的 expired 状态查：翻转由定时任务承担（最短几秒、最长一个
+        // 任务周期），此期间老单仍是 pending。这里直接按 expiresAt 取并集，保证 Tab 完整。
+        base.OR = [
           { status: 'expired' as ClubVoucherOrderStatus },
           {
             status: 'pending' as ClubVoucherOrderStatus,
             expiresAt: { lt: now },
           },
         ];
-      } else if (query.status === 'pending') {
+      } else if (status === 'pending') {
         // 对称地：「待使用」要排除已到有效期但尚未翻转的单，避免首页混入已过期券
-        where.OR = [
+        base.OR = [
           { status: 'pending' as ClubVoucherOrderStatus, expiresAt: null },
           {
             status: 'pending' as ClubVoucherOrderStatus,
@@ -111,46 +186,10 @@ export class ClubVoucherOrderQueryService {
           },
         ];
       } else {
-        where.status = query.status as ClubVoucherOrderStatus;
+        base.status = status as ClubVoucherOrderStatus;
       }
     }
-
-    // 按状态 Tab 对应的业务时间倒序排序（未知状态回退按下单时间倒序）
-    const orderBy =
-      VOUCHER_ORDER_SORT_MAP[query.status ?? 'all'] ??
-      VOUCHER_ORDER_SORT_MAP.all;
-
-    const orders = await this.prisma.clubVoucherOrder.findMany({
-      where,
-      orderBy,
-      skip: offset,
-      take: limit + 1,
-      select: VOUCHER_ORDER_LIST_SELECT,
-    });
-
-    // 惰性过期：pending 且已过期的订单就地转 expired
-    const normalized = await this.expireOverdueOrders(orders);
-
-    // 两次批量补映射互不依赖（仍各自 in 批量查询，避免 N+1），并行发出省一次往返
-    const [storeNameMap, productImageMap] = await Promise.all([
-      this.loadStoreNameMap(normalized.map((order) => order.storeId)),
-      this.loadProductImageMap(normalized.map((order) => order.productId)),
-    ]);
-
-    const items = normalized
-      .slice(0, limit)
-      .map((order) =>
-        toListItem(
-          order,
-          storeNameMap.get(order.storeId) ?? '',
-          productImageMap.get(order.productId) ?? '',
-        ),
-      );
-
-    return {
-      items,
-      hasMore: normalized.length > limit,
-    };
+    return cursorWhere ? { AND: [base, cursorWhere] } : base;
   }
 
   /** 按商品 ID 批量查询商品图映射（空数组返回空 Map） */
@@ -202,7 +241,15 @@ export class ClubVoucherOrderQueryService {
         ),
       );
     }
-    const normalized = await this.expireIfOverdue(order);
+    // 读路径不写库：过期仅在展示层派生（核销 / 退款链路各自按 expiresAt 独立拦截）
+    const normalized = {
+      ...order,
+      status: deriveVoucherOrderStatus(
+        order.status,
+        order.expiresAt,
+        new Date(),
+      ),
+    };
     const [storeNameMap, productImageMap] = await Promise.all([
       this.loadStoreNameMap([order.storeId]),
       this.loadProductImageMap([order.productId]),
@@ -238,7 +285,15 @@ export class ClubVoucherOrderQueryService {
     if (!order) {
       return null;
     }
-    const normalized = await this.expireIfOverdue(order);
+    // 与列表/详情同口径：过期只在返回态派生，读路径不写库
+    const normalized = {
+      ...order,
+      status: deriveVoucherOrderStatus(
+        order.status,
+        order.expiresAt,
+        new Date(),
+      ),
+    };
     return {
       id: normalized.id,
       storeId: normalized.storeId,
@@ -252,49 +307,5 @@ export class ClubVoucherOrderQueryService {
       usedSessionId: normalized.usedSessionId,
       quantity: normalized.quantity,
     };
-  }
-
-  /** 惰性过期批量处理：仅 pending 且 expiresAt 已过的订单转 expired */
-  private async expireOverdueOrders<
-    T extends { id: number; status: string; expiresAt: Date | null },
-  >(orders: T[]): Promise<T[]> {
-    const now = new Date();
-    const overdueIds = orders
-      .filter(
-        (order) =>
-          order.status === 'pending' &&
-          order.expiresAt &&
-          order.expiresAt < now,
-      )
-      .map((order) => order.id);
-    if (overdueIds.length > 0) {
-      await this.prisma.clubVoucherOrder.updateMany({
-        where: { id: { in: overdueIds }, status: 'pending' },
-        data: { status: 'expired' },
-      });
-      const overdueIdSet = new Set(overdueIds);
-      return orders.map((order) =>
-        overdueIdSet.has(order.id) ? { ...order, status: 'expired' } : order,
-      );
-    }
-    return orders;
-  }
-
-  /** 单条惰性过期 */
-  private async expireIfOverdue<
-    T extends { id: number; status: string; expiresAt: Date | null },
-  >(order: T): Promise<T> {
-    if (
-      order.status !== 'pending' ||
-      !order.expiresAt ||
-      order.expiresAt >= new Date()
-    ) {
-      return order;
-    }
-    await this.prisma.clubVoucherOrder.updateMany({
-      where: { id: order.id, status: 'pending' },
-      data: { status: 'expired' },
-    });
-    return { ...order, status: 'expired' };
   }
 }
