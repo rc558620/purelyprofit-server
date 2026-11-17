@@ -15,6 +15,8 @@ import {
   CHECK_IN_ACTIVITY_NOT_FOUND_CODE,
   CHECK_IN_ALREADY_DONE_CODE,
 } from './club-check-in.errors';
+import { ClubCheckInCacheService } from './club-check-in.cache.service';
+import { ClubCheckInStatusService } from './club-check-in.status.service';
 import { ClubCheckInQueryService } from './club-check-in.query.service';
 import { ClubCheckInService } from './club-check-in.service';
 
@@ -72,7 +74,15 @@ const promotionRow = (overrides: Record<string, unknown> = {}) => ({
 describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
   let service: ClubCheckInService;
   let tx: TxMock;
-  let redisService: { setIfAbsent: jest.Mock; del: jest.Mock };
+  let redisService: {
+    setIfAbsent: jest.Mock;
+    del: jest.Mock;
+    get: jest.Mock;
+    set: jest.Mock;
+    getJson: jest.Mock;
+    setJson: jest.Mock;
+    mgetJson: jest.Mock;
+  };
   let cacheInvalidatorService: {
     invalidateMarketingCustomerDerived: jest.Mock;
   };
@@ -101,6 +111,12 @@ describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
     redisService = {
       setIfAbsent: jest.fn().mockResolvedValue(true),
       del: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue(undefined),
+      // 默认全部未命中：签到状态 / 活动配置每次回源，与引入缓存前的断言一致
+      getJson: jest.fn().mockResolvedValue(null),
+      setJson: jest.fn().mockResolvedValue(undefined),
+      mgetJson: jest.fn().mockResolvedValue([null, null]),
     };
     cacheInvalidatorService = {
       invalidateMarketingCustomerDerived: jest
@@ -136,6 +152,8 @@ describe('ClubCheckInService · 幂等 / 边界 / 错误码', () => {
       providers: [
         ClubCheckInService,
         ClubCheckInQueryService,
+        ClubCheckInCacheService,
+        ClubCheckInStatusService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },

@@ -40,7 +40,12 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
   // 保留真实结构而非 Record<string, jest.Mock>：后者会让 prisma.xxx.findFirst 失去模型形状
   const prisma = {
-    idempotencyRecord: { findUnique: jest.fn(), create: jest.fn() },
+    idempotencyRecord: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     scanOrderingSession: { findFirst: jest.fn() },
     scanOrderingTable: { findUnique: jest.fn() },
     $transaction: jest.fn(),
@@ -238,6 +243,10 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     prisma.$transaction = jest.fn((fn: (client: unknown) => unknown) => fn(tx));
     prisma.scanOrderingSession.findFirst = jest.fn().mockResolvedValue(session);
     prisma.idempotencyRecord.findUnique = jest.fn().mockResolvedValue(null);
+    // 幂等占位在事务外写入（唯一键即并发闸门），回填/清理也在事务外
+    prisma.idempotencyRecord.create = jest.fn().mockResolvedValue({ id: 501 });
+    prisma.idempotencyRecord.update = jest.fn().mockResolvedValue({});
+    prisma.idempotencyRecord.delete = jest.fn().mockResolvedValue({});
     prisma.scanOrderingTable.findUnique = jest.fn().mockResolvedValue({
       name: 'A01',
       area: { name: '1楼' },
@@ -255,7 +264,6 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     cartPricing.reserveFiniteSpecStock.mockResolvedValue(undefined);
     cartPricing.buildOrderItemCreateData.mockReturnValue([]);
 
-    tx.idempotencyRecord.create.mockResolvedValue({});
     // 菜单商品库存充足：可用库存 10，已预留 0
     tx.scanOrderingMenuProduct.findMany.mockResolvedValue([
       {
@@ -516,11 +524,14 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         }),
       }),
     );
-    expect(tx.idempotencyRecord.update).toHaveBeenCalledWith(
+    // 幂等回填在事务提交后进行（不再占用事务内的往返）
+    expect(prisma.idempotencyRecord.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'succeeded' }),
+        where: { id: 501 },
+        data: expect.objectContaining({ status: 'succeeded', resourceId: 100 }),
       }),
     );
+    expect(prisma.idempotencyRecord.delete).not.toHaveBeenCalled();
     expect(realtime.publishOrderCreated).toHaveBeenCalledWith(
       expect.objectContaining({ orderId: 100 }),
     );
@@ -688,6 +699,26 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         '商品库存不足',
       );
       expect(realtime.publishOrderCreated).not.toHaveBeenCalled();
+    });
+
+    it('事务失败时删除幂等占位记录，同 key 可立即重试', async () => {
+      tx.product.findMany.mockResolvedValue([{ id: 1, stock: 0 }]);
+
+      await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
+        '商品库存不足',
+      );
+      // 事务未提交 → 占位记录必须清掉，否则同 key 重试会一直判定为「创建中」
+      expect(prisma.idempotencyRecord.delete).toHaveBeenCalledWith({
+        where: { id: 501 },
+      });
+      expect(prisma.idempotencyRecord.update).not.toHaveBeenCalled();
+    });
+
+    it('事务提交后不再删除占位记录（避免同 key 重复建单）', async () => {
+      await service.create(user, IDEMPOTENCY_KEY, dto);
+
+      expect(prisma.idempotencyRecord.delete).not.toHaveBeenCalled();
+      expect(prisma.idempotencyRecord.update).toHaveBeenCalledTimes(1);
     });
   });
 });

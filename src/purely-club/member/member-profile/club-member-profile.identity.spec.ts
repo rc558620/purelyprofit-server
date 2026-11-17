@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../../prisma/prisma.service';
+import type { RedisReadPrefetchService } from '../../../redis/redis-read-prefetch.service';
 import type { RedisService } from '../../../redis/redis.service';
 import { ClubMemberProfileService } from './club-member-profile.service';
 
@@ -36,6 +37,7 @@ describe('ClubMemberProfileService · 档案两段锚定与签到口径一致', 
     service = new ClubMemberProfileService(
       prisma as unknown as PrismaService,
       {} as RedisService,
+      {} as RedisReadPrefetchService,
     );
     lookup = service as unknown as IdentityLookupMethods;
   });

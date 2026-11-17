@@ -22,7 +22,6 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
-import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import type {
   ClubScanOrderStatusQueryDto,
   CreateClubScanOrderDto,
@@ -39,9 +38,23 @@ import {
   fenToYuan,
   toOrderAmountSummary,
 } from './club-scan-ordering-order.mapper';
+import {
+  createIdempotencyPlaceholder,
+  discardIdempotencyPlaceholder,
+  finalizeIdempotencyPlaceholder,
+} from './club-scan-ordering-idempotency.helper';
 
 const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
 const IDEMPOTENCY_SCOPE = 'club:scan-order:create';
+
+/** 建单响应的稳定形状（同时作为幂等回放快照） */
+interface CreatedScanOrderResponse {
+  id: number;
+  orderNo: string;
+  payableAmount: number;
+  paymentExpiresAt: string | null;
+  version: number;
+}
 
 @Injectable()
 export class ClubScanOrderingOrderService {
@@ -60,7 +73,6 @@ export class ClubScanOrderingOrderService {
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
-    private readonly menuQueryService: ClubScanOrderingMenuQueryService,
     private readonly wechatVerifyService: ClubScanOrderingWechatVerifyService,
   ) {}
 
@@ -160,19 +172,38 @@ export class ClubScanOrderingOrderService {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + PAYMENT_TIMEOUT_MS);
+
+    // 幂等占位记录提到建单事务外：唯一键本身就是并发闸门，不需要与订单同事务。
+    // 建单事务因此从 9 次往返降到 7 次，menu_product / spec_option / session /
+    // 新客额度这些行锁的持有时间同比缩短。占位失败（唯一键冲突）按「并发同 key」
+    // 处理，与改造前 `tx.idempotencyRecord.create` 抛错后的分支完全一致。
+    let idempotencyId = 0;
     try {
-      const result = await this.prisma.$transaction(
+      idempotencyId = await createIdempotencyPlaceholder(this.prisma, {
+        scope: IDEMPOTENCY_SCOPE,
+        actorId: user.id,
+        idempotencyKey,
+        requestHash: hashScanOrderRequest(dto),
+        expiresAt,
+      });
+    } catch (error) {
+      const raced = await this.prisma.idempotencyRecord.findUnique({
+        where: {
+          scope_actorId_idempotencyKey: {
+            scope: IDEMPOTENCY_SCOPE,
+            actorId: user.id,
+            idempotencyKey,
+          },
+        },
+      });
+      if (raced) return this.resolveExistingIdempotency(raced);
+      throw error;
+    }
+
+    let result: CreatedScanOrderResponse;
+    try {
+      result = await this.prisma.$transaction(
         async (tx) => {
-          await tx.idempotencyRecord.create({
-            data: {
-              scope: IDEMPOTENCY_SCOPE,
-              actorId: user.id,
-              idempotencyKey,
-              requestHash: hashScanOrderRequest(dto),
-              status: 'processing',
-              expiresAt,
-            },
-          });
           await this.inventoryReservationService.reserveMenuProductStock(
             tx,
             pricedItems,
@@ -262,68 +293,21 @@ export class ClubScanOrderingOrderService {
             user.id,
             user.phone || null,
           );
-          const response = {
+          const response: CreatedScanOrderResponse = {
             ...order,
             paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
           };
-          await tx.idempotencyRecord.update({
-            where: {
-              scope_actorId_idempotencyKey: {
-                scope: IDEMPOTENCY_SCOPE,
-                actorId: user.id,
-                idempotencyKey,
-              },
-            },
-            data: {
-              status: 'succeeded',
-              resourceType: 'scan_order',
-              resourceId: order.id,
-              responseSnapshot: response,
-            },
-          });
           return response;
         },
         { timeout: TX_TIMEOUT_MEDIUM },
       );
-      this.logger.log(
-        `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
-      );
-      // 下单已预留库存并 bump 商品 version → menuVersion 变化。版本有短 TTL 缓存，
-      // 不主动失效会让同桌/同店其他顾客最长延后一个 TTL 才看到可用库存下降。
-      // 非关键路径：fire-and-forget，失败只等 TTL 兜底。
-      void this.invalidateMenuVersionQuietly(session.storeId);
-      // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置已由 requireSession
-      // 一并查出，桌台缺失时静默降级（仅展示商品摘要与金额）
-      const table = session.table;
-      const tableName = table?.name ?? null;
-      // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
-      const locationLabel = table
-        ? [table.area?.name, table.type?.name, table.name]
-            .filter((value): value is string => Boolean(value?.trim()))
-            .join(' · ') || null
-        : null;
-      this.realtimeService.publishOrderCreated({
-        storeId: session.storeId,
-        orderId: result.id,
-        sessionId: session.id,
-        // 带上创建时的乐观锁版本：商家端可据此直接接单（缺失时首次接单必然 409）
-        version: result.version,
-        status: 'pending_payment',
-        paymentStatus: 'unpaid',
-        fulfillmentStatus: 'preparing',
-        orderNo: result.orderNo,
-        tableName,
-        locationLabel,
-        items: pricedItems.map((item) => ({
-          productName: item.productName,
-          quantity: item.quantity,
-        })),
-        amountFen: promotionResult.afterPointsPayableAmount,
-        remark: dto.remark?.trim() || null,
-        createdAt: now.toISOString(),
-      });
-      return result;
     } catch (error) {
+      // 事务确定未提交：删掉占位记录，允许同 key 重试（此时订单不存在，删了不会丢单）
+      await discardIdempotencyPlaceholder(
+        this.prisma,
+        idempotencyId,
+        this.logger,
+      );
       if (error instanceof ConflictException) throw error;
       const raced = await this.prisma.idempotencyRecord.findUnique({
         where: {
@@ -337,6 +321,54 @@ export class ClubScanOrderingOrderService {
       if (raced) return this.resolveExistingIdempotency(raced);
       throw error;
     }
+
+    // 事务已提交：从这里开始的失败都不得再删占位记录（订单已真实存在）。
+    // 回填失败只记日志，记录停在 processing 时同 key 重试会拿到「正在创建中」。
+    await finalizeIdempotencyPlaceholder(
+      this.prisma,
+      idempotencyId,
+      result,
+      this.logger,
+      result.id,
+    );
+
+    this.logger.log(
+      `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
+    );
+    // 菜单库存不再由 menuVersion 承载：menuVersion 只随菜单静态内容变化，
+    // 库存/销量由 ClubScanOrderingMenuStockService 的 5s 快照独立刷新，
+    // 因此下单路径无需再失效菜单缓存。
+    // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置已由 requireSession
+    // 一并查出，桌台缺失时静默降级（仅展示商品摘要与金额）
+    const table = session.table;
+    const tableName = table?.name ?? null;
+    // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
+    const locationLabel = table
+      ? [table.area?.name, table.type?.name, table.name]
+          .filter((value): value is string => Boolean(value?.trim()))
+          .join(' · ') || null
+      : null;
+    this.realtimeService.publishOrderCreated({
+      storeId: session.storeId,
+      orderId: result.id,
+      sessionId: session.id,
+      // 带上创建时的乐观锁版本：商家端可据此直接接单（缺失时首次接单必然 409）
+      version: result.version,
+      status: 'pending_payment',
+      paymentStatus: 'unpaid',
+      fulfillmentStatus: 'preparing',
+      orderNo: result.orderNo,
+      tableName,
+      locationLabel,
+      items: pricedItems.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+      })),
+      amountFen: promotionResult.afterPointsPayableAmount,
+      remark: dto.remark?.trim() || null,
+      createdAt: now.toISOString(),
+    });
+    return result;
   }
 
   listOrders(
@@ -389,8 +421,16 @@ export class ClubScanOrderingOrderService {
           '订单不存在',
         ),
       );
+    // marketingSnapshot 只参与金额派生（积分抵扣 / 优惠清单），前端零消费；
+    // 实测它约占订单响应 2/3，故查询保留、响应剔除（与历史接口同口径）。
+    // manualEntryMetadata 是商家补录快照，C 端零消费，同样不下发。
+    const {
+      marketingSnapshot: _marketingSnapshot,
+      manualEntryMetadata: _manualEntryMetadata,
+      ...orderColumns
+    } = order;
     return {
-      ...order,
+      ...orderColumns,
       items: order.items.map((item) => ({
         ...item,
         unitPriceAmount: fenToYuan(item.unitPriceAmount),
@@ -508,17 +548,6 @@ export class ClubScanOrderingOrderService {
         ),
       );
     return session;
-  }
-
-  /** 失效菜单版本缓存（fire-and-forget，失败仅记录日志）。 */
-  private async invalidateMenuVersionQuietly(storeId: number): Promise<void> {
-    try {
-      await this.menuQueryService.invalidateMenuVersion(storeId);
-    } catch (error) {
-      this.logger.warn(
-        `失效菜单版本缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
   }
 
   private resolveExistingIdempotency(record: {

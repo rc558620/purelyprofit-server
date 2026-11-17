@@ -1,14 +1,19 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import {
   CLUB_SCAN_ORDERING_ERROR_CODE,
   clubScanOrderingError,
 } from './club-scan-ordering.errors';
+import {
+  CLUB_ORDER_ERROR_CODE,
+  clubOrderError,
+} from '../orders/club-orders.errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  awardPointsForSettlement,
-  deductPointsForSettlement,
-} from '../orders/club-order-settlement-points.utils';
+import { resolveEarnedPointsForSettlement } from '../orders/club-order-settlement-points.utils';
 import { applyCustomerMetrics } from '../shared/club-customer-metrics.helper';
 
 /** 顾客档案定位结果（只读路径可能为 null）。 */
@@ -69,23 +74,81 @@ export class ClubScanOrderingMarketingCustomerService {
       paidAmountFen: input.paidAmountFen,
     };
 
-    await deductPointsForSettlement(
-      tx,
-      context,
-      input.customerId,
-      input.pointsUsed,
-    );
-    const earnedPoints = await awardPointsForSettlement(
-      tx,
-      context,
-      input.customerId,
-    );
+    // 只算不写：赠送积分先算出来，与抵扣积分合并成同一个增量
+    const { earnedPoints, pointsMultiplier } =
+      await resolveEarnedPointsForSettlement(tx, context, input.customerId);
+
+    /*
+     * 同一行只 UPDATE 一次：积分（−抵扣 + 赠送）、累计消费、到店次数、
+     * 最近到店时间全部落在同一条 SET 里。
+     *
+     * 改造前是「扣抵扣积分 → 送消费积分 → 写指标」三次 UPDATE（外加跨档一次），
+     * 每次都要重新锁同一行 marketing_customers；合并后行锁只拿一次，
+     * 也顺带消除「扣了积分但指标写失败」这类中间态的时间窗。
+     * 口径逐字段对齐原实现：
+     *  - 积分：-pointsUsed + earnedPoints（原为两次 increment 的净效果）；
+     *  - 抵扣不足：`points >= pointsUsed` 进 WHERE，命中 0 行即抛原错误；
+     *  - 累计消费 / 次数 / 最近到店：仅当本次有消费金额时更新（原 if 条件）。
+     */
+    const consumptionAmountFen = input.paidAmountFen + input.pointsDeductAmount;
+    const pointsDelta = earnedPoints - input.pointsUsed;
+    if (pointsDelta !== 0 || consumptionAmountFen > 0) {
+      const snapshot = await applyCustomerMetrics(tx, {
+        customerId: input.customerId,
+        storeId: input.storeId,
+        pointsDelta,
+        requirePointsGte: input.pointsUsed > 0 ? input.pointsUsed : undefined,
+        totalSpentDelta: consumptionAmountFen > 0 ? consumptionAmountFen : 0,
+        visitCountDelta: consumptionAmountFen > 0 ? 1 : 0,
+        touchLastVisitAt: consumptionAmountFen > 0,
+      });
+      if (!snapshot && input.pointsUsed > 0) {
+        throw new BadRequestException(
+          clubOrderError(
+            CLUB_ORDER_ERROR_CODE.RULE_POINTS_INSUFFICIENT,
+            '积分不足或已被并发抵扣，当前积分无法完成扣减',
+          ),
+        );
+      }
+    }
+
+    // 积分流水：两条记录合并成一条 createMany（同一张表，省一次往返）
+    const pointsRecords = [
+      ...(input.pointsUsed > 0
+        ? [
+            {
+              storeId: input.storeId,
+              customerId: input.customerId,
+              amount: -input.pointsUsed,
+              type: 'spend' as const,
+              description: `消费抵扣积分（${context.description}）`,
+            },
+          ]
+        : []),
+      ...(earnedPoints > 0
+        ? [
+            {
+              storeId: input.storeId,
+              customerId: input.customerId,
+              amount: earnedPoints,
+              type: 'earn' as const,
+              description:
+                pointsMultiplier > 1
+                  ? '消费获得积分（含双倍积分加成）'
+                  : '消费获得积分',
+            },
+          ]
+        : []),
+    ];
+    if (pointsRecords.length > 0) {
+      await tx.marketingPointsRecord.createMany({ data: pointsRecords });
+    }
 
     await tx.marketingConsumption.create({
       data: {
         storeId: input.storeId,
         customerId: input.customerId,
-        amount: input.paidAmountFen + input.pointsDeductAmount,
+        amount: consumptionAmountFen,
         balancePaid: input.payType === 'balance' ? input.paidAmountFen : 0,
         pointsDeducted: input.pointsDeductAmount,
         // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
@@ -94,21 +157,6 @@ export class ClubScanOrderingMarketingCustomerService {
         itemsSummary: context.description,
       },
     });
-
-    // 物化指标必须与流水同口径更新：此前只写流水不更新 marketing_customers，
-    // 导致读物化字段的页面（护理档案等）少算这次消费。
-    // 累计消费 / 次数走 SQL 侧原子增减，等级按库内更新后的真实 totalSpent 重算，
-    // 避免并发落账时用同一份旧值互相覆盖、把等级算错。
-    const consumptionAmountFen = input.paidAmountFen + input.pointsDeductAmount;
-    if (consumptionAmountFen > 0) {
-      await applyCustomerMetrics(tx, {
-        customerId: input.customerId,
-        storeId: input.storeId,
-        totalSpentDelta: consumptionAmountFen,
-        visitCountDelta: 1,
-        touchLastVisitAt: true,
-      });
-    }
 
     return { earnedPoints };
   }

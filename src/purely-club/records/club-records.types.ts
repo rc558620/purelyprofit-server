@@ -43,6 +43,13 @@ export interface ListLedgerEntriesOptions {
   cursor?: { createdAt: Date; id: string };
   /** 类型筛选：all=全部 recharge=充值与赠送 consume=消费与退款 */
   filterType?: ClubRecordFilterValue;
+  /**
+   * 是否统计总条数，默认 true。
+   *
+   * 游标翻页时调用方可以传 false：两张表各少一次 count，
+   * 而「是否还有下一页」由 overfetch 结果直接得出，不依赖 count。
+   */
+  withTotal?: boolean;
 }
 
 /**
@@ -62,8 +69,15 @@ export interface ClubLedgerBalanceWindow {
 export interface ListLedgerEntriesResult {
   /** 当前页展示条目（已按 filterType 过滤并按时间倒序） */
   items: ClubLedgerEntry[];
-  /** 符合筛选条件的流水总条数 */
-  total: number;
+  /** 符合筛选条件的流水总条数；withTotal=false 时为 null（本次未统计） */
+  total: number | null;
+  /**
+   * 是否还有下一页。
+   *
+   * 由「两张表各多取 limit*2 条、合并后是否超过 limit」直接得出，
+   * 因此与 total 是否统计完全解耦，不会因为跳过 count 而失真。
+   */
+  hasMore: boolean;
   /**
    * 余额快照基准：**不受 filterType 影响**的全量储值账户流水聚合值。
    *

@@ -1,7 +1,9 @@
 import {
   buildBusinessAnalysisPattern,
+  buildClubCheckInPromotionCacheKey,
   buildClubPromotionsCacheKey,
   buildClubPromotionListCacheKey,
+  buildClubRechargePackagesCacheKey,
   buildProfitDashboardHomeActivitiesCacheKey,
   buildMarketingOverviewCacheKey,
   buildMembersListPattern,
@@ -117,11 +119,15 @@ const providerCases: readonly ProviderCase[] = [
       marketingOverviewCacheInvalidatorProvider({
         redisService,
       }).invalidateMarketingOverview(18),
-    // C 端两份活动缓存（定价投影 + 展示列表）必须成对失效
+    // C 端两份活动缓存（定价投影 + 展示列表）必须成对失效；
+    // 充值套餐同样投影自 marketing_promotions（type=recharge_gift），一并清理；
+    // 签到活动配置同为 marketing_promotions 投影（type=daily_check_in）
     expectedDelCalls: [
       buildMarketingOverviewCacheKey(18),
       buildClubPromotionsCacheKey(18),
       buildClubPromotionListCacheKey(18),
+      buildClubRechargePackagesCacheKey(18),
+      buildClubCheckInPromotionCacheKey(18),
     ],
   },
   {

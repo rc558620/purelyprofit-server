@@ -31,6 +31,15 @@ export function formatShanghaiDayLabel(shanghaiDayStartMs: number): string {
   return `${month}/${day}`;
 }
 
+/** 将任意 UTC 毫秒瞬间按上海本地时区格式化为 `YYYY-MM-DD`。 */
+export function formatShanghaiDateKey(timestampMs: number): string {
+  const date = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /** 读取任意 UTC 毫秒瞬间在上海本地时区下的星期几（0=周日…6=周六）。 */
 export function getShanghaiWeekday(utcMs: number): number {
   return new Date(utcMs + SHANGHAI_OFFSET_MS).getUTCDay();

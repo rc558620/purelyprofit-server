@@ -354,9 +354,27 @@ describe('ClubCareRecordsService', () => {
       items: [],
       compareRange: { earliest: null, latest: null },
       nextCursor: null,
+      hasMore: false,
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
     });
     expect(prismaService.careRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  it('withTotal=false 时跳过计数，meta 用 null 表达「未统计」', async () => {
+    clubMemberProfileService.getSnapshotByStoreIdentity.mockResolvedValue({
+      customerId: 55,
+    });
+    prismaService.careRecord.findMany.mockResolvedValue([CARE_ROW]);
+
+    const result = await service.list(buildContext(), {
+      pageSize: 1,
+      withTotal: false,
+    });
+
+    expect(prismaService.careRecord.count).not.toHaveBeenCalled();
+    expect(result.hasMore).toBe(false);
+    expect(result.meta.total).toBeNull();
+    expect(result.meta.totalPages).toBeNull();
   });
 
   describe('会员护理档案档位门禁', () => {

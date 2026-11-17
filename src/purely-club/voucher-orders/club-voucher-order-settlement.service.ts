@@ -24,12 +24,14 @@ import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-real
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { settleVoucherBalancePayment } from './club-voucher-order-balance-settlement.helper';
 import {
-  generateUniqueVoucherCode,
+  isVoucherCodeUniqueViolation,
+  pickUniqueVoucherCode,
   toVoucherOrderDraftView,
 } from './club-voucher-order-payment.helper';
-import type {
-  ClubVoucherOrderDraftView,
-  PaidVoucherOrderSnapshot,
+import {
+  VOUCHER_CODE_RETRY_TIMES,
+  type ClubVoucherOrderDraftView,
+  type PaidVoucherOrderSnapshot,
 } from './club-voucher-order-payment.types';
 import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
@@ -133,14 +135,60 @@ export class ClubVoucherOrderSettlementService {
     expectedAmountFen: number,
     params?: VoucherOrderSettlementParams,
   ): Promise<ClubVoucherOrderDraftView> {
-    const { view, paidOrder } = await this.prisma.$transaction(
-      async (tx) =>
-        this.settleWithinTransaction(tx, orderId, expectedAmountFen, params),
-      { timeout: TX_TIMEOUT_MEDIUM },
+    const { view, paidOrder } = await this.runSettlementTransaction(
+      orderId,
+      expectedAmountFen,
+      params,
     );
 
     await this.publishSettledOrder(paidOrder);
     return view;
+  }
+
+  /**
+   * 落账事务（含券码生成）：
+   *
+   * 券码**在事务外**一次性批量查重后传入，事务内只保留一次写入 ——
+   * 事务时长不再随「撞码重试次数」增长，也不会在持有库存/积分行锁时回查券码。
+   * 并发抢占同一枚候选码时由唯一索引抛 P2002，这里换一枚码重跑整段落账
+   * （上一次事务已回滚，unpaid → pending 的闸门一并释放）。
+   */
+  private async runSettlementTransaction(
+    orderId: number,
+    expectedAmountFen: number,
+    params?: VoucherOrderSettlementParams,
+  ): Promise<VoucherOrderSettlementResult> {
+    for (let attempt = 0; attempt < VOUCHER_CODE_RETRY_TIMES; attempt += 1) {
+      const voucherCode = await pickUniqueVoucherCode(this.prisma);
+      try {
+        return await this.prisma.$transaction(
+          async (tx) =>
+            this.settleWithinTransaction(
+              tx,
+              orderId,
+              expectedAmountFen,
+              voucherCode,
+              params,
+            ),
+          { timeout: TX_TIMEOUT_MEDIUM },
+        );
+      } catch (error) {
+        const isLastAttempt = attempt === VOUCHER_CODE_RETRY_TIMES - 1;
+        if (!isVoucherCodeUniqueViolation(error) || isLastAttempt) {
+          throw error;
+        }
+        this.logger.warn(
+          `券码 ${voucherCode} 已被并发占用（orderId=${orderId}），换码重试第 ${attempt + 1} 次`,
+        );
+      }
+    }
+
+    throw new BadRequestException(
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.DEPENDENCY_CODE_GENERATION_FAILED,
+        '券码生成失败，请重试',
+      ),
+    );
   }
 
   // ─── 事务内步骤 ───────────────────────────────────────────────────────────
@@ -149,6 +197,7 @@ export class ClubVoucherOrderSettlementService {
     tx: Prisma.TransactionClient,
     orderId: number,
     expectedAmountFen: number,
+    voucherCode: string,
     params?: VoucherOrderSettlementParams,
   ): Promise<VoucherOrderSettlementResult> {
     const order = await tx.clubVoucherOrder.findUnique({
@@ -184,7 +233,7 @@ export class ClubVoucherOrderSettlementService {
 
     const validDays = await this.consumeStock(tx, order);
     await this.applyBalanceAndPoints(tx, order);
-    return this.finalizeSettlement(tx, order, validDays, params);
+    return this.finalizeSettlement(tx, order, voucherCode, validDays, params);
   }
 
   /** 已被本次之外的链路结算：读取最新行返回现状（幂等） */
@@ -267,15 +316,14 @@ export class ClubVoucherOrderSettlementService {
     }
   }
 
-  /** 生成券码 + 起算有效期 + 回写订单，并产出事务后广播所需的快照 */
+  /** 券码写入 + 起算有效期 + 回写订单，并产出事务后广播所需的快照 */
   private async finalizeSettlement(
     tx: Prisma.TransactionClient,
     order: ClubVoucherOrder,
+    voucherCode: string,
     validDays: number | null,
     params?: VoucherOrderSettlementParams,
   ): Promise<VoucherOrderSettlementResult> {
-    // 生成唯一券码（碰撞重试）
-    const voucherCode = await generateUniqueVoucherCode(tx);
     const effectiveValidDays = validDays ?? CLUB_VOUCHER_DEFAULT_VALID_DAYS;
     const paidAt = params?.paidAtMs ? new Date(params.paidAtMs) : new Date();
 

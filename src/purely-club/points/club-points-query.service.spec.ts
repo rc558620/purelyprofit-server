@@ -322,11 +322,35 @@ describe('ClubPointsQueryService', () => {
           id: { lt: 18 },
         },
       ]);
-      expect(findManyCall.take).toBe(20);
+      // 多取一行用于判定 hasMore，不影响本页实际返回条数
+      expect(findManyCall.take).toBe(21);
       // 空结果时不额外查快照基准
       expect(
         prismaService.marketingPointsRecord.findMany,
       ).toHaveBeenCalledTimes(1);
+    });
+
+    it('withTotal=false 时跳过 count，hasMore 由多取一行判定', async () => {
+      prismaService.marketingPointsRecord.findMany.mockResolvedValue(
+        Array.from({ length: 21 }, (_, index) => ({
+          id: index + 1,
+          amount: 10,
+          type: 'earn' as const,
+          description: '消费获得积分',
+          createdAt: new Date('2024-11-20T10:30:00.000Z'),
+        })),
+      );
+      prismaService.marketingPointsRecord.count.mockResolvedValue(0);
+
+      const result = await service.listPointsRecords(11, 98, 'all', {
+        limit: 20,
+        withTotal: false,
+      });
+
+      expect(prismaService.marketingPointsRecord.count).not.toHaveBeenCalled();
+      expect(result.total).toBeNull();
+      expect(result.hasMore).toBe(true);
+      expect(result.items).toHaveLength(20);
     });
 
     it('P1：total 为符合筛选条件的总条数，不带游标条件', async () => {

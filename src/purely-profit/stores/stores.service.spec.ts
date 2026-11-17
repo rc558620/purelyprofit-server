@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -70,6 +71,11 @@ describe('StoresService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: SubscriptionsService, useValue: subscriptionsService },
         { provide: RedisService, useValue: redisService },
+        // 预取容器：peekJson 恒为 undefined，等价于「未预取」，不改变原读取路径
+        {
+          provide: RedisReadPrefetchService,
+          useValue: { peekJson: jest.fn() },
+        },
       ],
     }).compile();
 

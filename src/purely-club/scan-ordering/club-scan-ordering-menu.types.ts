@@ -31,8 +31,10 @@ import type { Prisma } from '@prisma/client';
  * minSelect / maxSelect`——改这张白名单时必须按真实列名，否则价格会变 NaN、
  * 规格弹窗失效。
  *
- * ⚠️ `reservedQuantity` 必须留在 select 里参与可用库存计算，但**不进响应**：
- * 响应由 service 的 `mapXxx` 显式构造（不再整行 spread），避免内部字段重新泄漏。
+ * ⚠️ `stockQuantity / reservedQuantity / salesCount` **不在静态投影里**：这三列
+ * 每笔订单都会变（预留 +1、销量 +1），放进缓存会让菜单缓存随单量失效、
+ * 放进指纹会让整店 key 轮换。它们由 `ClubScanOrderingMenuStockService` 的
+ * 5s 快照在每次响应时覆盖（见 club-scan-ordering-menu-stock.service.ts）。
  */
 export const CLUB_MENU_CATEGORY_SELECT = {
   id: true,
@@ -49,10 +51,11 @@ export const CLUB_MENU_CATEGORY_SELECT = {
       imageUrl: true,
       basePrice: true,
       stockMode: true,
-      stockQuantity: true,
-      reservedQuantity: true,
-      salesCount: true,
-      product: { select: { stock: true, image: true } },
+      // 库存 / 预留 / 销量三列**不进静态投影**：它们每笔订单都变，
+      // 由 ClubScanOrderingMenuStockService 的 5s 快照单独覆盖
+      // （见 club-scan-ordering-menu-stock.service.ts）。`product` 仍需保留：
+      // 存在关联商品时库存以商品表为准，且图片要回落商品图。
+      product: { select: { image: true } },
       specGroups: {
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -69,8 +72,6 @@ export const CLUB_MENU_CATEGORY_SELECT = {
               id: true,
               name: true,
               extraPrice: true,
-              stockQuantity: true,
-              reservedQuantity: true,
               isDefault: true,
               isActive: true,
             },
@@ -136,4 +137,55 @@ export interface ClubMenuCategory {
 export interface ClubMenuResponse {
   menuVersion: string;
   categories: ClubMenuCategory[];
+}
+
+// ── 菜单静态投影（缓存层内部类型，不对前端暴露） ──
+
+/**
+ * 静态规格项：只含「改一次能用很久」的字段。
+ * 库存由 5s 快照覆盖，因此这里没有 stockQuantity。
+ */
+export interface ClubMenuStaticSpecOption {
+  id: number;
+  name: string;
+  extraPrice: number;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+export interface ClubMenuStaticSpecGroup {
+  id: number;
+  name: string;
+  selectionType: ClubMenuSpecGroupRow['selectionType'];
+  minSelections: number;
+  maxSelections: number | null;
+  options: ClubMenuStaticSpecOption[];
+}
+
+export interface ClubMenuStaticProduct {
+  id: number;
+  categoryId: number;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  basePrice: number;
+  /** 关联普通商品时恒为 finite（与响应口径一致） */
+  stockMode: ClubMenuProductRow['stockMode'];
+  specGroups: ClubMenuStaticSpecGroup[];
+}
+
+export interface ClubMenuStaticCategory {
+  id: number;
+  name: string;
+  sortOrder: number;
+  products: ClubMenuStaticProduct[];
+}
+
+/**
+ * 菜单静态缓存 value：不含库存 / 销量，因此可安全长 TTL 缓存
+ * （key 是内容指纹，改价 / 上下架 / 规格变更即换 key）。
+ */
+export interface ClubMenuStaticResponse {
+  menuVersion: string;
+  categories: ClubMenuStaticCategory[];
 }

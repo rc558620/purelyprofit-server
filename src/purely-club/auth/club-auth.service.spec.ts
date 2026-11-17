@@ -59,6 +59,8 @@ describe('ClubAuthService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    // 合并的「豆结转 / 资产并入 / 软删」走集合 UPDATE（一条 SQL 覆盖全部门店）
+    $executeRaw: jest.fn(),
     $transaction: jest.fn(),
   };
 
@@ -777,34 +779,35 @@ describe('ClubAuthService', () => {
 
       await service.bindPhone(42, { phone: '13800138000', code: '123456' });
 
-      // 纯利豆结转，不能凭空消失
-      expect(prismaService.member.update).toHaveBeenCalledWith({
-        where: { id: 2 },
-        data: { beanBalance: { increment: 7 } },
-      });
-      // 软删除源 Member 并清空 phone：findAccessibleStores 的
+      // 合并写走 4 条集合 UPDATE：Member 豆结转 / Member 软删 /
+      // 顾客资产并入 / 顾客软删（语句数与门店数无关）
+      const statements = prismaService.$executeRaw.mock.calls.map(
+        (call) => call[0] as { strings: readonly string[]; values: unknown[] },
+      );
+      expect(statements).toHaveLength(4);
+
+      const sqlText = statements
+        .map((statement) => statement.strings.join('?'))
+        .join('\n');
+      expect(sqlText).toContain('UPDATE "members"');
+      expect(sqlText).toContain('UPDATE "marketing_customers"');
+
+      const values = statements.flatMap((statement) => statement.values);
+      // 纯利豆结转 7（源 1 → 目标 2），不能凭空消失
+      expect(values).toEqual(expect.arrayContaining([2, 7, 1]));
+      // 顾客资产并入目标 20（from 10）：余额 645070 / 积分 30 / 累计 9000 / 次数 2
+      expect(values).toEqual(
+        expect.arrayContaining([20, 645070, 30, 9000, 2, 10]),
+      );
+      // 软删除源档案并清空 phone/club_user_id：findAccessibleStores 的
       // members.some({ phone }) 不过滤 deletedAt，留旧号会造成串号
-      expect(prismaService.member.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { phone: null, deletedAt: expect.any(Date) },
-      });
-      // 顾客资产并入目标
-      expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
-        where: { id: 20 },
-        data: {
-          balance: { increment: 645070 },
-          points: { increment: 30 },
-          totalSpent: { increment: 9000 },
-          visitCount: { increment: 2 },
-        },
-      });
-      expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
-        where: { id: 10 },
-        data: { clubUserId: null, phone: null, deletedAt: expect.any(Date) },
-      });
+      expect(sqlText).toContain('"phone" = NULL');
+      expect(sqlText).toContain('"club_user_id" = NULL');
 
       // 消费 / 积分 / 充值流水是必填外键且无级联，硬删会直接抛错
       expect(prismaService.member.deleteMany).not.toHaveBeenCalled();
+      expect(prismaService.member.update).not.toHaveBeenCalled();
+      expect(prismaService.marketingCustomer.update).not.toHaveBeenCalled();
     });
   });
 

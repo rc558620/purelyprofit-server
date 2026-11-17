@@ -69,27 +69,45 @@ export class ScanOrderingPaymentExpirationService
         take: BATCH_SIZE,
         select: { id: true, version: true },
       });
-      // 逐笔串行时 BATCH_SIZE 笔订单的耗时线性叠加：单笔要开事务改订单/购物车/桌台，
-      // 100 笔很容易吃掉整个扫描周期（锁 TTL 55s），导致锁提前失效、另一实例插进来
-      // 重复扫描同一批订单。改为固定并发度执行，单笔异常自行捕获，不中断整批。
-      await runClubBatchWithConcurrency(
-        dueOrders,
-        async (order) => {
-          try {
-            await this.unpaidOrderClosureService.close({
-              orderId: order.id,
-              expectedVersion: order.version,
-              operatorType: 'system',
-              reason: '支付超时自动关闭',
-            });
-          } catch (error: unknown) {
-            this.logger.error(
-              `关闭扫码点餐超时订单失败 orderId=${order.id}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        CLUB_BATCH_DEFAULT_CONCURRENCY,
-      );
+      // 集合写入：整批一次事务、常量级往返，替代「100 笔 × 每笔一个事务」。
+      // 逐笔版本的代价是 100 次事务 + 约 900 条语句，全部压在 55s 锁 TTL 内，
+      // 批次一大就容易吃掉整个扫描周期；集合版本把语句数压到十几条。
+      try {
+        const closed = await this.unpaidOrderClosureService.closeBatch(
+          dueOrders.map((order) => ({
+            orderId: order.id,
+            expectedVersion: order.version,
+          })),
+          { operatorType: 'system', reason: '支付超时自动关闭' },
+        );
+        if (closed.length > 0) {
+          this.logger.log(`扫码点餐支付超时：批量关闭 ${closed.length} 笔订单`);
+        }
+      } catch (error: unknown) {
+        // 整批失败（如锁冲突、单行异常）降级为逐笔处理，
+        // 保证一笔坏单不拖累同批其它订单。
+        this.logger.warn(
+          `批量关闭扫码点餐超时订单失败，降级逐笔处理: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        await runClubBatchWithConcurrency(
+          dueOrders,
+          async (order) => {
+            try {
+              await this.unpaidOrderClosureService.close({
+                orderId: order.id,
+                expectedVersion: order.version,
+                operatorType: 'system',
+                reason: '支付超时自动关闭',
+              });
+            } catch (innerError: unknown) {
+              this.logger.error(
+                `关闭扫码点餐超时订单失败 orderId=${order.id}: ${innerError instanceof Error ? innerError.message : String(innerError)}`,
+              );
+            }
+          },
+          CLUB_BATCH_DEFAULT_CONCURRENCY,
+        );
+      }
     } catch (error: unknown) {
       this.logger.error(
         `处理扫码点餐支付超时订单失败: ${error instanceof Error ? error.message : String(error)}`,

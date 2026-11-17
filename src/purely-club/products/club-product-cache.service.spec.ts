@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildClubProductsVersionCacheKey } from '../../redis/keys/club-cache-keys';
 import { ClubProductCacheService } from './club-product-cache.service';
@@ -16,6 +17,10 @@ describe('ClubProductCacheService', () => {
   const redisService = {
     getJson: jest.fn(),
     setJson: jest.fn(),
+  };
+  /** 本文件不覆盖预取语义：peekJson 恒为 undefined，等价于「未预取」 */
+  const redisReadPrefetch = {
+    peekJson: jest.fn(),
   };
 
   const versionKey = buildClubProductsVersionCacheKey(11);
@@ -45,6 +50,8 @@ describe('ClubProductCacheService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    // 默认「未被预取」；需要覆盖预取语义的用例自行改写实现
+    redisReadPrefetch.peekJson.mockResolvedValue(undefined);
     cacheStore = new Map();
     redisService.getJson.mockImplementation(
       (key: string): Promise<unknown> =>
@@ -66,6 +73,7 @@ describe('ClubProductCacheService', () => {
         ClubProductCacheService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        { provide: RedisReadPrefetchService, useValue: redisReadPrefetch },
       ],
     }).compile();
     service = module.get(ClubProductCacheService);
@@ -95,6 +103,21 @@ describe('ClubProductCacheService', () => {
 
     expect(cacheKey).toContain('v:cached-version');
     expect(prismaService.marketingProduct.aggregate).not.toHaveBeenCalled();
+  });
+
+  it('预取命中商品版本时不再单条 GET，也不再回源聚合', async () => {
+    redisReadPrefetch.peekJson.mockImplementation((key: string) =>
+      Promise.resolve(key === versionKey ? 'prefetched-version' : undefined),
+    );
+
+    const cacheKey = await service.buildListCacheKey({ storeId: 11, take: 6 });
+
+    expect(cacheKey).toContain('v:prefetched-version');
+    expect(redisService.getJson).not.toHaveBeenCalled();
+    expect(prismaService.marketingProduct.aggregate).not.toHaveBeenCalled();
+    // 列表 key 内嵌版本，无法预取：仍走单条 GET 回源
+    expect(await service.readList(cacheKey)).toBeNull();
+    expect(redisService.getJson).toHaveBeenCalledWith(cacheKey);
   });
 
   it('商品数量或最大更新时间变化会切换版本，旧列表 key 自然失效', async () => {
@@ -159,5 +182,32 @@ describe('ClubProductCacheService', () => {
     expect(cacheKey).toContain('club:products:store:11:v:');
     expect(await service.readList(cacheKey)).toBeNull();
     expect(prismaService.marketingProduct.aggregate).toHaveBeenCalledTimes(1);
+  });
+
+  it('首单资格缓存：未命中返回 null，写入后按布尔值命中', async () => {
+    expect(await service.readConsumptionExists(11, 8001)).toBeNull();
+
+    await service.writeConsumptionExists(11, 8001, false);
+    expect(await service.readConsumptionExists(11, 8001)).toBe(false);
+
+    await service.writeConsumptionExists(11, 8001, true);
+    expect(await service.readConsumptionExists(11, 8001)).toBe(true);
+  });
+
+  it('首单资格缓存 key 按门店 + 顾客隔离，TTL 短于商品列表', async () => {
+    await service.writeConsumptionExists(11, 8001, true);
+    await service.writeConsumptionExists(11, 8002, true);
+    await service.writeConsumptionExists(12, 8001, true);
+
+    const keys = redisService.setJson.mock.calls.map(([key]) => key);
+    expect(new Set(keys).size).toBe(3);
+    expect(keys[0]).toBe('club:consumption-exists:store:11:customer:8001');
+    expect(redisService.setJson).toHaveBeenCalledWith(keys[0], '1', 60);
+  });
+
+  it('首单资格缓存读异常降级为未命中（调用方回源 DB）', async () => {
+    redisService.getJson.mockRejectedValue(new Error('Redis 不可用'));
+
+    expect(await service.readConsumptionExists(11, 8001)).toBeNull();
   });
 });

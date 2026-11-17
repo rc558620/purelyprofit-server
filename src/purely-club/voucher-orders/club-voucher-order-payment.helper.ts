@@ -131,25 +131,51 @@ export function buildVoucherOrderCreateInput(
   };
 }
 
-/** 生成全局唯一券码（唯一索引冲突时重试） */
-export async function generateUniqueVoucherCode(
-  tx: Prisma.TransactionClient,
+/**
+ * 生成全局唯一券码候选：**一次批量查重**，调用方应在落账事务之外执行。
+ *
+ * 改造前每撞一次码就要在事务内多发一条 findUnique，最坏情况给落账事务
+ * 增加 3 次往返（持有库存行锁 / 积分行锁的时间同步变长）。
+ * 现在一次性生成 N 个候选、一条 `voucherCode IN (...)` 查重再挑第一个空位：
+ * 命中率极高（券码空间远大于并发量），事务内只剩一次写入。
+ *
+ * 唯一索引仍是最终兜底：并发抢占同一枚候选码时，INSERT/UPDATE 会抛 P2002，
+ * 由调用方换码重试（见 isVoucherCodeUniqueViolation）。
+ */
+export async function pickUniqueVoucherCode(
+  client: Pick<Prisma.TransactionClient, 'clubVoucherOrder'>,
 ): Promise<string> {
-  for (let attempt = 0; attempt < VOUCHER_CODE_RETRY_TIMES; attempt += 1) {
-    const candidate = buildVoucherCode();
-    const existing = await tx.clubVoucherOrder.findUnique({
-      where: { voucherCode: candidate },
-      select: { id: true },
-    });
-    if (!existing) {
-      return candidate;
-    }
+  const candidates = Array.from({ length: VOUCHER_CODE_RETRY_TIMES }, () =>
+    buildVoucherCode(),
+  );
+  const taken = await client.clubVoucherOrder.findMany({
+    where: { voucherCode: { in: candidates } },
+    select: { voucherCode: true },
+  });
+  const takenCodes = new Set(taken.map((row) => row.voucherCode));
+  const picked = candidates.find((code) => !takenCodes.has(code));
+  if (!picked) {
+    throw new BadRequestException(
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.DEPENDENCY_CODE_GENERATION_FAILED,
+        '券码生成失败，请重试',
+      ),
+    );
   }
-  throw new BadRequestException(
-    clubVoucherError(
-      CLUB_VOUCHER_ERROR_CODE.DEPENDENCY_CODE_GENERATION_FAILED,
-      '券码生成失败，请重试',
-    ),
+  return picked;
+}
+
+/**
+ * 是否为「券码唯一约束冲突」（P2002）。
+ *
+ * 事务外查重与事务内写入之间存在窗口，并发落账可能抢到同一枚候选码，
+ * 必须靠库内唯一索引兜底并换码重试。
+ */
+export function isVoucherCodeUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'P2002'
   );
 }
 

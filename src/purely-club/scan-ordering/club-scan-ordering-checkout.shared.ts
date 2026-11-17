@@ -103,5 +103,12 @@ export async function loadOwnedScanOrder(
         '订单不存在',
       ),
     );
-  return order;
+  // 支付成功响应体与详情接口同口径：营销快照 / 补录快照只用于内部金额派生，
+  // 前端零消费，不下发（实测营销快照约占单笔订单响应体积 2/3）。
+  const {
+    marketingSnapshot: _marketingSnapshot,
+    manualEntryMetadata: _manualEntryMetadata,
+    ...orderColumns
+  } = order;
+  return orderColumns;
 }

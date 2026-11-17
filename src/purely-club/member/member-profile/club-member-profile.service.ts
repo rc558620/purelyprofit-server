@@ -2,11 +2,22 @@ import { CLUB_MEMBER_ERROR_CODE, clubMemberError } from '../club-member.errors';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
+import { formatShanghaiDateKey } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../../redis/redis.service';
 import { buildClubMemberSnapshotCacheKey } from '../../../redis/keys/club-cache-keys';
 import type { ClubCurrentContext } from '../../stores/club-stores.types';
 import type { ClubMemberHeldLevelValue } from '../dto/club-member-account.dto';
+import {
+  MISS_SENTINEL,
+  type ClubMarketingCustomerRecord,
+  type ClubMemberAccountRecord,
+  type ClubMemberSnapshot,
+  type ClubMemberSnapshotCacheValue,
+} from './club-member-profile.types';
+
+export type { ClubMemberSnapshot };
 
 const CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE = '当前门店暂无会员账户信息';
 
@@ -14,51 +25,6 @@ const CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE = '当前门店暂无会员账户信
 const CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS = 15;
 /** null 快照缓存 TTL（秒）：防穿透，比正常 TTL 更短 */
 const CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS = 5;
-
-/**
- * 空结果哨兵。
- *
- * 用显式对象而非 `null` 表达「已确认无档案」：`getJson` 返回 null 同时覆盖
- * 「key 不存在」与「缓存了 null」两种语义，选 null 就得多跑一次 EXISTS 兜底。
- * 换成 `{ found: false }` 后可单次 GET 判定，每次未命中少一次 RTT。
- */
-const MISS_SENTINEL = { found: false } as const;
-
-type ClubMemberSnapshotCacheValue = ClubMemberSnapshot | typeof MISS_SENTINEL;
-
-interface ClubMemberAccountRecord {
-  id: number;
-  createdAt: Date;
-}
-
-interface ClubMarketingCustomerRecord {
-  id: number;
-  balance: number;
-  points: number;
-  tier: string;
-  createdAt: Date;
-}
-
-export interface ClubMemberSnapshot {
-  /**
-   * 关联 MarketingCustomer.id（顾客档案 ID）。
-   *
-   * 顾客本人链路（护理档案等挂 customerId 的业务）必须以此为唯一入口：
-   * 由本服务的两层锚定推导出来，禁止调用方自行按手机号再查一次——
-   * 那会绕过「无主档案」限定，拿到同号他人的档案。
-   * 无顾客档案（有 Member 无 MarketingCustomer）时为 null；
-   * Redis 里可能残留本次发布前的旧快照，该字段为 undefined，按 null 处理。
-   */
-  customerId: number | null;
-  memberId: number;
-  storeId: number;
-  balance: number;
-  level: ClubMemberHeldLevelValue;
-  points: number;
-  memberCode: string;
-  joinDate: string;
-  totalConsume: number;
-}
 
 @Injectable()
 export class ClubMemberProfileService {
@@ -78,6 +44,7 @@ export class ClubMemberProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   async getCurrentSnapshot(
@@ -142,8 +109,7 @@ export class ClubMemberProfileService {
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
     // 读缓存：门店+用户粒度，TTL 15s
-    const cached =
-      await this.redisService.getJson<ClubMemberSnapshotCacheValue>(cacheKey);
+    const cached = await this.readSnapshotCache(cacheKey);
     if (cached !== null) {
       return 'found' in cached ? null : cached;
     }
@@ -166,6 +132,24 @@ export class ClubMemberProfileService {
     await this.redisService.setJson(cacheKey, snapshot ?? MISS_SENTINEL, ttl);
 
     return snapshot;
+  }
+
+  /**
+   * 读取快照缓存，优先消费请求级预取结果。
+   *
+   * 快照 key 只由 `(storeId, clubUserId)` 决定，聚合入口可预取；预取未覆盖
+   * 本 key 或预取失败时回退单条 GET，语义与直接读缓存完全一致。
+   */
+  private async readSnapshotCache(
+    cacheKey: string,
+  ): Promise<ClubMemberSnapshotCacheValue | null> {
+    const prefetched =
+      await this.redisReadPrefetch.peekJson<ClubMemberSnapshotCacheValue>(
+        cacheKey,
+      );
+    return prefetched !== undefined
+      ? prefetched
+      : this.redisService.getJson<ClubMemberSnapshotCacheValue>(cacheKey);
   }
 
   /**
@@ -360,7 +344,7 @@ export class ClubMemberProfileService {
       marketingCreatedAt.getTime() < memberCreatedAt.getTime()
         ? marketingCreatedAt
         : memberCreatedAt;
-    return this.formatDateOnly(joinedAt);
+    return formatShanghaiDateKey(joinedAt.getTime());
   }
 
   /**
@@ -380,19 +364,5 @@ export class ClubMemberProfileService {
   private buildMemberCode(joinDate: string, memberId: number): string {
     const compactDate = joinDate.replace(/-/g, '');
     return `PC${compactDate}${String(memberId).padStart(3, '0')}`;
-  }
-
-  /**
-   * 将 Date 格式化为 YYYY-MM-DD 字符串，固定使用 UTC+8（北京时间）。
-   * 避免服务器部署在 UTC 时区时导致入会日期偏移一天。
-   */
-  private formatDateOnly(date: Date): string {
-    // UTC+8 偏移量 8 小时 = 8 * 60 * 60 * 1000 = 28800000 毫秒
-    const utc8Ms = date.getTime() + 8 * 60 * 60 * 1000;
-    const utc8Date = new Date(utc8Ms);
-    const year = utc8Date.getUTCFullYear();
-    const month = String(utc8Date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(utc8Date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
   }
 }

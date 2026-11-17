@@ -81,6 +81,18 @@ export class CreateClubCardOrderDto {
   @IsOptional()
   @IsIn(CLUB_CARD_PAYMENT_METHOD_VALUES, { message: 'paymentMethod 不合法' })
   paymentMethod?: ClubCardPaymentMethod;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: true,
+    description:
+      '是否在建单时同步向微信预下单：默认 true（与历史行为完全一致，响应带 paymentParams）。' +
+      '传 false 时建单不调用微信、响应不带 paymentParams，前端需再调' +
+      ' `POST /club/cards/orders/:id/payment-params` 按需取参（失败可重试，不重复建单）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'prepay 必须是布尔值' })
+  prepay?: boolean;
 }
 
 /** 我的卡包查询入参 */
@@ -118,6 +130,18 @@ export class ListClubCardsQueryDto {
   @IsOptional()
   @IsString({ message: 'cursor 必须是字符串' })
   cursor?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: true,
+    description:
+      '是否统计总条数：默认 true（与历史行为一致）。游标翻页时可传 false 跳过 count，' +
+      '此时响应 total 为 null，是否还有下一页以 hasMore 为准',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: 'withTotal 必须是布尔值' })
+  withTotal?: boolean;
 }
 
 /** 购卡订单详情查询入参 */
@@ -273,8 +297,20 @@ export class ClubMemberCardPageDto {
   @ApiProperty({ example: '20', nullable: true })
   nextCursor: string | null;
 
-  @ApiProperty({ example: 3 })
-  total: number;
+  @ApiProperty({
+    example: 3,
+    nullable: true,
+    description:
+      '卡包可售/持卡总条数；withTotal=false 时为 null（本次未统计，翻页判定请用 hasMore）',
+  })
+  total: number | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '是否还有下一页：游标分页的唯一权威判定，与 total 是否统计无关',
+  })
+  hasMore: boolean;
 }
 
 /** 购卡订单响应（对齐 purelyClub CardOrderResult） */

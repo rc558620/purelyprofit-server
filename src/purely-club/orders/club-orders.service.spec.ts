@@ -24,6 +24,7 @@ import { ClubOrderWechatVerifyService } from './club-order-wechat-verify.service
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
+import { ClubPrepayAttemptService } from '../payments/club-prepay-attempt.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
@@ -330,6 +331,11 @@ describe('ClubOrdersService', () => {
           },
         },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
+        // 按需取参的共享编排：本 spec 只断言建单链路，取参走独立用例
+        {
+          provide: ClubPrepayAttemptService,
+          useValue: { createPaymentParams: jest.fn() },
+        },
         { provide: MembershipDowngradeService, useValue: downgradeService },
         {
           provide: ClubPromotionRepository,

@@ -3,7 +3,6 @@ import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { formatShanghaiDate } from '../../shared/shanghai-time.utils';
-import { normalizeDailyCheckInPoints } from '../../purely-profit/marketing/schemas/promotion-params.schema';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   buildCheckInBusinessError,
@@ -11,12 +10,12 @@ import {
   CHECK_IN_ACTIVITY_NOT_FOUND_CODE,
   CHECK_IN_ALREADY_DONE_CODE,
 } from './club-check-in.errors';
+import { ClubCheckInCacheService } from './club-check-in.cache.service';
 import { ClubCheckInQueryService } from './club-check-in.query.service';
+import { ClubCheckInStatusService } from './club-check-in.status.service';
 import type {
-  ClubCheckInActivePromotion,
   ClubCheckInCommittedResult,
   ClubCheckInLogEvent,
-  ClubCheckInPromotionRecord,
   ClubCheckInSubmitState,
   ClubCheckInWriteInput,
   ClubCheckInWriteResult,
@@ -35,19 +34,6 @@ import type {
 /** 防抖 key 带业务前缀且按自然日隔离；TTL 到当日上海日终，跨日自动失效 */
 const CHECK_IN_DEDUP_KEY_PREFIX = 'checkin:dedup:';
 
-/**
- * 读取活动 params 中的单次积分：后端权威归一化，
- * 缺失 / 非正整数 / 越界一律回落 1，绝不采信客户端传值。
- */
-function readPointsPerCheckIn(params: unknown): number {
-  if (!params || typeof params !== 'object' || Array.isArray(params)) {
-    return normalizeDailyCheckInPoints(undefined);
-  }
-  return normalizeDailyCheckInPoints(
-    (params as Record<string, unknown>).pointsPerCheckIn,
-  );
-}
-
 @Injectable()
 export class ClubCheckInService {
   private readonly logger = new Logger('ClubCheckInService');
@@ -57,54 +43,18 @@ export class ClubCheckInService {
     private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly queryService: ClubCheckInQueryService,
+    private readonly cacheService: ClubCheckInCacheService,
+    private readonly statusService: ClubCheckInStatusService,
   ) {}
 
-  async getStatus(
-    context: ClubCurrentContext,
-  ): Promise<CheckInStatusResponseDto> {
-    const serverTime = Date.now();
-    const storeId = context.store.id;
-    const [customer, promotion] = await Promise.all([
-      this.queryService.findCustomer(context),
-      this.queryService.findPromotion(storeId),
-    ]);
-    const active = this.resolveActivePromotion(promotion, serverTime);
-    const pointsBalance = customer?.points ?? 0;
-
-    if (!active || !customer) {
-      const reasons = [
-        active ? null : 'activity_inactive',
-        customer ? null : 'customer_missing',
-      ].filter((reason): reason is string => reason !== null);
-      this.logger.warn(
-        `签到状态降级空态 storeId=${storeId} reason=${reasons.join(',')}`,
-      );
-      return this.buildDisabledStatus(pointsBalance, serverTime);
-    }
-
-    const checkInDate = formatShanghaiDate(serverTime);
-    const checkedDates = await this.queryService.listCheckedDates(
-      storeId,
-      customer.id,
-      this.queryService.buildHistoryFromDate(serverTime),
-    );
-    const todayCheckedIn = checkedDates.includes(checkInDate);
-
-    return {
-      activityEnabled: true,
-      activityStartAt: active.startAt,
-      activityEndAt: active.endAt,
-      todayCheckedIn,
-      continuousDays: computeContinuousDays(
-        checkedDates,
-        checkInDate,
-        todayCheckedIn,
-      ),
-      pointsPerCheckIn: active.pointsPerCheckIn,
-      pointsBalance,
-      checkedDates,
-      serverTime,
-    };
+  /**
+   * 签到状态（首页 Hero 每次进场都会读）。
+   *
+   * 读链路（缓存编排 + 状态组装 + 活动生效判定）由 `ClubCheckInStatusService`
+   * 承担：本服务只负责写链路（防抖 / 事务 / 落账日志 / 缓存失效）。
+   */
+  getStatus(context: ClubCurrentContext): Promise<CheckInStatusResponseDto> {
+    return this.statusService.getStatus(context);
   }
 
   async submit(
@@ -128,7 +78,13 @@ export class ClubCheckInService {
       requestId,
       serverTime,
     );
-    // 事务已提交：缓存失效只影响读加速层，失败不得改写写操作结果
+    // 事务已提交：先删当天签到状态缓存，保证用户回首页立刻看到「已签到」，
+    // 不依赖后续派生缓存失效是否成功（那条链路失败只记录补偿信号）
+    await this.cacheService.deleteStatus(
+      state.storeId,
+      context.user.id,
+      state.checkInDate,
+    );
     await this.invalidateDerivedCacheAfterCommit(state, requestId);
     this.logSubmit({
       requestId,
@@ -232,7 +188,10 @@ export class ClubCheckInService {
       this.logger.warn(`[${requestId}] 签到活动未配置 storeId=${storeId}`);
       throw buildCheckInBusinessError(CHECK_IN_ACTIVITY_NOT_FOUND_CODE);
     }
-    const promotion = this.resolveActivePromotion(promotionRow, serverTime);
+    const promotion = this.statusService.resolveActivePromotion(
+      promotionRow,
+      serverTime,
+    );
     if (!promotion) {
       this.logger.warn(`[${requestId}] 签到活动未生效 storeId=${storeId}`);
       throw buildCheckInBusinessError(CHECK_IN_ACTIVITY_NOT_ACTIVE_CODE);
@@ -328,41 +287,6 @@ export class ClubCheckInService {
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
-  }
-
-  private resolveActivePromotion(
-    promotion: ClubCheckInPromotionRecord | null,
-    serverTime: number,
-  ): ClubCheckInActivePromotion | null {
-    if (!promotion || !promotion.enabled) {
-      return null;
-    }
-    const startAt = promotion.startAt.getTime();
-    const endAt = promotion.endAt.getTime();
-    if (serverTime < startAt || serverTime > endAt) {
-      return null;
-    }
-    return {
-      id: promotion.id,
-      startAt,
-      endAt,
-      pointsPerCheckIn: readPointsPerCheckIn(promotion.params),
-    };
-  }
-
-  private buildDisabledStatus(
-    pointsBalance: number,
-    serverTime: number,
-  ): CheckInStatusResponseDto {
-    return {
-      activityEnabled: false,
-      todayCheckedIn: false,
-      continuousDays: 0,
-      pointsPerCheckIn: 0,
-      pointsBalance,
-      checkedDates: [],
-      serverTime,
-    };
   }
 
   private async releaseDedupKey(key: string): Promise<void> {

@@ -161,8 +161,18 @@ export class AuthSessionService {
 
   // ── 会话生命周期管理 ─────────────────────────────────────
 
-  private buildSessionKey(userId: number): string {
+  /**
+   * 活跃会话 sorted set 的 key。
+   *
+   * 静态导出是为了让「批量读取」链路（AuthValidateContextService）能把会话活性检查
+   * 合进同一次 pipeline 往返，同时不复制 key 格式——key 只在这里定义一处。
+   */
+  static buildSessionSetKey(userId: number): string {
     return `${AUTH_SESSION_SET_KEY_PREFIX}${userId}`;
+  }
+
+  private buildSessionKey(userId: number): string {
+    return AuthSessionService.buildSessionSetKey(userId);
   }
 
   /**
@@ -395,6 +405,16 @@ export class AuthSessionService {
     const rawVersion = await this.redisService.get(
       buildTokenVersionKey(userId),
     );
+    return AuthSessionService.parseTokenVersion(rawVersion);
+  }
+
+  /**
+   * 解析 token 版本原始值：key 不存在按 0 处理，非法值同样归零（沿用历史口径）。
+   *
+   * 批量读取链路拿到的是原始字符串，解析口径必须与本 service 唯一对齐，
+   * 否则两条链路的「版本失效」判定会出现分叉。
+   */
+  static parseTokenVersion(rawVersion: string | null): number {
     const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
     return Number.isNaN(parsedVersion) ? 0 : parsedVersion;
   }

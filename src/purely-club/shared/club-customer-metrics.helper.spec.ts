@@ -5,6 +5,7 @@ interface Row {
   total_spent: number;
   visit_count: number;
   balance: number;
+  points: number;
   tier: 'regular' | 'gold' | 'diamond';
 }
 
@@ -46,7 +47,13 @@ const params = {
 describe('applyCustomerMetrics', () => {
   it('累计消费与次数走 SQL 侧原子增减，不读旧值再写回', async () => {
     const { tx, queryRaw } = buildTx([
-      { total_spent: 1200, visit_count: 3, balance: 500, tier: 'regular' },
+      {
+        total_spent: 1200,
+        visit_count: 3,
+        balance: 500,
+        points: 12,
+        tier: 'regular',
+      },
     ]);
 
     const result = await applyCustomerMetrics(tx, {
@@ -60,6 +67,7 @@ describe('applyCustomerMetrics', () => {
       totalSpent: 1200,
       visitCount: 3,
       balance: 500,
+      points: 12,
       tier: 'gold',
     });
     const sql = sqlOf(queryRaw);
@@ -71,7 +79,13 @@ describe('applyCustomerMetrics', () => {
 
   it('跨等级档位时补一次条件写 tier', async () => {
     const { tx, updateMany } = buildTx([
-      { total_spent: 1200, visit_count: 1, balance: 0, tier: 'regular' },
+      {
+        total_spent: 1200,
+        visit_count: 1,
+        balance: 0,
+        points: 0,
+        tier: 'regular',
+      },
     ]);
 
     await applyCustomerMetrics(tx, { ...params, totalSpentDelta: 200 });
@@ -84,7 +98,13 @@ describe('applyCustomerMetrics', () => {
 
   it('等级未变化时不产生第二段写入', async () => {
     const { tx, updateMany } = buildTx([
-      { total_spent: 1200, visit_count: 1, balance: 0, tier: 'gold' },
+      {
+        total_spent: 1200,
+        visit_count: 1,
+        balance: 0,
+        points: 0,
+        tier: 'gold',
+      },
     ]);
 
     await applyCustomerMetrics(tx, { ...params, totalSpentDelta: 200 });
@@ -94,7 +114,13 @@ describe('applyCustomerMetrics', () => {
 
   it('指标未变化（纯扣余额）时不重算等级、不查配置', async () => {
     const { tx, updateMany, queryRaw } = buildTx([
-      { total_spent: 800, visit_count: 1, balance: 400, tier: 'regular' },
+      {
+        total_spent: 800,
+        visit_count: 1,
+        balance: 400,
+        points: 5,
+        tier: 'regular',
+      },
     ]);
 
     const result = await applyCustomerMetrics(tx, {
@@ -122,7 +148,13 @@ describe('applyCustomerMetrics', () => {
 
   it('requireActive 把 active 条件写进同一条 UPDATE', async () => {
     const { tx, queryRaw } = buildTx([
-      { total_spent: 0, visit_count: 0, balance: 0, tier: 'regular' },
+      {
+        total_spent: 0,
+        visit_count: 0,
+        balance: 0,
+        points: 0,
+        tier: 'regular',
+      },
     ]);
 
     await applyCustomerMetrics(tx, {

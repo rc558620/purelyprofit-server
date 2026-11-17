@@ -35,6 +35,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
     },
     scanOrderStatusHistory: {
       create: jest.fn(),
+      createMany: jest.fn(),
     },
   };
 
@@ -763,6 +764,210 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       // 不同商品行的规格数量求和由 helper 专项单测覆盖，这里确认批量路径被接入
       expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
       expect(executedSql()).toContain('UPDATE scan_ordering_spec_options');
+    });
+  });
+
+  // ── 2.6 批量关单（超时扫描） ──────────────────────────────
+
+  describe('2.6 批量关单', () => {
+    /** 按顺序排队 $queryRaw 的返回：订单 UPDATE → 明细 → 规格 → 预留释放 → 预留释放 */
+    const queueRaw = (...responses: unknown[]): void => {
+      prismaService.$queryRaw.mockReset();
+      for (const response of responses) {
+        prismaService.$queryRaw.mockResolvedValueOnce(response);
+      }
+    };
+
+    it('空批次不开事务、不推送事件', async () => {
+      const closed = await service.closeBatch([], {
+        operatorType: 'system',
+        reason: '支付超时自动关闭',
+      });
+
+      expect(closed).toEqual([]);
+      expect(prismaService.$transaction).not.toHaveBeenCalled();
+      expect(realtimeService.publishOrderStatusChanged).not.toHaveBeenCalled();
+    });
+
+    it('RETURNING 为空（并发已被支付/接单抢走）时不回补库存、不推送', async () => {
+      queueRaw([]);
+
+      const closed = await service.closeBatch(
+        [{ orderId: 1001, expectedVersion: 3 }],
+        { operatorType: 'system', reason: '支付超时自动关闭' },
+      );
+
+      expect(closed).toEqual([]);
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(
+        prismaService.scanOrderPaymentAttempt.updateMany,
+      ).not.toHaveBeenCalled();
+      expect(realtimeService.publishOrderStatusChanged).not.toHaveBeenCalled();
+      expect(prismaService.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('一批 N 单只开一次事务、集合写法各一条语句', async () => {
+      queueRaw(
+        [
+          { id: 1001, store_id: 11, session_id: 55 },
+          { id: 1002, store_id: 11, session_id: 55 },
+          { id: 1003, store_id: 11, session_id: 56 },
+        ],
+        [
+          {
+            itemId: 1,
+            orderId: 1001,
+            storeId: 11,
+            menuProductId: 201,
+            quantity: 2,
+            productId: 901,
+          },
+        ],
+        [{ itemId: 1, specOptionId: 301 }],
+        [],
+        [],
+      );
+      prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
+        count: 3,
+      });
+      prismaService.scanOrderCouponUsage.updateMany.mockResolvedValue({
+        count: 0,
+      });
+      prismaService.scanOrderStatusHistory.createMany.mockResolvedValue({
+        count: 3,
+      });
+
+      const closed = await service.closeBatch(
+        [
+          { orderId: 1001, expectedVersion: 3 },
+          { orderId: 1002, expectedVersion: 1 },
+          { orderId: 1003, expectedVersion: 7 },
+        ],
+        { operatorType: 'system', reason: '支付超时自动关闭' },
+      );
+
+      expect(closed).toHaveLength(3);
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+      // 订单状态 / 支付尝试 / 券占用 / 状态历史：各一次集合写入
+      expect(
+        prismaService.scanOrderPaymentAttempt.updateMany,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        prismaService.scanOrderPaymentAttempt.updateMany,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            orderId: { in: [1001, 1002, 1003] },
+            status: expect.any(Object),
+          },
+        }),
+      );
+      expect(
+        prismaService.scanOrderCouponUsage.updateMany,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        prismaService.scanOrderStatusHistory.createMany,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        prismaService.scanOrderStatusHistory.createMany.mock.calls[0][0].data,
+      ).toHaveLength(3);
+      // 每单一条实时事件
+      expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledTimes(
+        3,
+      );
+      // 订单 UPDATE(1) + 明细(1) + 规格(1) + 每门店 2 条预留释放 = 5
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
+    });
+
+    it('跨门店批次按门店分别回补库存', async () => {
+      queueRaw(
+        [
+          { id: 1001, store_id: 11, session_id: 55 },
+          { id: 2001, store_id: 22, session_id: 66 },
+        ],
+        [
+          {
+            itemId: 1,
+            orderId: 1001,
+            storeId: 11,
+            menuProductId: 201,
+            quantity: 1,
+            productId: null,
+          },
+          {
+            itemId: 2,
+            orderId: 2001,
+            storeId: 22,
+            menuProductId: 202,
+            quantity: 1,
+            productId: null,
+          },
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+      );
+
+      await service.closeBatch(
+        [
+          { orderId: 1001, expectedVersion: 1 },
+          { orderId: 2001, expectedVersion: 1 },
+        ],
+        { operatorType: 'system', reason: '支付超时自动关闭' },
+      );
+
+      // 订单 UPDATE(1) + 明细(1) + 规格(1) + 两个门店各 1 条商品预留释放 = 5
+      //（本用例没有规格快照，`releaseSpecReservations` 在空集时直接短路，不发 SQL）
+      expect(prismaService.$queryRaw).toHaveBeenCalledTimes(5);
+      // 每个门店都要各自回补一次库存（不是只处理第一家店）
+      expect(
+        prismaService.$executeRaw.mock.calls.length,
+      ).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('事务超时', () => {
+    it('单笔 close() 与 closeBatch() 都显式设置超时，不吃 Prisma 默认值', async () => {
+      prismaService.scanOrders.findUnique.mockResolvedValue({
+        id: 1001,
+        storeId: 11,
+        sessionId: 55,
+        version: 0,
+      });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 1001,
+        storeId: 11,
+      });
+      prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+      prismaService.scanOrderItem.findMany.mockResolvedValue([]);
+      prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
+        count: 0,
+      });
+      prismaService.scanOrderCouponUsage.updateMany.mockResolvedValue({
+        count: 0,
+      });
+      prismaService.scanOrderStatusHistory.create.mockResolvedValue({});
+      prismaService.scanOrderStatusHistory.createMany.mockResolvedValue({
+        count: 0,
+      });
+
+      await service.close({
+        orderId: 1001,
+        expectedVersion: 0,
+        operatorType: 'system',
+        reason: '支付超时自动关闭',
+      });
+      await service.closeBatch([{ orderId: 1001, expectedVersion: 0 }], {
+        operatorType: 'system',
+        reason: '支付超时自动关闭',
+      });
+
+      for (const call of prismaService.$transaction.mock.calls) {
+        expect(call[1]).toEqual({ timeout: expect.any(Number) });
+      }
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(2);
     });
   });
 });

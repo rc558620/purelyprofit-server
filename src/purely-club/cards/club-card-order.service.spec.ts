@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { ClubPrepayAttemptService } from '../payments/club-prepay-attempt.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
 import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service';
@@ -114,6 +115,8 @@ describe('ClubCardOrderService（并行化后契约不变）', () => {
   const immediateSettlementService = { settle: jest.fn() };
   const settlementService = { settlePaidOrder: jest.fn() };
   const wechatVerifyService = { confirmPaidOnWechat: jest.fn() };
+  // 按需取参由共享的 prepay 编排服务负责，本用例只验证购卡单侧的校验与透传
+  const prepayAttemptService = { createPaymentParams: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -162,6 +165,7 @@ describe('ClubCardOrderService（并行化后契约不变）', () => {
           useValue: immediateSettlementService,
         },
         { provide: ClubWechatVerifyService, useValue: wechatVerifyService },
+        { provide: ClubPrepayAttemptService, useValue: prepayAttemptService },
       ],
     }).compile();
 
@@ -237,6 +241,20 @@ describe('ClubCardOrderService（并行化后契约不变）', () => {
     expect(openidService.resolveOpenid).not.toHaveBeenCalled();
     expect(jsapiService.createJsapiPaymentParams).not.toHaveBeenCalled();
     expect(result.cardId).toBe('501');
+  });
+
+  it('prepay=false：建单不解析 openid、不调微信，响应不带支付参数', async () => {
+    const result = await service.createOrder(currentContext, {
+      ...dto,
+      prepay: false,
+    });
+
+    expect(openidService.resolveOpenid).not.toHaveBeenCalled();
+    expect(jsapiService.createJsapiPaymentParams).not.toHaveBeenCalled();
+    expect(result.paymentParams).toBeUndefined();
+    expect(prismaService.memberCardOrder.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'unpaid', amount: 19900 }),
+    });
   });
 
   it('零元卡：价格为 0 时不解析 openid、不预下单', async () => {

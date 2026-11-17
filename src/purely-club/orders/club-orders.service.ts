@@ -6,6 +6,7 @@ import { ClubOrderServicePaymentService } from './club-order-service-payment.ser
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import { ClubOrderWechatVerifyService } from './club-order-wechat-verify.service';
 import type {
+  ClubOrderPaymentParamsResponseDto,
   ClubOrderStatusQueryDto,
   ClubOrderStatusResponseDto,
   ClubServiceOrderPreviewResponseDto,
@@ -43,6 +44,19 @@ export class ClubOrdersService {
       currentContext,
       dto,
       idempotencyKey,
+    );
+  }
+
+  /** 按需取支付参数（建单 prepay=false 时使用） */
+  createServiceOrderPaymentParams(
+    currentContext: ClubCurrentContext,
+    orderNo: string,
+    openid?: string,
+  ): Promise<ClubOrderPaymentParamsResponseDto> {
+    return this.clubOrderServicePaymentService.createServiceOrderPaymentParams(
+      currentContext,
+      orderNo,
+      openid,
     );
   }
 

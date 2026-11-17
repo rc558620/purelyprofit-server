@@ -121,10 +121,14 @@ export const createDraftPayload = <
     callbackReceivedAtMs: null,
     paymentConfirmationSource: null,
     failureReason: null,
-    // 优先使用外部传入的真实 JSAPI 参数；未传时生成 mock 参数（开发态兜底）
+    // 优先使用外部传入的真实 JSAPI 参数；未传时生成 mock 参数（开发态兜底）。
+    // `skipMockPaymentParams`（建单 prepay=false）时为 null：此时订单还没预下单，
+    // 伪造参数会让前端拉起到一个不存在的 prepay_id
     paymentParams:
       params.paymentParams ??
-      buildPaymentParams(orderNo, params.now, params.amountFen),
+      (params.skipMockPaymentParams
+        ? null
+        : buildPaymentParams(orderNo, params.now, params.amountFen)),
     metadata: params.metadata,
   };
 };

@@ -10,6 +10,7 @@ import {
   type MarketingPromotionTypeValue,
 } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildClubPromotionListCacheKey } from '../../redis/keys/club-cache-keys';
 import {
@@ -64,6 +65,7 @@ export class ClubPromotionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   async list(
@@ -164,10 +166,22 @@ export class ClubPromotionsService {
     return active;
   }
 
-  /** 读缓存：异常降级为「未命中」，不阻断首页/活动页。 */
+  /**
+   * 读缓存：异常降级为「未命中」，不阻断首页/活动页。
+   *
+   * 首页聚合已用一次 MGET 预取本 key，命中即省掉本次往返；未预取时回退单条 GET。
+   */
   private async readCache(
     cacheKey: string,
   ): Promise<CachedClubPromotionRecord[] | null> {
+    const prefetched =
+      await this.redisReadPrefetch.peekJson<CachedClubPromotionRecord[]>(
+        cacheKey,
+      );
+    if (prefetched !== undefined) {
+      return prefetched;
+    }
+
     try {
       return await this.redisService.getJson<CachedClubPromotionRecord[]>(
         cacheKey,

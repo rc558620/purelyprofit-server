@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubRecordsService } from '../records/club-records.service';
@@ -110,6 +111,11 @@ describe('ClubMemberService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: ClubRecordsService, useValue: clubRecordsService },
+        // 预取容器：peekJson 恒为 undefined，等价于「未预取」，不改变原读取路径
+        {
+          provide: RedisReadPrefetchService,
+          useValue: { peekJson: jest.fn() },
+        },
       ],
     }).compile();
 

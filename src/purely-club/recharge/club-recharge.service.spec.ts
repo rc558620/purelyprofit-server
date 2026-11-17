@@ -9,6 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
@@ -255,6 +256,14 @@ describe('ClubRechargeService', () => {
         ClubRechargeService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
+        // 充值套餐走 60s 缓存：这里一律「未命中」，让用例仍按回源链路断言
+        {
+          provide: RedisService,
+          useValue: {
+            getJson: jest.fn().mockResolvedValue(null),
+            setJson: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         {
           provide: ClubPaymentModeService,
           useValue: clubPaymentModeService,

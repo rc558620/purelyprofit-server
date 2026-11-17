@@ -1,8 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -13,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { MARKETING_MAX_PAGE_SIZE } from '../../../purely-profit/marketing/marketing.utils';
+import { transformOptionalBoolean } from '../../../purely-profit/stores/dto/store-response.dto';
 import {
   CARE_RECORD_CONTENT_MAX_LENGTH,
   CARE_RECORD_MAX_PHOTOS,
@@ -52,6 +54,19 @@ export class ListClubCareRecordsQueryDto {
     message: `pageSize 最大为 ${MARKETING_MAX_PAGE_SIZE}`,
   })
   pageSize?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: true,
+    description:
+      '是否统计总条数：默认 true（与历史行为一致）。游标翻页时可传 false 跳过 count，' +
+      '此时 meta.total / meta.totalPages 为 null（「共 N 次护理」以首屏结果为准），' +
+      '是否还有下一页以 hasMore 为准',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: 'withTotal 必须是布尔值' })
+  withTotal?: boolean;
 }
 
 /**
@@ -148,14 +163,20 @@ export class ClubCarePaginationMetaDto {
   @ApiProperty({ example: 10, description: '每页条数' })
   pageSize: number;
 
-  @ApiProperty({ example: 36, description: '总条数（全量，非本页剩余数）' })
-  total: number;
+  @ApiProperty({
+    example: 36,
+    nullable: true,
+    description: '总条数（全量，非本页剩余数）；withTotal=false 时为 null',
+  })
+  total: number | null;
 
   @ApiProperty({
     example: 4,
-    description: '总页数（total / pageSize 向上取整，仅供参考）',
+    nullable: true,
+    description:
+      '总页数（total / pageSize 向上取整，仅供参考）；withTotal=false 时为 null',
   })
-  totalPages: number;
+  totalPages: number | null;
 }
 
 export class ClubCareRecordsResponseDto {
@@ -188,6 +209,13 @@ export class ClubCareRecordsResponseDto {
     description: '下一页游标；null 表示已到最后一页，需原样回传给 cursor 参数',
   })
   nextCursor: string | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '是否还有下一页：与 nextCursor 同源，供前端直接判定（无需再用 total 推算）',
+  })
+  hasMore: boolean;
 
   @ApiProperty({ type: ClubCarePaginationMetaDto, description: '分页元信息' })
   meta: ClubCarePaginationMetaDto;

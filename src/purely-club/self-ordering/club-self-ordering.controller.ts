@@ -20,6 +20,7 @@ import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
 import { ClubSelfOrderStatusQueryDto } from './dto/club-self-order-status-query.dto';
 import { CreateSelfOrderDto } from './dto/create-self-order.dto';
 import { CreateSelfOrderWechatPaymentDto } from './dto/create-self-order-payment.dto';
+import { ListSelfOrdersQueryDto } from './dto/list-self-orders.dto';
 import { ResolveSpaceDto } from './dto/resolve-space.dto';
 import { SelfOrderingMenuQueryDto } from './dto/self-ordering-menu-query.dto';
 
@@ -65,6 +66,20 @@ export class ClubSelfOrderingController {
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.orderService.create(user, dto, idempotencyKey);
+  }
+
+  @Get('orders')
+  @ApiOperation({
+    summary: '分页查询当前会话的自助下单历史（游标分页）',
+    description:
+      '按 createdAt 倒序返回当前用户在该空间会话下的订单；cursor 为不透明游标，' +
+      '是否还有下一页以 hasMore 为准。改造前是 take:50 硬上限，超出部分永久不可见。',
+  })
+  listOrders(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListSelfOrdersQueryDto,
+  ) {
+    return this.orderService.listBySession(user, query);
   }
 
   @Get('orders/:orderId')

@@ -126,11 +126,19 @@ export class ClubCardQueryService {
     currentContext: ClubCurrentContext,
     query?: ListClubCardsQueryDto,
   ): Promise<ClubMemberCardPageView> {
+    // 是否统计总数：默认 true，与历史行为完全一致；翻页时前端可传 false 跳过 count
+    const withTotal = query?.withTotal !== false;
+
     const customerIds = await this.contextService.resolveOwnCustomerIds(
       currentContext.user.id,
     );
     if (customerIds.length === 0) {
-      return { items: [], nextCursor: null, total: 0 };
+      return {
+        items: [],
+        nextCursor: null,
+        total: withTotal ? 0 : null,
+        hasMore: false,
+      };
     }
 
     const limit = Math.min(
@@ -161,9 +169,10 @@ export class ClubCardQueryService {
       : where;
 
     // 总数只用于展示参考，与当页数据并行发出：不再为两个只读查询独占一个事务连接。
-    // count 不叠加游标条件，否则 total 会随翻页递减
+    // count 不叠加游标条件，否则 total 会随翻页递减；
+    // 翻页场景（withTotal=false）直接跳过这次 count，末页判定改由 hasMore 承担
     const [total, rows] = await Promise.all([
-      this.prisma.memberCard.count({ where }),
+      withTotal ? this.prisma.memberCard.count({ where }) : Promise.resolve(0),
       this.prisma.memberCard.findMany({
         where: pageWhere,
         orderBy: CARD_LIST_ORDER_BY,
@@ -173,6 +182,7 @@ export class ClubCardQueryService {
       }),
     ]);
 
+    const hasMore = rows.length > limit;
     const cards = rows.slice(0, limit);
     const storeNames = await this.contextService.resolveStoreNames(
       cards.map((card) => card.storeId),
@@ -187,13 +197,14 @@ export class ClubCardQueryService {
         }),
       ),
       nextCursor:
-        rows.length > limit && cards.length > 0
+        hasMore && cards.length > 0
           ? encodeClubCursor(
               [cards[cards.length - 1].createdAt],
               cards[cards.length - 1].id,
             )
           : null,
-      total,
+      total: withTotal ? total : null,
+      hasMore,
     };
   }
 

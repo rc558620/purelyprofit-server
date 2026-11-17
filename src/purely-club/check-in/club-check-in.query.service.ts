@@ -6,6 +6,7 @@ import {
 } from '../../shared/shanghai-time.utils';
 import { ClubPointsQueryService } from '../points/club-points-query.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { ClubCheckInCacheService } from './club-check-in.cache.service';
 import type {
   ClubCheckInCustomerRecord,
   ClubCheckInPromotionRecord,
@@ -21,13 +22,33 @@ export class ClubCheckInQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clubPointsQueryService: ClubPointsQueryService,
+    private readonly cacheService: ClubCheckInCacheService,
   ) {}
 
-  /** 门店级签到配置：服务层保证含停用态最多一条，按 id 倒序仅作防御 */
+  /**
+   * 门店级签到配置：服务层保证含停用态最多一条，按 id 倒序仅作防御。
+   *
+   * 走门店级短 TTL 缓存：签到状态是首页每次进场都会读的配置，
+   * 而它只在商家端改活动时变化（`invalidateMarketingOverview` 主动失效）。
+   * 「未配置」同样写入哨兵，避免无签到门店每次回源。
+   *
+   * @param prefetched 调用方已用 MGET 取回的配置（含 null＝确认未配置）；
+   *   传入时不再读一次 Redis，`undefined` 表示未预取。
+   */
   async findPromotion(
     storeId: number,
+    prefetched?: ClubCheckInPromotionRecord | null,
   ): Promise<ClubCheckInPromotionRecord | null> {
-    return this.prisma.marketingPromotion.findFirst({
+    if (prefetched !== undefined) {
+      return prefetched;
+    }
+
+    const cached = await this.cacheService.readPromotion(storeId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const record = await this.prisma.marketingPromotion.findFirst({
       where: { storeId, type: 'daily_check_in' },
       select: {
         id: true,
@@ -38,6 +59,10 @@ export class ClubCheckInQueryService {
       },
       orderBy: { id: 'desc' },
     });
+
+    // 回填不阻塞本次响应：配置只在商家端改活动时变化，晚一拍落地无副作用
+    void this.cacheService.writePromotion(storeId, record);
+    return record;
   }
 
   /**

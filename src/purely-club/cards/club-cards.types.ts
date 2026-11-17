@@ -121,7 +121,10 @@ export interface ClubMemberCardView {
 export interface ClubMemberCardPageView {
   items: ClubMemberCardView[];
   nextCursor: string | null;
-  total: number;
+  /** 持卡总条数；`withTotal=false` 时为 null（本次未统计） */
+  total: number | null;
+  /** 是否还有下一页：游标分页的唯一权威判定 */
+  hasMore: boolean;
 }
 
 /** 购卡订单视图（对齐前端 CardOrderResult） */

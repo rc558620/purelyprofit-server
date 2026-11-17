@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
+import {
+  buildSessionVisibilityWhere,
+  ClubScanOrderingOrderQueryService,
+} from './club-scan-ordering-order-query.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 
 describe('ClubScanOrderingOrderQueryService', () => {
@@ -62,5 +65,96 @@ describe('ClubScanOrderingOrderQueryService', () => {
         }),
       ]),
     );
+  });
+
+  it('追踪页只剩 2 次 DB 往返：菜单商品图片已并入主查询，不再单独回源', async () => {
+    await service.listOrders(user, {} as never);
+
+    // 第 1 次：当前有效轮次的 diningRoundId；第 2 次：主查询（含 items.menuProduct）
+    expect(prisma.scanOrderingSession.findMany).toHaveBeenCalledTimes(2);
+    expect(prisma.scanOrderingMenuProduct.findMany).not.toHaveBeenCalled();
+
+    const select = prisma.scanOrderingSession.findMany.mock.calls.at(-1)![0]
+      .select as Record<string, unknown>;
+    const orders = select.orders as { select: Record<string, unknown> };
+    const items = orders.select.items as { select: Record<string, unknown> };
+    expect(items.select.menuProduct).toEqual({
+      select: { imageUrl: true, product: { select: { image: true } } },
+    });
+  });
+});
+
+describe('buildSessionVisibilityWhere（3 个 OR 分支各自命中 / 不命中）', () => {
+  const now = new Date('2026-06-12T12:00:00.000Z');
+  const roundIds = ['round-current'];
+
+  const branches = (where: unknown): Record<string, unknown>[] =>
+    (where as { OR: Record<string, unknown>[] }).OR;
+
+  it('分支 1 只看「active + 未过期或有在途订单」，与轮次集合无关', () => {
+    const [withoutRounds, withRounds] = [
+      branches(
+        buildSessionVisibilityWhere({ now, activeDiningRoundIds: [] }),
+      )[0]!,
+      branches(
+        buildSessionVisibilityWhere({ now, activeDiningRoundIds: roundIds }),
+      )[0]!,
+    ];
+
+    expect(withoutRounds).toEqual(withRounds);
+    expect(withoutRounds.status).toBe('active');
+    expect(withoutRounds.deletedAt).toBeNull();
+  });
+
+  it('分支 2 命中条件：left + 4h 窗口内 + 轮次属于当前有效轮次', () => {
+    const branch = branches(
+      buildSessionVisibilityWhere({ now, activeDiningRoundIds: roundIds }),
+    )[1]!;
+
+    expect(branch.status).toBe('left');
+    expect(branch.diningRoundId).toEqual({ in: ['round-current'] });
+    expect(branch.lastActiveAt).toEqual({
+      gte: new Date(now.getTime() - 4 * 60 * 60 * 1000),
+    });
+  });
+
+  it('分支 2 不命中：没有当前有效轮次时集合为空（不会退化成「全部 left 会话」）', () => {
+    const branch = branches(
+      buildSessionVisibilityWhere({ now, activeDiningRoundIds: [] }),
+    )[1]!;
+
+    expect(branch.diningRoundId).toEqual({ in: [] });
+  });
+
+  it('分支 3 与轮次集合无关：只要 left 会话说还有未闭环订单就命中', () => {
+    const withRounds = branches(
+      buildSessionVisibilityWhere({ now, activeDiningRoundIds: roundIds }),
+    )[2]!;
+    const withoutRounds = branches(
+      buildSessionVisibilityWhere({ now, activeDiningRoundIds: [] }),
+    )[2]!;
+
+    expect(withoutRounds).toEqual(withRounds);
+    expect(withRounds.status).toBe('left');
+    expect(withRounds.orders).toEqual({
+      some: {
+        deletedAt: null,
+        status: {
+          in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'],
+        },
+      },
+    });
+  });
+
+  it('分支 2 与分支 3 不重叠：分支 2 不要求有在途订单，分支 3 不看活跃窗口', () => {
+    const [first, second, third] = branches(
+      buildSessionVisibilityWhere({ now, activeDiningRoundIds: roundIds }),
+    );
+
+    expect(first).not.toHaveProperty('lastActiveAt');
+    expect(second).toHaveProperty('lastActiveAt');
+    expect(second).not.toHaveProperty('orders');
+    expect(third).not.toHaveProperty('lastActiveAt');
+    expect(third).not.toHaveProperty('diningRoundId');
   });
 });

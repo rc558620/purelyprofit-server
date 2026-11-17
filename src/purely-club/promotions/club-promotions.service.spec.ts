@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import {
   MARKETING_PROMOTION_TYPE_VALUES,
@@ -21,6 +22,10 @@ describe('ClubPromotionsService', () => {
   const redisService = {
     getJson: jest.fn(),
     setJson: jest.fn(),
+  };
+  /** 本文件不覆盖预取语义：peekJson 恒为 undefined，等价于「未预取」 */
+  const redisReadPrefetch = {
+    peekJson: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -59,6 +64,7 @@ describe('ClubPromotionsService', () => {
         ClubPromotionsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        { provide: RedisReadPrefetchService, useValue: redisReadPrefetch },
       ],
     }).compile();
 

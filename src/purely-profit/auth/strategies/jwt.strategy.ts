@@ -3,10 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AuthBanGuardService } from '../auth-ban-guard.service';
 import { AuthMembershipResolverService } from '../auth-membership-resolver.service';
-import { AuthSessionService } from '../auth-session.service';
-import { AuthUserCacheService } from '../auth-user-cache.service';
+import { AuthValidateContextService } from '../auth-validate-context.service';
 import type {
   AuthenticatedAccountScope,
   AuthPulseMode,
@@ -57,10 +55,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly authUserCacheService: AuthUserCacheService,
-    private readonly authBanGuardService: AuthBanGuardService,
     private readonly authMembershipResolverService: AuthMembershipResolverService,
-    private readonly authSessionService: AuthSessionService,
+    private readonly authValidateContextService: AuthValidateContextService,
   ) {
     const jwtSecret = configService.get<string>('jwt.secret');
     if (!jwtSecret) {
@@ -85,18 +81,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    // user / tokenVersion / 会话活性 / 封禁检查四者互不依赖，并行发起：
-    // 串行时鉴权链路要 ~6 次 Redis 往返（membership 查询依赖 user.email，
-    // 只能等本轮结束后再发），远程 Redis 下仅鉴权就占 100ms+。
-    const [user, currentTokenVersion, sessionActive] = await Promise.all([
-      this.authUserCacheService.resolveUser(payload.sub),
-      this.authSessionService.getTokenVersion(payload.sub),
-      payload.sid
-        ? this.authSessionService.isSessionActive(payload.sub, payload.sid)
-        : Promise.resolve(true),
-      // 封禁检查通过即 resolve；被拒时与其余检查在同一轮 reject
-      this.authBanGuardService.ensureUserNotBanned(payload.sub),
-    ] as const);
+    // user / tokenVersion / 会话活性 / 封禁检查合并为 2 次 Redis 往返
+    // （1 次 pipeline + 1 次封禁 MGET），判定条件、抛错顺序与异常文案由
+    // AuthValidateContextService 原样保留；membership 依赖 user.email，仍是第二拍。
+    const { user, currentTokenVersion, sessionActive } =
+      await this.authValidateContextService.load(payload);
 
     if (!user) {
       throw new UnauthorizedException('用户不存在');

@@ -142,8 +142,9 @@ export class ClubRechargeOrderResponseDto extends ClubOrderStatusResponseDto {
 
   @ApiPropertyOptional({
     type: ClubWechatPaymentParamsDto,
+    nullable: true,
     description:
-      '发起微信支付所需参数；订单已支付 / 已关闭时为空，前端不应再发起支付',
+      '发起微信支付所需参数；订单已支付 / 已关闭时为 null（声明与实际一致），前端不应再发起支付',
   })
-  paymentParams: ClubWechatPaymentParamsDto;
+  paymentParams: ClubWechatPaymentParamsDto | null;
 }

@@ -10,12 +10,11 @@ import type {
   ListLedgerEntriesResult,
 } from './club-records.types';
 import type { ClubRecordSummaryDto } from './dto/club-record.dto';
+import { compareLedgerEntriesDesc } from './club-record-ledger-order.util';
 import {
-  LEDGER_KIND_RANK,
-  RECHARGE_TYPE_KIND_RANK,
-  compareLedgerEntriesDesc,
-  parseCompositeId,
-} from './club-record-ledger-order.util';
+  buildConsumptionCursorWhere,
+  buildRechargeCursorWhere,
+} from './club-record-cursor.where';
 import { queryLedgerBalanceWindow } from './club-record-balance-window.query';
 
 /** 每页查询时从数据库多取的冗余条数，用于合并排序后仍能填满 limit */
@@ -118,25 +117,28 @@ export class ClubRecordQueryService {
    *
    * @param storeId    门店 ID
    * @param customerId 营销客户 ID
-   * @param options    分页与筛选参数
+   * @param options    分页与筛选参数（withTotal=false 时跳过两条 count）
    */
   async listLedgerEntries(
     storeId: number,
     customerId: number,
     options: ListLedgerEntriesOptions = {},
   ): Promise<ListLedgerEntriesResult> {
-    const { limit = 50, cursor, filterType = 'all' } = options;
+    const {
+      limit = 50,
+      cursor,
+      filterType = 'all',
+      withTotal = true,
+    } = options;
     const overfetchLimit = limit * QUERY_OVERFETCH;
     // 储值账户流水口径：只有余额支付部分才影响储值余额
     const balanceConsumptionWhere = { balancePaid: { gt: 0 } };
 
     // 构建 cursor 过滤条件：比上一页最后一条更早的记录。
     // 充值表与消费表的 kind 构成不同，必须分别构造，否则跨表共用同一数字阈值会漏数据。
-    const rechargeCursorWhere = cursor
-      ? this.buildRechargeCursorWhere(cursor)
-      : {};
+    const rechargeCursorWhere = cursor ? buildRechargeCursorWhere(cursor) : {};
     const consumptionCursorWhere = cursor
-      ? this.buildConsumptionCursorWhere(cursor)
+      ? buildConsumptionCursorWhere(cursor)
       : {};
 
     // 充值表类型过滤：all/recharge 排除退款，consume 仅退款；消费表在 recharge 筛选下无需查询
@@ -186,17 +188,22 @@ export class ClubRecordQueryService {
               take: overfetchLimit,
             })
           : Promise.resolve<ClubConsumptionLedgerRow[]>([]),
-        this.prisma.marketingRecharge.count({
-          where: { storeId, customerId, ...rechargeTypeFilter },
-        }),
-        needConsumptionTable
+        // 翻页场景（withTotal=false）直接跳过两条 count：count 的代价与 limit 无关、
+        // 随会员历史流水线性增长，而「是否还有下一页」已由 overfetch 结果给出。
+        withTotal
+          ? this.prisma.marketingRecharge.count({
+              where: { storeId, customerId, ...rechargeTypeFilter },
+            })
+          : Promise.resolve(0),
+        withTotal && needConsumptionTable
           ? this.prisma.marketingConsumption.count({
               where: { storeId, customerId, ...balanceConsumptionWhere },
             })
           : Promise.resolve(0),
       ]);
-
-    const items = this.mergeAndSliceEntries(recharges, consumptions, limit);
+    const merged = this.mergeEntries(recharges, consumptions);
+    const items = merged.slice(0, limit);
+    const hasMore = merged.length > limit;
 
     const oldestItem = items.length > 0 ? items[items.length - 1] : null;
     // 余额快照基准：取「不早于本页最旧一条」的全量流水（不受 filterType 影响），
@@ -213,94 +220,29 @@ export class ClubRecordQueryService {
 
     return {
       items,
-      total: rechargeCount + consumptionCount,
+      // withTotal=false 时不返回计数：null 明确表达「本次未统计」，避免用 0 冒充真实总数
+      total: withTotal ? rechargeCount + consumptionCount : null,
+      hasMore,
       balanceWindow,
     };
   }
 
   /**
-   * 合并充值与消费条目：过滤无效行后按时间倒序（同刻按 id 倒序）裁剪到 limit。
+   * 合并充值与消费条目：过滤无效行后按时间倒序（同刻按 id 倒序）。
+   *
+   * 不做裁剪：多取（overfetch）后合并的结果长度本身就是「是否还有下一页」的判据，
+   * 裁剪交给调用方，避免为了判 hasMore 再额外查一次 count。
    */
-  private mergeAndSliceEntries(
+  private mergeEntries(
     rechargeRows: ClubRechargeLedgerRow[],
     consumptionRows: ClubConsumptionLedgerRow[],
-    limit: number,
   ): ClubLedgerEntry[] {
     return [
       ...rechargeRows.map((row) => this.mapRechargeRow(row)),
       ...consumptionRows.map((row) => this.mapConsumptionRow(row)),
     ]
       .filter((entry): entry is ClubLedgerEntry => entry !== null)
-      .sort(compareLedgerEntriesDesc)
-      .slice(0, limit);
-  }
-
-  /**
-   * 构建充值表的游标过滤条件。
-   *
-   * 充值表一个表对应多种 kind（refund / recharge / gift→bonus），
-   * 需按 type 分别判定它们在全序 (createdAt, kindRank, numericId) 中的位置：
-   * - kind 权重小于游标：该 kind 整体排在游标之后（更旧）→ 同刻记录全取
-   * - kind 权重等于游标：与本页最后一条同 kind → 取数字主键更小者
-   * - kind 权重大于游标：该 kind 整体排在游标之前（更新）→ 已展示过，排除
-   */
-  private buildRechargeCursorWhere(
-    cursor: NonNullable<ListLedgerEntriesOptions['cursor']>,
-  ) {
-    const { kindRank: cursorRank, numericId: cursorNumericId } =
-      parseCompositeId(cursor.id);
-
-    const sameMoment: Array<{
-      createdAt: Date;
-      type: 'recharge' | 'gift' | 'refund';
-      id?: { lt: number };
-    }> = [];
-
-    for (const [type, rank] of RECHARGE_TYPE_KIND_RANK) {
-      // 排在游标之前（更新）的同刻记录已展示过
-      if (rank > cursorRank) {
-        continue;
-      }
-
-      const condition: {
-        createdAt: Date;
-        type: 'recharge' | 'gift' | 'refund';
-        id?: { lt: number };
-      } = { createdAt: cursor.createdAt, type };
-
-      if (rank === cursorRank) {
-        condition.id = { lt: cursorNumericId };
-      }
-
-      sameMoment.push(condition);
-    }
-
-    return { OR: [{ createdAt: { lt: cursor.createdAt } }, ...sameMoment] };
-  }
-
-  /**
-   * 构建消费表的游标过滤条件（该表只对应 consume 一种 kind，权重固定）。
-   */
-  private buildConsumptionCursorWhere(
-    cursor: NonNullable<ListLedgerEntriesOptions['cursor']>,
-  ) {
-    const { kindRank: cursorRank, numericId: cursorNumericId } =
-      parseCompositeId(cursor.id);
-    const consumeRank = LEDGER_KIND_RANK.consume;
-
-    // 消费 kind 整体排在游标之前（更新）→ 同刻记录已展示过，全部排除
-    if (consumeRank > cursorRank) {
-      return { OR: [{ createdAt: { lt: cursor.createdAt } }] };
-    }
-
-    const condition: { createdAt: Date; id?: { lt: number } } = {
-      createdAt: cursor.createdAt,
-    };
-    if (consumeRank === cursorRank) {
-      condition.id = { lt: cursorNumericId };
-    }
-
-    return { OR: [{ createdAt: { lt: cursor.createdAt } }, condition] };
+      .sort(compareLedgerEntriesDesc);
   }
 
   private mapRechargeRow(row: ClubRechargeLedgerRow): ClubLedgerEntry | null {

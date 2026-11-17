@@ -29,6 +29,10 @@ import { ClubCardOrderService } from './club-card-order.service';
 import { ClubCardQueryService } from './club-card-query.service';
 import { parseCardId } from './club-card-code.utils';
 import {
+  ClubOrderPaymentParamsDto,
+  ClubOrderPaymentParamsResponseDto,
+} from '../orders/dto/club-order.dto';
+import {
   ClubMemberCardDto,
   ClubMemberCardOrderDto,
   ClubMemberCardPageDto,
@@ -120,6 +124,28 @@ export class ClubCardsController {
       currentContext,
       dto,
       idempotencyKey,
+    );
+  }
+
+  @Post('orders/:id/payment-params')
+  // 取参会调用微信 JSAPI 下单，与建单同一口径限流
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @ApiOperation({
+    summary: '按需获取购卡订单的微信支付参数',
+    description:
+      '建单传 prepay=false 时使用：只为已创建的待支付订单申请微信预下单参数，' +
+      '失败可直接重试且不会重复建单。测试模式或未解析到 openid 时 paymentParams 为 null。',
+  })
+  @ApiOkResponse({ type: ClubOrderPaymentParamsResponseDto })
+  createOrderPaymentParams(
+    @CurrentClubContext() currentContext: ClubCurrentContext,
+    @Param('id') id: string,
+    @Body() dto: ClubOrderPaymentParamsDto,
+  ): Promise<ClubOrderPaymentParamsResponseDto> {
+    return this.clubCardOrderService.createOrderPaymentParams(
+      currentContext,
+      id,
+      dto.openid,
     );
   }
 

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildClubPromotionsCacheKey } from '../../redis/keys/club-cache-keys';
 import { ClubPromotionRepository } from './club-promotion.repository';
@@ -39,6 +40,10 @@ describe('ClubPromotionRepository', () => {
     getJson: jest.fn(),
     setJson: jest.fn(),
   };
+  /** 本文件不覆盖预取语义：peekJson 恒为 undefined，等价于「未预取」 */
+  const redisReadPrefetch = {
+    peekJson: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -52,6 +57,7 @@ describe('ClubPromotionRepository', () => {
         ClubPromotionRepository,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        { provide: RedisReadPrefetchService, useValue: redisReadPrefetch },
       ],
     }).compile();
 

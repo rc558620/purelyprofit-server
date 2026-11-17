@@ -62,6 +62,7 @@ describe('ClubPointsService', () => {
       expect(result).toEqual({
         items: [],
         total: 0,
+        hasMore: false,
         nextCursor: null,
         summary: { totalEarned: 0, totalRedeemed: 0 },
       });
@@ -94,6 +95,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 2,
+        hasMore: true,
         balanceWindow: {
           totalEffect: 70,
           cumulativeEffectByRecordId: new Map([
@@ -125,7 +127,7 @@ describe('ClubPointsService', () => {
         11,
         98,
         'all',
-        { limit: undefined, cursor: undefined },
+        { limit: undefined, cursor: undefined, withTotal: true },
       );
       expect(clubPointsQueryService.calculateSummary).toHaveBeenCalledWith(
         11,
@@ -143,6 +145,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: [],
         total: 0,
+        hasMore: false,
         balanceWindow: null,
       });
       // summary 仍返回真实全量统计
@@ -185,6 +188,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: rows,
         total: 20,
+        hasMore: true,
         balanceWindow: {
           totalEffect: 120,
           cumulativeEffectByRecordId: new Map([[18, 120]]),
@@ -220,6 +224,7 @@ describe('ClubPointsService', () => {
             createdAt: '2024-11-20T10:30:00.000Z',
             id: 18,
           },
+          withTotal: true,
         },
       );
       // 游标只回传定位所需的最后一条时间与 ID
@@ -239,6 +244,7 @@ describe('ClubPointsService', () => {
       clubPointsQueryService.listPointsRecords.mockResolvedValue({
         items: [],
         total: 0,
+        hasMore: false,
         balanceWindow: null,
       });
       clubPointsQueryService.calculateSummary.mockResolvedValue({
@@ -270,6 +276,7 @@ describe('ClubPointsService', () => {
         {
           limit: 20,
           cursor: { createdAt: '2024-11-20T10:30:00.000Z', id: 18 },
+          withTotal: true,
         },
       );
     });

@@ -5,6 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import { ClubScanOrderingMenuQueryService } from '../src/purely-club/scan-ordering/club-scan-ordering-menu-query.service';
+import { ClubScanOrderingMenuStockService } from '../src/purely-club/scan-ordering/club-scan-ordering-menu-stock.service';
 
 /**
  * 真实数据库 E2E：扫码点餐菜单版本指纹（库内 md5 摘要）。
@@ -14,9 +15,11 @@ import { ClubScanOrderingMenuQueryService } from '../src/purely-club/scan-orderi
  * 以及指纹维度是否覆盖分类/商品/规格组/规格项。这里在 Postgres 上断言：
  * 1. 空门店版本稳定（空集 md5），不会返回 null/undefined；
  * 2. 内容不变时重复计算得到同一版本（排序确定，不随执行计划抖动）；
- * 3. 分类 / 商品的 version 与上下架 / 规格项 version 变化都会改变版本；
- * 4. 非版本化字段（名称、价格）变化**不**改变版本 —— 改价必须 bump version，
- *    由商品同步路径负责，这条契约固定下来防止有人往指纹里随手加字段；
+ * 3. 上下架 / 名称 / 价格变化都会改变版本（内容进指纹，不依赖写路径 bump）；
+ * 4. **version 与 reserved_quantity 变化不改变版本** —— 库存预留会 bump
+ *    version，若它进指纹，一笔下单就会让整店菜单缓存 key 轮换（击穿点）。
+ *    库存改由 ClubScanOrderingMenuStockService 的 5s 快照覆盖，这条契约固定
+ *    下来防止有人往指纹里重新加回动态列；
  * 5. 菜单响应体结构不变（分类 → 商品 → 规格组），库存仍按「总量 - 预留」输出。
  */
 describe('扫码点餐菜单版本指纹 (e2e, real database)', () => {
@@ -114,6 +117,7 @@ describe('扫码点餐菜单版本指纹 (e2e, real database)', () => {
         { provide: ConfigService, useValue: configService },
         PrismaService,
         ClubScanOrderingMenuQueryService,
+        ClubScanOrderingMenuStockService,
         { provide: RedisService, useValue: redisStub },
       ],
     }).compile();
@@ -282,7 +286,7 @@ describe('扫码点餐菜单版本指纹 (e2e, real database)', () => {
     expect(third.menuVersion).toBe(first.menuVersion);
   });
 
-  it('分类 version 变化会改变版本', async () => {
+  it('分类 version 变化不改变版本（version 已移出指纹）', async () => {
     const before = await loadMenu(sessionId);
 
     await prisma.scanOrderingMenuCategory.update({
@@ -291,7 +295,7 @@ describe('扫码点餐菜单版本指纹 (e2e, real database)', () => {
     });
 
     const after = await loadMenu(sessionId);
-    expect(after.menuVersion).not.toBe(before.menuVersion);
+    expect(after.menuVersion).toBe(before.menuVersion);
   });
 
   it('商品上下架会改变版本（is_active 进指纹）', async () => {
@@ -311,29 +315,46 @@ describe('扫码点餐菜单版本指纹 (e2e, real database)', () => {
     });
   });
 
-  it('规格项 version 变化会改变版本（规格维度进指纹）', async () => {
+  it('规格项 version 变化不改变版本（下单预留不再轮换整店菜单 key）', async () => {
     const before = await loadMenu(sessionId);
 
-    // 下单预留库存走的就是 bump 规格项 / 商品 version，这里等价复现
+    // 下单预留库存走的就是 bump 规格项 version + reserved_quantity
     await prisma.scanOrderingSpecOption.update({
       where: { id: optionId },
       data: { version: { increment: 1 } },
     });
 
     const after = await loadMenu(sessionId);
-    expect(after.menuVersion).not.toBe(before.menuVersion);
+    expect(after.menuVersion).toBe(before.menuVersion);
   });
 
-  it('非版本化字段（名称/价格）不改变版本：改价必须 bump version', async () => {
+  it('商品 version / 预留量变化不改变版本（库存走 5s 快照）', async () => {
     const before = await loadMenu(sessionId);
 
     await prisma.scanOrderingMenuProduct.update({
       where: { id: productId },
-      data: { name: '改名不改版本', basePrice: 9900 },
+      data: { version: { increment: 1 }, reservedQuantity: { increment: 1 } },
     });
 
     const after = await loadMenu(sessionId);
     expect(after.menuVersion).toBe(before.menuVersion);
+
+    await prisma.scanOrderingMenuProduct.update({
+      where: { id: productId },
+      data: { reservedQuantity: { decrement: 1 } },
+    });
+  });
+
+  it('名称 / 价格变化直接改变版本（内容进指纹，不依赖写路径 bump）', async () => {
+    const before = await loadMenu(sessionId);
+
+    await prisma.scanOrderingMenuProduct.update({
+      where: { id: productId },
+      data: { name: '改名即换键', basePrice: 9900 },
+    });
+
+    const after = await loadMenu(sessionId);
+    expect(after.menuVersion).not.toBe(before.menuVersion);
   });
 
   it('菜单响应体结构不变：分类 → 商品 → 规格组，库存仍按「总量 - 预留」输出', async () => {

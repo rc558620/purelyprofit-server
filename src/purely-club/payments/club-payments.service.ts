@@ -2,6 +2,7 @@ import { CLUB_PAY_ERROR_CODE, clubPayError } from './club-pay.errors';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
+import { splitPrepayOutTradeNo } from './club-prepay-out-trade-no.util';
 import { ClubPaymentOrderRecordService } from './club-payment-order-record.service';
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
@@ -81,8 +82,24 @@ export class ClubPaymentsService {
       await this.clubWechatCallbackDecryptorService.decryptCallback(payload);
 
     // 4. 校验并提取字段
-    const { orderNo, transactionId, amountFen, paidAt } =
-      this.clubWechatCallbackDecryptorService.validateAndExtract(decryptedTx);
+    const {
+      orderNo: rawOrderNo,
+      transactionId,
+      amountFen,
+      paidAt,
+    } = this.clubWechatCallbackDecryptorService.validateAndExtract(decryptedTx);
+
+    // 4.0 还原基准订单号：建单 prepay=false 的链路会以 `{orderNo}-P{nn}` 作为 out_trade_no
+    // （每次取参换新单号以绕过微信「同单号不可重复下单」），
+    // 而落账、草稿定位、商户号落库全部以基准单号为准。
+    // 未带尝试后缀的单号（RC / VC / SO / SF 及历史数据）原样返回，行为不变。
+    const { baseOrderNo: orderNo, attemptSeq } =
+      splitPrepayOutTradeNo(rawOrderNo);
+    if (attemptSeq !== null) {
+      this.logger.log(
+        `[pay-attempt] 回调单号反解 raw=${rawOrderNo} base=${orderNo} attempt=${attemptSeq}`,
+      );
+    }
 
     this.logger.log(
       `微信支付回调解密成功: orderNo=${orderNo}, transactionId=${transactionId}, amountFen=${amountFen}`,

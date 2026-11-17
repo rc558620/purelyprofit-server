@@ -6,6 +6,7 @@ import type { ClubMemberSnapshot } from '../member/member-profile/club-member-pr
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
+import { ClubProductCacheService } from './club-product-cache.service';
 import {
   discountParamsSchema,
   firstOrderDiscountParamsSchema,
@@ -25,6 +26,7 @@ export class ClubProductPromotionService {
     private readonly clubMemberProfileService: ClubMemberProfileService,
     private readonly clubMemberLevelsService: ClubMemberLevelsService,
     private readonly clubPromotionRepository: ClubPromotionRepository,
+    private readonly clubProductCacheService: ClubProductCacheService,
   ) {}
 
   /**
@@ -171,16 +173,35 @@ export class ClubProductPromotionService {
    * 首单资格只需要「是否存在消费记录」这个布尔值，不需要精确条数。
    * findFirst 在 (store_id, customer_id, created_at) 索引上取到第一行即停，
    * 避免老顾客消费流水增长后 count 逐行累加。
+   *
+   * 结论走门店 + 顾客粒度短 TTL 缓存：首页 / 商品列表 / 商品详情每次都要定价，
+   * 原实现等于每个请求固定一次 DB 查询，而该结论只会在首次消费落账时
+   * 单向翻转（false → true），消费落账路径已统一失效本缓存。
    */
   private async hasConsumptionRecord(
     storeId: number,
     customerId: number,
   ): Promise<boolean> {
+    const cached = await this.clubProductCacheService.readConsumptionExists(
+      storeId,
+      customerId,
+    );
+    if (cached !== null) {
+      return cached;
+    }
+
     const record = await this.prisma.marketingConsumption.findFirst({
       where: { storeId, customerId },
       select: { id: true },
     });
-    return record !== null;
+    const exists = record !== null;
+    // 回填不阻塞定价响应：结论由本次 DB 查询保证，缓存只为下次免回源
+    void this.clubProductCacheService.writeConsumptionExists(
+      storeId,
+      customerId,
+      exists,
+    );
+    return exists;
   }
 
   private async resolveMemberDiscountRate(

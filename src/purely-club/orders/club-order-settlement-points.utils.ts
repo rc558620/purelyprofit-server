@@ -115,12 +115,26 @@ export async function awardConsumptionPoints(
   );
 }
 
-export async function awardPointsForSettlement(
+/** 积分赚取的计算结果（只算不写） */
+export interface EarnedPointsResolution {
+  /** 本次应赠送的积分（已含双倍活动加成，未启用规则时为 0） */
+  earnedPoints: number;
+  /** 生效的积分倍数（1 或 2） */
+  pointsMultiplier: number;
+}
+
+/**
+ * 只计算「本次消费应赠送多少积分」，不写库。
+ *
+ * 独立出来的原因：扫码点餐落账要把「送积分 + 扣抵扣积分 + 消费指标」合并成
+ * 同一条 UPDATE，写入必须由调用方统一完成；这里只负责把口径算准。
+ */
+export async function resolveEarnedPointsForSettlement(
   tx: Prisma.TransactionClient,
   context: ClubPointsSettlementContext,
   customerId: number,
   rules?: ClubPointsSettlementRules,
-): Promise<number> {
+): Promise<EarnedPointsResolution> {
   // 优先使用事务外预加载的规则；未传入时回落到事务内读取，保持其它链路兼容
   const pointsRatioConfig =
     rules?.pointsEarnConfig ??
@@ -129,7 +143,7 @@ export async function awardPointsForSettlement(
   // 若积分规则未启用，不增加积分
   if (!pointsRatioConfig.enabled) {
     logger.warn(`积分规则未启用，storeId=${context.storeId}`);
-    return 0;
+    return { earnedPoints: 0, pointsMultiplier: 1 };
   }
 
   // 按实际支付金额计算消费积分
@@ -157,6 +171,22 @@ export async function awardPointsForSettlement(
 
   if (earnedPoints <= 0) {
     logger.warn(`计算的积分 <= 0，不增加，customerId=${customerId}`);
+    return { earnedPoints: 0, pointsMultiplier };
+  }
+
+  return { earnedPoints, pointsMultiplier };
+}
+
+export async function awardPointsForSettlement(
+  tx: Prisma.TransactionClient,
+  context: ClubPointsSettlementContext,
+  customerId: number,
+  rules?: ClubPointsSettlementRules,
+): Promise<number> {
+  const { earnedPoints, pointsMultiplier } =
+    await resolveEarnedPointsForSettlement(tx, context, customerId, rules);
+
+  if (earnedPoints <= 0) {
     return 0;
   }
 

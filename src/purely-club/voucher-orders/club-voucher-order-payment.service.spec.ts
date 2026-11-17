@@ -17,7 +17,8 @@ import type { CreateClubVoucherOrderDto } from './dto/club-voucher-order.dto';
 
 describe('ClubVoucherOrderPaymentService 幂等', () => {
   const prisma = {
-    clubVoucherOrder: { findFirst: jest.fn() },
+    // findMany：落账事务外的券码批量查重（一次 IN 查询挑候选码）
+    clubVoucherOrder: { findFirst: jest.fn(), findMany: jest.fn() },
     // 落账走 $transaction，这里只用于证明确实进入了落账流程
     $transaction: jest.fn(),
   };
@@ -61,6 +62,8 @@ describe('ClubVoucherOrderPaymentService 幂等', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // 券码候选全部可用：事务外一次批量查重即可确定
+    prisma.clubVoucherOrder.findMany.mockResolvedValue([]);
     // 算价与落账已拆到独立 service：与下单服务共用同一批 mock，
     // 因此「进入落账事务」的断言仍然观察的是同一个 prisma.$transaction
     const settlementService = new ClubVoucherOrderSettlementService(

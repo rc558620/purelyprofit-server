@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import {
+  buildClubCustomerConsumptionExistsCacheKey,
   buildClubProductDetailCacheKey,
   buildClubProductListCacheKey,
   buildClubProductsVersionCacheKey,
@@ -27,6 +29,16 @@ const CLUB_PRODUCTS_CACHE_TTL_SECONDS = 30;
  * B 端商品 CRUD 与 C 端下单 / 退款等写路径上逐一挂失效，避免跨模块耦合。
  */
 const CLUB_PRODUCTS_VERSION_CACHE_TTL_SECONDS = 10;
+
+/**
+ * 首单资格（顾客是否已有消费记录）缓存 TTL（秒）。
+ *
+ * 该结论只由「首次消费落账」单向改变（false → true，永不回退），
+ * 因此缓存的最坏影响是：刚下单的顾客在最多 60s 内仍能看到首单优惠标签。
+ * 消费落账路径已调用 `invalidateMarketingCustomerDerived`，
+ * 本 key 挂在同一失效入口，正常场景下不会等满 TTL。
+ */
+const CLUB_CONSUMPTION_EXISTS_CACHE_TTL_SECONDS = 60;
 
 /**
  * 商品详情「确认不存在」负缓存 TTL（秒）。
@@ -95,6 +107,7 @@ export class ClubProductCacheService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   async buildListCacheKey(params: ClubProductListCacheParams): Promise<string> {
@@ -160,6 +173,43 @@ export class ClubProductCacheService {
     );
   }
 
+  /**
+   * 读取「顾客是否已有消费记录」（首单资格）。
+   *
+   * @returns `null` 缓存未命中（需回源）；否则为已确认的布尔结论
+   */
+  async readConsumptionExists(
+    storeId: number,
+    customerId: number,
+  ): Promise<boolean | null> {
+    const cacheKey = buildClubCustomerConsumptionExistsCacheKey(
+      storeId,
+      customerId,
+    );
+    const cached = await this.read<string>(cacheKey);
+    if (cached === null) {
+      return null;
+    }
+    return cached === '1';
+  }
+
+  /** 写入首单资格结论；失败只影响下次是否命中，不改变本次定价。 */
+  async writeConsumptionExists(
+    storeId: number,
+    customerId: number,
+    exists: boolean,
+  ): Promise<void> {
+    const cacheKey = buildClubCustomerConsumptionExistsCacheKey(
+      storeId,
+      customerId,
+    );
+    await this.write(
+      cacheKey,
+      exists ? '1' : '0',
+      CLUB_CONSUMPTION_EXISTS_CACHE_TTL_SECONDS,
+    );
+  }
+
   /** 版本缓存未命中时并发回源，命中路径不进这里。 */
   private async resolveVersion(storeId: number): Promise<string> {
     const inflight = this.inflightVersions.get(storeId);
@@ -204,7 +254,18 @@ export class ClubProductCacheService {
     return version;
   }
 
+  /**
+   * 读取缓存，优先消费请求级预取结果。
+   *
+   * 首页聚合已用一次 MGET 预取了商品版本 / 列表 key，命中即省掉本次往返；
+   * 未预取（含预取失败）时回退单条 GET，异常仍按未命中降级。
+   */
   private async read<T>(cacheKey: string): Promise<T | null> {
+    const prefetched = await this.redisReadPrefetch.peekJson<T>(cacheKey);
+    if (prefetched !== undefined) {
+      return prefetched;
+    }
+
     try {
       return await this.redisService.getJson<T>(cacheKey);
     } catch (error) {

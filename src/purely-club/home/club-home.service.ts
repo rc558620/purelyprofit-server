@@ -5,6 +5,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import type { MarketingMemberLevelConfigValue } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubMemberLevelConfigDto } from '../member/dto/club-member-account.dto';
 import { ClubMemberService } from '../member/club-member.service';
@@ -14,6 +15,7 @@ import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubStoresService } from '../stores/club-stores.service';
 import type { ClubHomeResponseDto } from './dto/club-home.dto';
+import { buildClubHomePrefetchKeys } from './club-home.prefetch-keys';
 
 /**
  * 首页等级配置种子（3-B-4）。
@@ -38,6 +40,7 @@ export class ClubHomeService {
     private readonly clubMemberService: ClubMemberService,
     private readonly clubPromotionsService: ClubPromotionsService,
     private readonly clubProductsService: ClubProductsService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   async getHome(
@@ -52,6 +55,24 @@ export class ClubHomeService {
         ),
       );
     }
+
+    // 预取作用域必须包住整条首页链路：容器随本次调用创建、随本次调用结束丢弃，
+    // 因此并发请求各自持有独立结果，不存在跨请求泄漏。
+    return this.redisReadPrefetch.run(() => this.loadHome(currentContext));
+  }
+
+  /**
+   * 首页聚合主链路。
+   *
+   * 热路径原本是 7 次独立 GET；这里先用一次 MGET 取回「上下文即可算出」的
+   * 门店级 key（见 `buildClubHomePrefetchKeys`），把 5 次往返合并成 1 次，
+   * 剩余商品列表 / 首单资格两跳仍按原样各读一次 → 共 3 次往返。
+   */
+  private async loadHome(
+    currentContext: ClubCurrentContext,
+  ): Promise<ClubHomeResponseDto> {
+    // 只发起、不 await：下方分支照常并发，读点在需要时 await 同一份预取结果
+    this.redisReadPrefetch.start(buildClubHomePrefetchKeys(currentContext));
 
     // 等级配置：本请求内唯一一次解析，三条分支共享（不 await，避免把主链路串行化）
     const levelSettingsSeed = this.resolveLevelSettingsSeed(currentContext);

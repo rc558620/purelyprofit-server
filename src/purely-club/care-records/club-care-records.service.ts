@@ -20,6 +20,7 @@ import { normalizeTechnicianLabel } from '../../purely-profit/stores/dto/store-r
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
+  ClubCarePaginationMetaDto,
   ClubCareRecordsResponseDto,
   ListClubCareRecordsQueryDto,
 } from './dto/club-care-record.dto';
@@ -88,6 +89,8 @@ export class ClubCareRecordsService {
       );
     }
 
+    // 是否统计总数：默认 true，与历史行为完全一致；翻页时前端可传 false 跳过 count
+    const withTotal = query.withTotal !== false;
     const pageSize = resolveCursorLimit(query.pageSize, {
       defaultLimit: CLUB_CARE_RECORD_DEFAULT_PAGE_SIZE,
       maxLimit: MARKETING_MAX_PAGE_SIZE,
@@ -104,7 +107,8 @@ export class ClubCareRecordsService {
         items: [],
         compareRange: { earliest: null, latest: null },
         nextCursor: null,
-        meta: buildMarketingPaginationMeta(0, 1, pageSize),
+        hasMore: false,
+        meta: this.buildMeta(0, pageSize, withTotal),
       };
     }
 
@@ -130,7 +134,11 @@ export class ClubCareRecordsService {
         take: pageSize + 1,
         select: CARE_RECORD_ROW_SELECT,
       }),
-      this.prisma.careRecord.count({ where: baseWhere }),
+      // 翻页场景（withTotal=false）不再统计全量条数：
+      // 「共 N 次护理」只在首屏展示，末页判定由 hasMore 承担
+      withTotal
+        ? this.prisma.careRecord.count({ where: baseWhere })
+        : Promise.resolve(0),
       position
         ? Promise.resolve(undefined)
         : queryCareRecordCompareRange(
@@ -148,14 +156,34 @@ export class ClubCareRecordsService {
       rows,
       toClubCareRecordDto,
     );
+    const nextCursor = this.buildNextCursor(rawRows, rows, pageSize);
 
     return {
       technicianLabel,
       items,
       compareRange,
-      nextCursor: this.buildNextCursor(rawRows, rows, pageSize),
-      meta: buildMarketingPaginationMeta(total, 1, pageSize),
+      nextCursor,
+      hasMore: nextCursor !== null,
+      meta: this.buildMeta(total, pageSize, withTotal),
     };
+  }
+
+  /**
+   * 分页元信息：withTotal=false 时 total / totalPages 为 null。
+   *
+   * 不复用 `buildMarketingPaginationMeta`：那个工具的入参/出参都是必填 number，
+   * 强行传 0 会让前端把「未统计」误读成「共 0 次护理」。
+   */
+  private buildMeta(
+    total: number,
+    pageSize: number,
+    withTotal: boolean,
+  ): ClubCarePaginationMetaDto {
+    if (!withTotal) {
+      return { page: 1, pageSize, total: null, totalPages: null };
+    }
+
+    return buildMarketingPaginationMeta(total, 1, pageSize);
   }
 
   /** 下一页游标：由本页最后一行编码；末页返回 null */

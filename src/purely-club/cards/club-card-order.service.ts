@@ -22,6 +22,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderIdempotencyService } from '../shared/club-order-idempotency.service';
 import { settleClubTasksInOrder } from '../shared/club-parallel-settle.helper';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
+import { ClubPrepayAttemptService } from '../payments/club-prepay-attempt.service';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service';
@@ -50,6 +51,7 @@ import type {
   ClubMemberCardSettlementResult,
 } from './club-cards.types';
 import type { CreateClubCardOrderDto } from './dto/club-cards.dto';
+import type { ClubOrderPaymentParamsResponseDto } from '../orders/dto/club-order.dto';
 
 @Injectable()
 export class ClubCardOrderService {
@@ -63,15 +65,19 @@ export class ClubCardOrderService {
     private readonly settlementService: ClubCardSettlementService,
     private readonly immediateSettlementService: ClubCardImmediateSettlementService,
     private readonly wechatVerifyService: ClubWechatVerifyService,
+    private readonly prepayAttemptService: ClubPrepayAttemptService,
   ) {}
 
-  /** 创建购卡订单草稿：校验模板/限购 → JSAPI 下单 → 落库 unpaid */
+  /** 创建购卡订单草稿：校验模板/限购 →（可选）JSAPI 下单 → 落库 unpaid */
   async createOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubCardOrderDto,
     idempotencyKey?: string,
   ): Promise<ClubMemberCardOrderView> {
     this.contextService.assertStoreMatches(currentContext, dto.storeId);
+    // prepay=false：建单不碰微信，支付参数改由取参接口按需获取。
+    // 默认 true 保持历史行为不变，老版本小程序无需同步发布。
+    const prepayInline = dto.prepay !== false;
 
     const idempotency = this.idempotencyService.normalizeKey(idempotencyKey);
     if (idempotency) {
@@ -97,7 +103,10 @@ export class ClubCardOrderService {
     // openid 解析不到时不调微信下单（保持既有降级口径），前端拿不到
     // paymentParams 就不会去拉起支付；零元卡与余额支付同样不走微信。
     const needWechatPrepay =
-      paymentMethod === 'wechat' && plan.price > 0 && !skipWechatPrepay;
+      prepayInline &&
+      paymentMethod === 'wechat' &&
+      plan.price > 0 &&
+      !skipWechatPrepay;
     const [, openid] = await settleClubTasksInOrder([
       this.assertPurchasable(planId, plan, customer, paymentMethod),
       needWechatPrepay
@@ -321,6 +330,98 @@ export class ClubCardOrderService {
       order: latest,
       cardId: firstCard ? String(firstCard.id) : null,
     });
+  }
+
+  /**
+   * 按需取支付参数（建单 prepay=false 时由前端单独调用）。
+   *
+   * 与建单解耦后：微信变慢只影响「拉起收银台」这一步，订单已经落好，
+   * 失败可原样重试而不会重复建单、不会重复占用限购额度。
+   */
+  async createOrderPaymentParams(
+    currentContext: ClubCurrentContext,
+    orderId: string,
+    openid?: string,
+  ): Promise<ClubOrderPaymentParamsResponseDto> {
+    const order = await this.findOwnedOrder(currentContext, orderId);
+    this.assertOrderPayable(order);
+
+    const result = await this.prepayAttemptService.createPaymentParams({
+      baseOrderNo: order.orderNo,
+      storeId: order.storeId,
+      description: `购买${order.planNameSnapshot}`,
+      amountFen: order.amount,
+      userId: currentContext.user.id,
+      openid,
+      buildError: (reason) =>
+        reason === 'in_flight'
+          ? new ConflictException(
+              clubCardError(
+                CLUB_CARD_ERROR_CODE.STATUS_PAYMENT_IN_FLIGHT,
+                '支付请求正在处理中，请稍后重试',
+              ),
+            )
+          : new ConflictException(
+              clubCardError(
+                CLUB_CARD_ERROR_CODE.STATUS_PAYMENT_ATTEMPT_EXHAUSTED,
+                '支付尝试次数过多，请重新下单',
+              ),
+            ),
+    });
+
+    return { orderNo: order.orderNo, ...result };
+  }
+
+  /**
+   * 取参前置校验：只有「微信支付 + 仍待支付 + 未过期 + 有应付金额」的订单才需要取参。
+   *
+   * 余额 / 零元卡在下单请求内已直接落账发卡，再来取参只会拿到一张废参数。
+   */
+  private assertOrderPayable(order: MemberCardOrder): void {
+    if (order.status !== 'unpaid') {
+      throw new ConflictException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.STATUS_SETTLEMENT_NOT_ALLOWED,
+          '订单当前状态不可发起支付',
+        ),
+      );
+    }
+    if (order.paymentChannel !== null && order.paymentChannel !== 'wechat') {
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_PAYMENT_NOT_REQUIRED,
+          '该订单不走微信支付，无需获取支付参数',
+        ),
+      );
+    }
+    if (order.amount <= 0) {
+      throw new BadRequestException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.RULE_PAYMENT_NOT_REQUIRED,
+          '该订单无需支付',
+        ),
+      );
+    }
+
+    const expiresAt = this.resolveOrderExpiresAt(order);
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new ConflictException(
+        clubCardError(
+          CLUB_CARD_ERROR_CODE.STATUS_SETTLEMENT_NOT_ALLOWED,
+          '订单已超时关闭，请重新下单',
+        ),
+      );
+    }
+  }
+
+  /** 待支付窗口：历史单据可能没有 expiresAt，用创建时间 + 支付窗口还原 */
+  private resolveOrderExpiresAt(order: MemberCardOrder): Date {
+    return (
+      order.expiresAt ??
+      new Date(
+        order.createdAt.getTime() + CLUB_CARD_PAY_WINDOW_MINUTES * 60_000,
+      )
+    );
   }
 
   /**

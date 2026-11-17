@@ -46,6 +46,8 @@ export interface ListPointsRecordsOptions {
   limit?: number;
   /** 分页游标；不传表示第一页 */
   cursor?: ClubPointsCursorPayload;
+  /** 是否统计总条数，默认 true；传 false 时跳过 count，翻页判定改用 hasMore */
+  withTotal?: boolean;
 }
 
 /**
@@ -196,11 +198,13 @@ export class ClubPointsQueryService {
     options: ListPointsRecordsOptions = {},
   ): Promise<{
     items: ClubPointsRecordRow[];
-    total: number;
+    total: number | null;
+    /** 是否还有下一页：由多取一行判定，与 total 是否统计无关 */
+    hasMore: boolean;
     /** 余额快照基准：不早于本页最旧一条的全量积分流水聚合值 */
     balanceWindow: ClubPointsBalanceWindow | null;
   }> {
-    const { limit = 50, cursor } = options;
+    const { limit = 50, cursor, withTotal = true } = options;
 
     // 构建 cursor 过滤条件：比上一页最后一条更早的记录（同刻按 id 更小）
     const cursorFilter = cursor
@@ -217,7 +221,8 @@ export class ClubPointsQueryService {
 
     const typeFilter = buildPointsRecordTypeFilter(filterType);
 
-    const [items, total] = await Promise.all([
+    // 多取一行判断是否还有下一页：比再查一次 count 便宜得多
+    const [rows, total] = await Promise.all([
       this.prisma.marketingPointsRecord.findMany({
         where: {
           storeId,
@@ -233,13 +238,19 @@ export class ClubPointsQueryService {
           createdAt: true,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: limit,
+        take: limit + 1,
       }),
-      // total 语义为「符合当前筛选条件的总条数」，不能带上游标条件（否则翻页后只剩剩余条数）
-      this.prisma.marketingPointsRecord.count({
-        where: { storeId, customerId, ...typeFilter },
-      }),
+      // total 语义为「符合当前筛选条件的总条数」，不能带上游标条件（否则翻页后只剩剩余条数）；
+      // 翻页场景（withTotal=false）直接跳过这次 count
+      withTotal
+        ? this.prisma.marketingPointsRecord.count({
+            where: { storeId, customerId, ...typeFilter },
+          })
+        : Promise.resolve(0),
     ]);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
 
     // 余额快照基准：本页最旧一条之后（含）的全量流水已全部覆盖，
     // 因此可由当前余额精确反推出该时点余额（与储值流水同理）。
@@ -254,6 +265,6 @@ export class ClubPointsQueryService {
         })
       : null;
 
-    return { items, total, balanceWindow };
+    return { items, total: withTotal ? total : null, hasMore, balanceWindow };
   }
 }

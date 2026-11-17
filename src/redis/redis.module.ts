@@ -15,6 +15,7 @@ import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 import { CachePrewarmService } from './cache-prewarm.service';
 import { RefreshableCacheService } from './refreshable-cache.service';
 import { RedisLockService } from './redis-lock.service';
+import { RedisReadPrefetchService } from './redis-read-prefetch.service';
 import { RedisService } from './redis.service';
 
 @Global()
@@ -30,6 +31,7 @@ import { RedisService } from './redis.service';
   ],
   providers: [
     RedisService,
+    RedisReadPrefetchService,
     RefreshableCacheService,
     RedisLockService,
     CacheInvalidatorFinanceService,
@@ -42,6 +44,7 @@ import { RedisService } from './redis.service';
   ],
   exports: [
     RedisService,
+    RedisReadPrefetchService,
     RefreshableCacheService,
     RedisLockService,
     CacheInvalidatorFinanceService,

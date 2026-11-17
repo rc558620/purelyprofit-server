@@ -70,7 +70,13 @@ export interface ClubOrderDraftPayload<
   callbackReceivedAtMs: number | null;
   paymentConfirmationSource: ClubOrderPaymentConfirmationSourceValue | null;
   failureReason: string | null;
-  paymentParams: ClubWechatPaymentParamsDto;
+  /**
+   * 微信支付参数；null 表示本单尚未预下单。
+   *
+   * 建单传 `prepay: false` 时固定为 null，由
+   * `POST /club/orders/service/:orderNo/payment-params` 按需取参后回填。
+   */
+  paymentParams: ClubWechatPaymentParamsDto | null;
   metadata: TMetadata;
 }
 
@@ -104,4 +110,11 @@ export interface CreateClubOrderDraftParams<
    * 不传时 createDraftPayload 会生成 mock 参数（仅用于开发态）。
    */
   paymentParams?: ClubWechatPaymentParamsDto;
+  /**
+   * 跳过开发态 mock 支付参数（`prepay: false` 建单时传）。
+   *
+   * 不传时保持历史行为：没有外部参数就生成 mock 参数，
+   * 供扫呗/测试链路在前端直接拉起「假收银台」联调。
+   */
+  skipMockPaymentParams?: boolean;
 }

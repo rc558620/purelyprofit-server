@@ -12,18 +12,27 @@ import {
 } from '../../redis/keys/club-cache-keys';
 import {
   CLUB_MENU_CATEGORY_SELECT,
-  type ClubMenuCategory,
   type ClubMenuCategoryRow,
-  type ClubMenuProduct,
   type ClubMenuProductRow,
   type ClubMenuResponse,
-  type ClubMenuSpecGroup,
   type ClubMenuSpecGroupRow,
-  type ClubMenuSpecOption,
   type ClubMenuSpecOptionRow,
+  type ClubMenuStaticCategory,
+  type ClubMenuStaticProduct,
+  type ClubMenuStaticResponse,
+  type ClubMenuStaticSpecGroup,
+  type ClubMenuStaticSpecOption,
 } from './club-scan-ordering-menu.types';
+import { ClubScanOrderingMenuStockService } from './club-scan-ordering-menu-stock.service';
 
-const CLUB_MENU_CACHE_TTL_SECONDS = 30;
+/**
+ * 菜单静态缓存时长（秒）。
+ *
+ * key 是静态内容指纹（价格 / 上下架 / 规格结构参与计算），菜单写路径还会按
+ * pattern 主动删除，因此 TTL 只兜「漏挂失效」这一种情况，可以放长。
+ * 库存与销量不在这份 value 里（见 ClubScanOrderingMenuStockService，5s）。
+ */
+const CLUB_MENU_CACHE_TTL_SECONDS = 300;
 /**
  * 菜单版本自身缓存时长（秒）。
  *
@@ -50,25 +59,14 @@ export class ClubScanOrderingMenuQueryService {
   /** 未命中路径的进程内并发去重：同一缓存 key 共用一次回源。 */
   private readonly inflightMenuLoads = new Map<
     string,
-    Promise<ClubMenuResponse>
+    Promise<ClubMenuStaticResponse>
   >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly menuStockService: ClubScanOrderingMenuStockService,
   ) {}
-
-  /** 失效门店菜单版本缓存：菜单写路径（改价/上下架/库存预留）调用。 */
-  async invalidateMenuVersion(storeId: number): Promise<void> {
-    try {
-      await this.redisService.del(buildClubMenuVersionCacheKey(storeId));
-    } catch (error) {
-      // 缓存失效失败不影响主流程：版本缓存有短 TTL 兜底
-      this.logger.warn(
-        `失效菜单版本缓存失败 storeId=${storeId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
 
   async getMenu(
     user: AuthenticatedUser,
@@ -101,30 +99,34 @@ export class ClubScanOrderingMenuQueryService {
     // 缓存命中检查：menuVersion 不变即命中。
     // Redis 异常时降级回源，缓存只是加速层，不能让菜单接口因此不可用。
     const cacheKey = buildClubMenuCacheKey(session.storeId, menuVersion);
-    let cached: ClubMenuResponse | null = null;
+    let cached: ClubMenuStaticResponse | null = null;
     try {
-      cached = await this.redisService.getJson<ClubMenuResponse>(cacheKey);
+      cached =
+        await this.redisService.getJson<ClubMenuStaticResponse>(cacheKey);
     } catch (error) {
       this.logger.warn(
         `读取菜单缓存失败 cacheKey=${cacheKey}，回退实时菜单: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (cached) {
-      return cached;
-    }
+    const staticMenu =
+      cached ??
+      (await this.loadMenuOnce(cacheKey, () =>
+        this.buildMenu(session.storeId, menuVersion, cacheKey),
+      ));
 
-    // 未命中：菜单变更或缓存过期时，同一 key 的并发请求共用一次回源，
-    // 避免四层 JOIN 被放大 N 倍。进程内去重，集群下最多放大到 worker 数。
-    return this.loadMenuOnce(cacheKey, () =>
-      this.buildMenu(session.storeId, menuVersion, cacheKey),
+    // 库存 / 销量是每笔订单都会变的列，不进菜单缓存：走 5s 快照覆盖，
+    // 这样一笔下单不再让整店菜单 key 轮换（原指纹含 version 时的击穿点）。
+    const stockSnapshot = await this.menuStockService.resolveSnapshot(
+      session.storeId,
     );
+    return this.menuStockService.applyStock(staticMenu, stockSnapshot);
   }
 
-  /** 未命中路径的并发去重（singleflight）；不改变既有缓存 value 格式。 */
+  /** 未命中路径的并发去重（singleflight）；只缓存静态部分。 */
   private loadMenuOnce(
     cacheKey: string,
-    load: () => Promise<ClubMenuResponse>,
-  ): Promise<ClubMenuResponse> {
+    load: () => Promise<ClubMenuStaticResponse>,
+  ): Promise<ClubMenuStaticResponse> {
     const inflight = this.inflightMenuLoads.get(cacheKey);
     if (inflight) return inflight;
     const task = load().finally(() => {
@@ -134,12 +136,12 @@ export class ClubScanOrderingMenuQueryService {
     return task;
   }
 
-  /** 未命中时回源组装完整菜单，并回填短 TTL 缓存。 */
+  /** 未命中时回源组装静态菜单（不含库存/销量），并回填缓存。 */
   private async buildMenu(
     storeId: number,
     menuVersion: string,
     cacheKey: string,
-  ): Promise<ClubMenuResponse> {
+  ): Promise<ClubMenuStaticResponse> {
     const categories = await this.prisma.scanOrderingMenuCategory.findMany({
       where: {
         storeId,
@@ -150,7 +152,7 @@ export class ClubScanOrderingMenuQueryService {
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
       select: CLUB_MENU_CATEGORY_SELECT,
     });
-    const result: ClubMenuResponse = {
+    const result: ClubMenuStaticResponse = {
       menuVersion,
       categories: categories.map((category) => this.mapMenuCategory(category)),
     };
@@ -160,7 +162,9 @@ export class ClubScanOrderingMenuQueryService {
     return result;
   }
 
-  private mapMenuCategory(category: ClubMenuCategoryRow): ClubMenuCategory {
+  private mapMenuCategory(
+    category: ClubMenuCategoryRow,
+  ): ClubMenuStaticCategory {
     return {
       id: category.id,
       name: category.name,
@@ -171,27 +175,22 @@ export class ClubScanOrderingMenuQueryService {
     };
   }
 
-  private mapMenuProduct(product: ClubMenuProductRow): ClubMenuProduct {
-    // 关联了普通商品时以其库存为准，否则回落到菜单商品自身库存
-    const baseStock = product.product
-      ? product.product.stock
-      : (product.stockQuantity ?? 0);
+  private mapMenuProduct(product: ClubMenuProductRow): ClubMenuStaticProduct {
     return {
       id: product.id,
       categoryId: product.categoryId,
       name: product.name,
       description: product.description,
+      // 关联商品时图片回落商品主图（与响应口径一致）
       imageUrl: product.product?.image ?? product.imageUrl,
       basePrice: product.basePrice,
+      // 关联普通商品时库存以商品表为准，等同「有限库存」
       stockMode: product.product ? 'finite' : product.stockMode,
-      // 可用库存 = 总库存 - 已下单未接单的预留量
-      stockQuantity: Math.max(0, baseStock - (product.reservedQuantity ?? 0)),
-      salesCount: product.salesCount,
       specGroups: product.specGroups.map((group) => this.mapSpecGroup(group)),
     };
   }
 
-  private mapSpecGroup(group: ClubMenuSpecGroupRow): ClubMenuSpecGroup {
+  private mapSpecGroup(group: ClubMenuSpecGroupRow): ClubMenuStaticSpecGroup {
     return {
       id: group.id,
       name: group.name,
@@ -202,25 +201,22 @@ export class ClubScanOrderingMenuQueryService {
     };
   }
 
-  private mapSpecOption(option: ClubMenuSpecOptionRow): ClubMenuSpecOption {
+  private mapSpecOption(
+    option: ClubMenuSpecOptionRow,
+  ): ClubMenuStaticSpecOption {
     return {
       id: option.id,
       name: option.name,
       extraPrice: option.extraPrice,
       isDefault: option.isDefault,
       isActive: option.isActive,
-      // 规格可用库存同样扣除预留量；null 表示不限库存
-      stockQuantity:
-        option.stockQuantity === null
-          ? null
-          : Math.max(0, option.stockQuantity - (option.reservedQuantity ?? 0)),
     };
   }
 
-  /** 回填菜单缓存：写失败不影响本次返回，由短 TTL 与后续请求自愈。 */
+  /** 回填菜单缓存：写失败不影响本次返回，由 TTL 与后续请求自愈。 */
   private async writeMenuCacheQuietly(
     cacheKey: string,
-    menu: ClubMenuResponse,
+    menu: ClubMenuStaticResponse,
   ): Promise<void> {
     try {
       await this.redisService.setJson(
@@ -281,36 +277,41 @@ export class ClubScanOrderingMenuQueryService {
   }
 
   /**
-   * 计算门店菜单版本（内容指纹）。
+   * 计算门店菜单版本（**静态**内容指纹）。
    *
-   * 语义：这份版本必须是**内容指纹**，不能换成写路径 INCR 的计数器。
-   * 它是菜单缓存 key 的组成部分（见 buildClubMenuCacheKey），一旦某个写路径
-   * 漏挂失效，计数器版本会长期把旧价格/旧库存发给顾客；而内容指纹在下一个
-   * 请求就会自愈。因此这里保持「按内容算」，不改成 bump。
+   * 语义：这份版本必须是内容指纹，不能换成写路径 INCR 的计数器——一旦某个写
+   * 路径漏挂失效，计数器会长期把旧价格发给顾客；内容指纹在下一个请求自愈。
    *
-   * 参与指纹的维度：分类 / 商品的 id + version + 上下架 + 规格组 / 规格项的
-   * id + version。商品与规格维度**必须**进指纹：改价、库存预留（下单即 bump
-   * 商品 version）、上下架、规格增减都只 bump 商品/规格的 version，不动分类
-   * version；若只按分类算，这些最高频的变更不会改变 menuVersion。
+   * ⚠️ 指纹**刻意不包含任何每单都会变的列**（`version` / `reserved_quantity` /
+   * `stock_quantity` / `sales_count`）。库存预留会 `version + 1`，若版本进指纹，
+   * 一笔下单就让整店菜单缓存 key 轮换，全店在线顾客同时 miss 并各自回源四层
+   * JOIN —— 这是被改掉的击穿点。库存/销量改由
+   * `ClubScanOrderingMenuStockService` 的 5s 快照覆盖，与 menuVersion 解耦。
+   *
+   * 进了指纹的是「改了就必须换菜单」的列：价格、上下架、库存模式、关联商品、
+   * 名称/图片/排序、规格组与规格项的结构与加价。改价后下一次请求即换 key，
+   * 不依赖任何写路径挂失效钩子。
    *
    * 性能：四层 JOIN 仍在库里完成，但**只回 1 行**（md5 摘要），不再把整店菜单
-   * 行拉回 Node 做 JSON.stringify + sha256 —— 300 商品的店每次重算要传输上千行，
-   * 而真正需要的只有摘要。`string_agg(... ORDER BY ...)` 保证指纹不受执行计划
-   * 影响（否则版本会无故抖动，导致菜单缓存被无意义重建）。md5 在此仅作缓存
-   * 指纹，不承载任何安全语义。
-   *
-   * ⚠️ 指纹取值与旧版「JS 侧 sha256(JSON.stringify(行))」不同：menuVersion 只进
-   * 缓存 key（菜单 30s、版本 10s），且 purelyClub / purelyProfit / purelyPulse
-   * 均未解析或比较该字段（实测只有类型声明），切换后旧 key 自然过期。
+   * 行拉回 Node 做 JSON.stringify + sha256。`string_agg(... ORDER BY ...)` 保证
+   * 指纹不受执行计划影响（否则版本会无故抖动，导致菜单缓存被无意义重建）。
+   * md5 在此仅作缓存指纹，不承载任何安全语义。
    */
   private async computeMenuVersion(storeId: number): Promise<string> {
     const [row] = await this.prisma.$queryRaw<MenuVersionFingerprintRow[]>`
       SELECT md5(COALESCE(string_agg(
         concat_ws(':',
-          c."id", c."version",
-          p."id", p."version", p."is_active",
-          COALESCE(g."id"::text, '-'), COALESCE(g."version"::text, '-'),
-          COALESCE(o."id"::text, '-'), COALESCE(o."version"::text, '-')
+          c."id", c."name", c."sort_order",
+          p."id", p."name", p."base_price", COALESCE(p."image_url", '-'),
+          p."stock_mode", COALESCE(p."product_id"::text, '-'),
+          p."is_active", p."sort_order",
+          COALESCE(g."id"::text, '-'), COALESCE(g."name", '-'),
+          COALESCE(g."selection_type"::text, '-'),
+          COALESCE(g."min_selections"::text, '-'),
+          COALESCE(g."max_selections"::text, '-'),
+          COALESCE(o."id"::text, '-'), COALESCE(o."name", '-'),
+          COALESCE(o."extra_price"::text, '-'),
+          COALESCE(o."is_default"::text, '-'), COALESCE(o."is_active"::text, '-')
         ),
         ',' ORDER BY
           c."sort_order" ASC, c."id" ASC,

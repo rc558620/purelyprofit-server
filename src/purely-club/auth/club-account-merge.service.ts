@@ -5,6 +5,12 @@ import { AuthLegacyOwnerRepairService } from '../../purely-profit/auth/auth-lega
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { buildClubWechatMemberPhone } from '../../purely-profit/auth/auth.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../prisma/prisma.service';
+import {
+  buildCustomerMergeStatements,
+  buildMemberMergeStatements,
+  type CustomerMergePair,
+  type MemberMergePair,
+} from './club-account-merge.statements';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 
 /** 合并时的源账号（微信账号）信息 */
@@ -88,6 +94,8 @@ export class ClubAccountMergeService {
     try {
       await this.prisma.$transaction(
         async (tx) => {
+          // 软删除时间戳：整批共用一个值，避免同一事务里出现多个删除时刻
+          const mergedAt = new Date();
           // 1. 迁移会员档案（Member + MarketingCustomer）
           //    定位方式见 resolveSourceMembership —— 不再假设 phone 还是占位值
           const { members: sourceMembers, customers: sourceCustomers } =
@@ -110,6 +118,7 @@ export class ClubAccountMergeService {
             );
 
             const sourceMemberIdsToUpdate: number[] = [];
+            const memberMergePairs: MemberMergePair[] = [];
 
             for (const sourceMember of sourceMembers) {
               const targetMember = targetMemberByStoreId.get(
@@ -128,23 +137,24 @@ export class ClubAccountMergeService {
               // 不硬删：纯利豆 / 积分 / 充值流水是必填外键且没有级联，硬删会直接抛错；
               // 同时必须清空 phone —— findAccessibleStores 的 members.some({ phone })
               // 不过滤 deletedAt，留着旧号会让将来绑了这个号的人看到本用户的门店。
-              if (sourceMember.beanBalance > 0) {
-                await tx.member.update({
-                  where: { id: targetMember.id },
-                  data: {
-                    beanBalance: { increment: sourceMember.beanBalance },
-                  },
-                });
-              }
-              await tx.member.update({
-                where: { id: sourceMember.id },
-                data: { phone: null, deletedAt: new Date() },
+              //
+              // 逐门店的两条 update 改为事务末尾两条集合 UPDATE
+              // （见 club-account-merge.statements）：事务往返次数与门店数解耦。
+              memberMergePairs.push({
+                targetId: targetMember.id,
+                sourceId: sourceMember.id,
+                beanBalance: sourceMember.beanBalance,
               });
               this.logger.log(
                 `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标已有 Member ${targetMember.id}，` +
                   `结转纯利豆 ${sourceMember.beanBalance} 后软删除源 Member ${sourceMember.id}`,
               );
             }
+
+            await this.executeStatements(
+              tx,
+              buildMemberMergeStatements(memberMergePairs, mergedAt),
+            );
 
             if (sourceMemberIdsToUpdate.length > 0) {
               await tx.member.updateMany({
@@ -169,6 +179,7 @@ export class ClubAccountMergeService {
             );
 
             const customerIdsToRebind: number[] = [];
+            const customerMergePairs: CustomerMergePair[] = [];
 
             for (const sourceCustomer of sourceCustomers) {
               const targetCustomer = targetCustomerByStoreId.get(
@@ -182,24 +193,24 @@ export class ClubAccountMergeService {
 
               // 目标门店已有顾客档案：把资产并入后软删除源档案
               //（同样不硬删：消费 / 积分 / 充值流水是必填外键且无级联）
-              await tx.marketingCustomer.update({
-                where: { id: targetCustomer.id },
-                data: {
-                  balance: { increment: sourceCustomer.balance },
-                  points: { increment: sourceCustomer.points },
-                  totalSpent: { increment: sourceCustomer.totalSpent },
-                  visitCount: { increment: sourceCustomer.visitCount },
-                },
-              });
-              await tx.marketingCustomer.update({
-                where: { id: sourceCustomer.id },
-                data: { clubUserId: null, phone: null, deletedAt: new Date() },
+              customerMergePairs.push({
+                targetId: targetCustomer.id,
+                sourceId: sourceCustomer.id,
+                balance: sourceCustomer.balance,
+                points: sourceCustomer.points,
+                totalSpent: sourceCustomer.totalSpent,
+                visitCount: sourceCustomer.visitCount,
               });
               this.logger.log(
                 `bindPhone 合并 MarketingCustomer：门店 ${sourceCustomer.storeId} 目标已有档案 ${targetCustomer.id}，` +
                   `并入余额 ${sourceCustomer.balance} / 积分 ${sourceCustomer.points} 后软删除源档案 ${sourceCustomer.id}`,
               );
             }
+
+            await this.executeStatements(
+              tx,
+              buildCustomerMergeStatements(customerMergePairs, mergedAt),
+            );
 
             // 目标在该门店没有档案：直接改绑 clubUserId 并同步为新手机号
             if (customerIdsToRebind.length > 0) {
@@ -346,6 +357,21 @@ export class ClubAccountMergeService {
       email: targetUser?.email ?? '',
       accountScope: 'purely_club',
     });
+  }
+
+  /**
+   * 串行执行批量语句。
+   *
+   * 交互式事务是单连接，`Promise.all` 只会排队等待，串行 await 语义更明确；
+   * 语句本身已经是「一条 SQL 处理全部门店」，条数与门店数无关。
+   */
+  private async executeStatements(
+    tx: Prisma.TransactionClient,
+    statements: Prisma.Sql[],
+  ): Promise<void> {
+    for (const statement of statements) {
+      await tx.$executeRaw(statement);
+    }
   }
 
   /**

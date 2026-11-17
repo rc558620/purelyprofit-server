@@ -222,6 +222,25 @@ describe('ClubOrderServiceCreationService（并行化后契约不变）', () => 
     );
   });
 
+  it('prepay=false：不解析 openid、不调微信，草稿不带任何支付参数', async () => {
+    await service.createServiceOrder(currentContext, { ...dto, prepay: false });
+
+    expect(
+      paymentModeService.isManualConfirmPaidAllowed,
+    ).not.toHaveBeenCalled();
+    expect(openidService.resolveOpenid).not.toHaveBeenCalled();
+    expect(jsapiService.createJsapiPaymentParams).not.toHaveBeenCalled();
+    expect(draftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // 未预下单时不得生成 mock 参数，否则前端会拿伪 prepay_id 拉起收银台
+        paymentParams: undefined,
+        skipMockPaymentParams: true,
+        amountFen: 8500,
+      }),
+    );
+    expect(quotaService.consumeForOrder).toHaveBeenCalled();
+  });
+
   it('到期闸门与上下文解析并行，且闸门异常优先', async () => {
     let releaseContext: () => void = () => {};
     const contextGate = new Promise<void>((resolve) => {

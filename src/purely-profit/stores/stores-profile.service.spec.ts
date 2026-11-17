@@ -1,3 +1,4 @@
+import type { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { StoresProfileService } from './stores-profile.service';
 
 describe('StoresProfileService', () => {
@@ -16,14 +17,53 @@ describe('StoresProfileService', () => {
     mgetJson: jest.fn(),
   };
 
+  /** 本文件不覆盖预取语义：peekJson 恒为 undefined，等价于「未预取」 */
+  const prefetch = { peekJson: jest.fn() };
+
   const createService = (): StoresProfileService =>
-    new StoresProfileService(prisma as never, redis as never);
+    new StoresProfileService(
+      prisma as never,
+      redis as never,
+      prefetch as unknown as RedisReadPrefetchService,
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
     redis.set.mockResolvedValue(undefined);
     redis.getJson.mockResolvedValue(null);
     redis.mgetJson.mockResolvedValue([]);
+    prefetch.peekJson.mockResolvedValue(undefined);
+  });
+
+  it('预取命中门店扩展字段时直接复用，不再单条 GET / 回源 DB', async () => {
+    prefetch.peekJson.mockResolvedValue({
+      storeLogo: 'https://img.test/prefetched.png',
+    });
+
+    const service = createService();
+    const metadata = await service.readStoreProfileMetadataCached(9);
+
+    expect(metadata).toEqual({
+      storeType: '',
+      region: [],
+      storeLogo: 'https://img.test/prefetched.png',
+    });
+    expect(redis.getJson).not.toHaveBeenCalled();
+    expect(prisma.store.findUnique).not.toHaveBeenCalled();
+    expect(prefetch.peekJson).toHaveBeenCalledWith('stores:profile:9');
+  });
+
+  it('预取确认未命中时跳过单条 GET，直接回源 DB（保持原降级结果）', async () => {
+    prefetch.peekJson.mockResolvedValue(null);
+    prisma.store.findUnique.mockResolvedValue({ profileMetadata: null });
+    redis.get.mockResolvedValue(null);
+
+    const service = createService();
+    const metadata = await service.readStoreProfileMetadataCached(9);
+
+    expect(metadata).toEqual({ storeType: '', region: [] });
+    expect(redis.getJson).not.toHaveBeenCalled();
+    expect(prisma.store.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('DB 有扩展字段时优先返回 DB，不回退 Redis', async () => {

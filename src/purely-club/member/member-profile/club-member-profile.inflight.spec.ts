@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../../prisma/prisma.service';
+import type { RedisReadPrefetchService } from '../../../redis/redis-read-prefetch.service';
 import type { RedisService } from '../../../redis/redis.service';
 import { ClubMemberProfileService } from './club-member-profile.service';
 
@@ -17,6 +18,8 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
     getJson: jest.Mock;
     setJson: jest.Mock;
   };
+  /** 本文件不覆盖预取语义：peekJson 恒为 undefined，等价于「未预取」 */
+  let prefetch: { peekJson: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -29,9 +32,11 @@ describe('ClubMemberProfileService · 会员快照并发去重', () => {
       getJson: jest.fn().mockResolvedValue(null),
       setJson: jest.fn().mockResolvedValue(undefined),
     };
+    prefetch = { peekJson: jest.fn().mockResolvedValue(undefined) };
     service = new ClubMemberProfileService(
       prisma as unknown as PrismaService,
       redis as unknown as RedisService,
+      prefetch as unknown as RedisReadPrefetchService,
     );
   });
 

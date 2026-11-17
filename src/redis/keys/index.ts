@@ -8,6 +8,9 @@
 // 共享工具
 export { buildCacheRefreshTaskKey } from '../cache-keys.shared';
 
+// Redis 域级键 — 门店
+export { buildStoreProfileMetadataCacheKey } from './stores.cache-keys';
+
 // Redis 域级键 — Dashboard
 export {
   buildProfitDashboardHomeCacheKey,
@@ -37,6 +40,7 @@ export {
   buildClubMenuCacheKey,
   buildClubMenuPattern,
   buildClubMenuVersionCacheKey,
+  buildClubMenuStockCacheKey,
   buildClubMemberSnapshotCacheKey,
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,

@@ -48,10 +48,14 @@ export class ClubPointsService {
         currentContext.user.id,
       );
 
+    // 是否统计总数：默认 true，与历史行为完全一致；翻页时前端可传 false 跳过 count
+    const withTotal = query.withTotal !== false;
+
     if (!customer) {
       return {
         items: [],
-        total: 0,
+        total: withTotal ? 0 : null,
+        hasMore: false,
         nextCursor: null,
         summary: { totalEarned: 0, totalRedeemed: 0 },
       };
@@ -64,6 +68,7 @@ export class ClubPointsService {
     const {
       items: rows,
       total,
+      hasMore,
       balanceWindow,
     } = await this.clubPointsQueryService.listPointsRecords(
       currentContext.store.id,
@@ -72,6 +77,7 @@ export class ClubPointsService {
       {
         limit: query.limit,
         cursor,
+        withTotal,
       },
     );
 
@@ -90,16 +96,17 @@ export class ClubPointsService {
       ),
     ]);
 
-    // 计算下一页游标：本页有记录时，编码最后一条的时间与 ID
+    // 计算下一页游标：只有确实还有下一页时才下发（与 hasMore 同源），末页给 null
     const lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
-    const nextCursor = lastRow
-      ? this.encodeCursor({
-          createdAt: lastRow.createdAt.toISOString(),
-          id: lastRow.id,
-        })
-      : null;
+    const nextCursor =
+      hasMore && lastRow
+        ? this.encodeCursor({
+            createdAt: lastRow.createdAt.toISOString(),
+            id: lastRow.id,
+          })
+        : null;
 
-    return { items, total, nextCursor, summary };
+    return { items, total, hasMore, nextCursor, summary };
   }
 
   /**

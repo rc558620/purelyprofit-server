@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildClubPromotionsCacheKey } from '../../redis/keys/club-cache-keys';
 import {
@@ -50,6 +51,7 @@ export class ClubPromotionRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   /**
@@ -113,10 +115,23 @@ export class ClubPromotionRepository {
     return active;
   }
 
-  /** 读缓存：异常降级为「未命中」，不阻断定价链路。 */
+  /**
+   * 读缓存：异常降级为「未命中」，不阻断定价链路。
+   *
+   * 首页聚合已用一次 MGET 预取本 key（定价投影口径），命中即省掉本次往返；
+   * 未预取时回退单条 GET。
+   */
   private async readCache(
     cacheKey: string,
   ): Promise<ClubActivePromotionRecord[] | null> {
+    const prefetched =
+      await this.redisReadPrefetch.peekJson<ClubActivePromotionRecord[]>(
+        cacheKey,
+      );
+    if (prefetched !== undefined) {
+      return prefetched;
+    }
+
     try {
       return await this.redisService.getJson<ClubActivePromotionRecord[]>(
         cacheKey,

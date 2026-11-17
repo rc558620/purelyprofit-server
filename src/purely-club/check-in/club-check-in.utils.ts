@@ -43,6 +43,43 @@ function previousShanghaiDate(dateText: string): string {
   );
 }
 
+/**
+ * 下发给前端的签到日期窗口：当前自然月 + 上一个自然月。
+ *
+ * 为什么不是「最近 30 天」：月末（如 31 日）回溯 30 天会漏掉当月 1 日，
+ * 月历首日就会漏打点；按自然月对齐才是月历的最小完备集合。
+ * 为什么保留上月：跨月时「上月末连续签到」仍要在月历/连续天数说明里可见，
+ * 且线上旧版本若支持历史月浏览也不会立刻失效。
+ *
+ * ⚠️ 只用于**响应下发**：连续天数必须用完整历史窗口计算，
+ * 用裁剪后的集合回溯会在月初把连签截断。
+ */
+const CHECK_IN_DISPLAY_MONTH_COUNT = 2;
+const MONTH_KEY_SLICE_END = 7;
+
+export function filterRecentMonthDates(
+  checkedDates: string[],
+  serverTime: number,
+): string[] {
+  const today = formatShanghaiDate(serverTime);
+  let year = Number(today.slice(0, 4));
+  let month = Number(today.slice(5, MONTH_KEY_SLICE_END));
+
+  const allowedPrefixes = new Set<string>();
+  for (let index = 0; index < CHECK_IN_DISPLAY_MONTH_COUNT; index += 1) {
+    allowedPrefixes.add(`${year}-${String(month).padStart(2, '0')}`);
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+
+  return checkedDates.filter((date) =>
+    allowedPrefixes.has(date.slice(0, MONTH_KEY_SLICE_END)),
+  );
+}
+
 /** Prisma 唯一约束冲突（P2002）是签到幂等的最终权威 */
 export function isUniqueViolation(error: unknown): boolean {
   return (

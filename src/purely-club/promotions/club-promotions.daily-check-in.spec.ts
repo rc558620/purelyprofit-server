@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
@@ -71,6 +72,10 @@ describe('C 端优惠活动卡 · 签到活动排除', () => {
         ClubPromotionRepository,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        {
+          provide: RedisReadPrefetchService,
+          useValue: { peekJson: jest.fn() },
+        },
       ],
     }).compile();
     service = module.get<ClubPromotionsService>(ClubPromotionsService);
@@ -100,6 +105,10 @@ describe('C 端优惠活动卡 · 签到活动排除', () => {
         ClubPromotionRepository,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        {
+          provide: RedisReadPrefetchService,
+          useValue: { peekJson: jest.fn() },
+        },
       ],
     }).compile();
     const repository = module.get<ClubPromotionRepository>(

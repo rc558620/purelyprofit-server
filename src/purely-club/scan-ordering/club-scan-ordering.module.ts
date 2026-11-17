@@ -19,6 +19,7 @@ import { ClubScanOrderingQrTokenService } from './club-scan-ordering-qr-token.se
 import { ClubScanOrderingSessionService } from './club-scan-ordering-session.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
+import { ClubScanOrderingMenuStockService } from './club-scan-ordering-menu-stock.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
@@ -70,6 +71,7 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubScanOrderingSessionService,
     ClubScanOrderingCartService,
     ClubScanOrderingMenuQueryService,
+    ClubScanOrderingMenuStockService,
     ClubScanOrderingServiceCallService,
     ClubScanOrderingOrderService,
     ClubScanOrderingOrderQueryService,

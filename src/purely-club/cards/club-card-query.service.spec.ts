@@ -185,7 +185,23 @@ describe('ClubCardQueryService · 我的卡包游标分页', () => {
       items: [],
       nextCursor: null,
       total: 0,
+      hasMore: false,
     });
     expect(prismaService.memberCard.findMany).not.toHaveBeenCalled();
+  });
+
+  it('withTotal=false 时跳过 count，末页由 hasMore 判定', async () => {
+    const rows = [buildCardRow(1, new Date(1_700_000_000_000))];
+    prismaService.memberCard.findMany.mockResolvedValue(rows);
+
+    const result = await service.listMyCards(buildContext(), {
+      limit: 10,
+      withTotal: false,
+    });
+
+    expect(prismaService.memberCard.count).not.toHaveBeenCalled();
+    expect(result.total).toBeNull();
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
   });
 });

@@ -23,7 +23,8 @@ export class ClubMemberTransactionsService {
 
     return {
       items: result.items.map((item) => this.toTransactionDto(item)),
-      total: result.total,
+      // 本接口不暴露 withTotal，流水查询始终统计总数（null 只出现在主动跳过 count 的翻页场景）
+      total: result.total ?? 0,
       nextCursor: result.nextCursor,
     };
   }

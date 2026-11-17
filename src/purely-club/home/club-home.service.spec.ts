@@ -8,6 +8,14 @@ import { ClubStoresService } from '../stores/club-stores.service';
 import { ClubMemberService } from '../member/club-member.service';
 import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import { ClubProductsService } from '../products/club-products.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
+import {
+  buildClubMemberSnapshotCacheKey,
+  buildClubPromotionListCacheKey,
+  buildClubPromotionsCacheKey,
+  buildClubProductsVersionCacheKey,
+} from '../../redis/keys/club-cache-keys';
+import { buildStoreProfileMetadataCacheKey } from '../../redis/keys/stores.cache-keys';
 import { ClubHomeService } from './club-home.service';
 
 describe('ClubHomeService', () => {
@@ -40,6 +48,16 @@ describe('ClubHomeService', () => {
   };
   const clubProductsService = {
     list: jest.fn(),
+  };
+
+  /**
+   * 预取容器替身：`run` 透传任务（保证链路在作用域内执行），
+   * `start` / `peekJson` 记录调用，便于断言预取覆盖范围。
+   */
+  const redisReadPrefetch = {
+    run: jest.fn((task: () => Promise<unknown>) => task()),
+    start: jest.fn(),
+    peekJson: jest.fn().mockResolvedValue(undefined),
   };
 
   const currentContext = {
@@ -150,6 +168,7 @@ describe('ClubHomeService', () => {
         { provide: ClubMemberService, useValue: clubMemberService },
         { provide: ClubPromotionsService, useValue: clubPromotionsService },
         { provide: ClubProductsService, useValue: clubProductsService },
+        { provide: RedisReadPrefetchService, useValue: redisReadPrefetch },
       ],
     }).compile();
 
@@ -352,5 +371,26 @@ describe('ClubHomeService', () => {
     expect(result.accountStatus).toBe('unavailable');
     expect(result.promotions).toEqual([]);
     expect(result.featuredProducts).toEqual([]);
+  });
+
+  // ─── 请求级预取 ──────────────────────────────────────────────────────────
+
+  it('在独立作用域内发起一次预取，覆盖 5 个由上下文即可算出的门店级 key', async () => {
+    clubStoresService.getCurrent.mockResolvedValue(mockStore);
+    clubMemberService.getAccount.mockResolvedValue(mockAccount);
+    clubPromotionsService.list.mockResolvedValue(mockPromotions);
+    clubProductsService.list.mockResolvedValue(mockProducts);
+
+    await service.getHome(currentContext);
+
+    expect(redisReadPrefetch.run).toHaveBeenCalledTimes(1);
+    expect(redisReadPrefetch.start).toHaveBeenCalledTimes(1);
+    expect(redisReadPrefetch.start).toHaveBeenCalledWith([
+      buildStoreProfileMetadataCacheKey(11),
+      buildClubMemberSnapshotCacheKey(11, 201),
+      buildClubPromotionListCacheKey(11),
+      buildClubPromotionsCacheKey(11),
+      buildClubProductsVersionCacheKey(11),
+    ]);
   });
 });

@@ -5,6 +5,8 @@ import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubPointsQueryService } from '../points/club-points-query.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { ClubCheckInCacheService } from './club-check-in.cache.service';
+import { ClubCheckInStatusService } from './club-check-in.status.service';
 import { ClubCheckInQueryService } from './club-check-in.query.service';
 import { ClubCheckInService } from './club-check-in.service';
 
@@ -72,6 +74,11 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
   let redisService: {
     setIfAbsent: jest.Mock;
     del: jest.Mock;
+    get: jest.Mock;
+    set: jest.Mock;
+    getJson: jest.Mock;
+    setJson: jest.Mock;
+    mgetJson: jest.Mock;
   };
   let cacheInvalidatorService: {
     invalidateMarketingCustomerDerived: jest.Mock;
@@ -109,6 +116,12 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
     redisService = {
       setIfAbsent: jest.fn().mockResolvedValue(true),
       del: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue(undefined),
+      // 默认全部未命中：签到状态 / 活动配置每次回源，与引入缓存前的断言一致
+      getJson: jest.fn().mockResolvedValue(null),
+      setJson: jest.fn().mockResolvedValue(undefined),
+      mgetJson: jest.fn().mockResolvedValue([null, null]),
     };
     cacheInvalidatorService = {
       invalidateMarketingCustomerDerived: jest
@@ -141,6 +154,8 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
       providers: [
         ClubCheckInService,
         ClubCheckInQueryService,
+        ClubCheckInCacheService,
+        ClubCheckInStatusService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
@@ -344,7 +359,10 @@ describe('ClubCheckInService · 状态与落账主链路', () => {
     expect(result.pointsBalance).toBe(CUSTOMER_POINTS + 3);
     expect(result.description).toBe('每日签到 +3 积分');
     expect(tx.marketingPointsRecord.create).toHaveBeenCalledTimes(1);
-    expect(redisService.del).not.toHaveBeenCalled();
+    // 派生缓存失效失败时绝不释放防抖占位（签到状态缓存的删除与占位无关，单独校验）
+    expect(redisService.del).not.toHaveBeenCalledWith(
+      'checkin:dedup:11:55:2026-11-06',
+    );
   });
 
   it('status 只读不写：不触发事务、不占用防抖占位、不失效缓存', async () => {

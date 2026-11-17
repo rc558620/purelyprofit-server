@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
+import { ClubPaymentModeModule } from './club-payment-mode.module';
 import { ClubPaymentOrderRecordService } from './club-payment-order-record.service';
+import { ClubPrepayAttemptService } from './club-prepay-attempt.service';
 import { ClubWechatJsapiService } from './club-wechat-jsapi.service';
 import { ClubWechatPayHttpService } from './club-wechat-pay-http.service';
 import { ClubWechatPayIdentityService } from './club-wechat-pay-identity.service';
@@ -29,7 +31,7 @@ import { ClubWechatVerifyService } from './club-wechat-verify.service';
  * - ClubWechatRefundService：微信原路退款（团购券 / 扫码点餐共用）
  */
 @Module({
-  imports: [PrismaModule, StoresModule],
+  imports: [PrismaModule, StoresModule, ClubPaymentModeModule],
   providers: [
     ClubPaymentOrderRecordService,
     ClubWechatPayHttpService,
@@ -38,6 +40,8 @@ import { ClubWechatVerifyService } from './club-wechat-verify.service';
     ClubWechatTransactionService,
     ClubWechatRefundService,
     ClubWechatVerifyService,
+    // JSAPI 取参的幂等编排（在途互斥 + 尝试序号 + openid 解析）
+    ClubPrepayAttemptService,
   ],
   exports: [
     ClubWechatJsapiService,
@@ -49,6 +53,8 @@ import { ClubWechatVerifyService } from './club-wechat-verify.service';
     // 回调链路（ClubPaymentsModule）也要读写订单的 sp/sub_mch_id，
     // 由本模块统一提供，避免两处各注册一份
     ClubPaymentOrderRecordService,
+    // 服务购买单 / 购卡单的「按需取支付参数」共用同一份实现
+    ClubPrepayAttemptService,
   ],
 })
 export class ClubWechatPayModule {}

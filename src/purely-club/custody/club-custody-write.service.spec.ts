@@ -75,11 +75,18 @@ const buildService = (
   };
   const custodyCodeService = {
     invalidateAfterWrite: jest.fn().mockResolvedValue(undefined),
+    // 换码是单条 Lua：写服务只允许调这一个方法
+    issuePickupCodeReplacing: jest.fn(),
+    readPickupCodeBinding: jest.fn(),
+    cancelPickupCode: jest.fn(),
+    issuePickupCode: jest.fn(),
+    bindPickupCode: jest.fn(),
   };
   const auditLogService = { record: jest.fn() };
   const realtimeService = {
     publishStoreConfirmed: jest.fn(),
     publishStoreRejected: jest.fn(),
+    publishPickupCodeCreated: jest.fn(),
   };
   const service = new ClubCustodyWriteService(
     prisma as never,
@@ -263,5 +270,47 @@ describe('ClubCustodyWriteService 确认 / 拒绝授权', () => {
       NotFoundException,
     );
     expect(prisma.custodyOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  /*
+   * 出示取件码：换码必须是一次原子调用（服务端 Lua 完成解绑/作废/抢占/绑定），
+   * 写服务不得再把它拆成 read → cancel → issue → bind 四次 Redis 往返。
+   */
+  it('出示取件码只调用一次原子换码，不再拆成四次 Redis 操作', async () => {
+    const issued = {
+      code: '654321',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const { service, custodyCodeService } = buildService({
+      draftOrder: {
+        id: ORDER_ID,
+        orderNo: 'CO0001',
+        status: 'stored',
+        stockMode: 'sold',
+        productId: null,
+        remainingQty: 2,
+        expireAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    custodyCodeService.issuePickupCodeReplacing.mockResolvedValue(issued);
+
+    const result = await service.createPickupCode(buildContext(), ORDER_ID);
+
+    expect(custodyCodeService.issuePickupCodeReplacing).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(custodyCodeService.issuePickupCodeReplacing).toHaveBeenCalledWith(
+      ORDER_ID,
+      { custodyOrderId: ORDER_ID, storeId: STORE_ID },
+    );
+    expect(custodyCodeService.readPickupCodeBinding).not.toHaveBeenCalled();
+    expect(custodyCodeService.cancelPickupCode).not.toHaveBeenCalled();
+    expect(custodyCodeService.issuePickupCode).not.toHaveBeenCalled();
+    expect(custodyCodeService.bindPickupCode).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      code: issued.code,
+      expiresAt: Date.parse(issued.expiresAt),
+      qty: 2,
+    });
   });
 });

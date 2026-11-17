@@ -51,19 +51,48 @@ export class AuthUserCacheService {
    */
   async resolveUser(userId: number): Promise<ResolvedAuthUserRecord | null> {
     const cacheKey = buildUserCacheKey(userId);
-    const cached = await this.redisService.getJson<CachedUserRecord>(cacheKey);
+    const cached = this.parseCachedUser(await this.redisService.get(cacheKey));
 
     if (cached) {
-      return {
-        ...cached,
-        createdAt: new Date(cached.createdAt),
-        updatedAt: new Date(cached.updatedAt),
-        lastActiveAt: cached.lastActiveAt
-          ? new Date(cached.lastActiveAt)
-          : null,
-      };
+      return cached;
     }
 
+    return this.loadUserFromDatabase(userId);
+  }
+
+  /**
+   * 解析已批量取回的 user 缓存原始值（批量读取链路使用）。
+   *
+   * 反序列化口径必须与 `getJson` 完全一致：`null` 表示未命中；非空字符串按 JSON 解析，
+   * 解析失败照旧抛错，绝不静默降级为「未命中」——那会让损坏的缓存变成额外的 DB 回源，
+   * 掩盖真实的缓存故障。
+   */
+  parseCachedUser(rawCacheValue: string | null): ResolvedAuthUserRecord | null {
+    if (rawCacheValue === null) {
+      return null;
+    }
+
+    const cached = JSON.parse(rawCacheValue) as CachedUserRecord | null;
+    // 与 getJson 语义对齐：JSON 字面量 null 视为未命中，避免拼出一个字段全空的用户
+    if (!cached) {
+      return null;
+    }
+
+    return {
+      ...cached,
+      createdAt: new Date(cached.createdAt),
+      updatedAt: new Date(cached.updatedAt),
+      lastActiveAt: cached.lastActiveAt ? new Date(cached.lastActiveAt) : null,
+    };
+  }
+
+  /**
+   * 缓存未命中时回源数据库，并 fire-and-forget 回填缓存。
+   * 用户不存在（含已被删除）返回 null，由调用方按「用户不存在」处理。
+   */
+  async loadUserFromDatabase(
+    userId: number,
+  ): Promise<ResolvedAuthUserRecord | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -81,7 +110,7 @@ export class AuthUserCacheService {
     }
 
     // 非关键路径：fire-and-forget 回填缓存，不阻塞鉴权流程
-    void this.backfillUserCache(cacheKey, user);
+    void this.backfillUserCache(buildUserCacheKey(userId), user);
 
     return user;
   }

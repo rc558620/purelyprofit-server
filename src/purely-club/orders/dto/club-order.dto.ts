@@ -58,6 +58,30 @@ export class CreateClubServiceOrderDto {
   @IsInt({ message: 'quantity 必须是整数' })
   @Min(1, { message: 'quantity 最少为 1' })
   quantity?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: true,
+    description:
+      '是否在建单时同步向微信预下单：默认 true（与历史行为完全一致，响应带 paymentParams）。' +
+      '传 false 时建单不调用微信、响应 paymentParams 为 null，前端需再调' +
+      ' `POST /club/orders/service/:orderNo/payment-params` 按需取参（失败可重试，不重复建单）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'prepay 必须是布尔值' })
+  prepay?: boolean;
+}
+
+/** 按需取支付参数入参（服务购买单 / 购卡单共用） */
+export class ClubOrderPaymentParamsDto {
+  @ApiPropertyOptional({
+    example: 'oLSdB5A3FRSxSCKrGNGKBhYQ_xyz',
+    description:
+      '微信用户 openid；不传时后端按当前登录用户回查。解析不到时不向微信下单，paymentParams 返回 null',
+  })
+  @IsOptional()
+  @IsString({ message: 'openid 必须是字符串' })
+  openid?: string;
 }
 
 export class ClubWechatPaymentParamsDto {
@@ -435,4 +459,39 @@ export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
   @IsOptional()
   @IsBoolean({ message: 'reused 必须是布尔值' })
   reused?: boolean;
+}
+
+/**
+ * 按需取支付参数响应（服务购买单 / 购卡单共用）。
+ *
+ * 声明在 `ClubWechatPaymentParamsDto` 之后：装饰器元数据在类定义时求值，
+ * 提前引用未初始化的类会让 Swagger 在启动阶段拿到 undefined。
+ */
+export class ClubOrderPaymentParamsResponseDto {
+  @ApiProperty({ example: 'SV20261116123000123456', description: '基准订单号' })
+  @IsString({ message: 'orderNo 必须是字符串' })
+  orderNo: string;
+
+  @ApiProperty({
+    example: 'SV20261116123000123456-P01',
+    nullable: true,
+    description:
+      '本次尝试的微信商户单号（out_trade_no）；测试模式或未解析到 openid 时为 null',
+  })
+  merchantPaymentNo: string | null;
+
+  @ApiPropertyOptional({
+    type: ClubWechatPaymentParamsDto,
+    nullable: true,
+    description: '拉起 wx.requestPayment 所需参数；为 null 表示不应调起收银台',
+  })
+  paymentParams: ClubWechatPaymentParamsDto | null;
+
+  @ApiProperty({
+    example: false,
+    description:
+      '测试模式：后端不向微信下单（paymentParams 为 null），前端应走 confirm-paid 兜底',
+  })
+  @IsBoolean({ message: 'testMode 必须是布尔值' })
+  testMode: boolean;
 }

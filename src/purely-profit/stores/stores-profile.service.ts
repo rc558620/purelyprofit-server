@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { RedisService } from '../../redis/redis.service';
+import { buildStoreProfileMetadataCacheKey } from '../../redis/keys/stores.cache-keys';
 import {
   buildStoreResponseDto,
   normalizeStoreProfileMetadata,
@@ -10,10 +12,13 @@ import {
   type StoreResponseDto,
 } from './dto/store-response.dto';
 
-const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
-
 /** 门店扩展字段缓存 TTL：7 天，与门店同生命周期量级 */
 const STORE_PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600;
+
+/** 缓存读取结果：显式区分「命中」（含缓存空扩展字段）与「未命中」 */
+type StoreProfileMetadataCacheRead =
+  | { hit: true; raw: unknown }
+  | { hit: false };
 
 /**
  * 门店扩展字段读写服务。
@@ -31,6 +36,7 @@ export class StoresProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly redisReadPrefetch: RedisReadPrefetchService,
   ) {}
 
   async mapStoreResponse(
@@ -73,7 +79,9 @@ export class StoresProfileService {
 
     // 2. Redis 兜底（兼容历史 Redis 数据），命中后回填 DB 并回写规范化缓存
     try {
-      const raw = await this.redisService.get(this.getStoreProfileKey(storeId));
+      const raw = await this.redisService.get(
+        buildStoreProfileMetadataCacheKey(storeId),
+      );
       if (raw) {
         const metadata = normalizeStoreProfileMetadata(
           JSON.parse(raw) as unknown,
@@ -104,20 +112,51 @@ export class StoresProfileService {
   async readStoreProfileMetadataCached(
     storeId: number,
   ): Promise<StoreProfileMetadata> {
-    const cacheKey = this.getStoreProfileKey(storeId);
-    try {
-      const raw = await this.redisService.getJson<unknown>(cacheKey);
-      if (raw !== null) {
-        return normalizeStoreProfileMetadata(raw);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `读取门店 ${storeId} 扩展字段缓存失败，回退 DB：${this.getErrorMessage(error)}`,
-      );
+    const cacheKey = buildStoreProfileMetadataCacheKey(storeId);
+    const cached = await this.readMetadataCache(cacheKey);
+    if (cached.hit) {
+      return normalizeStoreProfileMetadata(cached.raw);
     }
 
     const metadata = await this.readStoreProfileMetadata(storeId);
     // 空扩展字段同样缓存：未配置 logo / 坐标的门店否则仍会每次回源 DB。
+    await this.backfillCachedMetadata(cacheKey, metadata);
+
+    return metadata;
+  }
+
+  /**
+   * 读取扩展字段缓存，优先消费请求级预取结果。
+   *
+   * 预取命中直接用；预取未覆盖本 key 或预取整体失败时回退单条 GET；
+   * 读取异常一律视为未命中（缓存只是加速层）。
+   */
+  private async readMetadataCache(
+    cacheKey: string,
+  ): Promise<StoreProfileMetadataCacheRead> {
+    const prefetched = await this.redisReadPrefetch.peekJson<unknown>(cacheKey);
+    if (prefetched !== undefined) {
+      return prefetched === null
+        ? { hit: false }
+        : { hit: true, raw: prefetched };
+    }
+
+    try {
+      const raw = await this.redisService.getJson<unknown>(cacheKey);
+      return raw === null ? { hit: false } : { hit: true, raw };
+    } catch (error) {
+      this.logger.warn(
+        `读取门店扩展字段缓存失败 cacheKey=${cacheKey}，回退 DB：${this.getErrorMessage(error)}`,
+      );
+      return { hit: false };
+    }
+  }
+
+  /** 回填扩展字段缓存：失败只影响下次是否命中，不改变本次结果。 */
+  private async backfillCachedMetadata(
+    cacheKey: string,
+    metadata: StoreProfileMetadata,
+  ): Promise<void> {
     try {
       await this.redisService.set(
         cacheKey,
@@ -126,11 +165,9 @@ export class StoresProfileService {
       );
     } catch (error) {
       this.logger.warn(
-        `回填门店 ${storeId} 扩展字段缓存失败：${this.getErrorMessage(error)}`,
+        `回填门店扩展字段缓存失败 cacheKey=${cacheKey}：${this.getErrorMessage(error)}`,
       );
     }
-
-    return metadata;
   }
 
   /**
@@ -183,7 +220,9 @@ export class StoresProfileService {
     if (missingIndexes.length > 0) {
       try {
         const missingStoreIds = missingIndexes.map((i) => storeIds[i]);
-        const keys = missingStoreIds.map((id) => this.getStoreProfileKey(id));
+        const keys = missingStoreIds.map((id) =>
+          buildStoreProfileMetadataCacheKey(id),
+        );
         const rawValues = await this.redisService.mgetJson<unknown>(keys);
         missingIndexes.forEach((index, offset) => {
           const raw = rawValues[offset];
@@ -217,7 +256,7 @@ export class StoresProfileService {
     // Redis 缓存（best-effort）
     try {
       await this.redisService.set(
-        this.getStoreProfileKey(storeId),
+        buildStoreProfileMetadataCacheKey(storeId),
         JSON.stringify(metadata),
         STORE_PROFILE_CACHE_TTL_SECONDS,
       );
@@ -262,7 +301,7 @@ export class StoresProfileService {
   ): Promise<void> {
     try {
       await this.redisService.set(
-        this.getStoreProfileKey(storeId),
+        buildStoreProfileMetadataCacheKey(storeId),
         JSON.stringify(metadata),
         STORE_PROFILE_CACHE_TTL_SECONDS,
       );
@@ -271,10 +310,6 @@ export class StoresProfileService {
         `回填门店 ${storeId} 扩展字段缓存失败: ${this.getErrorMessage(error)}`,
       );
     }
-  }
-
-  private getStoreProfileKey(storeId: number): string {
-    return `${STORE_PROFILE_KEY_PREFIX}${storeId}`;
   }
 
   private getErrorMessage(error: unknown): string {

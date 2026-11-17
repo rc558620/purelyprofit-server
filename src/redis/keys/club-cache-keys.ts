@@ -37,6 +37,20 @@ export function buildClubMenuVersionCacheKey(storeId: number): string {
   return `club:menu-version:store:${storeId}`;
 }
 
+/**
+ * 菜单库存快照缓存 key（门店粒度，极短 TTL）。
+ *
+ * 菜单主体（分类 / 商品 / 规格 / 价格 / 上下架）按**静态内容指纹**长 TTL 缓存，
+ * 库存与销量这类每笔订单都会变的列被拆出来，单独走本 key（5s）。
+ *
+ * 为什么要拆：库存预留会 bump 商品/规格的 `version`，若指纹含 version，一笔下单
+ * 就会让整店菜单缓存 key 轮换，全店在线顾客同时 miss。拆开后菜单缓存只随
+ * 「菜单结构 / 价格 / 上下架」变化，库存精度反而从分钟级提升到秒级。
+ */
+export function buildClubMenuStockCacheKey(storeId: number): string {
+  return `club:menu-stock:store:${storeId}`;
+}
+
 // ── Club 自助下单菜单缓存键 ──
 
 /**
@@ -48,6 +62,20 @@ export function buildClubMenuVersionCacheKey(storeId: number): string {
  */
 export function buildClubSelfOrderingMenuCacheKey(storeId: number): string {
   return `club:self-ordering-menu:store:${storeId}`;
+}
+
+// ── Club 充值套餐缓存键 ──
+
+/**
+ * 门店充值套餐缓存 key（门店粒度，60s 兜底 TTL）。
+ *
+ * 套餐列表来自 `marketing_promotions`（type=recharge_gift），是**低频变更、高频读取**
+ * 的数据：C 端充值页首屏、下单校验、预览三处都要它。缓存空结果同样写入
+ * （无活动门店返回默认套餐，这份默认列表本身也有效）。
+ * 失效挂 invalidateMarketingOverview（活动创建/编辑/启停路径已调用）。
+ */
+export function buildClubRechargePackagesCacheKey(storeId: number): string {
+  return `club:recharge-packages:store:${storeId}`;
 }
 
 // ── Club 会员快照缓存键 ──
@@ -94,6 +122,63 @@ export function buildClubPromotionsPattern(storeId: number): string {
  */
 export function buildClubPromotionListCacheKey(storeId: number): string {
   return `club:promotions:store:${storeId}:list`;
+}
+
+// ── Club 每日签到缓存键 ──
+
+/**
+ * 签到活动配置缓存 key（门店粒度，短 TTL）。
+ *
+ * 首页 Hero 的签到入口每次进场都会读一次 `marketing_promotions`
+ * （type=daily_check_in）来判定「活动是否可参与」，而该配置只在商家端改活动时
+ * 变化。缓存后单店只留一条记录，命中即省一次 DB 查询。
+ * 失效挂 invalidateMarketingOverview（活动新建 / 编辑 / 启停路径已调用）。
+ */
+export function buildClubCheckInPromotionCacheKey(storeId: number): string {
+  return `club:check-in-promotion:store:${storeId}`;
+}
+
+/**
+ * 签到状态缓存 key（门店 + 用户 + 上海自然日粒度，极短 TTL）。
+ *
+ * key 里带自然日：跨零点自动换 key，昨天的「已签到」结论不会污染今天。
+ * 值只包含「服务端算好的签到结论 + 积分余额」，`serverTime` 命中时由调用方
+ * 覆盖为当前时间，避免前端拿到滞后的服务器时间。
+ * 失效挂 invalidateMarketingCustomerDerived（签到 / 充值 / 消费落账路径已调用）。
+ */
+export function buildClubCheckInStatusCacheKey(
+  storeId: number,
+  userId: number,
+  checkInDate: string,
+): string {
+  return `club:check-in-status:store:${storeId}:user:${userId}:day:${checkInDate}`;
+}
+
+export function buildClubCheckInStatusPattern(storeId: number): string {
+  return `club:check-in-status:store:${storeId}:user:*`;
+}
+
+// ── Club 首单资格缓存键 ──
+
+/**
+ * 「顾客是否已有消费记录」缓存 key（门店 + 顾客粒度，短 TTL）。
+ *
+ * 商品列表 / 详情 / 首页的定价上下文都要判定首单资格，原实现每个请求都跑一次
+ * `marketing_consumptions` 的 findFirst。该结论一旦变为 true 不会再回到 false，
+ * 因此缓存只会让「刚下单的顾客」在最多一个 TTL 内仍看到首单优惠。
+ * 失效挂 invalidateMarketingCustomerDerived（消费落账路径已调用）。
+ */
+export function buildClubCustomerConsumptionExistsCacheKey(
+  storeId: number,
+  customerId: number,
+): string {
+  return `club:consumption-exists:store:${storeId}:customer:${customerId}`;
+}
+
+export function buildClubCustomerConsumptionExistsPattern(
+  storeId: number,
+): string {
+  return `club:consumption-exists:store:${storeId}:customer:*`;
 }
 
 // ── Club 服务商品读缓存键 ──

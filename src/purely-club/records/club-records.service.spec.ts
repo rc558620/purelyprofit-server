@@ -85,6 +85,7 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: entries,
       total: 1,
+      hasMore: true,
       balanceWindow: null,
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
@@ -96,6 +97,7 @@ describe('ClubRecordsService', () => {
     await expect(service.list(currentContext, {})).resolves.toEqual({
       items,
       total: 1, // 筛选后条目数 = items.length
+      hasMore: true,
       nextCursor: Buffer.from(
         JSON.stringify({
           createdAt: '2024-11-20T10:30:00.000Z',
@@ -113,7 +115,12 @@ describe('ClubRecordsService', () => {
     expect(clubRecordQueryService.listLedgerEntries).toHaveBeenCalledWith(
       11,
       98,
-      { limit: undefined, cursor: undefined, filterType: 'all' },
+      {
+        limit: undefined,
+        cursor: undefined,
+        filterType: 'all',
+        withTotal: true,
+      },
     );
     expect(clubRecordViewService.buildRecordItems).toHaveBeenCalledWith({
       entries,
@@ -138,6 +145,7 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: [],
       total: 0,
+      hasMore: false,
       balanceWindow: null,
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
@@ -154,6 +162,7 @@ describe('ClubRecordsService', () => {
     ).resolves.toEqual({
       items: [],
       total: 0,
+      hasMore: false,
       nextCursor: null,
       summary: {
         totalRechargeAmount: 580,
@@ -173,6 +182,7 @@ describe('ClubRecordsService', () => {
           id: 'recharge-18',
         },
         filterType: 'recharge',
+        withTotal: true,
       },
     );
   });
@@ -194,6 +204,7 @@ describe('ClubRecordsService', () => {
     await expect(service.list(currentContext, {})).resolves.toEqual({
       items: [],
       total: 0,
+      hasMore: false,
       nextCursor: null,
       summary: {
         totalRechargeAmount: 0,

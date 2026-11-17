@@ -10,10 +10,12 @@ import Redis from 'ioredis';
 import type { ChainableCommander, RedisOptions } from 'ioredis';
 import { recordRedisOperation } from '../observability';
 import {
+  executeReadPipeline as runReadPipeline,
   isSimpleRedisGlob,
   pipelineUnlinkByPattern,
   pipelineUnlinkByPatterns,
 } from './redis-pipeline.util';
+import type { ReadPipelineResult } from './redis-pipeline.util';
 import { safeJsonStringify } from './redis-json.util';
 import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 
@@ -218,6 +220,23 @@ export class RedisService
       build(pipeline);
       await pipeline.exec();
     });
+  }
+
+  /**
+   * 用一次 pipeline 往返执行一组互不依赖的只读命令，返回与提交顺序一致的原始回复。
+   *
+   * 鉴权链路的 user 缓存 / token 版本 / 会话活性（ZSCORE）/ 关联门店 ID 彼此无依赖，
+   * 却各自一次往返；合并成 pipeline 后往返次数从 4 次降到 1 次。
+   * ZSCORE 是 sorted set 命令、塞不进 MGET，所以这里用 pipeline 而不是 MGET。
+   *
+   * `ok === false` 时调用方必须降级为逐条读取，禁止当成缓存未命中。
+   */
+  async executeReadPipeline(
+    build: (pipeline: ChainableCommander) => void,
+  ): Promise<ReadPipelineResult> {
+    return this.observeRedisCommand('PIPELINE', () =>
+      runReadPipeline(this.client, build),
+    );
   }
 
   /** 读取 hash 字段的 JSON 值（字段不存在返回 null） */

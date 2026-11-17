@@ -57,9 +57,9 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
     // 展示侧由退款单据冲减（computeCustomerConsumptionStats）
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
 
-    // 余额退回 3520、累计消费回滚 -(3520+3520)、到店次数 -1，三个增量一次原子写
+    // 余额退回 3520、积分增量 0、累计消费回滚 -(3520+3520)、到店次数 -1，四个增量一次原子写
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(deltasOf(tx).slice(0, 3)).toEqual([3520, -7040, -1]);
+    expect(deltasOf(tx).slice(0, 4)).toEqual([3520, 0, -7040, -1]);
     // 回滚改走增量语义，不再用读到的旧值做绝对赋值
     expect(tx.marketingCustomer.update).not.toHaveBeenCalled();
   });
@@ -78,6 +78,6 @@ describe('ClubVoucherOrderRefundService.restoreBalance', () => {
     );
 
     expect(tx.marketingConsumption.create).not.toHaveBeenCalled();
-    expect(deltasOf(tx).slice(0, 3)).toEqual([7040, -7040, -1]);
+    expect(deltasOf(tx).slice(0, 4)).toEqual([7040, 0, -7040, -1]);
   });
 });

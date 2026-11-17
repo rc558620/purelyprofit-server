@@ -48,6 +48,20 @@ interface ClubSummaryCachePayload {
   validUntil: string | null;
 }
 
+/** 汇总聚合行（原生 SQL 返回）：4 个计数 + 2 个口径漂移临界点 */
+interface CustodySummaryAggregateRow {
+  storedCount: number;
+  nextExpiring: Date | string | null;
+  pendingCount: number;
+  expiringCount: number;
+  nextEnteringWindow: Date | string | null;
+}
+
+/** 原生 SQL 的时间列可能以 Date 或 ISO 文本返回，统一成 Date */
+function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
 @Injectable()
 export class ClubCustodyReadService {
   private readonly logger = new Logger(ClubCustodyReadService.name);
@@ -213,7 +227,14 @@ export class ClubCustodyReadService {
     return aggregated.summary;
   }
 
-  /** 会员维度汇总聚合：在存单量 / 待确认量 / 临期单量 / 已取件数 */
+  /**
+   * 会员维度汇总聚合：在存单量 / 待确认量 / 临期单量 / 已取件数。
+   *
+   * 口径漂移临界点（见 getSummary）需要两个 MIN：最近的到期时间、最近的
+   * 「进入临期窗口」时间。这与 3 个计数都落在 `custody_orders` 上、条件只差
+   * status / expire_at 谓词，因此用一条 `FILTER` 聚合一次算完：
+   * 原先 5 条查询（aggregate + 2×count + findFirst + pickup 求和）压到 2 条。
+   */
   private async aggregateSummary(
     storeId: number,
     memberId: number,
@@ -225,47 +246,35 @@ export class ClubCustodyReadService {
     const expiringEdge = new Date(
       now.getTime() + CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
     );
-    const activeStoredWhere = {
-      storeId,
-      memberId,
-      deletedAt: null,
-      status: 'stored' as const,
-      OR: [{ expireAt: null }, { expireAt: { gt: now } }],
-    };
-    /*
-     * 在存单量与最近的到期临界点同条件，合并成一次 aggregate（count + min），
-     * 少一条几乎一样的 SQL。
-     */
-    const [
-      storedAgg,
-      pendingCount,
-      expiringCount,
-      pickedAgg,
-      nextEnteringWindow,
-    ] = await Promise.all([
-      this.prisma.custodyOrder.aggregate({
-        where: activeStoredWhere,
-        _count: { _all: true },
-        _min: { expireAt: true },
-      }),
-      // 待确认总数：草稿不进主列表 Tab，徽标必须走独立计数而非预览数组长度
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'draft',
-        },
-      }),
-      this.prisma.custodyOrder.count({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: now, lte: expiringEdge },
-        },
-      }),
+    const [orderRows, pickedAgg] = await Promise.all([
+      // 一条 SQL 覆盖 4 个指标 + 2 个临界点。
+      // 谓词逐条对应改造前的 where：stored(+未过期) / draft / stored 且进入临期窗口 /
+      // stored 且未进入临期窗口；`MIN` 自动忽略 NULL（长期有效的存单）。
+      this.prisma.$queryRaw<CustodySummaryAggregateRow[]>`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE "status" = 'stored'
+              AND ("expire_at" IS NULL OR "expire_at" > ${now})
+          )::int AS "storedCount",
+          MIN("expire_at") FILTER (
+            WHERE "status" = 'stored'
+              AND ("expire_at" IS NULL OR "expire_at" > ${now})
+          ) AS "nextExpiring",
+          COUNT(*) FILTER (WHERE "status" = 'draft')::int AS "pendingCount",
+          COUNT(*) FILTER (
+            WHERE "status" = 'stored'
+              AND "expire_at" > ${now}
+              AND "expire_at" <= ${expiringEdge}
+          )::int AS "expiringCount",
+          MIN("expire_at") FILTER (
+            WHERE "status" = 'stored' AND "expire_at" > ${expiringEdge}
+          ) AS "nextEnteringWindow"
+        FROM "custody_orders"
+        WHERE "store_id" = ${storeId}
+          AND "member_id" = ${memberId}
+          AND "deleted_at" IS NULL
+          AND "status" IN ('stored', 'draft')
+      `,
       this.prisma.custodyPickup.aggregate({
         where: {
           storeId,
@@ -274,19 +283,21 @@ export class ClubCustodyReadService {
         },
         _sum: { qty: true },
       }),
-      // 最近的「进入临期窗口」临界点
-      this.prisma.custodyOrder.findFirst({
-        where: {
-          storeId,
-          memberId,
-          deletedAt: null,
-          status: 'stored',
-          expireAt: { gt: expiringEdge },
-        },
-        orderBy: { expireAt: 'asc' },
-        select: { expireAt: true },
-      }),
     ]);
+
+    const row = orderRows[0];
+    if (!row) {
+      // FILTER 聚合无 GROUP BY，永远返回一行；这里只是类型层面的兜底
+      return {
+        summary: {
+          storedCount: 0,
+          expiringCount: 0,
+          pendingCount: 0,
+          pickedCount: pickedAgg._sum.qty ?? 0,
+        },
+        validUntil: null,
+      };
+    }
 
     /*
      * 汇总随时间漂移有两个来源，各自对应一个临界时间点：
@@ -295,13 +306,12 @@ export class ClubCustodyReadService {
      * 取两个临界点中最早的那个作为口径有效截止时间；都没有则永不漂移。
      */
     const boundaries: number[] = [];
-    const nextExpiring = storedAgg._min.expireAt;
-    if (nextExpiring) {
-      boundaries.push(nextExpiring.getTime());
+    if (row.nextExpiring) {
+      boundaries.push(toDate(row.nextExpiring).getTime());
     }
-    if (nextEnteringWindow?.expireAt) {
+    if (row.nextEnteringWindow) {
       boundaries.push(
-        nextEnteringWindow.expireAt.getTime() -
+        toDate(row.nextEnteringWindow).getTime() -
           CUSTODY_EXPIRING_SOON_DAYS * DAY_MS,
       );
     }
@@ -310,9 +320,9 @@ export class ClubCustodyReadService {
 
     return {
       summary: {
-        storedCount: storedAgg._count._all,
-        expiringCount,
-        pendingCount,
+        storedCount: Number(row.storedCount),
+        expiringCount: Number(row.expiringCount),
+        pendingCount: Number(row.pendingCount),
         pickedCount: pickedAgg._sum.qty ?? 0,
       },
       validUntil,

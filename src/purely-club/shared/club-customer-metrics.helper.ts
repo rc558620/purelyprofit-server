@@ -29,6 +29,16 @@ export interface ApplyCustomerMetricsParams {
   balanceDelta?: number;
   /** 余额必须 >= 该值才执行（扣款的最终防线，防止并发扣成负数） */
   requireBalanceGte?: number;
+  /**
+   * 积分增量：赚取为正、抵扣为负。
+   *
+   * 与余额 / 累计消费 / 到店次数写在**同一条 UPDATE** 里：扫码点餐落账原本是
+   * 「扣抵扣积分 + 送消费积分 + 写指标」三次 UPDATE 同一行，等于同一行被反复
+   * 加锁三次，事务内纯属浪费。
+   */
+  pointsDelta?: number;
+  /** 积分必须 >= 该值才执行（抵扣的最终防线，防止并发扣成负数） */
+  requirePointsGte?: number;
   /** 累计消费增量（分）：正常消费传正数，退款回滚传负数 */
   totalSpentDelta?: number;
   /** 到店次数增量：消费 +1，退款回滚 -1 */
@@ -45,6 +55,7 @@ export interface CustomerMetricsSnapshot {
   totalSpent: number;
   visitCount: number;
   balance: number;
+  points: number;
   tier: MarketingCustomerTier;
 }
 
@@ -63,6 +74,8 @@ export async function applyCustomerMetrics(
     storeId,
     balanceDelta = 0,
     requireBalanceGte,
+    pointsDelta = 0,
+    requirePointsGte,
     totalSpentDelta = 0,
     visitCountDelta = 0,
     touchLastVisitAt = false,
@@ -75,11 +88,13 @@ export async function applyCustomerMetrics(
       total_spent: number;
       visit_count: number;
       balance: number;
+      points: number;
       tier: MarketingCustomerTier;
     }>
   >`
     UPDATE marketing_customers
     SET balance = balance + ${balanceDelta},
+        points = points + ${pointsDelta},
         total_spent = GREATEST(total_spent + ${totalSpentDelta}, 0),
         visit_count = GREATEST(visit_count + ${visitCountDelta}, 0),
         last_visit_at = CASE
@@ -96,7 +111,12 @@ export async function applyCustomerMetrics(
           ? Prisma.empty
           : Prisma.sql`AND balance >= ${requireBalanceGte}`
       }
-    RETURNING total_spent, visit_count, balance, tier
+      ${
+        requirePointsGte === undefined
+          ? Prisma.empty
+          : Prisma.sql`AND points >= ${requirePointsGte}`
+      }
+    RETURNING total_spent, visit_count, balance, points, tier
   `;
 
   const row = rows[0];
@@ -105,10 +125,11 @@ export async function applyCustomerMetrics(
   const totalSpent = Number(row.total_spent);
   const visitCount = Number(row.visit_count);
   const balance = Number(row.balance);
+  const points = Number(row.points);
 
   // 指标没动就不必重算等级，省掉一次配置查询
   if (totalSpentDelta === 0 && visitCountDelta === 0) {
-    return { totalSpent, visitCount, balance, tier: row.tier };
+    return { totalSpent, visitCount, balance, points, tier: row.tier };
   }
 
   const thresholds =
@@ -126,5 +147,5 @@ export async function applyCustomerMetrics(
     });
   }
 
-  return { totalSpent, visitCount, balance, tier };
+  return { totalSpent, visitCount, balance, points, tier };
 }

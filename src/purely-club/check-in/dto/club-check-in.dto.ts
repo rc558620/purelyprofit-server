@@ -60,7 +60,9 @@ export class CheckInStatusResponseDto {
 
   @ApiProperty({
     example: ['2026-11-04', '2026-11-05'],
-    description: '近期已签到日期（上海时区 YYYY-MM-DD）',
+    description:
+      '已签到日期（上海时区 YYYY-MM-DD）：只含当前自然月 + 上一个自然月（≤62 条）。' +
+      '连续天数连续时由服务端算好下发，前端不得用本数组自行回溯推算',
     type: [String],
   })
   @IsArray({ message: '已签到日期必须是数组' })

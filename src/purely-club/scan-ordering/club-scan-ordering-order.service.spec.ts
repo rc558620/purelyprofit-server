@@ -333,8 +333,10 @@ describe('ClubScanOrderingOrderService', () => {
       lineTotalAmount: 30,
       payableLineAmount: 28,
     });
-    // 营销快照保留：作为优惠清单（discountItems）的数据源供前端展示
-    expect(order).toHaveProperty('marketingSnapshot');
+    // 优惠清单由后端组装为 discountItems；营销快照只是派生数据源，
+    // 前端零消费（purelyClub 仅类型声明引用），因此不下发
+    expect(order).not.toHaveProperty('marketingSnapshot');
+    expect(order).not.toHaveProperty('manualEntryMetadata');
   });
 
   it('订单详情无优惠订单返回 discountAmount 0', async () => {
@@ -425,8 +427,8 @@ describe('ClubScanOrderingOrderService', () => {
     const order = result.items[0].orders[0];
     expect(order.discountAmount).toBe(18.5);
     expect(order.payableAmount).toBe(128.5);
-    // 营销快照保留：作为优惠清单（discountItems）的数据源供前端展示
-    expect(order).toHaveProperty('marketingSnapshot');
+    // 追踪页 30s 轮询：营销快照只做金额派生，不进响应
+    expect(order).not.toHaveProperty('marketingSnapshot');
   });
 
   it('历史点餐记录返回 discountAmount', async () => {

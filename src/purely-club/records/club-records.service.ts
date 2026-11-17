@@ -27,10 +27,14 @@ export class ClubRecordsService {
         currentContext.user.id,
       );
 
+    // 是否统计总数：默认 true，与历史行为完全一致；翻页时前端可传 false 跳过 count
+    const withTotal = query.withTotal !== false;
+
     if (!customer) {
       return {
         items: [],
-        total: 0,
+        total: withTotal ? 0 : null,
+        hasMore: false,
         nextCursor: null,
         summary: { totalRechargeAmount: 0, totalConsumeAmount: 0 },
       };
@@ -48,6 +52,7 @@ export class ClubRecordsService {
           limit: query.limit,
           cursor,
           filterType: query.type ?? 'all',
+          withTotal,
         },
       ),
       this.clubRecordQueryService.calculateSummary(
@@ -67,17 +72,22 @@ export class ClubRecordsService {
     });
 
     // BUG-2 修复：total 为查询层按类型筛选后的总条数，而非当前页条数
+    // withTotal=false 时为 null（本次未统计），翻页判定统一看 hasMore
     const total = entries.total;
 
-    // 计算下一页游标：如果当前页返回了记录，取最后一条编码为单参数游标
+    // 计算下一页游标：只有确实还有下一页时才下发，末页直接给 null。
+    // 改前是「本页有记录就给游标」，导致末页之后还会被前端多打一次空请求；
+    // 现在 hasMore 已由 overfetch 得出，游标与它同源，语义一致。
     const lastItem = items.length > 0 ? items[items.length - 1] : null;
-    const nextCursor = lastItem
-      ? this.encodeCursor(lastItem.createdAt, lastItem.id)
-      : null;
+    const nextCursor =
+      entries.hasMore && lastItem
+        ? this.encodeCursor(lastItem.createdAt, lastItem.id)
+        : null;
 
     return {
       items,
       total,
+      hasMore: entries.hasMore,
       nextCursor,
       summary,
     };

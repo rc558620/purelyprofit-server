@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -8,6 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { transformOptionalBoolean } from '../../../purely-profit/stores/dto/store-response.dto';
 
 export const CLUB_RECORD_FILTER_VALUES = [
   'all',
@@ -55,6 +58,18 @@ export class ListClubRecordsQueryDto {
   @IsString({ message: 'cursor 必须是字符串' })
   @MaxLength(256, { message: 'cursor 过长' })
   cursor?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: true,
+    description:
+      '是否统计总条数：默认 true（与历史行为一致）。游标翻页时可传 false 跳过 count，' +
+      '此时响应 total 为 null，是否还有下一页以 hasMore 为准',
+  })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: 'withTotal 必须是布尔值' })
+  withTotal?: boolean;
 }
 
 export class ClubRecordDto {
@@ -121,8 +136,20 @@ export class ClubRecordsResponseDto {
   @ApiProperty({ type: [ClubRecordDto], description: '统一流水列表' })
   items: ClubRecordDto[];
 
-  @ApiProperty({ example: 128, description: '符合当前筛选条件的流水总条数' })
-  total: number;
+  @ApiProperty({
+    example: 128,
+    nullable: true,
+    description:
+      '符合当前筛选条件的流水总条数；withTotal=false 时为 null（本次未统计，翻页判定请用 hasMore）',
+  })
+  total: number | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '是否还有下一页：游标分页的唯一权威判定，与 total 是否统计无关',
+  })
+  hasMore: boolean;
 
   @ApiPropertyOptional({
     example:

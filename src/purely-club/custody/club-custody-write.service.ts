@@ -246,17 +246,12 @@ export class ClubCustodyWriteService {
       );
     }
 
-    const previous =
-      await this.custodyCodeService.readPickupCodeBinding(orderId);
-    if (previous) {
-      await this.custodyCodeService.cancelPickupCode(previous.code);
-    }
-
-    const issued = await this.custodyCodeService.issuePickupCode({
-      custodyOrderId: orderId,
-      storeId: context.store.id,
-    });
-    await this.custodyCodeService.bindPickupCode(orderId, issued);
+    // 换码走单条 Lua 脚本（1 次 RTT）：解绑旧码 / 作废旧码 / 抢占新码 / 绑定存单
+    // 在服务端一次性完成，会员连点两次也不会出现「旧码仍可核销」的中间态。
+    const issued = await this.custodyCodeService.issuePickupCodeReplacing(
+      orderId,
+      { custodyOrderId: orderId, storeId: context.store.id },
+    );
     this.logClubWrite('pickup-code', context, orderId, {
       orderNo: order.orderNo,
       remainingQty: order.remainingQty,

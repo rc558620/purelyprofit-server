@@ -305,9 +305,37 @@ describe('ClubRecordQueryService', () => {
       await expect(service.listLedgerEntries(11, 98)).resolves.toEqual({
         items: [],
         total: 2,
+        // 合并后条目为 0，明确没有下一页
+        hasMore: false,
         // 无可展示条目时不触发余额快照窗口查询
         balanceWindow: null,
       });
+    });
+
+    it('withTotal=false 时跳过两条 count，total 为 null，hasMore 由合并结果判定', async () => {
+      const row = {
+        id: 18,
+        amount: 50000,
+        giftAmount: 0,
+        totalAmount: 50000,
+        type: 'recharge' as const,
+        note: null,
+        createdAt: new Date('2024-11-20T10:30:00.000Z'),
+      };
+      prismaService.marketingRecharge.findMany.mockResolvedValue([row, row]);
+      prismaService.marketingConsumption.findMany.mockResolvedValue([]);
+
+      const result = await service.listLedgerEntries(11, 98, {
+        limit: 1,
+        withTotal: false,
+      });
+
+      expect(prismaService.marketingRecharge.count).not.toHaveBeenCalled();
+      expect(prismaService.marketingConsumption.count).not.toHaveBeenCalled();
+      expect(result.total).toBeNull();
+      expect(result.items).toHaveLength(1);
+      // 多取的同刻记录说明还有下一页
+      expect(result.hasMore).toBe(true);
     });
 
     it('gift 类型 amount>0 且 giftAmount>0 时 balanceEffectFen 仅计入 giftAmount', async () => {

@@ -54,6 +54,11 @@ export class ClubOrderDraftsService {
      * 不传时 createDraftPayload 会生成开发态 mock 参数。
      */
     paymentParams?: ClubWechatPaymentParamsDto;
+    /**
+     * 跳过开发态 mock 支付参数（建单 prepay=false 时传）：
+     * 草稿的 paymentParams 固定为 null，等按需取参接口回填。
+     */
+    skipMockPaymentParams?: boolean;
   }): Promise<ClubOrderDraftPayload<TMetadata, TOrderType>> {
     const draft = createDraftPayload({
       ...params,

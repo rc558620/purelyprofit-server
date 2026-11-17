@@ -34,6 +34,18 @@ import type { SelfOrderPricingResult } from './club-self-ordering-pricing.servic
 import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
 import type { CreateSelfOrderDto } from './dto/create-self-order.dto';
 import type { ClubSelfOrderStatusQueryDto } from './dto/club-self-order-status-query.dto';
+import type { ListSelfOrdersQueryDto } from './dto/list-self-orders.dto';
+import {
+  SELF_ORDER_LIST_DEFAULT_LIMIT,
+  SELF_ORDER_LIST_MAX_LIMIT,
+} from './dto/list-self-orders.dto';
+import { resolveCursorLimit } from '../../shared/cursor-pagination.utils';
+import {
+  buildClubKeysetWhere,
+  decodeClubCursor,
+  encodeClubCursor,
+  type ClubCursorKeySpec,
+} from '../shared/club-keyset-cursor.util';
 
 const IDEMPOTENCY_SCOPE = 'club:self-order:create';
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -45,6 +57,52 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const IDEMPOTENCY_PROCESSING_LEASE_MS = 60 * 1000;
 /** 待支付订单有效期：超时后不再允许发起支付 */
 export const SELF_ORDER_PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * 历史列表排序键：`createdAt` 落库即固定，配 `id` 兜底构成全序，
+ * 保证翻页不漏不重（同一事务内写入的多行 createdAt 相同）。
+ */
+const SELF_ORDER_LIST_CURSOR_KEYS: ReadonlyArray<ClubCursorKeySpec> = [
+  { field: 'createdAt', nullable: false },
+];
+
+/** 历史列表排序（与 SELF_ORDER_LIST_CURSOR_KEYS 同序） */
+const SELF_ORDER_LIST_ORDER_BY: Prisma.SelfOrderOrderByWithRelationInput[] = [
+  { createdAt: 'desc' },
+  { id: 'desc' },
+];
+
+/**
+ * 历史列表字段白名单：显式列出前端契约需要的列。
+ *
+ * 改前用 `include: { items: true }` 会把订单整行（含幂等键、删除标记等
+ * 内部字段）和商品行整行全部拉回再丢弃，50 条时属于明显的无效 IO。
+ */
+const SELF_ORDER_LIST_SELECT = {
+  id: true,
+  orderNo: true,
+  storeId: true,
+  sessionId: true,
+  spaceId: true,
+  remark: true,
+  itemTotalAmount: true,
+  payableAmount: true,
+  status: true,
+  paymentStatus: true,
+  version: true,
+  createdAt: true,
+  items: {
+    select: {
+      id: true,
+      productId: true,
+      productName: true,
+      categoryName: true,
+      salePrice: true,
+      quantity: true,
+      specSignature: true,
+    },
+  },
+} as const satisfies Prisma.SelfOrderSelect;
 
 /** 通过四道门禁后的落库锚点（门店 / 会话 / 空间） */
 interface SelfOrderTarget {
@@ -136,19 +194,62 @@ export class ClubSelfOrderingOrderService {
     return toSelfOrderResponse(order);
   }
 
-  /** 会话维度的历史订单（供菜单页/订单列表使用） */
+  /**
+   * 会话维度的历史订单（游标分页）。
+   *
+   * 改造前是 `take: 50` 硬上限且返回裸数组：超过 50 笔之后更早的订单永远拿不到，
+   * 前端也没有「还有更多」的依据。改为 keyset 游标后深翻页成本恒定，
+   * 并用 `hasMore` 明确告知是否还有下一页。
+   */
   async listBySession(
     user: AuthenticatedUser,
-    sessionId: number,
-  ): Promise<Record<string, unknown>[]> {
-    const orders = await this.prisma.selfOrder.findMany({
-      where: { sessionId, clubUserId: user.id, deletedAt: null },
-      include: { items: true },
-      // createdAt 可能重复，补 id 作为 tiebreaker 保证翻页顺序稳定
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 50,
+    query: ListSelfOrdersQueryDto,
+  ): Promise<{
+    items: Record<string, unknown>[];
+    nextCursor: string | null;
+    hasMore: boolean;
+  }> {
+    const limit = resolveCursorLimit(query.limit, {
+      defaultLimit: SELF_ORDER_LIST_DEFAULT_LIMIT,
+      maxLimit: SELF_ORDER_LIST_MAX_LIMIT,
     });
-    return orders.map((order) => toSelfOrderResponse(order));
+    const position = decodeClubCursor(
+      query.cursor,
+      SELF_ORDER_LIST_CURSOR_KEYS,
+    );
+
+    const where: Prisma.SelfOrderWhereInput = {
+      sessionId: query.sessionId,
+      clubUserId: user.id,
+      deletedAt: null,
+      ...(position
+        ? buildClubKeysetWhere<Prisma.SelfOrderWhereInput>(
+            SELF_ORDER_LIST_CURSOR_KEYS,
+            position,
+          )
+        : {}),
+    };
+
+    // 多取一行判断是否还有下一页：比再查一次 count 便宜
+    const rows = await this.prisma.selfOrder.findMany({
+      where,
+      orderBy: SELF_ORDER_LIST_ORDER_BY,
+      take: limit + 1,
+      select: SELF_ORDER_LIST_SELECT,
+    });
+
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const lastRow = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null;
+
+    return {
+      items: pageRows.map((order) => toSelfOrderResponse(order)),
+      nextCursor:
+        hasMore && lastRow
+          ? encodeClubCursor([lastRow.createdAt], lastRow.id)
+          : null,
+      hasMore,
+    };
   }
 
   // ─── 幂等闸门 ─────────────────────────────────────────────────────────────

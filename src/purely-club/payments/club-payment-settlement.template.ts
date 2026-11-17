@@ -74,18 +74,26 @@ export abstract class ClubPaymentSettlementTemplate<
         },
         { timeout: TX_TIMEOUT_MEDIUM },
       );
-      // 顺带清顾客列表 / 详情：只删概览的话商家端要等 60s（列表）/ 15s（详情）
-      // TTL 才看得到刚落账的余额与积分
-      await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
-        draft.storeId,
-      );
-      // 结算（服务订单 / 充值 / 团购券）会改 marketing_customers 的
-      // points / balance / lastVisitAt，而这三项正是会员中心
-      // 「可用积分 / 最近活跃」的事实源，必须连带失效会员侧缓存。
-      // 放在基类统一处理，覆盖所有 club 支付结算子类。
-      await this.cacheInvalidatorService.invalidateMembersDerived(
-        draft.storeId,
-      );
+      // 两份失效互不依赖，合并为并行：
+      //  - invalidateMarketingCustomerDerived：顾客列表 / 详情（商家端 60s / 15s TTL）
+      //  - invalidateMembersDerived：会员中心「可用积分 / 最近活跃」的事实源
+      //    （落账会改 marketing_customers 的 points / balance / lastVisitAt）
+      // 原先串行等待两次 Redis 往返，落账回调路径上纯属叠加延迟。
+      // 失效失败不影响落账成功（事务已提交）：各自 catch 后只记 warn，
+      // 最坏结果是缓存留在 TTL 内，不能让一个 Redis 抖动导致支付回调重试。
+      await Promise.all([
+        this.invalidateSafely(
+          'invalidateMarketingCustomerDerived',
+          draft.orderNo,
+          () =>
+            this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+              draft.storeId,
+            ),
+        ),
+        this.invalidateSafely('invalidateMembersDerived', draft.orderNo, () =>
+          this.cacheInvalidatorService.invalidateMembersDerived(draft.storeId),
+        ),
+      ]);
 
       const paidDraft = await this.clubOrderDraftsService.markPaid(
         draft,
@@ -94,6 +102,28 @@ export abstract class ClubPaymentSettlementTemplate<
       return this.toResponse(paidDraft);
     } finally {
       await this.paymentLockService.releaseLock(draft.orderNo, lockToken);
+    }
+  }
+
+  /**
+   * 缓存失效的容错包装：失败只记 warn。
+   *
+   * 落账事务已提交，失效只是「让新值尽快可见」的加速动作；把它的失败
+   * 冒泡成 5xx 会让支付回调被微信重投，而重投本身又要再走一遍落账锁。
+   */
+  private async invalidateSafely(
+    operation: string,
+    orderNo: string,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      this.logger.warn(
+        `落账后缓存失效失败 operation=${operation} orderNo=${orderNo}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

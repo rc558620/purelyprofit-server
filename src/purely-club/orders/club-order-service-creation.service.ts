@@ -44,6 +44,8 @@ interface PersistServiceOrderParams {
   amounts: ClubServiceOrderAmounts;
   orderNo: string;
   paymentParams?: ClubWechatPaymentParamsDto;
+  /** 本次建单是否已同步向微信预下单（false 时草稿不带任何支付参数） */
+  prepayInline: boolean;
 }
 
 @Injectable()
@@ -87,14 +89,19 @@ export class ClubOrderServiceCreationService {
     }
 
     const context = await this.resolveOrderContext(currentContext, dto);
+    // prepay=false：建单不碰微信，支付参数改由取参接口按需获取。
+    // 默认 true 保持历史行为不变，老版本小程序无需同步发布。
+    const prepayInline = dto.prepay !== false;
 
     // 两条互不依赖的分支并行：
     // 1) 活动快照 → 算价 → 满减 → 积分抵扣（新客额度闸门在其内部与快照并行）；
-    // 2) 支付模式判定 → openid 解析（与金额无关）。
+    // 2) 支付模式判定 → openid 解析（与金额无关；prepay=false 时整条分支跳过）。
     // 金额分支的异常优先抛出，与改前「先算完价再解析 openid」的顺序一致。
     const [amounts, prepayOpenid] = await settleClubTasksInOrder([
       this.resolveOrderAmounts(context, currentContext, dto),
-      this.resolvePrepayOpenid(currentContext, dto),
+      prepayInline
+        ? this.resolvePrepayOpenid(currentContext, dto)
+        : Promise.resolve<string | null>(null),
     ]);
 
     const orderNo = buildOrderNo('service', Date.now());
@@ -115,15 +122,17 @@ export class ClubOrderServiceCreationService {
     try {
       // 微信 JSAPI 预下单是远程调用，必须在落草稿之前完成（事务内禁止远程调用）。
       // 它依赖 finalAmountFen 与 openid，因此只能在两分支都结算后串行执行。
-      const paymentParams = prepayOpenid
-        ? await this.clubWechatJsapiService.createJsapiPaymentParams({
-            storeId: context.store.id,
-            orderNo,
-            description: `购买${context.product.name}`,
-            amountFen: amounts.finalAmountFen,
-            openid: prepayOpenid,
-          })
-        : undefined;
+      // prepay=false 时整段跳过：建单只做本地落草稿，微信慢/挂起不再拖垮下单耗时。
+      const paymentParams =
+        prepayInline && prepayOpenid
+          ? await this.clubWechatJsapiService.createJsapiPaymentParams({
+              storeId: context.store.id,
+              orderNo,
+              description: `购买${context.product.name}`,
+              amountFen: amounts.finalAmountFen,
+              openid: prepayOpenid,
+            })
+          : undefined;
 
       return await this.persistServiceOrder({
         currentContext,
@@ -131,6 +140,7 @@ export class ClubOrderServiceCreationService {
         amounts,
         orderNo,
         paymentParams,
+        prepayInline,
       });
     } catch (error) {
       await this.releaseAfterFailure(idempotency, orderNo, currentContext);
@@ -271,7 +281,14 @@ export class ClubOrderServiceCreationService {
   private async persistServiceOrder(
     params: PersistServiceOrderParams,
   ): Promise<ClubServiceOrderResponseDto> {
-    const { currentContext, context, amounts, orderNo, paymentParams } = params;
+    const {
+      currentContext,
+      context,
+      amounts,
+      orderNo,
+      paymentParams,
+      prepayInline,
+    } = params;
 
     const draft = await this.clubOrderDraftsService.createDraft({
       user: currentContext.user,
@@ -297,6 +314,8 @@ export class ClubOrderServiceCreationService {
       ),
       orderNo,
       paymentParams,
+      // 未预下单时不要生成开发态 mock 参数：否则前端会拿伪 prepay_id 拉起收银台
+      skipMockPaymentParams: !prepayInline,
     });
 
     await this.quotaService.consumeForOrder(

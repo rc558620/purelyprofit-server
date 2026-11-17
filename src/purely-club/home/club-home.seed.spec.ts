@@ -4,6 +4,7 @@ import { ClubStoresService } from '../stores/club-stores.service';
 import { ClubMemberService } from '../member/club-member.service';
 import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import { ClubProductsService } from '../products/club-products.service';
+import { RedisReadPrefetchService } from '../../redis/redis-read-prefetch.service';
 import { ClubHomeService } from './club-home.service';
 
 /**
@@ -24,6 +25,12 @@ describe('ClubHomeService 等级配置请求级种子', () => {
   };
   const clubPromotionsService = { list: jest.fn() };
   const clubProductsService = { list: jest.fn() };
+  /** 预取容器替身：run 透传任务，start / peekJson 记录调用 */
+  const redisReadPrefetch = {
+    run: jest.fn((task: () => Promise<unknown>) => task()),
+    start: jest.fn(),
+    peekJson: jest.fn().mockResolvedValue(undefined),
+  };
 
   const mockStore = { id: 11, name: '望京旗舰店', address: '北京市朝阳区' };
   const mockAccount = { id: '201', storeId: '11', level: 'gold' };
@@ -71,6 +78,7 @@ describe('ClubHomeService 等级配置请求级种子', () => {
         { provide: ClubMemberService, useValue: clubMemberService },
         { provide: ClubPromotionsService, useValue: clubPromotionsService },
         { provide: ClubProductsService, useValue: clubProductsService },
+        { provide: RedisReadPrefetchService, useValue: redisReadPrefetch },
       ],
     }).compile();
 

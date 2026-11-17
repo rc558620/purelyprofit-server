@@ -153,11 +153,18 @@ export {
   buildClubMenuCacheKey,
   buildClubMenuPattern,
   buildClubMenuVersionCacheKey,
+  buildClubMenuStockCacheKey,
   buildClubMemberSnapshotCacheKey,
   buildClubMemberSnapshotPattern,
   buildClubPromotionsCacheKey,
   buildClubPromotionsPattern,
   buildClubPromotionListCacheKey,
+  buildClubRechargePackagesCacheKey,
+  buildClubCheckInPromotionCacheKey,
+  buildClubCheckInStatusCacheKey,
+  buildClubCheckInStatusPattern,
+  buildClubCustomerConsumptionExistsCacheKey,
+  buildClubCustomerConsumptionExistsPattern,
 } from './keys/club-cache-keys';
 
 export {
