@@ -3,8 +3,14 @@ import { EmployeeShiftType } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverPageQueryDto } from './dto/handover-page.dto';
 import { buildPageShiftInfo } from './handover-page-shift-info';
-import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
-import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
+import {
+  HandoverPageShiftRecordService,
+  type NextShiftLookupMemo,
+} from './handover-page-shift-record.service';
+import {
+  HandoverShiftHandoverStatusService,
+  type ShiftHandoverStatusMemo,
+} from './handover-shift-handover-status.service';
 import { HandoverPageShiftSelectorService } from './handover-page-shift-selector.service';
 import { HandoverPageShiftViewService } from './handover-page-shift-view.service';
 import {
@@ -28,6 +34,15 @@ export class HandoverPageShiftService {
     query: HandoverPageQueryDto,
   ): Promise<ResolvedHandoverPageShiftContext> {
     const membership = ensureMembershipContext(user);
+    // 请求级交班状态缓存：班次选择器与页面上下文会针对同一 shift 各问一次，
+    // 共用这份 memo 把 2 次 count 收敛为 1 次；只活在本次请求内，禁止提升为实例缓存。
+    // 班次选择阶段的 attachCompletionStatus 会把批量结果回填进来，
+    // 因此下面的 isShiftHandedOver 对同一 shift 直接命中，不再产生 DB 往返。
+    const handoverStatusMemo: ShiftHandoverStatusMemo = new Map();
+    // 请求级后续班次缓存：findReceiverCandidate 问「有没有接班人」与
+    // resolveHandoverCompletedAndNoUpcomingShift 问「有没有后续班次」落到同一查询参数，
+    // 无接班人（交班完成后空态）时原本会重复查一次，共用这份 memo 收敛为 1 次。
+    const nextShiftMemo: NextShiftLookupMemo = new Map();
     const displayTargetEmployeeId = query.shiftType
       ? await this.handoverPageShiftViewService.resolveDisplayTargetEmployeeId(
           membership,
@@ -39,6 +54,8 @@ export class HandoverPageShiftService {
         membership,
         requestedShiftType: query.shiftType,
         displayTargetEmployeeId,
+        handoverStatusMemo,
+        nextShiftMemo,
       });
     const shiftType =
       shiftRecord?.shiftType ?? query.shiftType ?? EmployeeShiftType.morning;
@@ -50,6 +67,7 @@ export class HandoverPageShiftService {
         this.handoverShiftHandoverStatusService.isShiftHandedOver(
           membership.storeId,
           operationShiftRecord,
+          handoverStatusMemo,
         ),
         this.handoverPageShiftViewService.resolveDisplayOperatorInfo(
           membership,
@@ -58,6 +76,7 @@ export class HandoverPageShiftService {
         this.handoverPageShiftViewService.findReceiverCandidate(
           membership.storeId,
           shiftRecord,
+          nextShiftMemo,
         ),
       ]);
     const operationAccess = resolveHandoverOperationAccess({
@@ -74,6 +93,7 @@ export class HandoverPageShiftService {
         ownedShiftCompleted,
         receiverCandidate,
         ownedSelection,
+        nextShiftMemo,
       });
 
     return {
@@ -100,6 +120,7 @@ export class HandoverPageShiftService {
     ownedShiftCompleted: boolean;
     receiverCandidate: ResolvedHandoverPageShiftContext['receiverCandidate'];
     ownedSelection: OwnedShiftSelection;
+    nextShiftMemo: NextShiftLookupMemo;
   }): Promise<boolean> {
     const {
       membership,
@@ -108,6 +129,7 @@ export class HandoverPageShiftService {
       ownedShiftCompleted,
       receiverCandidate,
       ownedSelection,
+      nextShiftMemo,
     } = params;
     // 如果用户完全没有个人排班（既无可操作班次，也无自有班次），
     // 且用户未关联员工（如新注册用户），不应展示全店其他员工的班次数据，
@@ -190,6 +212,7 @@ export class HandoverPageShiftService {
         membership.storeId,
         targetShift,
         nextLookupEmployeeId,
+        nextShiftMemo,
       );
 
     return nextShiftRecord === null;

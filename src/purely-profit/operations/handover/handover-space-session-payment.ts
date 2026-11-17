@@ -200,8 +200,22 @@ const assignOrderGroup = (
   ];
   if (ordered.length === 0) return;
 
+  // 行金额只算一次：同一行先参与「消费总额累加」，再参与「资金冲抵循环」，
+  // 原实现两处各算一遍（每次都要走 Money.fromDbCents + multiply），
+  // 在满台次/大班次下是纯重复的 Decimal 开销。
+  const lineCentsById = new Map<number, number>();
+  const resolveLineCents = (item: PaymentOrderItemSource): number => {
+    const cached = lineCentsById.get(item.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const cents = Math.max(lineAmountCents(item), 0);
+    lineCentsById.set(item.id, cents);
+    return cents;
+  };
+
   const consumptionCents = ordered.reduce(
-    (sum, item) => sum + Math.max(lineAmountCents(item), 0),
+    (sum, item) => sum + resolveLineCents(item),
     0,
   );
   const paidCents =
@@ -219,7 +233,7 @@ const assignOrderGroup = (
   let fundIndex = 0;
   let fundRemainCents = funds.length > 0 ? funds[0].amountCents : 0;
   for (const item of ordered) {
-    let remainingCents = Math.max(lineAmountCents(item), 0);
+    let remainingCents = resolveLineCents(item);
     let covering: FundingEntry | null = funds[fundIndex] ?? null;
 
     while (remainingCents > 0 && fundIndex < funds.length) {

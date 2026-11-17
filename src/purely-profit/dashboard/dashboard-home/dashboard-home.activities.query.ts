@@ -1,14 +1,28 @@
+import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  getShanghaiDayEndMs,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
+import {
+  DAY_MS,
   MAX_INACTIVE_VIP_COUNT,
   MAX_RECENT_ORDER_COUNT,
+  MAX_TODAY_RECHARGE_COUNT,
   RECENT_ORDER_MIN_COUNT,
   RECENT_ORDER_WINDOW_HOURS,
+  REVENUE_DECLINE_CONSECUTIVE_DAYS,
+  UPCOMING_RESERVATION_WITHIN_HOURS,
+  VIP_INACTIVE_THRESHOLD_DAYS,
 } from './dashboard-home.constants';
 import {
   DASHBOARD_HOME_RECENT_ORDER_SELECT,
+  DASHBOARD_HOME_TODAY_RECHARGE_SELECT,
+  DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT,
   type DailyRevenueRow,
+  type DashboardHomeActivitiesLiveChunk,
   type InactiveVipRow,
+  type LoadDashboardHomeActivitiesDataParams,
   type RecentOrderRow,
 } from './dashboard-home.types';
 
@@ -43,6 +57,8 @@ export async function loadRecentDailyRevenue(
     FROM sale_order_items soi
     INNER JOIN sale_orders so ON so.id = soi.order_id
     WHERE so.store_id = ${storeId}
+      -- 补齐明细侧门店条件，命中 (store_id, order_id) 部分索引
+      AND soi.store_id = ${storeId}
       AND so.date >= ${new Date(rangeStart)}
       AND so.date <= ${new Date(now)}
       AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
@@ -137,4 +153,106 @@ export async function loadInactiveVips(
     ORDER BY mc.last_visit_at ASC NULLS FIRST, m.updated_at DESC
     LIMIT ${MAX_INACTIVE_VIP_COUNT}
   `;
+}
+
+/**
+ * 动态流两块查询共用的时间窗口。
+ *
+ * 集中计算是为了避免分块后两块各算一套「今天零点 / 三天后 / 回溯起点」，
+ * 一旦某处口径改动而另一处漏改，就会出现「今日营收」与「今日会员」跨天的错位。
+ */
+export interface DashboardHomeActivitiesTimeWindows {
+  todayStart: number;
+  todayEnd: number;
+  upcomingLeaveEnd: number;
+  reservationWindowEnd: number;
+  vipInactiveThreshold: Date;
+  revenueLookbackStart: number;
+}
+
+export function resolveActivitiesTimeWindows(
+  now: number,
+): DashboardHomeActivitiesTimeWindows {
+  const todayStart = getShanghaiDayStartMs(now);
+
+  return {
+    todayStart,
+    todayEnd: getShanghaiDayEndMs(now),
+    // 请假提醒覆盖「今天起 3 天内」
+    upcomingLeaveEnd: getShanghaiDayEndMs(todayStart + DAY_MS * 3),
+    reservationWindowEnd:
+      now + UPCOMING_RESERVATION_WITHIN_HOURS * 60 * 60 * 1000,
+    vipInactiveThreshold: new Date(now - VIP_INACTIVE_THRESHOLD_DAYS * DAY_MS),
+    revenueLookbackStart: getShanghaiDayStartMs(
+      now - (REVENUE_DECLINE_CONSECUTIVE_DAYS + 1) * DAY_MS,
+    ),
+  };
+}
+
+/**
+ * 实时块：带「今天」语义、商家一两分钟内就能感知的数据，用短 TTL 独立缓存。
+ *
+ * 与状态块分开缓存，是为了让「今日充值 / 最近订单」这类强时效数据保持 45s
+ * 刷新，而不必把库存、账款、促销等分钟级数据一起重算。
+ */
+export async function loadDashboardHomeActivitiesLiveChunk(
+  prisma: PrismaService,
+  params: LoadDashboardHomeActivitiesDataParams,
+): Promise<DashboardHomeActivitiesLiveChunk> {
+  const { storeId, now } = params;
+  const { todayStart, todayEnd, reservationWindowEnd, revenueLookbackStart } =
+    resolveActivitiesTimeWindows(now);
+
+  const [
+    todayNewMemberCount,
+    todayRecharges,
+    upcomingReservations,
+    dailyRevenueRows,
+    recentOrders,
+  ] = await Promise.all([
+    prisma.member.count({
+      where: {
+        storeId,
+        createdAt: {
+          gte: new Date(todayStart),
+          lte: new Date(todayEnd),
+        },
+      },
+    }),
+    prisma.memberRechargeLog.findMany({
+      where: {
+        storeId,
+        createdAt: {
+          gte: new Date(todayStart),
+          lte: new Date(todayEnd),
+        },
+      },
+      select: DASHBOARD_HOME_TODAY_RECHARGE_SELECT,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: MAX_TODAY_RECHARGE_COUNT,
+    }),
+    prisma.spaceReservation.findMany({
+      where: {
+        storeId,
+        status: PrismaSpaceReservationStatus.pending,
+        reservedAt: {
+          gte: new Date(now),
+          lte: new Date(reservationWindowEnd),
+        },
+      },
+      select: DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT,
+      orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
+      take: 3,
+    }),
+    loadRecentDailyRevenue(prisma, storeId, revenueLookbackStart, now),
+    loadRecentOrders(prisma, storeId, todayStart, now),
+  ]);
+
+  return {
+    todayNewMemberCount,
+    todayRecharges,
+    upcomingReservations,
+    dailyRevenueRows,
+    recentOrders,
+  };
 }

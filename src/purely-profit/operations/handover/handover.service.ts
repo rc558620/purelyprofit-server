@@ -72,6 +72,10 @@ export class HandoverService {
   ): Promise<HandoverPageResponseDto> {
     this.triggerAutoCheckoutInBackground(user, 'handover:page');
 
+    // 缓存维度含 userId：响应里 canOperate / operationBlockedReason /
+    // shiftInfo.operatorName / receiverName 是身份裁决结果，同店不同账号不可共享。
+    // 取舍与「不拆两层缓存」的理由见 handover.cache-keys.ts 的完整说明；
+    // 写操作后由 invalidateHandoverPageCache 按门店粒度整体失效，保证 canOperate 立即翻转。
     const cacheKey = buildHandoverPageCacheKey({
       storeId: ensureMembershipStoreId(user),
       userId: user.id,

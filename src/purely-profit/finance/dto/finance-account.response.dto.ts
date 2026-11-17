@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -124,4 +125,19 @@ export class PaginatedFinanceAccountsResponseDto {
   @ValidateNested()
   @Type(() => PaginationMetaDto)
   meta: PaginationMetaDto;
+
+  @ApiProperty({
+    description: '是否还有下一页（恒等于 nextCursor 非空）',
+    example: false,
+  })
+  @IsBoolean({ message: 'hasMore 必须是布尔值' })
+  hasMore: boolean;
+
+  @ApiProperty({
+    description:
+      '下一页游标，null 表示已到底；原样回传给下次请求的 cursor 参数',
+    type: String,
+    nullable: true,
+  })
+  nextCursor: string | null;
 }

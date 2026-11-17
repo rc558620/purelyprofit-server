@@ -1,9 +1,7 @@
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { withDerivedAccountFields } from './finance-account.domain';
 import { DAY_MS } from './finance.constants';
 import { getShanghaiDayStartMs } from './finance-date.utils';
-import { buildPaginationState } from './finance-pagination.utils';
 import { makeShanghaiMs } from '../../shared/shanghai-time.utils';
 import type {
   FinanceAccountRecordWithAmount,
@@ -22,7 +20,7 @@ const ZERO_MONEY = 0; // Step 3: Int（分）
  * 逾期时点：到期日当天仍属正常，次日零点起才算逾期。
  * dueDate 为到期日零点时间戳，故判定为 dueDate + DAY_MS <= now。
  */
-function getOverdueAtMs(now: number): number {
+export function getOverdueAtMs(now: number): number {
   return now - DAY_MS;
 }
 
@@ -118,7 +116,7 @@ export function buildUpcomingDueAccountWhere(params: {
   };
 }
 
-const financeAccountRecordSelect = {
+export const financeAccountRecordSelect = {
   id: true,
   type: true,
   category: true,
@@ -176,7 +174,7 @@ function getDateRangeFromQuery(
   return null;
 }
 
-function buildFinanceAccountWhere(
+export function buildFinanceAccountWhere(
   storeId: number,
   query: FinanceAccountsListQueryInput,
   now: number,
@@ -227,51 +225,6 @@ function buildFinanceAccountWhere(
   return conditions.length === 1 ? conditions[0] : { AND: conditions };
 }
 
-export async function queryAccountRecords(
-  prisma: PrismaService,
-  storeId: number,
-  query: FinanceAccountsListQueryInput,
-): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
-  const where = buildFinanceAccountWhere(storeId, query, Date.now());
-  const pageState = buildPaginationState(query.page, query.pageSize);
-
-  const [total, records] = await Promise.all([
-    prisma.financeAccountRecord.count({ where }),
-    prisma.financeAccountRecord.findMany({
-      where,
-      // 按到期日升序：最早到期（即已逾期）的排最前，无到期日的排在最后
-      // （PostgreSQL ASC 默认 NULLS LAST）。
-      // 不按 status 排：status 是写入时的派生快照，且 enum 声明顺序
-      // （pending<partial<settled<overdue）会把逾期排到最后，与业务优先级相反。
-      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-      select: financeAccountRecordSelect,
-      skip: (pageState.page - 1) * pageState.pageSize,
-      take: pageState.pageSize,
-    }),
-  ]);
-
-  // 展示层仍通过 withDerivedAccountFields 兜底，确保 remaining 和 status 与事实一致
-  const derivedRecords = records.map((record) =>
-    withDerivedAccountFields(record),
-  );
-
-  return {
-    items: derivedRecords,
-    total,
-  };
-}
-
-export async function queryAccountStatsRows(
-  prisma: PrismaService,
-  storeId: number,
-): Promise<FinanceAccountRecordWithAmount[]> {
-  return prisma.financeAccountRecord.findMany({
-    where: { storeId },
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    select: financeAccountRecordSelect,
-  });
-}
-
 export async function createAccountRecordEntity(
   prisma: PrismaService,
   data: Prisma.FinanceAccountRecordCreateArgs['data'],
@@ -292,19 +245,6 @@ export async function findAccountRecord(
       storeId: params.storeId,
     },
     select: financeAccountRecordSelect,
-  });
-}
-
-export async function findAccountRecordId(
-  prisma: PrismaService,
-  params: { storeId: number; recordId: number },
-): Promise<{ id: number } | null> {
-  return prisma.financeAccountRecord.findFirst({
-    where: {
-      id: params.recordId,
-      storeId: params.storeId,
-    },
-    select: { id: true },
   });
 }
 
@@ -345,12 +285,26 @@ export async function updateAccountRecordSettlement(
   });
 }
 
-export async function deleteAccountRecordEntity(
+/**
+ * 删除「未结清」账款：把「已结清不可删」下推成删除条件，单条 SQL 完成校验与删除。
+ *
+ * 原实现是 findFirst → 内存派生状态 → deleteMany 的读后写：
+ * 期间若并发登记收付把剩余金额清零，已结清的账款仍会被删掉。
+ * 这里用 `remaining > 0` 作为前置条件，影响行数即判定结果，不再有竞态窗口。
+ *
+ * @returns true 表示删除成功；false 表示记录不存在或已结清，由调用方区分 404 / 409
+ */
+export async function deleteOpenAccountRecordEntity(
   prisma: PrismaService,
-  storeId: number,
-  recordId: number,
-): Promise<void> {
-  await prisma.financeAccountRecord.deleteMany({
-    where: { id: recordId, storeId },
+  params: { storeId: number; recordId: number },
+): Promise<boolean> {
+  const result = await prisma.financeAccountRecord.deleteMany({
+    where: {
+      id: params.recordId,
+      storeId: params.storeId,
+      remaining: { gt: ZERO_MONEY },
+    },
   });
+
+  return result.count > 0;
 }

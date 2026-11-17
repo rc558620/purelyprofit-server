@@ -7,6 +7,8 @@ import {
 } from './cache-keys';
 import { businessAnalysisCachePrewarmProvider } from './cache-prewarm-business-analysis.provider';
 import { financeOverviewCachePrewarmProvider } from './cache-prewarm-finance-overview.provider';
+import { financeReportCachePrewarmProvider } from './cache-prewarm-finance-report.provider';
+import { buildFinanceReportCacheKey } from './cache-keys';
 import { marketingOverviewCachePrewarmProvider } from './cache-prewarm-marketing-overview.provider';
 import { membersMetaCachePrewarmProvider } from './cache-prewarm-members-meta.provider';
 import { membersOverviewCachePrewarmProvider } from './cache-prewarm-members-overview.provider';
@@ -180,5 +182,67 @@ describe('cache prewarm providers', () => {
     expect(result.hitCount).toBe(1);
     expect(result.refreshedCount).toBe(1);
     expect(result.invalidCount).toBe(0);
+  });
+
+  it('financeReport provider 按 key 里的 part 定向重建，不会把 summary 写进 rows', async () => {
+    const financeOverviewService = {
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
+      warmReportCache: jest.fn(() => Promise.resolve()) as never,
+    };
+    const provider = financeReportCachePrewarmProvider({
+      financeOverviewService,
+    });
+
+    const result = await provider.prewarm(
+      [
+        buildFinanceReportCacheKey(18, { period: 'month' }, 'summary'),
+        buildFinanceReportCacheKey(18, { period: 'month' }, 'rows'),
+        // 拆分前的旧 key（无 part 段）不可预热，必须计入 invalid 而不是猜一个 part
+        'profit:finance:report:store:18:scope:owner:period:month:year:na:customDate:na:rangeStart:na:rangeEnd:na',
+      ],
+      { concurrency: 1 },
+    );
+
+    expect(provider.category).toBe('financeReport');
+    expect(financeOverviewService.warmReportCache).toHaveBeenNthCalledWith(
+      1,
+      18,
+      {
+        period: 'month',
+        year: undefined,
+        customDate: undefined,
+        rangeStartDate: undefined,
+        rangeEndDate: undefined,
+      },
+      'owner',
+      'summary',
+    );
+    expect(financeOverviewService.warmReportCache).toHaveBeenNthCalledWith(
+      2,
+      18,
+      expect.objectContaining({ period: 'month' }),
+      'owner',
+      'rows',
+    );
+    expect(result.refreshedCount).toBe(2);
+    expect(result.invalidCount).toBe(1);
+  });
+
+  it('financeReport provider 的 resolveStoreId 依赖 key 解析，非法 key 归 0 号桶', () => {
+    const provider = financeReportCachePrewarmProvider({
+      financeOverviewService: {
+        warmOverviewCache: jest.fn() as never,
+        warmReportCache: jest.fn() as never,
+      },
+    });
+
+    expect(
+      provider.resolveStoreId?.(
+        buildFinanceReportCacheKey(18, { period: 'month' }, 'rows'),
+      ),
+    ).toBe(18);
+    expect(
+      provider.resolveStoreId?.('profit:finance:report:store:x'),
+    ).toBeNull();
   });
 });

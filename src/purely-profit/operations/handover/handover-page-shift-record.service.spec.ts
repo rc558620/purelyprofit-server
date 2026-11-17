@@ -1,7 +1,10 @@
 // 交班班次查询回归用例：未交班班次不得因固定回溯窗口被静默丢弃
 import { EmployeeShiftType } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
-import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
+import {
+  HandoverPageShiftRecordService,
+  type NextShiftLookupMemo,
+} from './handover-page-shift-record.service';
 import type { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import type { ShiftRecordRow } from './handover.shared';
 
@@ -99,5 +102,25 @@ describe('HandoverPageShiftRecordService - 未交班班次长期保留', () => {
     const result = await service.findCurrentShiftRecord(42, null, referenceAt);
 
     expect(result).toBeNull();
+  });
+
+  // 交班页「有没有接班人」与「有没有后续班次」落到同一查询参数，
+  // 请求级 memo 必须让第二次直接复用第一次的结果，否则白跑一次 DB 往返。
+  it('同一请求内相同 (班次, 员工范围) 的后续班次查询只打一次 DB', async () => {
+    const memo: NextShiftLookupMemo = new Map();
+
+    await service.findNextShiftRecord(42, historicalShift, undefined, memo);
+    await service.findNextShiftRecord(42, historicalShift, null, memo);
+
+    expect(findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('员工范围不同时不复用后续班次缓存', async () => {
+    const memo: NextShiftLookupMemo = new Map();
+
+    await service.findNextShiftRecord(42, historicalShift, undefined, memo);
+    await service.findNextShiftRecord(42, historicalShift, 7, memo);
+
+    expect(findMany).toHaveBeenCalledTimes(2);
   });
 });

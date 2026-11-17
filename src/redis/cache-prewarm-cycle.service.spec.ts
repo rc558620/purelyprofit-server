@@ -17,6 +17,9 @@ import { RedisService } from './redis.service';
 type RedisServiceMock = {
   isReady: jest.Mock;
   scanKeysByPattern: jest.Mock;
+  /** 预热收敛会批量读取 OBJECT IDLETIME；返回空 replies 表示「均视为刚访问」 */
+  executeReadPipeline: jest.Mock;
+  delMany: jest.Mock;
 };
 
 type DashboardHomeServiceMock = {
@@ -55,6 +58,8 @@ function createRedisServiceMock(): RedisServiceMock {
   return {
     isReady: jest.fn().mockReturnValue(true),
     scanKeysByPattern: jest.fn(),
+    executeReadPipeline: jest.fn().mockResolvedValue({ ok: true, replies: [] }),
+    delMany: jest.fn().mockResolvedValue(0),
   };
 }
 

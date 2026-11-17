@@ -2,6 +2,7 @@ import { EmployeeShiftType } from '@prisma/client';
 import {
   LATE_SHIFT_CASHIER_2,
   MORNING_SHIFT_CASHIER_1,
+  MORNING_SHIFT_EMPLOYEE_A,
   setupHandoverPageSpec,
 } from './handover-page.spec-helpers';
 import { createManagerUser } from './hover.spec-helpers';
@@ -163,6 +164,27 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
     expect(result.operationBlockedReason).toBe(
       '当前时段没有该收银员本人班次，暂不允许操作',
     );
+  });
+
+  it('同一 shift 在单次页面请求内只查询一次交班状态', async () => {
+    setSystemTime('2026-06-02T10:00:00');
+    const cashierUser = createCashierUser();
+    // 收银员本人班次 = 全店当前班次 = 请求班次（同一 shift id），
+    // 班次选择器与页面上下文都会对同一 shift 判定交班状态。
+    prismaService.employeeShift.findFirst.mockResolvedValue(
+      MORNING_SHIFT_EMPLOYEE_A,
+    );
+    prismaService.employeeShift.findMany.mockResolvedValue([
+      MORNING_SHIFT_EMPLOYEE_A,
+    ]);
+    mockEmptySaleOrderItems();
+
+    await ctx.service.getHandoverPage(cashierUser, {
+      shiftType: EmployeeShiftType.morning,
+    });
+
+    // 请求级 memo 生效：同一 shift 只 count 一次（改造前该请求会 count 2 次）
+    expect(prismaService.storeHandoverRecord.count).toHaveBeenCalledTimes(1);
   });
 
   it('上一个班次未交班时应继续展示该未交班班次', async () => {

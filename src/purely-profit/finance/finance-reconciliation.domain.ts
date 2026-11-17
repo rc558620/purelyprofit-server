@@ -8,52 +8,54 @@ import type {
   FinanceReconciliationRecordWithItems,
 } from './finance.types';
 import { Money } from '../../shared/money.utils';
-import { getShanghaiMonthStartMs } from '../../shared/shanghai-time.utils';
+import type { FinanceReconciliationStatsRow } from './finance-reconciliation.query';
 import { trimOptionalString } from './finance-string.utils';
 
+/**
+ * 由 DB 聚合行组装对账统计卡。
+ *
+ * 状态计数、差异合计（已排除 draft 占位值）、本月新增全部由 SQL 算好，
+ * 本函数只做纯映射，不再持有对账记录与明细项。
+ */
 export function buildReconciliationStats(
-  records: FinanceReconciliationRecordWithItems[],
+  rows: FinanceReconciliationStatsRow[],
 ): FinanceReconciliationStatsDto {
-  const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
+  let totalCount = 0;
   let confirmedCount = 0;
   let discrepancyCount = 0;
   let adjustedCount = 0;
   let draftCount = 0;
+  let newThisMonth = 0;
   let totalDiffAmount = Money.zero();
 
-  for (const record of records) {
-    switch (record.status) {
+  for (const row of rows) {
+    totalCount += row.count;
+    newThisMonth += row.newThisMonth;
+    totalDiffAmount = totalDiffAmount.add(Money.fromDbCents(row.diffTotal));
+    switch (row.status) {
       case 'confirmed':
-        confirmedCount += 1;
+        confirmedCount += row.count;
         break;
       case 'discrepancy':
-        discrepancyCount += 1;
+        discrepancyCount += row.count;
         break;
       case 'adjusted':
-        adjustedCount += 1;
+        adjustedCount += row.count;
         break;
       case 'draft':
-        draftCount += 1;
+        draftCount += row.count;
         break;
-    }
-    // draft 的 diffAmount 是占位值（-bookNet），不计入真实差异总额
-    if (record.status !== 'draft') {
-      totalDiffAmount = totalDiffAmount.add(
-        Money.fromDbCents(record.diffAmount).abs(),
-      );
     }
   }
 
   return {
-    totalCount: records.length,
+    totalCount,
     confirmedCount,
     discrepancyCount,
     adjustedCount,
     draftCount,
     totalDiffAmount: totalDiffAmount.toOutputYuan(),
-    newThisMonth: records.filter(
-      (record) => record.createdAt.getTime() >= monthStart.getTime(),
-    ).length,
+    newThisMonth,
   };
 }
 

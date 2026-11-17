@@ -1,49 +1,52 @@
-import {
-  FinanceCashFlowCategory,
-  FinanceCashFlowDirection,
-  FinanceCashFlowPayment,
-  SpaceSessionStatus,
-  type Prisma,
-} from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { ShiftDateRange } from './handover.shared';
 import {
   SALE_ORDER_ITEM_SELECT,
-  SALE_ORDER_REFUND_SELECT,
-  SETTLED_SPACE_SESSION_SELECT,
-  buildCashFlowWhere,
   buildNonSpaceSessionOrderWhere,
   buildSaleOrderWhere,
 } from './handover-page-query.builders';
+import {
+  loadAdditionalRevenueSum,
+  loadPettyCashSum,
+  loadSaleOrderRefundRows,
+  loadScanOrderingRevenueSum,
+  loadSettledSpaceSessions,
+  loadSpaceRevenueSum,
+  loadStoreOwnerUserId,
+  sumSettledSpaceRevenueDbCents,
+  type CashFlowAmountSum,
+  type SaleOrderRefundDetailRow,
+  type SaleOrderRevenueSum,
+  type SettledSpaceSessionDetailRow,
+  type SpaceSessionRevenueSum,
+} from './handover-revenue.loaders';
 
-/** SaleOrder 收入聚合结果（_sum.totalRevenue，单位：分） */
-export type SaleOrderRevenueSum = Prisma.GetSaleOrderAggregateType<{
-  _sum: { totalRevenue: true };
-}>;
+/**
+ * 交班记录营收：本文件只做**编排**（哪几个查询、怎么并行），
+ * 单个查询的实现与返回类型全部收敛在 handover-revenue.loaders.ts，
+ * 与实时交班页共用同一份 loader，口径不可能分叉。
+ */
 
-/** SpaceSession 消费聚合结果（_sum.timeCost / _sum.itemsCost，单位：分） */
-export type SpaceSessionRevenueSum = Prisma.GetSpaceSessionAggregateType<{
-  _sum: { timeCost: true; itemsCost: true };
-}>;
-
-/** 现金流水金额聚合结果（_sum.amount，单位：分） */
-export type CashFlowAmountSum = Prisma.GetFinanceCashFlowRecordAggregateType<{
-  _sum: { amount: true };
-}>;
+/**
+ * 聚合 loader 与聚合结果类型在此转出，
+ * 让既有调用方（handover-records-revenue.service.ts 等）无需改 import 路径。
+ */
+export {
+  loadAdditionalRevenueSum,
+  loadScanOrderingRevenueSum,
+  loadSpaceRevenueSum,
+  sumSettledSpaceRevenueDbCents,
+  type CashFlowAmountSum,
+  type SaleOrderRevenueSum,
+  type SpaceSessionRevenueSum,
+  type SettledSpaceSessionDetailRow,
+  type SaleOrderRefundDetailRow,
+};
 
 /** 交班明细订单行（SALE_ORDER_ITEM_SELECT） */
 export type SaleOrderItemDetailRow = Prisma.SaleOrderItemGetPayload<{
   select: typeof SALE_ORDER_ITEM_SELECT;
-}>;
-
-/** 已结账空间会话行（SETTLED_SPACE_SESSION_SELECT） */
-export type SettledSpaceSessionDetailRow = Prisma.SpaceSessionGetPayload<{
-  select: typeof SETTLED_SPACE_SESSION_SELECT;
-}>;
-
-/** 扫码点餐退款行（SALE_ORDER_REFUND_SELECT） */
-export type SaleOrderRefundDetailRow = Prisma.SaleOrderRefundGetPayload<{
-  select: typeof SALE_ORDER_REFUND_SELECT;
 }>;
 
 /** 交班记录营收详情的数据源：一次取齐，service 只做口径拼装 */
@@ -51,80 +54,15 @@ export type RecordRevenueDetailSource = {
   /** 班次内全部订单明细（支付方式汇总用全量，展示用前 N 条） */
   orderItems: SaleOrderItemDetailRow[];
   orderCount: number;
-  spaceRevenue: SpaceSessionRevenueSum;
   scanOrderingRevenue: SaleOrderRevenueSum;
   additionalRevenue: SaleOrderRevenueSum;
   pettyCash: CashFlowAmountSum;
   settledSpaceSessions: SettledSpaceSessionDetailRow[];
   /** 扫码点餐退款明细（SaleOrderRefund） */
   saleOrderRefunds: SaleOrderRefundDetailRow[];
+  /** 门店主账号 user.id（store.ownerId）：操作员职位判定依据（主账号 = 紫） */
+  storeOwnerUserId: number | null;
 };
-
-/**
- * 非空间销售订单收入：仅统计 regular 销售单
- * （spaceSession IS NULL 且非扫码点餐订单），空间/扫码收入单独统计，避免重复计入。
- */
-export const loadAdditionalRevenueSum = (
-  prisma: PrismaService,
-  orderWhere: Prisma.SaleOrderWhereInput,
-): Promise<SaleOrderRevenueSum> =>
-  prisma.saleOrder.aggregate({
-    where: orderWhere,
-    _sum: { totalRevenue: true },
-  });
-
-/** 空间会话消费收入（已结账会话的 timeCost + itemsCost） */
-export const loadSpaceRevenueSum = (
-  prisma: PrismaService,
-  storeId: number,
-  shiftRange: ShiftDateRange,
-): Promise<SpaceSessionRevenueSum> =>
-  prisma.spaceSession.aggregate({
-    where: {
-      storeId,
-      status: SpaceSessionStatus.settled,
-      endTime: {
-        gte: shiftRange.startAt,
-        lte: shiftRange.endAt,
-      },
-    },
-    _sum: { timeCost: true, itemsCost: true },
-  });
-
-/** 扫码点餐订单（purelyClub 下单）收入：餐饮账号下计入 spaceRevenue（扫码点餐指标） */
-export const loadScanOrderingRevenueSum = (
-  prisma: PrismaService,
-  storeId: number,
-  shiftRange: ShiftDateRange,
-): Promise<SaleOrderRevenueSum> =>
-  prisma.saleOrder.aggregate({
-    where: {
-      storeId,
-      date: {
-        gte: shiftRange.startAt,
-        lte: shiftRange.endAt,
-      },
-      scanOrderId: { not: null },
-      totalRevenue: { gt: 0 },
-    },
-    _sum: { totalRevenue: true },
-  });
-
-/** 备用金：班次内现金 - 内部转账收入 */
-export const loadPettyCashSum = (
-  prisma: PrismaService,
-  storeId: number,
-  shiftRange: ShiftDateRange,
-): Promise<CashFlowAmountSum> =>
-  prisma.financeCashFlowRecord.aggregate({
-    where: {
-      ...buildCashFlowWhere(storeId, shiftRange),
-      direction: FinanceCashFlowDirection.income,
-      category: FinanceCashFlowCategory.transfer_in,
-      payment: FinanceCashFlowPayment.cash,
-    },
-    _sum: { amount: true },
-  });
 
 /** 班次内全部订单明细：合并原「支付聚合全量」与「展示前 N 条」两次查询 */
 export const loadShiftOrderItems = (
@@ -143,59 +81,14 @@ export const loadShiftOrderItems = (
   });
 
 /**
- * 已结账空间会话：退款 / 客人应付的数据源。
- * ⚠️ sessionRenewRecords 不可移除，退款与应付计算依赖续费独立累加。
- */
-export const loadSettledSpaceSessions = (
-  prisma: PrismaService,
-  storeId: number,
-  shiftRange: ShiftDateRange,
-): Promise<SettledSpaceSessionDetailRow[]> =>
-  prisma.spaceSession.findMany({
-    where: {
-      storeId,
-      status: SpaceSessionStatus.settled,
-      endTime: {
-        gte: shiftRange.startAt,
-        lte: shiftRange.endAt,
-      },
-    },
-    select: SETTLED_SPACE_SESSION_SELECT,
-  });
-
-/** 扫码点餐退款明细：交班明细中展示为负数退款行 */
-export const loadSaleOrderRefundRows = (
-  prisma: PrismaService,
-  storeId: number,
-  shiftRange: ShiftDateRange,
-): Promise<SaleOrderRefundDetailRow[]> =>
-  prisma.saleOrderRefund.findMany({
-    where: {
-      storeId,
-      refundedAt: {
-        gte: shiftRange.startAt,
-        lte: shiftRange.endAt,
-      },
-    },
-    select: SALE_ORDER_REFUND_SELECT,
-    orderBy: [{ refundedAt: 'desc' }, { id: 'desc' }],
-  });
-
-/** 读取门店主账号 user.id（store.ownerId）：操作员职位判定依据（主账号 = 紫） */
-export const loadStoreOwnerUserId = async (
-  prisma: PrismaService,
-  storeId: number,
-): Promise<number | null> => {
-  const store = await prisma.store.findUnique({
-    where: { id: storeId },
-    select: { ownerId: true },
-  });
-  return store?.ownerId ?? null;
-};
-
-/**
  * 取齐交班记录营收详情所需数据。
- * 前 7 个查询互不依赖，走 Promise.all；退款明细保持原有调用时序（置于其后）。
+ * 全部 8 个查询互不依赖（退款明细、门店主账号与其余聚合之间也没有先后关系），
+ * 统一走一次 Promise.all：DB 往返从「4 段串行」压缩为「1 段并行」。
+ *
+ * ⚠️ 空间管理营收【不再】单独跑 spaceSession.aggregate：
+ * loadSettledSpaceSessions 的 where 与之完全一致，行数据即唯一事实来源，
+ * 由 sumSettledSpaceRevenueDbCents 内存累加（与实时交班页同一函数）。
+ * 详情路径此前漏了这一点，等于同一个集合上跑两遍（聚合 + 取行）。
  */
 export const loadRecordRevenueDetailSource = async (
   prisma: PrismaService,
@@ -211,35 +104,31 @@ export const loadRecordRevenueDetailSource = async (
   const [
     orderItems,
     orderCount,
-    spaceRevenue,
-    scanOrderingRevenue,
-    additionalRevenue,
-    pettyCash,
-    settledSpaceSessions,
-  ] = await Promise.all([
-    loadShiftOrderItems(prisma, storeId, orderWhere),
-    prisma.saleOrder.count({ where: orderWhere }),
-    loadSpaceRevenueSum(prisma, storeId, shiftRange),
-    loadScanOrderingRevenueSum(prisma, storeId, shiftRange),
-    loadAdditionalRevenueSum(prisma, additionalOrderWhere),
-    loadPettyCashSum(prisma, storeId, shiftRange),
-    loadSettledSpaceSessions(prisma, storeId, shiftRange),
-  ]);
-
-  const saleOrderRefunds = await loadSaleOrderRefundRows(
-    prisma,
-    storeId,
-    shiftRange,
-  );
-
-  return {
-    orderItems,
-    orderCount,
-    spaceRevenue,
     scanOrderingRevenue,
     additionalRevenue,
     pettyCash,
     settledSpaceSessions,
     saleOrderRefunds,
+    storeOwnerUserId,
+  ] = await Promise.all([
+    loadShiftOrderItems(prisma, storeId, orderWhere),
+    prisma.saleOrder.count({ where: orderWhere }),
+    loadScanOrderingRevenueSum(prisma, storeId, shiftRange),
+    loadAdditionalRevenueSum(prisma, additionalOrderWhere),
+    loadPettyCashSum(prisma, storeId, shiftRange),
+    loadSettledSpaceSessions(prisma, storeId, shiftRange),
+    loadSaleOrderRefundRows(prisma, storeId, shiftRange),
+    loadStoreOwnerUserId(prisma, storeId),
+  ]);
+
+  return {
+    orderItems,
+    orderCount,
+    scanOrderingRevenue,
+    additionalRevenue,
+    pettyCash,
+    settledSpaceSessions,
+    saleOrderRefunds,
+    storeOwnerUserId,
   };
 };

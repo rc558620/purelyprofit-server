@@ -44,7 +44,7 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
       },
     });
 
-    const result = await service.countRecordRevenue(100, shiftRange, null);
+    const result = await service.countRecordRevenue(100, shiftRange);
 
     // 期望 500 + 650 = 1150，而非旧逻辑的 500
     expect(result).toBe(1150);
@@ -82,7 +82,7 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
       },
     ]);
 
-    const result = await service.countRecordRevenue(100, shiftRange, null);
+    const result = await service.countRecordRevenue(100, shiftRange);
 
     // 退款不应在此扣减：仍为 1150，而非 500 - 50 = 450
     expect(result).toBe(1150);
@@ -99,7 +99,7 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
       },
     });
 
-    const result = await service.countRecordRevenue(100, shiftRange, null);
+    const result = await service.countRecordRevenue(100, shiftRange);
     expect(result).toBeCloseTo(123.45, 2);
   });
 
@@ -111,7 +111,7 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
       _sum: { timeCost: null, itemsCost: null },
     });
 
-    const result = await service.countRecordRevenue(100, shiftRange, null);
+    const result = await service.countRecordRevenue(100, shiftRange);
     expect(result).toBe(0);
   });
 });

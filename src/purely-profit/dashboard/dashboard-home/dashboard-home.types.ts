@@ -341,6 +341,33 @@ export interface DashboardHomeActivitiesData {
   expiringCustodies: CustodyExpiringRow[];
 }
 
+/**
+ * 动态流「实时块」：只在当天内变化、商家隔一两分钟就能感知的数据。
+ *
+ * 分块依据是数据的变化半衰期，而不是页面上的排列顺序：
+ * 今日新增会员 / 今日充值 / 最近订单 / 近几日营收 / 未来预约都带「今天」语义，
+ * 用一个 45s 的短缓存块独立刷新，避免被秒级不变的状态类数据拖着一起重算。
+ */
+export type DashboardHomeActivitiesLiveChunk = Pick<
+  DashboardHomeActivitiesData,
+  | 'todayNewMemberCount'
+  | 'todayRecharges'
+  | 'recentOrders'
+  | 'dailyRevenueRows'
+  | 'upcomingReservations'
+>;
+
+/**
+ * 动态流「状态块」：账款、库存、促销、待办之类的业务状态，分钟级变化。
+ *
+ * 用 Omit 而不是显式枚举，是为了让 `DashboardHomeActivitiesData` 将来新增字段时
+ * 默认落进状态块（编译期强制有人决定它属于哪一块），不会静默丢字段。
+ */
+export type DashboardHomeActivitiesStableChunk = Omit<
+  DashboardHomeActivitiesData,
+  keyof DashboardHomeActivitiesLiveChunk
+>;
+
 export interface ActivityDraft {
   id: string;
   type: DashboardHomeActivityTypeValue;

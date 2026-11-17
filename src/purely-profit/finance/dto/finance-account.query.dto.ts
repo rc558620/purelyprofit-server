@@ -116,6 +116,18 @@ export class ListFinanceAccountsQueryDto extends PaginationQueryDto {
   @Type(() => Number)
   @IsInt({ message: '结束日期必须是整数' })
   customRangeEndDay?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。' +
+      '传入时优先于 page（兼容期保留 page/pageSize 走旧路径）',
+    example:
+      'v1:eyJrZXlzIjpbMTc2MzIyNTYwMDAwMCwxNzYzMjI1NjAwMDAwXSwiaWQiOjQyfQ',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(256, { message: 'cursor 长度不合法' })
+  cursor?: string;
 }
 
 export class CreateFinanceAccountDto {

@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
@@ -30,6 +29,7 @@ import {
   mapCashFlowRecord,
 } from './finance-cash-flow.domain';
 import { FinanceAccessService } from './finance-access.service';
+import type { FinanceRequestContext } from './finance-access.service';
 import {
   createCashFlowRecordEntity,
   deleteCashFlowRecordEntity,
@@ -37,12 +37,16 @@ import {
   queryCashFlowRecordPage,
   queryCashFlowStatsRows,
 } from './finance-cash-flow.query';
+import type { FinanceCashFlowStatsAggregate } from './finance-cash-flow.query';
 import {
   encodeFinanceCashFlowCursor,
   resolveFinanceCashFlowPaging,
 } from './finance-cash-flow.cursor';
 import type { FinanceCashFlowListPaging } from './finance-cash-flow.cursor';
-import { buildPaginatedCashFlowRecordsResponse } from './finance.mapper';
+import {
+  buildCashFlowQueryInput,
+  buildPaginatedCashFlowRecordsResponse,
+} from './finance.mapper';
 import type {
   FinanceCashFlowListQueryInput,
   FinanceCashFlowRecordWithAmount,
@@ -54,9 +58,10 @@ import {
   getPreviousCashFlowRange,
 } from './finance-range-cashflow.utils';
 import { trimOptionalString } from './finance-string.utils';
-
-const FINANCE_CASH_FLOW_CACHE_TTL_SECONDS = 60;
-const FINANCE_CASH_FLOW_REFRESH_AFTER_MS = 15_000;
+import {
+  FINANCE_LIST_CACHE_TTL_SECONDS,
+  FINANCE_LIST_REFRESH_AFTER_MS,
+} from './finance.constants';
 
 @Injectable()
 export class FinanceCashFlowService {
@@ -65,33 +70,15 @@ export class FinanceCashFlowService {
     private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
-    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listCashFlowRecords(
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const callerIsSubAccount =
-      user.currentMembership?.subjectType === 'sub_account';
-    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
-    const cashFlowQuery: FinanceCashFlowListQueryInput = {
-      period: query.period,
-      directionFilter: query.directionFilter,
-      customDayYear: query.customDayYear,
-      customDayMonth: query.customDayMonth,
-      customDayDay: query.customDayDay,
-      customRangeStartYear: query.customRangeStartYear,
-      customRangeStartMonth: query.customRangeStartMonth,
-      customRangeStartDay: query.customRangeStartDay,
-      customRangeEndYear: query.customRangeEndYear,
-      customRangeEndMonth: query.customRangeEndMonth,
-      customRangeEndDay: query.customRangeEndDay,
-      page: query.page,
-      pageSize: query.pageSize,
-    };
+    const context = await this.financeAccessService.getFinanceContext(user);
+    const scope = context.callerIsSubAccount ? 'sub_account' : 'owner';
+    const cashFlowQuery = buildCashFlowQueryInput(query);
     // 入参校验先于缓存与取数：cursor 非法时直接 400，不白跑一次查询
     const paging = resolveFinanceCashFlowPaging(query);
 
@@ -101,15 +88,10 @@ export class FinanceCashFlowService {
      * offset / 首页路径的缓存 key 与 TTL 完全不变（key 里只有 page/pageSize）。
      */
     if (paging.cursor) {
-      return this.buildCashFlowRecords(
-        storeId,
-        cashFlowQuery,
-        callerIsSubAccount,
-        paging,
-      );
+      return this.buildCashFlowRecords(context, cashFlowQuery, paging);
     }
 
-    const cacheKey = buildFinanceCashFlowListCacheKey(storeId, {
+    const cacheKey = buildFinanceCashFlowListCacheKey(context.storeId, {
       ...cashFlowQuery,
       scope,
     });
@@ -117,22 +99,12 @@ export class FinanceCashFlowService {
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_CASH_FLOW_REFRESH_AFTER_MS,
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
       loadValue: () =>
-        this.buildCashFlowRecords(
-          storeId,
-          cashFlowQuery,
-          callerIsSubAccount,
-          paging,
-        ),
+        this.buildCashFlowRecords(context, cashFlowQuery, paging),
       refreshValue: () =>
-        this.buildCashFlowRecords(
-          storeId,
-          cashFlowQuery,
-          callerIsSubAccount,
-          paging,
-        ),
+        this.buildCashFlowRecords(context, cashFlowQuery, paging),
     });
   }
 
@@ -140,27 +112,10 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<FinanceCashFlowStatsDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const callerIsSubAccount =
-      user.currentMembership?.subjectType === 'sub_account';
-    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
-    const cashFlowQuery: FinanceCashFlowListQueryInput = {
-      period: query.period,
-      directionFilter: query.directionFilter,
-      customDayYear: query.customDayYear,
-      customDayMonth: query.customDayMonth,
-      customDayDay: query.customDayDay,
-      customRangeStartYear: query.customRangeStartYear,
-      customRangeStartMonth: query.customRangeStartMonth,
-      customRangeStartDay: query.customRangeStartDay,
-      customRangeEndYear: query.customRangeEndYear,
-      customRangeEndMonth: query.customRangeEndMonth,
-      customRangeEndDay: query.customRangeEndDay,
-      page: query.page,
-      pageSize: query.pageSize,
-    };
-    const cacheKey = buildFinanceCashFlowStatsCacheKey(storeId, {
+    const context = await this.financeAccessService.getFinanceContext(user);
+    const scope = context.callerIsSubAccount ? 'sub_account' : 'owner';
+    const cashFlowQuery = buildCashFlowQueryInput(query);
+    const cacheKey = buildFinanceCashFlowStatsCacheKey(context.storeId, {
       ...cashFlowQuery,
       scope,
     });
@@ -168,12 +123,10 @@ export class FinanceCashFlowService {
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_CASH_FLOW_REFRESH_AFTER_MS,
-      loadValue: () =>
-        this.buildCashFlowStats(storeId, cashFlowQuery, callerIsSubAccount),
-      refreshValue: () =>
-        this.buildCashFlowStats(storeId, cashFlowQuery, callerIsSubAccount),
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
+      loadValue: () => this.buildCashFlowStats(context, cashFlowQuery),
+      refreshValue: () => this.buildCashFlowStats(context, cashFlowQuery),
     });
   }
 
@@ -181,8 +134,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     dto: CreateFinanceCashFlowRecordDto,
   ): Promise<FinanceCashFlowRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const context = await this.financeAccessService.getFinanceContext(user);
+    const storeId = context.storeId;
     const operatorStaffId = user.currentMembership?.staffId ?? null;
 
     assertCashFlowCategoryCanCreateManually(dto.category);
@@ -209,8 +162,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const context = await this.financeAccessService.getFinanceContext(user);
+    const storeId = context.storeId;
     const record = await this.ensureCashFlowRecordExists(storeId, recordId);
 
     if (record.saleOrderId !== null) {
@@ -222,18 +175,12 @@ export class FinanceCashFlowService {
   }
 
   private async buildCashFlowRecords(
-    storeId: number,
+    context: FinanceRequestContext,
     cashFlowQuery: FinanceCashFlowListQueryInput,
-    callerIsSubAccount: boolean,
     paging: FinanceCashFlowListPaging,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
     const range = getCashFlowFilterRange(cashFlowQuery);
-    const clampedRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        range,
-        callerIsSubAccount,
-      );
+    const clampedRange = context.clamp(range);
     const directionFilter = cashFlowQuery.directionFilter ?? 'all';
     const pageState = buildPaginationState(paging.page, paging.limit);
 
@@ -245,7 +192,7 @@ export class FinanceCashFlowService {
     }
 
     const where: Prisma.FinanceCashFlowRecordWhereInput = {
-      storeId,
+      storeId: context.storeId,
       date: {
         gte: new Date(clampedRange.start),
         lte: new Date(clampedRange.end),
@@ -270,17 +217,11 @@ export class FinanceCashFlowService {
   }
 
   private async buildCashFlowStats(
-    storeId: number,
+    context: FinanceRequestContext,
     cashFlowQuery: FinanceCashFlowListQueryInput,
-    callerIsSubAccount: boolean,
   ): Promise<FinanceCashFlowStatsDto> {
     const range = getCashFlowFilterRange(cashFlowQuery);
-    const clampedRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        range,
-        callerIsSubAccount,
-      );
+    const clampedRange = context.clamp(range);
 
     if (clampedRange.empty) {
       return {
@@ -294,36 +235,33 @@ export class FinanceCashFlowService {
 
     // 统计口径恒为全量收支，不跟随列表的 directionFilter（有意设计）：
     // 统计卡需同时展示收入与支出，若跟随筛选则另一侧恒为 0。
-    const currentRecords = await queryCashFlowStatsRows(this.prisma, {
-      storeId,
-      range: clampedRange,
-    });
-    const baseStats = buildCashFlowBaseStats(currentRecords);
+    // 本期与上期区间共用同一份会员历史窗口，上期裁剪后若为空则环比降级为 null。
     const previousRange = getPreviousCashFlowRange(range.period);
-    if (previousRange === null) {
+    const clampedPreviousRange = previousRange
+      ? context.clamp(previousRange)
+      : null;
+
+    const [currentRecords, previousRecords] = await Promise.all([
+      queryCashFlowStatsRows(this.prisma, {
+        storeId: context.storeId,
+        range: clampedRange,
+      }),
+      clampedPreviousRange === null || clampedPreviousRange.empty
+        ? Promise.resolve<FinanceCashFlowStatsAggregate[] | null>(null)
+        : queryCashFlowStatsRows(this.prisma, {
+            storeId: context.storeId,
+            range: clampedPreviousRange,
+          }),
+    ]);
+
+    const baseStats = buildCashFlowBaseStats(currentRecords);
+    if (previousRecords === null) {
       return {
         ...baseStats,
         compareLastPeriod: null,
       };
     }
 
-    const clampedPreviousRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        previousRange,
-        callerIsSubAccount,
-      );
-    if (clampedPreviousRange.empty) {
-      return {
-        ...baseStats,
-        compareLastPeriod: null,
-      };
-    }
-
-    const previousRecords = await queryCashFlowStatsRows(this.prisma, {
-      storeId,
-      range: clampedPreviousRange,
-    });
     const previousStats = buildCashFlowBaseStats(previousRecords);
 
     return {

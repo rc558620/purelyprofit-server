@@ -141,7 +141,7 @@ describe('DashboardHomeService', () => {
     }),
   };
 
-  /** 设置新增 8 类动态数据的默认 mock 返回值（全空/零值） */
+  /** 设置动态实时块相关表的默认 mock 返回值（全空/零值） */
   function setupEmptyNewActivityMocks(): void {
     prismaService.member.count.mockResolvedValue(0);
     prismaService.member.findMany.mockResolvedValue([]);
@@ -151,101 +151,12 @@ describe('DashboardHomeService', () => {
     prismaService.saleOrder.findMany.mockResolvedValue([]);
   }
 
-  /** 设置新增 8 类动态数据的有值 mock 返回值 */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function setupNonEmptyNewActivityMocks(): void {
-    prismaService.member.count.mockResolvedValue(3);
-    prismaService.memberRechargeLog.findMany.mockResolvedValue([
-      {
-        id: 10,
-        amount: 500,
-        createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
-      },
-    ]);
-    prismaService.spaceReservation.findMany.mockResolvedValue([
-      {
-        id: 11,
-        spaceId: 7,
-        guestName: '张三',
-        reservedAt: new Date(2026, 4, 14, 16, 0, 0, 0),
-        createdAt: new Date(2026, 4, 14, 10, 0, 0, 0),
-      },
-    ]);
-    // 即将到期账款 —— 复用 overdueAccounts 的查询，额外再返回一组 upcoming
-    prismaService.financeAccountRecord.findMany
-      // 第一次调用：overdueAccounts
-      .mockResolvedValueOnce([
-        {
-          id: 6,
-          counterpart: '张三供应商',
-          remaining: new Prisma.Decimal('200.00'),
-          dueDate: new Date(2026, 4, 13, 0, 0, 0, 0),
-          updatedAt: new Date(2026, 4, 14, 12, 0, 0, 0),
-        },
-      ])
-      // 第二次调用：upcomingAccounts
-      .mockResolvedValueOnce([
-        {
-          id: 15,
-          counterpart: '李四供应商',
-          remaining: new Prisma.Decimal('800.00'),
-          dueDate: new Date(2026, 4, 18, 0, 0, 0, 0),
-          updatedAt: new Date(2026, 4, 14, 11, 0, 0, 0),
-        },
-      ]);
-    prismaService.employeePayroll.findMany.mockResolvedValue([
-      {
-        id: 16,
-        employeeName: '王五',
-        month: '2026-05',
-        actualSalary: new Prisma.Decimal('5000.00'),
-        updatedAt: new Date(2026, 4, 14, 9, 0, 0, 0),
-      },
-    ]);
-    // 高价值会员久未到店 —— 已在上面 mock 了 member.count，此处不再覆盖
-    // 营收趋势 —— 返回连续 3 天下滑数据
-    prismaService.$queryRaw
-      .mockResolvedValueOnce([
-        {
-          current_revenue: new Prisma.Decimal('220.00'),
-          current_order_count: BigInt(2),
-          compare_revenue: new Prisma.Decimal('80.00'),
-          compare_order_count: BigInt(1),
-        },
-      ])
-      // trend rows
-      .mockResolvedValueOnce([
-        {
-          bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
-          revenue: new Prisma.Decimal('100.00'),
-        },
-        {
-          bucketAt: new Date(2026, 4, 14, 13, 0, 0, 0),
-          revenue: new Prisma.Decimal('120.00'),
-        },
-      ])
-      .mockResolvedValueOnce([]) // inactiveVips
-      // daily revenue rows for decline detection
-      .mockResolvedValueOnce([
-        {
-          bucketAt: new Date(2026, 4, 11, 0, 0, 0, 0),
-          revenue: new Prisma.Decimal('500.00'),
-        },
-        {
-          bucketAt: new Date(2026, 4, 12, 0, 0, 0, 0),
-          revenue: new Prisma.Decimal('400.00'),
-        },
-        {
-          bucketAt: new Date(2026, 4, 13, 0, 0, 0, 0),
-          revenue: new Prisma.Decimal('300.00'),
-        },
-        {
-          bucketAt: new Date(2026, 4, 14, 0, 0, 0, 0),
-          revenue: new Prisma.Decimal('200.00'),
-        },
-      ]);
-  }
-
+  /**
+   * `$queryRaw` 的桩按调用顺序排队：销售对比 → 成本对比 → 趋势 → 会员留存 →
+   * 每日营收。顺序由「stats 块 → trend 块 → 动态状态块 → 动态实时块」的结构决定，
+   * 用例里每次 `.mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])`
+   * 就是成本对比那一格，不要随手删掉，否则后面所有结果都会错位一格。
+   */
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 15, 0, 0, 0));
     jest.clearAllMocks();
@@ -295,6 +206,7 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(1),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
@@ -317,13 +229,6 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('220.00'),
         },
       ]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('30.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('20.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -420,7 +325,8 @@ describe('DashboardHomeService', () => {
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledTimes(
       2,
     );
-    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
+    // stats + trend + 动态状态块 + 动态实时块
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledTimes(4);
   });
 
   it('getOverview 不会把部分已收付的过期账款视为首页逾期提醒', async () => {
@@ -437,16 +343,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
@@ -503,21 +403,25 @@ describe('DashboardHomeService', () => {
         seriesNameActual: '实收',
         seriesNameForecast: '预测',
       })
+      // 动态状态块（先于实时块读取）
       .mockResolvedValueOnce({
         lowStockProducts: [],
         overdueAccounts: [],
         activePromotions: [],
         pendingWithdrawals: [],
         upcomingLeaves: [],
-        todayNewMemberCount: 0,
-        todayRecharges: [],
-        upcomingReservations: [],
         upcomingAccounts: [],
         draftPayrolls: [],
         inactiveVips: [],
+        expiringCustodies: [],
+      })
+      // 动态实时块
+      .mockResolvedValueOnce({
+        todayNewMemberCount: 0,
+        todayRecharges: [],
+        upcomingReservations: [],
         dailyRevenueRows: [],
         recentOrders: [],
-        expiringCustodies: [],
       });
     storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
       quota: 3,
@@ -586,16 +490,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
@@ -643,16 +541,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     // 第一次 overdueAccounts 返回空，第二次 upcomingAccounts 有数据
     prismaService.financeAccountRecord.findMany
@@ -696,16 +588,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -753,16 +639,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -814,16 +694,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     // 逾期账款 updatedAt 在 2 天前，超过 24 小时
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
@@ -868,6 +742,7 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows：连续 3 天下滑 500→400→300→200
@@ -889,13 +764,6 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('200.00'),
         },
       ]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -929,6 +797,7 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows：连续增长 200→300→400→500
@@ -950,13 +819,6 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('500.00'),
         },
       ]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -989,6 +851,7 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       // 只有今天和昨天有数据，中间缺失的不应算作下滑
@@ -1002,13 +865,6 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('300.00'),
         },
       ]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1041,6 +897,7 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       // inactiveVips: lastConsumeAt 为 null 的高价值会员（level 来自 mc.tier 映射：diamond→annual）
       .mockResolvedValueOnce([
@@ -1053,13 +910,6 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('0.00') },
-      });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1101,12 +951,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1198,12 +1046,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1283,12 +1129,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1328,12 +1172,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(1),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -1394,12 +1236,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(1),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -1510,12 +1350,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])
@@ -1562,12 +1400,10 @@ describe('DashboardHomeService', () => {
           compare_order_count: BigInt(0),
         },
       ])
+      .mockResolvedValueOnce([{ current_cost: 0, compare_cost: 0 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
-    prismaService.costRecord.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
-      .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } });
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany
       .mockResolvedValueOnce([])

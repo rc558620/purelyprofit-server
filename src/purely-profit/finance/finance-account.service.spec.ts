@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { FinanceAccountService } from './finance-account.service';
+import { encodeFinanceAccountCursor } from './finance-account.cursor';
 import {
   createFinanceAccountPrismaMock,
   createFinanceAccountProviders,
@@ -73,6 +74,8 @@ describe('FinanceAccountService', () => {
         total: 0,
         totalPages: 0,
       },
+      hasMore: false,
+      nextCursor: null,
     });
     expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -138,6 +141,8 @@ describe('FinanceAccountService', () => {
         total: 2,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -191,6 +196,8 @@ describe('FinanceAccountService', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
 
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
@@ -248,6 +255,8 @@ describe('FinanceAccountService', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
 
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
@@ -305,6 +314,8 @@ describe('FinanceAccountService', () => {
         total: 1,
         totalPages: 1,
       },
+      hasMore: false,
+      nextCursor: null,
     });
 
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
@@ -646,6 +657,32 @@ describe('FinanceAccountService', () => {
     ).toHaveBeenCalledWith(18);
   });
 
+  it('getAccountsStats 走单条聚合 SQL，不再全表拉取账款到内存', async () => {
+    // 40000 分 = 400 元，15000 分 = 150 元
+    prismaService.$queryRaw.mockResolvedValue([
+      {
+        receivable_remaining: 40000,
+        payable_remaining: 15000,
+        overdue_count: 2,
+        new_this_month_count: 5,
+      },
+    ]);
+
+    await expect(service.getAccountsStats(user)).resolves.toEqual({
+      totalReceivable: 400,
+      totalPayable: 150,
+      netReceivable: 250,
+      overdueCount: 2,
+      newThisMonth: 5,
+    });
+
+    // 四个指标一条 SQL 算完：不再有 groupBy / count 往返
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaService.financeAccountRecord.findMany).not.toHaveBeenCalled();
+    expect(prismaService.financeAccountRecord.groupBy).not.toHaveBeenCalled();
+    expect(prismaService.financeAccountRecord.count).not.toHaveBeenCalled();
+  });
+
   it('缺少当前门店时拒绝访问财务接口', async () => {
     const outsider: AuthenticatedUser = {
       ...user,
@@ -691,29 +728,23 @@ describe('FinanceAccountService', () => {
   });
 
   it('deleteAccount 允许删除已部分收付的账款', async () => {
-    prismaService.financeAccountRecord.findFirst.mockResolvedValue({
-      id: 60,
-      type: 'receivable',
-      category: 'sales_credit',
-      counterpart: '部分收付客户',
-      amount: 100000,
-      paidAmount: 30000,
-      remaining: 70000,
-      status: FinanceAccountStatus.partial,
-      dueDate: null,
-      date: new Date('2026-05-10T00:00:00.000Z'),
-      note: null,
-      createdAt: new Date('2026-05-10T00:00:00.000Z'),
-      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    prismaService.financeAccountRecord.deleteMany.mockResolvedValue({
+      count: 1,
     });
 
     await expect(service.deleteAccount(user, 60)).resolves.toBeUndefined();
+    // 「未结清才可删」直接下推为删除条件，单条 SQL 完成校验 + 删除
     expect(prismaService.financeAccountRecord.deleteMany).toHaveBeenCalledWith({
-      where: { id: 60, storeId: 18 },
+      where: { id: 60, storeId: 18, remaining: { gt: 0 } },
     });
+    // 命中即成功，不再为校验多查一次
+    expect(prismaService.financeAccountRecord.findFirst).not.toHaveBeenCalled();
   });
 
   it('deleteAccount 禁止删除已结清的账款', async () => {
+    prismaService.financeAccountRecord.deleteMany.mockResolvedValue({
+      count: 0,
+    });
     prismaService.financeAccountRecord.findFirst.mockResolvedValue({
       id: 61,
       type: 'receivable',
@@ -730,8 +761,132 @@ describe('FinanceAccountService', () => {
       updatedAt: new Date('2026-05-12T00:00:00.000Z'),
     });
 
-    await expect(service.deleteAccount(user, 61)).rejects.toBeInstanceOf(
+    await expect(service.deleteAccount(user, 61)).rejects.toThrow(
+      '已结清的账款不能删除',
+    );
+  });
+
+  it('deleteAccount 在并发收付把余额清零时拒绝删除', async () => {
+    // 条件删除没命中：记录在读取与删除之间被并发登记收付并结清
+    prismaService.financeAccountRecord.deleteMany.mockResolvedValue({
+      count: 0,
+    });
+    prismaService.financeAccountRecord.findFirst.mockResolvedValue({
+      id: 62,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '刚结清客户',
+      amount: 50000,
+      paidAmount: 50000,
+      remaining: 0,
+      status: FinanceAccountStatus.settled,
+      dueDate: null,
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-08T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    });
+
+    await expect(service.deleteAccount(user, 62)).rejects.toBeInstanceOf(
       ConflictException,
     );
+    expect(
+      cacheInvalidatorService.invalidateFinanceDerived,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('deleteAccount 在记录不存在时抛 NotFound', async () => {
+    prismaService.financeAccountRecord.deleteMany.mockResolvedValue({
+      count: 0,
+    });
+    prismaService.financeAccountRecord.findFirst.mockResolvedValue(null);
+
+    await expect(service.deleteAccount(user, 999)).rejects.toThrow(
+      '账款记录不存在',
+    );
+  });
+
+  describe('listAccounts 游标分页', () => {
+    const buildRow = (id: number, dueDate: Date | null) => ({
+      id,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: `客户-${id}`,
+      amount: 100000,
+      paidAmount: 0,
+      remaining: 100000,
+      status: FinanceAccountStatus.pending,
+      dueDate,
+      date: new Date('2026-05-09T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-09T12:00:00.000Z'),
+      updatedAt: new Date('2026-05-14T11:00:00.000Z'),
+    });
+
+    it('游标页不进缓存，只切回 limit 条并给出 nextCursor', async () => {
+      // 第 3 行是多取的探测行
+      prismaService.financeAccountRecord.findMany.mockResolvedValue([
+        buildRow(3, new Date('2026-05-01T00:00:00.000Z')),
+        buildRow(2, new Date('2026-05-02T00:00:00.000Z')),
+        buildRow(1, new Date('2026-05-03T00:00:00.000Z')),
+      ]);
+      prismaService.financeAccountRecord.count.mockResolvedValue(10);
+      const cursor = encodeFinanceAccountCursor({
+        dueDate: new Date('2026-04-30T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-14T11:00:00.000Z'),
+        id: 4,
+      });
+
+      const result = await service.listAccounts(user, {
+        cursor,
+        pageSize: 2,
+      });
+
+      expect(refreshableCache.getOrLoadRefreshableJson).not.toHaveBeenCalled();
+      expect(result.items.map((item) => item.id)).toEqual(['3', '2']);
+      expect(result.hasMore).toBe(true);
+      expect(result.nextCursor).not.toBeNull();
+      // 每页多取一行的探测约定：take = limit + 1，且游标路径不能再带 skip
+      expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 3 }),
+      );
+      expect(
+        prismaService.financeAccountRecord.findMany.mock.calls[0]?.[0],
+      ).not.toHaveProperty('skip');
+      // total 仍是「不含游标」的全量口径
+      expect(result.meta.total).toBe(10);
+    });
+
+    it('有到期日段未取满时补查 NULL 尾段，且两段顺序不被打破', async () => {
+      prismaService.financeAccountRecord.findMany
+        .mockResolvedValueOnce([
+          buildRow(9, new Date('2026-06-01T00:00:00.000Z')),
+        ])
+        .mockResolvedValueOnce([buildRow(1, null), buildRow(2, null)]);
+      prismaService.financeAccountRecord.count.mockResolvedValue(3);
+
+      const result = await service.listAccounts(user, {
+        cursor: encodeFinanceAccountCursor({
+          dueDate: new Date('2026-05-31T00:00:00.000Z'),
+          updatedAt: new Date('2026-05-14T11:00:00.000Z'),
+          id: 10,
+        }),
+        pageSize: 3,
+      });
+
+      expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledTimes(
+        2,
+      );
+      expect(
+        prismaService.financeAccountRecord.findMany.mock.calls[1]?.[0]?.where,
+      ).toEqual(
+        expect.objectContaining({
+          AND: [{ storeId: 18 }, expect.objectContaining({ dueDate: null })],
+        }),
+      );
+      expect(result.items.map((item) => item.id)).toEqual(['9', '1', '2']);
+      expect(result.hasMore).toBe(false);
+      expect(result.nextCursor).toBeNull();
+    });
   });
 });

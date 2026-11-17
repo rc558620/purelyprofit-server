@@ -11,7 +11,8 @@ export {
   buildProfitDashboardHomeCacheKey,
   buildProfitDashboardHomeStatsCacheKey,
   buildProfitDashboardHomeTrendCacheKey,
-  buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomeActivitiesLiveCacheKey,
+  buildProfitDashboardHomeActivitiesStableCacheKey,
   buildProfitDashboardHomePattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomeAllPattern,
@@ -123,6 +124,7 @@ export {
   buildFinanceReportPattern,
   buildFinanceReportAllPattern,
   parseFinanceOverviewCacheKey,
+  parseFinanceReportCacheKey,
 } from '../purely-profit/finance/finance.cache-keys';
 
 export {

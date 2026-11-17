@@ -72,6 +72,16 @@ export interface HistoryRangeClamper {
   clamp(range: HistoryRange): ClampedHistoryRange;
 }
 
+/**
+ * 会员访问上下文：一次读档产出的「规则快照 + 历史区间裁剪器」。
+ *
+ * 子账号不读档（`snapshot` 为 null），语义与 `ensureFeatureEnabled` /
+ * `getHistoryWindowStart` 对子账号的提前返回保持一致。
+ */
+export interface MembershipAccessContext extends HistoryRangeClamper {
+  snapshot: MembershipRuleSnapshot | null;
+}
+
 @Injectable()
 export class PlatformMembershipAccessService {
   private readonly logger = new Logger(PlatformMembershipAccessService.name);
@@ -201,6 +211,37 @@ export class PlatformMembershipAccessService {
       callerIsSubAccount,
     );
     return clamper.clamp(range);
+  }
+
+  /**
+   * 一次读档产出「规则快照 + 历史区间裁剪器」，供同一请求内的多处判定复用。
+   *
+   * 此前「功能开通校验」与「历史窗口裁剪」各自读一次会员档案：财务概览单请求
+   * 要读 3 次同一行（1 次功能门 + 2 次区间裁剪），报表导出场景达到 4 次。
+   * 合并为一次读档后，同一请求内无论判定多少次都只有 1 次查询。
+   */
+  async createMembershipAccessContext(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<MembershipAccessContext> {
+    if (callerIsSubAccount) {
+      return {
+        snapshot: null,
+        clamp: (range: HistoryRange) => clampHistoryRangeByWindow(range, null),
+      };
+    }
+
+    const snapshot = await this.getStoreRuleSnapshot(storeId);
+    const historyWindowStart =
+      snapshot.historyDays === null
+        ? null
+        : getHistoryWindowStartFromDays(snapshot.historyDays);
+
+    return {
+      snapshot,
+      clamp: (range: HistoryRange) =>
+        clampHistoryRangeByWindow(range, historyWindowStart),
+    };
   }
 
   /**

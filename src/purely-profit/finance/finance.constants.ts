@@ -8,6 +8,60 @@ import type {
 
 export const DAY_MS = 86_400_000;
 
+/**
+ * 财务域缓存策略（唯一事实来源）。
+ *
+ * 此前列表 / 统计 / 概览 / 报表四个服务各自定义一份 TTL 与刷新阈值，
+ * 调整口径要改四处，极易出现「同一个页面的列表与统计缓存寿命不一致」。
+ */
+export const FINANCE_LIST_CACHE_TTL_SECONDS = 60;
+export const FINANCE_LIST_REFRESH_AFTER_MS = 15_000;
+export const FINANCE_OVERVIEW_CACHE_TTL_SECONDS = 120;
+export const FINANCE_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+export const FINANCE_REPORT_CACHE_TTL_SECONDS = 120;
+export const FINANCE_REPORT_REFRESH_AFTER_MS = 30_000;
+
+/**
+ * 报表「明细行」缓存（与 summary 拆成两个 key）。
+ *
+ * 为什么要拆：一个 key 同时装 summary + 最多 5000 条流水行 + 200 条账款行时，
+ * 单 key 体积约 940 KB（实测：流水 5000 行 895 KB、账款 200 行 41 KB）。
+ * 每次 summary 刷新都要把这 940 KB 重新序列化、整体 GET/SET 一次，
+ * 且明细行（变动快）与概况（聚合结果）被迫共用同一个 TTL。
+ *
+ * 拆分后：
+ * - summary 保持 120s/30s，只装 7 个数字；
+ * - 明细行用更短 TTL，新增流水更快出现在表格里，且不再拖累 summary。
+ *
+ * 一致性边界：两个 part 的失效是按 pattern 一起清的（任何财务写操作都会清
+ * `profit:finance:report:store:<id>:*`），因此正常情况下二者同步重建；
+ * 只有当写入方绕过缓存失效时，才可能出现「明细已更新、概况仍是旧值」的窗口，
+ * 上限为 summary 的 TTL，且最迟在 refreshAfterMs 之后由后台刷新自愈。
+ */
+export const FINANCE_REPORT_ROWS_CACHE_TTL_SECONDS = 30;
+export const FINANCE_REPORT_ROWS_REFRESH_AFTER_MS = 10_000;
+
+/**
+ * 报表 CSV 导出的单批拉取行数。
+ *
+ * 导出不再受固定行数上限约束：按主排序键做 keyset 分批，任意时刻内存里只有一批；
+ * 该值兼顾「单次 SQL 往返成本」与「单批内存占用」。
+ */
+export const FINANCE_REPORT_EXPORT_BATCH_SIZE = 500;
+
+/**
+ * 财务报表「未结清账款」明细行上限。
+ *
+ * 明细行只用于渲染表格 / 打印 / 导出，金额汇总改由 SQL 聚合产出，
+ * 因此截断不再影响 `receivableTotal` / `payableTotal`（此前 5000 条上限会让
+ * 未结清超过 5000 条的门店金额被低估 90%+）。
+ *
+ * 取值依据（诊断库单店 66,220 条未结清实测）：
+ * 100 行 1.31 ms / 20 KB、200 行 1.64 ms / 41 KB、500 行 3.44 ms / 101 KB；
+ * 前端 DetailCard 一次性渲染全部行、无虚拟滚动，200 行是载荷与覆盖率之间的拐点。
+ */
+export const FINANCE_REPORT_ACCOUNT_ROW_LIMIT = 200;
+
 export const OVERVIEW_SOURCE_CONFIG = {
   sales: {
     label: '销售收入',

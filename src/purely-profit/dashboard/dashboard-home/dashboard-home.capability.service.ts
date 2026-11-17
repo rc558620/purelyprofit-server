@@ -78,6 +78,12 @@ export class DashboardHomeCapabilityService {
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<DashboardHomeCapabilitySnapshot> {
+    // 尚未解析出具体门店（storeId = 0）时快照是纯内存推导：不去读缓存、
+    // 也不写缓存，避免为「无门店」这个中间态制造一份注定过期的 Redis 键。
+    if (!Number.isFinite(storeId) || storeId <= 0) {
+      return this.buildSnapshot(user, storeId);
+    }
+
     const cacheKey = buildProfitDashboardHomeCapabilityCacheKey(
       user.id,
       storeId,
@@ -103,14 +109,30 @@ export class DashboardHomeCapabilityService {
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<DashboardHomeCapabilitySnapshot> {
+    // storeId 无效时三查（会员档案 + 子账号槽位 + 门店业态）必然查空，
+    // 结果与「无档案」等价：quota = 0、业态未知。这里直接短路，
+    // 省掉首页在多门店未选店瞬间的 3 条无效查询。
+    if (!Number.isFinite(storeId) || storeId <= 0) {
+      return this.assembleSnapshot(user, 0, null);
+    }
+
     // 子账号档案与门店业态互无依赖，并行下发而非串行等待
     const [subAccountSummary, businessMode] = await Promise.all([
       this.storeSubAccountService.getStoreSubAccountSummary(storeId),
       this.resolveStoreBusinessMode(storeId),
     ]);
+
+    return this.assembleSnapshot(user, subAccountSummary.quota, businessMode);
+  }
+
+  private assembleSnapshot(
+    user: AuthenticatedUser,
+    subAccountQuota: number,
+    businessMode: StoreBusinessMode | null,
+  ): DashboardHomeCapabilitySnapshot {
     const snapshot = this.subjectCapabilityService.buildSnapshot(
       user.currentMembership,
-      subAccountSummary.quota,
+      subAccountQuota,
     );
 
     const isCatering = businessMode === 'catering';

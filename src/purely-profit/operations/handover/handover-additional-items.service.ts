@@ -113,13 +113,12 @@ export class HandoverAdditionalItemsService {
     itemId: number,
   ): Promise<void> {
     const storeId = ensureMembershipStoreId(user);
-    await this.findAdditionalItemOrThrow(storeId, itemId);
-
-    // 前置检查：是否已被历史交班记录引用（保护数据完整性）
-    const referencedCount =
-      await this.prisma.storeHandoverAdditionalValue.count({
-        where: { itemId },
-      });
+    // 存在性校验与引用计数互不依赖，并行走：删除前少一次串行往返。
+    const [, referencedCount] = await Promise.all([
+      this.findAdditionalItemOrThrow(storeId, itemId),
+      // 前置检查：是否已被历史交班记录引用（保护数据完整性）
+      this.prisma.storeHandoverAdditionalValue.count({ where: { itemId } }),
+    ]);
     if (referencedCount > 0) {
       throw new ConflictException('该附加项已被历史交班记录引用，无法删除');
     }

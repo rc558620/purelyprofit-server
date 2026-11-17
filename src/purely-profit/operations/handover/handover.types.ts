@@ -6,15 +6,16 @@ import {
   StoreSubAccountRole,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import type { MoneyDbCentsInput } from '../../../shared/money.utils';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 import type { SaleStockSnapshotIndex } from './handover-stock-snapshot';
 
-/** 已结账的空间会话行数据（客人应付 / 退款展示项的数据源） */
+/** 已结账会话行（客人应付 / 退款展示项 / 空间营收）：金额为 MoneyDbCentsInput（Decimal 或 number） */
 export type SettledSpaceSessionRow = {
   id: number;
-  timeCost: number | null;
-  itemsCost: number;
-  prepaidAmount: number | null;
+  timeCost: MoneyDbCentsInput | null;
+  itemsCost: MoneyDbCentsInput;
+  prepaidAmount: MoneyDbCentsInput | null;
   prepaidGrouponCode: string | null;
   prepaidCustomerPaymentMethod: string | null;
   prepaidGrouponPlatform: string | null;
@@ -47,7 +48,7 @@ export type SettledSpaceSessionRow = {
   // 简化方向：不要试图"用 prepaidAmount 代替"或"去掉 sessionRenewRecords"，
   // 这会恢复 BUG-1/5/7 之前的错误行为。
   sessionRenewRecords: {
-    amount: number;
+    amount: MoneyDbCentsInput;
     paymentMethod: string;
   }[];
 };
@@ -119,6 +120,30 @@ export type HandoverRecordSnapshotFields = {
 
 export type HandoverRecordRow = Prisma.StoreHandoverRecordGetPayload<{
   include: typeof HANDOVER_RECORD_INCLUDE;
+}> &
+  HandoverRecordSnapshotFields;
+
+/**
+ * 交班历史「摘要」列表专用轻量 include：只带员工名，不带附加项。
+ *
+ * 摘要 DTO（HandoverRecordSummaryDto）只输出标量字段 + fromEmployee.name，
+ * 不展示附加项；沿用 HANDOVER_RECORD_INCLUDE 会为每页记录白拉
+ * additionalValues（每条约 3~8 行）并多出 additionalValues / item 两次查询。
+ * 需要附加项的列表/详情仍用 HANDOVER_RECORD_INCLUDE。
+ */
+export const HANDOVER_RECORD_SHIFT_INCLUDE =
+  Prisma.validator<Prisma.StoreHandoverRecordInclude>()({
+    fromEmployee: { select: { id: true, name: true } },
+    toEmployee: { select: { id: true, name: true } },
+  });
+
+/**
+ * 轻量查询结果：基础标量 + 快照字段 + 员工名。
+ * 所有「只读 record 基础字段」的服务都应接收该类型，
+ * 以便摘要链路复用同一套解析逻辑而不必为附加项买单。
+ */
+export type HandoverRecordShiftRow = Prisma.StoreHandoverRecordGetPayload<{
+  include: typeof HANDOVER_RECORD_SHIFT_INCLUDE;
 }> &
   HandoverRecordSnapshotFields;
 
@@ -278,8 +303,8 @@ export type RefundOrderRow = {
 /** 扫码点餐退款行（SaleOrderRefund）：拒绝订单退款后在交班明细中展示为负数退款行 */
 export type SaleOrderRefundRow = {
   id: number;
-  /** 退款金额（分） */
-  amount: number;
+  /** 退款金额（分）：loader 给 Prisma Decimal，夹具可能给 number */
+  amount: MoneyDbCentsInput;
   paymentMethod: SalesPaymentMethod;
   refundedAt: Date;
   saleOrder: {
@@ -334,8 +359,19 @@ export type RecordViewContext = {
   shiftRecord: RecordShiftSnapshot | null;
   shiftRange: ShiftDateRange;
   operatorName: string;
-  operatorStaffId: number | null;
   operatorAvatar: string | null;
+};
+
+/**
+ * 班次视图上下文：只含「班次归属 + 时间范围」，不含操作员档案。
+ *
+ * 详情页营收聚合只依赖 shiftRange，据此可与操作员档案查询并行发起，
+ * 不必等 employee → linkedStaff → user 三层头像查询跑完。
+ */
+export type RecordShiftContext = {
+  referenceDate: Date;
+  shiftRecord: RecordShiftSnapshot | null;
+  shiftRange: ShiftDateRange;
 };
 
 export type ReceiverCandidate = {

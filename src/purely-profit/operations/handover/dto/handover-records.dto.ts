@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -285,6 +286,7 @@ export class HandoverRecordSummaryQueryDto {
   @Type(() => Number)
   @IsInt({ message: '分页大小必须是整数' })
   @Min(1, { message: '分页大小不能小于 1' })
+  @Max(100, { message: '分页大小不能超过 100' })
   limit?: number;
 
   @ApiPropertyOptional({

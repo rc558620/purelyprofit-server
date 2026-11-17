@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { EmployeeShiftType, Prisma, StaffRole } from '@prisma/client';
-import { Money } from '../../../shared/money.utils';
+import { Money, type MoneyDbCentsInput } from '../../../shared/money.utils';
 import {
   addShanghaiDays,
   getShanghaiDayStartMs,
@@ -94,9 +94,13 @@ export const timeStringToMinutes = (timeStr: string): number => {
   return hours * 60 + (minutes || 0);
 };
 
-/** Prisma Decimal / DB 分金额 → 前端元金额（数字） */
+/**
+ * Prisma Decimal / DB 分金额 → 前端元金额（数字）。
+ * 入参统一为 MoneyDbCentsInput（Decimal 或 number）+ 历史 string 兼容：
+ * loader 返回的 Prisma payload 直接透传，Decimal → number 的转换点只在这里。
+ */
 export const dbCentsToOutputYuan = (
-  value: Prisma.Decimal | number | string | null | undefined,
+  value: MoneyDbCentsInput | string | null | undefined,
 ): number => {
   if (value === null || value === undefined) {
     return 0;

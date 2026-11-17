@@ -5,7 +5,6 @@ import { NewCustomerQuotaService } from '../../member/new-customer-quota/new-cus
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildCacheRefreshTaskKey,
-  buildProfitDashboardHomeActivitiesCacheKey,
   buildProfitDashboardHomeCacheKey,
   buildProfitDashboardHomeStatsCacheKey,
   buildProfitDashboardHomeTrendCacheKey,
@@ -23,10 +22,10 @@ import {
   type DashboardHomeOverviewWithoutCapability,
 } from './dashboard-home.mapper';
 import {
-  loadDashboardHomeActivitiesData,
   loadDashboardHomeStatsData,
   loadDashboardHomeTrendRows,
 } from './dashboard-home.query';
+import { loadDashboardHomeActivitiesChunks } from './dashboard-home.activities-cache';
 import {
   buildCompareRange,
   buildCurrentRange,
@@ -39,24 +38,12 @@ import type {
   DashboardHomeStatsData,
   TimeRange,
 } from './dashboard-home.types';
-import {
-  DashboardHomeCapabilityService,
-  type DashboardHomeCapabilitySnapshot,
-} from './dashboard-home.capability.service';
+import { DashboardHomeCapabilityService } from './dashboard-home.capability.service';
 
 const PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
 const PROFIT_DASHBOARD_HOME_STATS_REFRESH_AFTER_MS = 10_000;
 const PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS = 60;
 const PROFIT_DASHBOARD_HOME_TREND_REFRESH_AFTER_MS = 20_000;
-const PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS = 45;
-const PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS = 15_000;
-
-/** getOverview 解析出的请求上下文：门店、周期与随登录身份变化的能力快照 */
-interface DashboardHomeOverviewContext {
-  storeId: number;
-  period: DashboardHomePeriodValue;
-  capabilitySnapshot: DashboardHomeCapabilitySnapshot;
-}
 
 /** 概览主体组装入参：refresh 决定复用缓存回源还是强制刷新后回写缓存 */
 interface DashboardHomeOverviewComposeInput {
@@ -80,11 +67,58 @@ export class DashboardHomeService {
     user: AuthenticatedUser,
     queryDto: GetDashboardHomeOverviewQueryDto,
   ): Promise<DashboardHomeOverviewResponseDto> {
-    const { storeId, period, capabilitySnapshot } =
-      await this.resolveOverviewContext(user, queryDto);
+    const query = buildDashboardHomeQueryInput(queryDto);
+    const period = query.period ?? 'today';
+    const preliminaryStoreId =
+      user.currentMembership?.storeId ?? query.storeId ?? 0;
 
-    // 概览主体（不含 capability）按门店+周期整包缓存，命中即直接返回。
-    // capability 与登录用户相关，必须实时计算，不能进缓存。
+    // 能力快照与「预估门店」的概览缓存互不依赖，并行取：命中路径原本是
+    // 能力快照 → 权限裁决 → 概览缓存 三次串行往返，现在把最后一次提前。
+    // 若权限裁决换到了别的门店，这里多读的一次 Redis 直接丢弃（预估门店
+    // 通常就是当前门店，换店是少数路径）。
+    const [preliminaryCapability, preliminaryCachedOverview] =
+      await Promise.all([
+        this.capabilityService.loadSnapshot(user, preliminaryStoreId),
+        preliminaryStoreId > 0
+          ? this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
+              buildProfitDashboardHomeCacheKey(preliminaryStoreId, period),
+            )
+          : Promise.resolve(null),
+      ]);
+
+    const requiredPermission = preliminaryCapability.canAccessDashboardOverview
+      ? 'operation-entry:view'
+      : 'report:view';
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      query.storeId,
+      requiredPermission,
+      '无权查看该门店首页概览',
+    );
+
+    // 预估门店与真实门店一致（绝大多数请求）：直接用并行取到的缓存。
+    if (storeId === preliminaryStoreId) {
+      if (preliminaryCachedOverview) {
+        return {
+          ...preliminaryCachedOverview,
+          capability: preliminaryCapability,
+        };
+      }
+
+      const overview = await this.composeAndCacheOverview({
+        storeId,
+        period,
+        refresh: false,
+      });
+      return { ...overview, capability: preliminaryCapability };
+    }
+
+    // 权限裁决落到其它门店：按真实门店重算能力快照，再走常规缓存路径。
+    // （真实门店的能力不能复用 storeId=0 / 别的门店的快照，否则业态能力会被误降级）
+    const capabilitySnapshot = await this.capabilityService.loadSnapshot(
+      user,
+      storeId,
+    );
     const cachedOverview =
       await this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
         buildProfitDashboardHomeCacheKey(storeId, period),
@@ -106,42 +140,6 @@ export class DashboardHomeService {
     period: NonNullable<GetDashboardHomeOverviewQueryDto['period']> | 'today',
   ): Promise<DashboardHomeOverviewWithoutCapability> {
     return this.composeAndCacheOverview({ storeId, period, refresh: true });
-  }
-
-  /**
-   * 解析门店、周期与能力快照。
-   *
-   * 权限裁决只依赖身份维度，先按登录态自带的门店 ID 取一次能力快照；
-   * 真实门店 ID 与预估不一致时按真实值重算：否则会用 storeId=0 算出空能力，
-   * 导致业态能力（餐饮/空间/扫码点单）被错误降级为 false。
-   */
-  private async resolveOverviewContext(
-    user: AuthenticatedUser,
-    queryDto: GetDashboardHomeOverviewQueryDto,
-  ): Promise<DashboardHomeOverviewContext> {
-    const query = buildDashboardHomeQueryInput(queryDto);
-    const period = query.period ?? 'today';
-    const preliminaryStoreId =
-      user.currentMembership?.storeId ?? query.storeId ?? 0;
-    const preliminaryCapability = await this.capabilityService.loadSnapshot(
-      user,
-      preliminaryStoreId,
-    );
-    const requiredPermission = preliminaryCapability.canAccessDashboardOverview
-      ? 'operation-entry:view'
-      : 'report:view';
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      query.storeId,
-      requiredPermission,
-      '无权查看该门店首页概览',
-    );
-    const capabilitySnapshot =
-      storeId === preliminaryStoreId
-        ? preliminaryCapability
-        : await this.capabilityService.loadSnapshot(user, storeId);
-
-    return { storeId, period, capabilitySnapshot };
   }
 
   private async composeAndCacheOverview(
@@ -289,19 +287,20 @@ export class DashboardHomeService {
   /**
    * 动态数据只与门店和当前时间有关（与 period 无关），缓存键不带 period，
    * 否则同一份数据会被复制 5 份并回源 5 次。
+   *
+   * 内部按「实时 / 状态」两块分别缓存：实时块 45s，状态块 5 分钟，
+   * 稳态下把动态流的 DB 查询触发频率降下来，见 dashboard-home.activities-cache.ts。
    */
   private async loadActivitiesCache(
     storeId: number,
     now: number,
   ): Promise<DashboardHomeActivitiesData> {
-    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(storeId);
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,
-      refreshAfterMs: PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS,
-      loadValue: () =>
-        loadDashboardHomeActivitiesData(this.prisma, { storeId, now }),
+    return loadDashboardHomeActivitiesChunks({
+      cache: this.refreshableCache,
+      prisma: this.prisma,
+      storeId,
+      now,
+      refresh: false,
     });
   }
 
@@ -309,17 +308,12 @@ export class DashboardHomeService {
     storeId: number,
     now: number,
   ): Promise<DashboardHomeActivitiesData> {
-    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(storeId);
-    const data = await loadDashboardHomeActivitiesData(this.prisma, {
+    return loadDashboardHomeActivitiesChunks({
+      cache: this.refreshableCache,
+      prisma: this.prisma,
       storeId,
       now,
+      refresh: true,
     });
-    await this.refreshableCache.writeRefreshableJson(
-      cacheKey,
-      data,
-      PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,
-      PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS,
-    );
-    return data;
   }
 }

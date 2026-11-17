@@ -1,6 +1,10 @@
 import { buildSpaceConsumptionPaymentIndex } from './handover-space-session-payment';
 import { Prisma, SalesPaymentMethod } from '@prisma/client';
-import { Money, calcRatioPercent } from '../../../shared/money.utils';
+import {
+  Money,
+  calcRatioPercent,
+  type MoneyDbCentsInput,
+} from '../../../shared/money.utils';
 import type { HandoverPaymentItemDto } from './dto/handover-shared.dto';
 import {
   PAYMENT_METHOD_CONFIG,
@@ -111,10 +115,10 @@ export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
  */
 export const computeRefundAmountFromSessions = (
   sessions: Array<{
-    timeCost: number | null;
-    itemsCost: number;
-    prepaidAmount: number | null;
-    sessionRenewRecords: { amount: number }[];
+    timeCost: MoneyDbCentsInput | null;
+    itemsCost: MoneyDbCentsInput;
+    prepaidAmount: MoneyDbCentsInput | null;
+    sessionRenewRecords: { amount: MoneyDbCentsInput }[];
   }>,
 ): number => {
   let totalRefundCents = 0;
@@ -164,7 +168,7 @@ export const sumShiftRevenueYuan = (
  */
 export const computeRecordRefundAmount = (
   settledSpaceSessions: Parameters<typeof computeRefundAmountFromSessions>[0],
-  scanOrderingRefunds: readonly { amount: number | null }[],
+  scanOrderingRefunds: readonly { amount: MoneyDbCentsInput | null }[],
 ): number => {
   const scanOrderingRefundCents = scanOrderingRefunds.reduce(
     (sum, refund) => sum + Number(refund.amount ?? 0),

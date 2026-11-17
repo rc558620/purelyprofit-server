@@ -13,6 +13,7 @@ import type {
 import { HandoverRecordsDetailService } from './handover-records-detail.service';
 import {
   HANDOVER_RECORD_INCLUDE,
+  HANDOVER_RECORD_SHIFT_INCLUDE,
   mapRecordToDto,
   type HandoverRecordRow,
 } from './handover.shared';
@@ -86,10 +87,11 @@ export class HandoverRecordsQueryService {
       ],
     };
 
+    // 摘要列表不展示附加项：用轻量 include，省掉 additionalValues + item 两次查询
     const [records, total] = await Promise.all([
       this.prisma.storeHandoverRecord.findMany({
         where,
-        include: HANDOVER_RECORD_INCLUDE,
+        include: HANDOVER_RECORD_SHIFT_INCLUDE,
         orderBy: [
           { handoverAt: { sort: 'desc', nulls: 'last' } },
           { id: 'desc' },

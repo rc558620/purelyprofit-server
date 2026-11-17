@@ -200,6 +200,15 @@ export class HandoverConfirmService {
         { timeout: TX_TIMEOUT_MEDIUM },
       )) as HandoverRecordRow;
 
+      // 审计日志（规范 §13）：交班确认是关键状态流转，需可追踪操作人与目标班次。
+      this.logger.log(
+        `[handover] record_confirmed storeId=${membership.storeId} recordId=${
+          record.id
+        } shiftId=${sourceShiftRecord.id} actorStaffId=${
+          membership.staffId ?? 'null'
+        }`,
+      );
+
       return mapRecordToDto(record);
     } finally {
       if (lock) {

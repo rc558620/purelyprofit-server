@@ -9,6 +9,7 @@ import {
   createFinanceCashFlowPrismaMock,
   createFinanceCashFlowProviders,
   createFinanceSpecUser,
+  createMembershipAccessContextMock,
   createPlatformMembershipAccessServiceMock,
   useFinanceSpecFakeTimers,
   useFinanceSpecRealTimers,
@@ -54,11 +55,15 @@ describe('FinanceCashFlowService', () => {
   });
 
   it('listCashFlowRecords 在历史窗口被裁剪为空时返回空分页', async () => {
-    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
-      start: new Date('2026-05-01T00:00:00.000Z').getTime(),
-      end: new Date('2026-05-14T23:59:59.999Z').getTime(),
-      empty: true,
-    });
+    platformMembershipAccessService.createMembershipAccessContext.mockResolvedValueOnce(
+      createMembershipAccessContextMock({
+        clamp: () => ({
+          start: new Date('2026-05-01T00:00:00.000Z').getTime(),
+          end: new Date('2026-05-14T23:59:59.999Z').getTime(),
+          empty: true,
+        }),
+      }),
+    );
 
     await expect(
       service.listCashFlowRecords(user, {
@@ -146,18 +151,22 @@ describe('FinanceCashFlowService', () => {
         _count: { _all: 1 },
       },
     ]);
-    platformMembershipAccessService.clampHistoryRange
-      .mockImplementationOnce(
-        (_storeId: number, range: { start: number; end: number }) => ({
-          ...range,
-          empty: false,
-        }),
-      )
-      .mockResolvedValueOnce({
-        start: new Date('2026-04-01T00:00:00.000Z').getTime(),
-        end: new Date('2026-04-30T23:59:59.999Z').getTime(),
-        empty: true,
-      });
+    platformMembershipAccessService.createMembershipAccessContext.mockResolvedValueOnce(
+      createMembershipAccessContextMock({
+        // 本期正常，上期被历史窗口裁空
+        clamp: jest
+          .fn()
+          .mockImplementationOnce((range: { start: number; end: number }) => ({
+            ...range,
+            empty: false,
+          }))
+          .mockReturnValueOnce({
+            start: new Date('2026-04-01T00:00:00.000Z').getTime(),
+            end: new Date('2026-04-30T23:59:59.999Z').getTime(),
+            empty: true,
+          }),
+      }),
+    );
 
     await expect(
       service.getCashFlowStats(user, { period: 'month' }),

@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { FinanceAccountStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService, TX_TIMEOUT_SHORT } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
@@ -26,27 +25,36 @@ import type {
 import {
   assertAccountCategoryCanCreateManually,
   assertAccountTypeMatchesCategory,
-  buildAccountsStats,
+  buildAccountsStatsFromAggregate,
   deriveAccountFields,
   mapAccountRecord,
 } from './finance-account.domain';
+import { queryAccountStatsAggregate } from './finance-account-stats.query';
 import { FinanceAccessService } from './finance-access.service';
 import {
   createAccountRecordEntity,
-  deleteAccountRecordEntity,
+  deleteOpenAccountRecordEntity,
   findAccountRecord,
-  queryAccountRecords,
-  queryAccountStatsRows,
   updateAccountRecordSettlement,
 } from './finance-account.query';
+import { queryAccountRecords } from './finance-account.list.query';
 import { buildPaginatedAccountsResponse } from './finance.mapper';
-import type { FinanceAccountsListQueryInput } from './finance.types';
+import {
+  encodeFinanceAccountCursor,
+  resolveFinanceAccountPaging,
+} from './finance-account.cursor';
+import type { FinanceAccountListPaging } from './finance-account.cursor';
+import type {
+  FinanceAccountRecordWithAmount,
+  FinanceAccountsListQueryInput,
+} from './finance.types';
 import { Money } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
-
-const FINANCE_ACCOUNTS_CACHE_TTL_SECONDS = 60;
-const FINANCE_ACCOUNTS_REFRESH_AFTER_MS = 15_000;
+import {
+  FINANCE_LIST_CACHE_TTL_SECONDS,
+  FINANCE_LIST_REFRESH_AFTER_MS,
+} from './finance.constants';
 
 @Injectable()
 export class FinanceAccountService {
@@ -61,8 +69,7 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     query: ListFinanceAccountsQueryDto,
   ): Promise<PaginatedFinanceAccountsResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const accountQuery: FinanceAccountsListQueryInput = {
       typeFilter: query.typeFilter,
       statusFilter: query.statusFilter,
@@ -80,32 +87,43 @@ export class FinanceAccountService {
       page: query.page,
       pageSize: query.pageSize,
     };
+    // 入参校验先于缓存与取数：cursor 非法时直接 400，不白跑一次查询
+    const paging = resolveFinanceAccountPaging(query);
+
+    /**
+     * 游标页不进缓存：cursor 天生一次性，按 cursor 拼 key 会让缓存无界增长，
+     * 且无法被 buildFinanceAccountsPattern 的统一失效覆盖。
+     * offset / 首页路径的缓存 key 与 TTL 完全不变（key 里只有 page/pageSize）。
+     */
+    if (paging.cursor) {
+      return this.buildAccountsList(storeId, accountQuery, paging);
+    }
+
     const cacheKey = buildFinanceAccountsListCacheKey(storeId, accountQuery);
 
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_ACCOUNTS_REFRESH_AFTER_MS,
-      loadValue: () => this.buildAccountsList(storeId, accountQuery),
-      refreshValue: () => this.buildAccountsList(storeId, accountQuery),
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
+      loadValue: () => this.buildAccountsList(storeId, accountQuery, paging),
+      refreshValue: () => this.buildAccountsList(storeId, accountQuery, paging),
     });
   }
 
   async getAccountsStats(
     user: AuthenticatedUser,
   ): Promise<FinanceAccountsStatsDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const cacheKey = buildFinanceAccountsStatsCacheKey(storeId);
 
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_ACCOUNTS_REFRESH_AFTER_MS,
-      loadValue: () => this.buildAccountsStats(storeId),
-      refreshValue: () => this.buildAccountsStats(storeId),
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
+      loadValue: () => this.loadAccountsStats(storeId),
+      refreshValue: () => this.loadAccountsStats(storeId),
     });
   }
 
@@ -113,8 +131,7 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     dto: CreateFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const amount = Money.fromInputYuan(dto.amount);
     const paidAmount = Money.fromInputYuan(dto.paidAmount);
@@ -152,8 +169,7 @@ export class FinanceAccountService {
     recordId: number,
     dto: SettleFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const updatedRecord = await this.prisma.$transaction(
       async (tx) => {
         const record = await findAccountRecord(tx, { storeId, recordId });
@@ -198,49 +214,58 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await findAccountRecord(this.prisma, {
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
+
+    // 条件删除：未结清才允许删。命中 0 行时再查一次，只为区分 404 与 409
+    const deleted = await deleteOpenAccountRecordEntity(this.prisma, {
       storeId,
       recordId,
     });
-    if (!record) {
-      throw new NotFoundException('账款记录不存在');
-    }
-    const derived = deriveAccountFields(
-      Money.fromDbCents(record.amount),
-      Money.fromDbCents(record.paidAmount),
-      record.dueDate?.getTime() ?? undefined,
-    );
-    if (derived.status === FinanceAccountStatus.settled) {
+    if (!deleted) {
+      const record = await findAccountRecord(this.prisma, {
+        storeId,
+        recordId,
+      });
+      if (!record) {
+        throw new NotFoundException('账款记录不存在');
+      }
       throw new ConflictException('已结清的账款不能删除');
     }
-    await deleteAccountRecordEntity(this.prisma, storeId, recordId);
+
     await this.invalidateDashboardCaches(storeId);
   }
 
   private async buildAccountsList(
     storeId: number,
     accountQuery: FinanceAccountsListQueryInput,
+    paging: FinanceAccountListPaging,
   ): Promise<PaginatedFinanceAccountsResponseDto> {
     const { items, total } = await queryAccountRecords(
       this.prisma,
       storeId,
       accountQuery,
+      paging,
     );
-    const pageState = buildPaginationState(
-      accountQuery.page,
-      accountQuery.pageSize,
-    );
+    const pageState = buildPaginationState(paging.page, paging.limit);
+    // 游标路径多取了一行用于探测下一页，只切给游标判定用，响应里去掉
+    const pageCursor = buildAccountPageCursor(items, total, paging);
 
-    return buildPaginatedAccountsResponse(items, pageState, total);
+    return buildPaginatedAccountsResponse(
+      paging.cursor ? items.slice(0, paging.limit) : items,
+      pageState,
+      total,
+      pageCursor,
+    );
   }
 
-  private async buildAccountsStats(
+  private async loadAccountsStats(
     storeId: number,
   ): Promise<FinanceAccountsStatsDto> {
-    const records = await queryAccountStatsRows(this.prisma, storeId);
-    return buildAccountsStats(records);
+    const aggregate = await queryAccountStatsAggregate(this.prisma, {
+      storeId,
+      now: Date.now(),
+    });
+    return buildAccountsStatsFromAggregate(aggregate);
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
@@ -249,4 +274,29 @@ export class FinanceAccountService {
       this.cacheInvalidatorService.invalidateFinanceDerived(storeId),
     ]);
   }
+}
+
+/**
+ * 到底判定 + nextCursor 组装（两条路径共用）。
+ *
+ * - 游标路径：`take = limit + 1` 的探测行存在即说明还有下一页；游标取自本页最后一行。
+ * - offset 路径：没有探测行，只能用 `offset + 已取条数 < total` 推导。
+ *
+ * 恒等式 `hasMore === (nextCursor !== null)` 由本函数单点保证，
+ * 调用方不要再各自拼装，否则两条路径迟早漂移。
+ */
+function buildAccountPageCursor(
+  items: FinanceAccountRecordWithAmount[],
+  total: number,
+  paging: FinanceAccountListPaging,
+): { hasMore: boolean; nextCursor: string | null } {
+  const hasMore = paging.cursor
+    ? items.length > paging.limit
+    : paging.offset + items.length < total;
+  const lastItem = items.at(Math.min(items.length, paging.limit) - 1);
+  return {
+    hasMore,
+    nextCursor:
+      hasMore && lastItem ? encodeFinanceAccountCursor(lastItem) : null,
+  };
 }

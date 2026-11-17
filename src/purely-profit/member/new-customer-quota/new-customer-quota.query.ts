@@ -22,31 +22,47 @@ export interface QuotaOverviewTotals {
   totalConsumed: number;
 }
 
-/** 概览三查并行：档案余额 + 充值/赠送累计；档案缺失时全部归零 */
+/**
+ * 概览一次查完：档案余额 + 充值/赠送累计。
+ *
+ * 原本是三查并行（档案 + 两次 log 聚合），但概览是首页冷启动必经路径，
+ * 且额度流水表会随门店经营持续增长；合并成一条 SQL 后少两次往返、
+ * 流水表只扫一次（按 type 分组用 CASE 求和，索引 (store_id, type) 仍生效）。
+ * 档案缺失时余额与消耗均为 0，与拆开查的语义一致。
+ */
 export async function readQuotaTotals(
   executor: PrismaExecutor,
   storeId: number,
 ): Promise<QuotaOverviewTotals> {
-  const [profile, recharged, granted] = await Promise.all([
-    executor.storeMembershipProfile.findUnique({
-      where: { storeId },
-      select: { newCustomerQuota: true, newCustomerQuotaConsumed: true },
-    }),
-    executor.storeNewCustomerQuotaLog.aggregate({
-      where: { storeId, type: 'recharge' },
-      _sum: { changeAmount: true },
-    }),
-    executor.storeNewCustomerQuotaLog.aggregate({
-      where: { storeId, type: 'grant' },
-      _sum: { changeAmount: true },
-    }),
-  ]);
+  const [row] = await executor.$queryRaw<
+    Array<{
+      remaining: number;
+      totalConsumed: number;
+      totalRecharged: number | bigint;
+      totalGranted: number | bigint;
+    }>
+  >`
+    SELECT
+      COALESCE(p.new_customer_quota, 0)::int AS remaining,
+      COALESCE(p.new_customer_quota_consumed, 0)::int AS "totalConsumed",
+      COALESCE(l.recharged, 0)::bigint AS "totalRecharged",
+      COALESCE(l.granted, 0)::bigint AS "totalGranted"
+    FROM (SELECT 1) AS base
+    LEFT JOIN store_membership_profiles AS p ON p.store_id = ${storeId}
+    LEFT JOIN (
+      SELECT
+        SUM(CASE WHEN type = 'recharge' THEN change_amount ELSE 0 END) AS recharged,
+        SUM(CASE WHEN type = 'grant' THEN change_amount ELSE 0 END) AS granted
+      FROM store_new_customer_quota_logs
+      WHERE store_id = ${storeId}
+    ) AS l ON TRUE
+  `;
 
   return {
-    remaining: profile?.newCustomerQuota ?? 0,
-    totalRecharged: recharged._sum.changeAmount ?? 0,
-    totalGranted: granted._sum.changeAmount ?? 0,
-    totalConsumed: profile?.newCustomerQuotaConsumed ?? 0,
+    remaining: Number(row?.remaining ?? 0),
+    totalRecharged: Number(row?.totalRecharged ?? 0),
+    totalGranted: Number(row?.totalGranted ?? 0),
+    totalConsumed: Number(row?.totalConsumed ?? 0),
   };
 }
 

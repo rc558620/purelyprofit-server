@@ -3,6 +3,7 @@ import type {
   HandoverRecordListItemDto,
   HandoverRecordSummaryDto,
 } from './dto/handover-records.dto';
+import { HandoverRecordOperatorProfileService } from './handover-record-operator-profile.service';
 import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
 import { HandoverRecordsViewContextService } from './handover-records-view-context.service';
 import {
@@ -12,6 +13,7 @@ import {
   resolveShiftLabel,
   toDisplayName,
   type HandoverRecordRow,
+  type HandoverRecordShiftRow,
 } from './handover.shared';
 
 @Injectable()
@@ -21,41 +23,6 @@ export class HandoverRecordsDetailService {
     private readonly handoverRecordsRevenueService: HandoverRecordsRevenueService,
   ) {}
 
-  async buildRecordSummary(
-    storeId: number,
-    record: HandoverRecordRow,
-  ): Promise<HandoverRecordSummaryDto> {
-    const context =
-      await this.handoverRecordsViewContextService.resolveRecordViewContext(
-        storeId,
-        record,
-      );
-    const totalRevenue =
-      await this.handoverRecordsRevenueService.countRecordRevenue(
-        storeId,
-        context.shiftRange,
-        context.operatorStaffId,
-      );
-
-    return buildRecordSummaryDto({
-      id: record.id,
-      operatorName: context.operatorName,
-      shiftType: context.shiftRecord?.shiftType ?? null,
-      shiftLabel: resolveShiftLabel(
-        context.shiftRecord?.shiftType,
-        context.shiftRecord?.shiftName,
-      ),
-      startTime: context.shiftRecord?.startTime ?? null,
-      endTime: context.shiftRecord?.endTime ?? null,
-      totalRevenue,
-      operatorAvatar: context.operatorAvatar,
-      status: record.status,
-      handoverAt: record.handoverAt,
-      createdAt: record.createdAt,
-      shiftDate: context.shiftRecord?.date,
-    });
-  }
-
   /**
    * 批量版本：批量预加载所有 record 的 shift/employee 数据，
    * 并用 countRecordRevenueBatch 一次性下推 N 个 shiftRange 做 3 次聚合查询，
@@ -63,7 +30,7 @@ export class HandoverRecordsDetailService {
    */
   async buildRecordSummaryBatch(
     storeId: number,
-    records: HandoverRecordRow[],
+    records: readonly HandoverRecordShiftRow[],
   ): Promise<HandoverRecordSummaryDto[]> {
     if (records.length === 0) {
       return [];
@@ -119,42 +86,54 @@ export class HandoverRecordsDetailService {
       | 'receiverName'
     >
   > {
-    const context =
-      await this.handoverRecordsViewContextService.resolveRecordViewContext(
+    const shiftContext =
+      await this.handoverRecordsViewContextService.resolveRecordShiftContext(
         storeId,
         record,
       );
-    const revenueDetail =
-      await this.handoverRecordsRevenueService.buildRecordRevenueDetail(
-        storeId,
-        context.shiftRange,
-        context.operatorStaffId,
-        // 当班操作员：扫码点餐订单无实际操作员时回退展示
-        context.operatorName,
+    const operatorName =
+      HandoverRecordOperatorProfileService.resolveOperatorName(
+        record,
+        shiftContext.shiftRecord,
       );
+
+    // 营收聚合只依赖 shiftRange；头像要查 employee → linkedStaff → user 三层。
+    // 两者并行，详情路径少等一轮头像查询。
+    const [operatorProf, revenueDetail] = await Promise.all([
+      this.handoverRecordsViewContextService.resolveOperatorProfile(
+        record,
+        shiftContext.shiftRecord,
+      ),
+      this.handoverRecordsRevenueService.buildRecordRevenueDetail(
+        storeId,
+        shiftContext.shiftRange,
+        // 当班操作员：扫码点餐订单无实际操作员时回退展示
+        operatorName,
+      ),
+    ]);
 
     return {
       shiftInfo: {
-        operatorName: context.operatorName,
-        ...(context.operatorAvatar
+        operatorName,
+        ...(operatorProf.avatar
           ? {
-              operatorAvatar: context.operatorAvatar,
-              avatar: context.operatorAvatar,
+              operatorAvatar: operatorProf.avatar,
+              avatar: operatorProf.avatar,
             }
           : {}),
-        shiftType: context.shiftRecord?.shiftType ?? null,
+        shiftType: shiftContext.shiftRecord?.shiftType ?? null,
         shiftLabel: resolveShiftLabel(
-          context.shiftRecord?.shiftType,
-          context.shiftRecord?.shiftName,
+          shiftContext.shiftRecord?.shiftType,
+          shiftContext.shiftRecord?.shiftName,
         ),
-        startTime: context.shiftRecord?.startTime ?? null,
-        endTime: context.shiftRecord?.endTime ?? null,
+        startTime: shiftContext.shiftRecord?.startTime ?? null,
+        endTime: shiftContext.shiftRecord?.endTime ?? null,
         timeDesc: formatShiftTimeDesc(
-          context.shiftRecord?.date ?? context.referenceDate,
-          context.shiftRecord?.startTime,
-          context.shiftRecord?.endTime,
+          shiftContext.shiftRecord?.date ?? shiftContext.referenceDate,
+          shiftContext.shiftRecord?.startTime,
+          shiftContext.shiftRecord?.endTime,
         ),
-        shiftReferenceAt: context.shiftRange.startAt.getTime(),
+        shiftReferenceAt: shiftContext.shiftRange.startAt.getTime(),
       },
       additionalItems: mapRecordAdditionalItems(record),
       revenueSummary: revenueDetail.revenueSummary,

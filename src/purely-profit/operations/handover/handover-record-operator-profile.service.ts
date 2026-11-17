@@ -3,7 +3,7 @@ import { toOptionalMediaText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   toDisplayName,
-  type HandoverRecordRow,
+  type HandoverRecordShiftRow,
   type RecordShiftSnapshot,
 } from './handover.shared';
 import type { BatchPreloadedData } from './handover-record-batch-preloader.service';
@@ -19,7 +19,7 @@ export class HandoverRecordOperatorProfileService {
 
   /** 从预加载数据中解析操作员档案 */
   resolveFromPreloaded(
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     shiftRecord: RecordShiftSnapshot | null,
     preloaded: BatchPreloadedData,
   ): RecordOperatorProfile {
@@ -38,7 +38,7 @@ export class HandoverRecordOperatorProfileService {
 
   /** 单条查询操作员档案（linkedStaffId + avatar） */
   async resolveSingle(
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     shiftRecord: RecordShiftSnapshot | null,
   ): Promise<RecordOperatorProfile> {
     const employeeId = shiftRecord?.employeeId ?? record.fromEmployeeId;
@@ -74,7 +74,7 @@ export class HandoverRecordOperatorProfileService {
 
   /** 解析操作员显示名称（纯函数，无 DB 依赖） */
   static resolveOperatorName(
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     shiftRecord: RecordShiftSnapshot | null,
   ): string {
     return (

@@ -8,7 +8,7 @@ import {
 } from '../../../shared/shanghai-time.utils';
 import {
   endOfDay,
-  type HandoverRecordRow,
+  type HandoverRecordShiftRow,
   type RecordShiftSnapshot,
 } from './handover.shared';
 
@@ -36,7 +36,7 @@ export class HandoverRecordBatchPreloaderService {
 
   async preload(
     storeId: number,
-    records: HandoverRecordRow[],
+    records: readonly HandoverRecordShiftRow[],
   ): Promise<BatchPreloadedData> {
     // 收集所有需要预加载的 employeeShift id 和 employeeId
     const shiftIdSnapshotSet = new Set<number>();

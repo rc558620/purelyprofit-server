@@ -1,5 +1,6 @@
 import {
-  buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomeActivitiesLiveCacheKey,
+  buildProfitDashboardHomeActivitiesStableCacheKey,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomePattern,
 } from './cache-keys';
@@ -19,9 +20,12 @@ export const profitDashboardHomeCacheInvalidatorProvider: CacheInvalidatorProvid
         buildProfitDashboardHomePattern(storeId),
         buildProfitDashboardHomeChunkPattern(storeId),
       ]),
-      // 动态缓存键不带 period，chunk 通配模式匹配不到，需精确删除
+      // 动态缓存键不带 period，chunk 通配模式匹配不到，需精确删除实时块与状态块
       input.redisService.del(
-        buildProfitDashboardHomeActivitiesCacheKey(storeId),
+        buildProfitDashboardHomeActivitiesLiveCacheKey(storeId),
+      ),
+      input.redisService.del(
+        buildProfitDashboardHomeActivitiesStableCacheKey(storeId),
       ),
     ]);
   },

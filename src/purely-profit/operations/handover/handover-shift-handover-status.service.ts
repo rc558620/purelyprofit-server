@@ -7,15 +7,89 @@ import {
   type ShiftRecordRow,
 } from './handover.shared';
 
+/** 兜底匹配条目：只保留二分定位需要的毫秒时间戳（避免每条班次重复 getTime） */
+type HandoverRangeEntry = {
+  handoverAtMs: number;
+  createdAtMs: number | null;
+};
+
 /** 已交班班次的标识集合（精确 ID + 时间范围兜底） */
 export type HandedOverShiftIds = {
   byShiftId: Set<number>;
-  byRange: Array<{
-    employeeId: number;
-    startAt: Date;
-    endAt: Date;
-    createdAt: Date | null;
-  }>;
+  /**
+   * employeeId → 该员工按 handoverAt 升序排列的兜底条目。
+   *
+   * ─── 为什么按员工分桶 + 排序 ────────────────────────────────────
+   * 原实现是「每条班次 × 每条兜底记录」线性扫描（O(N×M)）。
+   * 门店排班历史随营业天数线性增长（老店可达数千条班次），
+   * 无 snapshot 的历史交班记录同样线性增长，两者相乘会让
+   * attachCompletionStatus 从「几毫秒」退化成「数百毫秒的纯 CPU 开销」。
+   * 分桶 + 升序后，每条班次只需一次二分定位 + 命中窗口内的常数条比较。
+   */
+  byRangeByEmployeeId: Map<number, HandoverRangeEntry[]>;
+};
+
+/** 二分查找首个 handoverAt >= targetMs 的下标（entries 必须已按 handoverAt 升序） */
+const findFirstRangeAtOrAfter = (
+  entries: readonly HandoverRangeEntry[],
+  targetMs: number,
+): number => {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (entries[mid].handoverAtMs < targetMs) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+};
+
+/**
+ * 请求级交班状态缓存（shiftId → 已完成交班）。
+ *
+ * ⚠️ 生命周期只能是一次请求内的局部变量：交班是写操作，
+ * 跨请求复用会让 canOperate 读到陈旧状态，直接放行或误拦交班。
+ */
+export type ShiftHandoverStatusMemo = Map<number, boolean>;
+
+/**
+ * 构造「该班次已交班」的匹配条件。
+ * - 优先：employeeShiftIdSnapshot 精确匹配 shift.id
+ * - 兜底：employeeShiftIdSnapshot IS NULL + handoverAt 在 shift 时间段内（含宽限期）
+ */
+const buildShiftMatchConditions = (
+  shiftRecord: ShiftRecordRow,
+): Prisma.StoreHandoverRecordWhereInput[] => {
+  const shiftRange = buildShiftDateRange(
+    shiftRecord.startTime,
+    shiftRecord.endTime,
+    shiftRecord.date,
+  );
+  const createdAtCondition = shiftRecord.createdAt
+    ? { createdAt: { gte: shiftRecord.createdAt } }
+    : {};
+  const conditions: Prisma.StoreHandoverRecordWhereInput[] = [
+    {
+      employeeShiftIdSnapshot: null,
+      handoverAt: {
+        gte: shiftRange.startAt,
+        // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
+        lte: buildShiftGraceEndAt(shiftRange),
+      },
+      ...createdAtCondition,
+    } as Prisma.StoreHandoverRecordWhereInput,
+  ];
+  if (shiftRecord.id) {
+    conditions.unshift({
+      employeeShiftIdSnapshot: shiftRecord.id,
+      ...createdAtCondition,
+    } as Prisma.StoreHandoverRecordWhereInput);
+  }
+
+  return conditions;
 };
 
 @Injectable()
@@ -24,51 +98,23 @@ export class HandoverShiftHandoverStatusService {
 
   /**
    * 检查单个班次是否已完成交班。
-   * 匹配规则：
-   * - 优先：employeeShiftIdSnapshot 精确匹配 shift.id
-   * - 兜底：employeeShiftIdSnapshot IS NULL + handoverAt 在 shift 时间段内
+   * 匹配规则见 buildShiftMatchConditions。
+   *
+   * memo：可选的请求级缓存。同一次页面请求里，班次选择器与页面上下文
+   * 会针对同一个 shift 各问一次，传入同一份 memo 可把 2 次 count 收敛为 1 次。
    */
   async isShiftHandedOver(
     storeId: number,
     shiftRecord: ShiftRecordRow | null,
+    memo?: ShiftHandoverStatusMemo,
   ): Promise<boolean> {
     if (!shiftRecord?.employeeId) {
       return false;
     }
 
-    const shiftRange = buildShiftDateRange(
-      shiftRecord.startTime,
-      shiftRecord.endTime,
-      shiftRecord.date,
-    );
-    const shiftMatchConditions: Prisma.StoreHandoverRecordWhereInput[] = [
-      {
-        employeeShiftIdSnapshot: null,
-        handoverAt: {
-          gte: shiftRange.startAt,
-          // 上界含宽限期：合法交班的 handoverAt 恒 > endAt（规则 5）
-          lte: buildShiftGraceEndAt(shiftRange),
-        },
-        ...(shiftRecord.createdAt
-          ? {
-              createdAt: {
-                gte: shiftRecord.createdAt,
-              },
-            }
-          : {}),
-      } as Prisma.StoreHandoverRecordWhereInput,
-    ];
-    if (shiftRecord.id) {
-      shiftMatchConditions.unshift({
-        employeeShiftIdSnapshot: shiftRecord.id,
-        ...(shiftRecord.createdAt
-          ? {
-              createdAt: {
-                gte: shiftRecord.createdAt,
-              },
-            }
-          : {}),
-      } as Prisma.StoreHandoverRecordWhereInput);
+    const shiftId = shiftRecord.id;
+    if (shiftId !== undefined && memo?.has(shiftId)) {
+      return memo.get(shiftId) === true;
     }
 
     const count = await this.prisma.storeHandoverRecord.count({
@@ -76,10 +122,15 @@ export class HandoverShiftHandoverStatusService {
         storeId,
         fromEmployeeId: shiftRecord.employeeId,
         status: HandoverStatus.completed,
-        OR: shiftMatchConditions,
+        OR: buildShiftMatchConditions(shiftRecord),
       },
     });
-    return count > 0;
+    const handedOver = count > 0;
+    if (shiftId !== undefined) {
+      memo?.set(shiftId, handedOver);
+    }
+
+    return handedOver;
   }
 
   /**
@@ -164,23 +215,28 @@ export class HandoverShiftHandoverStatusService {
     });
 
     const byShiftId = new Set<number>();
-    const byRange: HandedOverShiftIds['byRange'] = [];
+    const byRangeByEmployeeId = new Map<number, HandoverRangeEntry[]>();
 
     for (const record of handoverRecords) {
       if (record.employeeShiftIdSnapshot !== null) {
         byShiftId.add(record.employeeShiftIdSnapshot);
       } else if (record.fromEmployeeId !== null && record.handoverAt !== null) {
-        // 兜底记录：记录 handoverAt 所在的 1ms 点作为范围（实际在 isShiftHandedOverFromSet 里按 shift 范围匹配）
-        byRange.push({
-          employeeId: record.fromEmployeeId,
-          startAt: record.handoverAt,
-          endAt: record.handoverAt,
-          createdAt: record.createdAt,
+        // 兜底记录：只保留 handoverAt 时间戳（实际在 isShiftHandedOverFromSet 里按 shift 范围匹配）
+        const entries = byRangeByEmployeeId.get(record.fromEmployeeId) ?? [];
+        entries.push({
+          handoverAtMs: record.handoverAt.getTime(),
+          createdAtMs: record.createdAt?.getTime() ?? null,
         });
+        byRangeByEmployeeId.set(record.fromEmployeeId, entries);
       }
     }
 
-    return { byShiftId, byRange };
+    // 分桶内按 handoverAt 升序：供 isShiftHandedOverFromSet 二分定位窗口起点
+    for (const entries of byRangeByEmployeeId.values()) {
+      entries.sort((left, right) => left.handoverAtMs - right.handoverAtMs);
+    }
+
+    return { byShiftId, byRangeByEmployeeId };
   }
 
   private isShiftHandedOverFromSet(
@@ -191,33 +247,49 @@ export class HandoverShiftHandoverStatusService {
       return false;
     }
 
-    // 精确匹配 shift id 快照
+    // 精确匹配 shift id 快照（现代数据绝大多数命中此分支，完全跳过窗口匹配）
     if (shift.id && handedOverShiftIds.byShiftId.has(shift.id)) {
       return true;
     }
 
     // 兜底：检查是否有 handoverAt 落在该 shift 时间段（含宽限期）内的记录
+    const entries = handedOverShiftIds.byRangeByEmployeeId.get(
+      shift.employeeId,
+    );
+    if (!entries || entries.length === 0) {
+      return false;
+    }
+
     const shiftRange = buildShiftDateRange(
       shift.startTime,
       shift.endTime,
       shift.date,
     );
+    const windowStartMs = shiftRange.startAt.getTime();
     const graceEndAtMs = buildShiftGraceEndAt(shiftRange).getTime();
-    return handedOverShiftIds.byRange.some((record) => {
-      if (record.employeeId !== shift.employeeId) {
-        return false;
+    const shiftCreatedAtMs = shift.createdAt?.getTime() ?? null;
+
+    // 二分定位到窗口起点，随后只在 [startAt, graceEnd] 窗口内线性推进：
+    // 窗口通常是 0~2 条记录，复杂度由 O(记录总数) 降为 O(log M + k)。
+    for (
+      let index = findFirstRangeAtOrAfter(entries, windowStartMs);
+      index < entries.length;
+      index += 1
+    ) {
+      const entry = entries[index];
+      if (entry.handoverAtMs > graceEndAtMs) {
+        break;
       }
       if (
-        shift.createdAt &&
-        record.createdAt &&
-        record.createdAt < shift.createdAt
+        shiftCreatedAtMs !== null &&
+        entry.createdAtMs !== null &&
+        entry.createdAtMs < shiftCreatedAtMs
       ) {
-        return false;
+        continue;
       }
-      return (
-        record.startAt.getTime() >= shiftRange.startAt.getTime() &&
-        record.startAt.getTime() <= graceEndAtMs
-      );
-    });
+      return true;
+    }
+
+    return false;
   }
 }

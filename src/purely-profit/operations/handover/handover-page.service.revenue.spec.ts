@@ -6,12 +6,37 @@ import {
 import { buildShiftDateRange } from './handover.shared';
 import { aDateOrObject } from '../../../spec-matchers';
 
+/**
+ * 已结账空间会话行（1 条）：时长费 9.25 元。
+ *
+ * 空间管理营收改由 loadSettledSpaceSessions 的行数据累加后，
+ * 原来 mock 的 spaceSession.aggregate（925 分）由这条行数据等价替代，
+ * 用例里的 spaceRevenue: 9.25 断言值保持不变。
+ */
+const SETTLED_SPACE_SESSION_TIME_COST_925 = {
+  id: 9001,
+  timeCost: new Prisma.Decimal('925'),
+  itemsCost: new Prisma.Decimal('0'),
+  prepaidAmount: null,
+  prepaidGrouponCode: null,
+  prepaidCustomerPaymentMethod: null,
+  prepaidGrouponPlatform: null,
+  endTime: new Date('2026-06-02T13:30:00.000Z'),
+  space: { name: '大厅A01' },
+  saleOrder: null,
+  sessionRenewRecords: [],
+};
+
 describe('HandoverPageService - 收银统计与支付方式', () => {
   const ctx = setupHandoverPageSpec();
   const { prismaService, subAccountUser, mockEmptySaleOrderItems } = ctx;
 
   it('营业收入应统计 additional 本班次收入', async () => {
     mockEmptySaleOrderItems();
+    // 空间管理营收现在直接取已结账会话行数据（不再跑 spaceSession.aggregate）
+    prismaService.spaceSession.findMany.mockResolvedValue([
+      SETTLED_SPACE_SESSION_TIME_COST_925,
+    ]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {
       shiftType: EmployeeShiftType.morning,
@@ -25,6 +50,15 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       }),
       _sum: { totalRevenue: true },
     });
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 100,
+          status: 'settled',
+        }),
+        select: expect.objectContaining({ timeCost: true, itemsCost: true }),
+      }),
+    );
     expect(result.revenueSummary).toMatchObject({
       additionalRevenue: 978.75,
       spaceRevenue: 9.25,
@@ -60,9 +94,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       });
     });
     prismaService.saleOrder.count.mockResolvedValue(1);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null, itemsCost: null },
-    });
     prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
@@ -125,13 +156,14 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       _sum: { totalRevenue: null },
     });
     prismaService.saleOrder.count.mockResolvedValue(1);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: {
+    // 空间管理营收 = 已结账会话行累加（8860 分 = 88.6 元），行数据替代原 aggregate mock
+    prismaService.spaceSession.findMany.mockResolvedValue([
+      {
+        ...SETTLED_SPACE_SESSION_TIME_COST_925,
+        id: 9002,
         timeCost: new Prisma.Decimal('8860'),
-        itemsCost: new Prisma.Decimal('0'),
       },
-    });
-    prismaService.spaceSession.findMany.mockResolvedValue([]);
+    ]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
     const expectedShiftRange = buildShiftDateRange(
@@ -149,7 +181,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 88.6,
       orderCount: 1,
     });
-    expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
+    // 空间管理营收的数据源已从 aggregate 改为已结账会话行（同 where），
+    // 断言 where/select 不变，金额断言值保持 88.6 元。
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 100,
         status: 'settled',
@@ -158,7 +192,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: expectedShiftEndAt,
         },
       },
-      _sum: { timeCost: true, itemsCost: true },
+      select: expect.objectContaining({ timeCost: true, itemsCost: true }),
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
       where: {
@@ -241,9 +275,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       _sum: { totalRevenue: null },
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null, itemsCost: null },
-    });
     prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
@@ -254,7 +285,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       endTime: '17:10',
     });
     expect(result.receiverName).toBe('收银员3');
-    expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
+    // 空间管理营收的数据源已从 aggregate 改为已结账会话行（同 where）
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 100,
         status: 'settled',
@@ -263,7 +295,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: new Date(2026, 5, 5, 20, 0, 0),
         },
       },
-      _sum: { timeCost: true, itemsCost: true },
+      select: expect.objectContaining({ timeCost: true, itemsCost: true }),
     });
     // 第 1 次 aggregate 是扫码点餐收入（scanOrderId 非空），
     // additionalRevenue（非空间会话且非扫码点餐，scanOrderId: null）是第 2 次
@@ -358,9 +390,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       _sum: { totalRevenue: null },
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null, itemsCost: null },
-    });
     prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
@@ -391,7 +420,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       },
       orderBy: [{ handoverAt: 'desc' }, { id: 'desc' }],
     });
-    expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 100,
         status: 'settled',
@@ -400,7 +429,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: new Date(2026, 5, 5, 17, 14, 30),
         },
       },
-      _sum: { timeCost: true, itemsCost: true },
+      select: expect.objectContaining({ timeCost: true, itemsCost: true }),
     });
     // 第 1 次 aggregate 是扫码点餐收入（scanOrderId 非空），
     // additionalRevenue（非空间会话且非扫码点餐，scanOrderId: null）是第 2 次
@@ -614,10 +643,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       },
     ]);
     prismaService.saleOrder.count.mockResolvedValue(0);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null, itemsCost: null },
-    });
-    // 退款金额现在从 SpaceSession 数据计算：prepaidAmount > consumption 时的差额
+    // 退款金额与空间管理营收现在都从 SpaceSession 行数据计算：
+    // 退款 = prepaidAmount > consumption 时的差额；营收 = timeCost + itemsCost
     prismaService.spaceSession.findMany.mockResolvedValue([
       {
         id: 99,

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { FinanceReconciliationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_SHORT } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
   buildFinanceReconciliationsListCacheKey,
@@ -33,10 +33,10 @@ import {
 import { FinanceAccessService } from './finance-access.service';
 import {
   createReconciliationRecordEntity,
-  deleteReconciliationRecordEntity,
+  deleteUnconfirmedReconciliationRecordEntity,
   findReconciliationRecord,
   queryReconciliationRecordPage,
-  queryReconciliationRecords,
+  queryReconciliationStatsRows,
   updateReconciliationConfirmation,
 } from './finance-reconciliation.query';
 import { buildPaginatedReconciliationsResponse } from './finance.mapper';
@@ -44,9 +44,10 @@ import type { FinanceReconciliationsListQueryInput } from './finance.types';
 import { Money } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
-
-const FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS = 60;
-const FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS = 15_000;
+import {
+  FINANCE_LIST_CACHE_TTL_SECONDS,
+  FINANCE_LIST_REFRESH_AFTER_MS,
+} from './finance.constants';
 
 @Injectable()
 export class FinanceReconciliationService {
@@ -61,8 +62,7 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     query: ListFinanceReconciliationsQueryDto,
   ): Promise<PaginatedFinanceReconciliationsResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const reconciliationQuery: FinanceReconciliationsListQueryInput = {
       statusFilter: query.statusFilter,
       typeFilter: query.typeFilter,
@@ -78,8 +78,8 @@ export class FinanceReconciliationService {
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS,
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
       loadValue: () =>
         this.buildReconciliationsList(storeId, reconciliationQuery),
       refreshValue: () =>
@@ -90,17 +90,16 @@ export class FinanceReconciliationService {
   async getReconciliationStats(
     user: AuthenticatedUser,
   ): Promise<FinanceReconciliationStatsDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const cacheKey = buildFinanceReconciliationsStatsCacheKey(storeId);
 
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS,
-      refreshAfterMs: FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS,
-      loadValue: () => this.buildReconciliationStats(storeId),
-      refreshValue: () => this.buildReconciliationStats(storeId),
+      ttlSeconds: FINANCE_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_LIST_REFRESH_AFTER_MS,
+      loadValue: () => this.loadReconciliationStats(storeId),
+      refreshValue: () => this.loadReconciliationStats(storeId),
     });
   }
 
@@ -108,8 +107,7 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     dto: CreateFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
 
     if (dto.periodEnd < dto.periodStart) {
       throw new BadRequestException('周期结束时间不能早于开始时间');
@@ -191,8 +189,7 @@ export class FinanceReconciliationService {
     recordId: number,
     dto: ConfirmFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
     const record = await findReconciliationRecord(this.prisma, {
       storeId,
       recordId,
@@ -223,11 +220,21 @@ export class FinanceReconciliationService {
       ? FinanceReconciliationStatus.adjusted
       : FinanceReconciliationStatus.confirmed;
 
-    const updatedRecord = await updateReconciliationConfirmation(this.prisma, {
-      recordId,
-      status: newStatus,
-      adjustNote,
-    });
+    // 状态机前置条件：只有 discrepancy 才能被确认/调整，条件更新 + 同事务回读保证原子性
+    const updatedRecord = await this.prisma.$transaction(
+      async (tx) =>
+        updateReconciliationConfirmation(tx, {
+          storeId,
+          recordId,
+          fromStatus: FinanceReconciliationStatus.discrepancy,
+          status: newStatus,
+          adjustNote,
+        }),
+      { timeout: TX_TIMEOUT_SHORT },
+    );
+    if (!updatedRecord) {
+      throw new ConflictException('对账单已被其他操作处理，请刷新后重试');
+    }
 
     await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
 
@@ -238,22 +245,24 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await findReconciliationRecord(this.prisma, {
-      storeId,
-      recordId,
-    });
-    if (!record) {
-      throw new NotFoundException('对账单不存在');
-    }
-    if (
-      record.status === FinanceReconciliationStatus.confirmed ||
-      record.status === FinanceReconciliationStatus.adjusted
-    ) {
+    const { storeId } = await this.financeAccessService.getFinanceContext(user);
+
+    // 条件删除：仅草稿/差异单可删，命中 0 行时再查一次以区分 404 与 409
+    const deleted = await deleteUnconfirmedReconciliationRecordEntity(
+      this.prisma,
+      { storeId, recordId },
+    );
+    if (!deleted) {
+      const record = await findReconciliationRecord(this.prisma, {
+        storeId,
+        recordId,
+      });
+      if (!record) {
+        throw new NotFoundException('对账单不存在');
+      }
       throw new ConflictException('已确认或已调整的对账单不能删除');
     }
-    await deleteReconciliationRecordEntity(this.prisma, recordId);
+
     await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
   }
 
@@ -274,10 +283,13 @@ export class FinanceReconciliationService {
     return buildPaginatedReconciliationsResponse(items, pageState, total);
   }
 
-  private async buildReconciliationStats(
+  private async loadReconciliationStats(
     storeId: number,
   ): Promise<FinanceReconciliationStatsDto> {
-    const records = await queryReconciliationRecords(this.prisma, storeId);
-    return buildReconciliationStats(records);
+    const rows = await queryReconciliationStatsRows(this.prisma, {
+      storeId,
+      now: Date.now(),
+    });
+    return buildReconciliationStats(rows);
   }
 }

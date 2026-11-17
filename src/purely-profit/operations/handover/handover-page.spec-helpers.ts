@@ -180,9 +180,8 @@ export const setupHandoverPageSpec = (): {
       _sum: { totalRevenue: null },
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null, itemsCost: null },
-    });
+    // 空间管理营收已改为复用 loadSettledSpaceSessions 的行数据（不再跑 aggregate），
+    // 因此这里只需给 findMany 设默认值。
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate.mockResolvedValue({
       _sum: { amount: null },
@@ -313,12 +312,8 @@ export const setupHandoverPageSpec = (): {
     });
     prismaService.saleOrder.findMany.mockResolvedValue([]);
     prismaService.saleOrder.count.mockResolvedValue(3);
-    prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: {
-        timeCost: new Prisma.Decimal('925'), // 9.25 元 = 925 分
-        itemsCost: new Prisma.Decimal('0'),
-      },
-    });
+    // 空间管理营收改由 loadSettledSpaceSessions 行数据累加得出（同 where 不再跑 aggregate），
+    // 默认无已结账会话 → spaceRevenue 为 0；需要非零空间营收的用例自行 mock 行数据。
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: null } })

@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { HandoverMode, HandoverStatus } from '@prisma/client';
@@ -44,6 +45,8 @@ import { findOwnedHandoverShift } from './handover-records-shift.shared';
 
 @Injectable()
 export class HandoverRecordsService {
+  private readonly logger = new Logger(HandoverRecordsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storeSubAccountService: StoreSubAccountService,
@@ -86,6 +89,7 @@ export class HandoverRecordsService {
       include: HANDOVER_RECORD_INCLUDE,
     });
 
+    this.logRecordWrite('created', storeId, record.id, membership.staffId);
     return mapRecordToDto(record);
   }
 
@@ -220,6 +224,7 @@ export class HandoverRecordsService {
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
+    this.logRecordWrite('completed', storeId, recordId, membership.staffId);
     return mapRecordToDto(updated);
   }
 
@@ -265,6 +270,7 @@ export class HandoverRecordsService {
       include: HANDOVER_RECORD_INCLUDE,
     });
 
+    this.logRecordWrite('cancelled', storeId, recordId, membership.staffId);
     return mapRecordToDto(updated);
   }
 
@@ -322,6 +328,23 @@ export class HandoverRecordsService {
     return this.handoverRecordsQueryService.getMyPendingHandover(
       membership.storeId,
       membership.linkedEmployeeId,
+    );
+  }
+
+  /**
+   * 交班记录写操作审计日志（规范 §13：关键写操作需可追踪到操作人、目标对象与结果）。
+   * 只记录 ID 级信息，不打印备注 / 原因等自由文本，避免敏感内容进日志。
+   */
+  private logRecordWrite(
+    action: 'created' | 'completed' | 'cancelled',
+    storeId: number,
+    recordId: number,
+    actorStaffId: number | null,
+  ): void {
+    this.logger.log(
+      `[handover] record_${action} storeId=${storeId} recordId=${recordId} actorStaffId=${
+        actorStaffId ?? 'null'
+      }`,
     );
   }
 

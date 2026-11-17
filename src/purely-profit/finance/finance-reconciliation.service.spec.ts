@@ -183,7 +183,7 @@ describe('FinanceReconciliationService', () => {
   });
 
   it('getReconciliationStats 会通过 refreshable cache 包裹统计读取', async () => {
-    prismaService.financeReconciliationRecord.findMany.mockResolvedValue([]);
+    prismaService.$queryRaw.mockResolvedValue([]);
 
     await expect(service.getReconciliationStats(user)).resolves.toEqual({
       totalCount: 0,
@@ -200,6 +200,30 @@ describe('FinanceReconciliationService', () => {
         ttlSeconds: 60,
       }),
     );
+    // 统计不再把对账单连同明细项全量拉回内存
+    expect(
+      prismaService.financeReconciliationRecord.findMany,
+    ).not.toHaveBeenCalled();
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('getReconciliationStats 由 SQL 聚合行组装状态计数与差异合计', async () => {
+    prismaService.$queryRaw.mockResolvedValue([
+      { status: 'confirmed', count: 3, diff_total: 0, new_this_month: 2 },
+      { status: 'discrepancy', count: 2, diff_total: 45000, new_this_month: 1 },
+      { status: 'draft', count: 1, diff_total: 0, new_this_month: 0 },
+    ]);
+
+    await expect(service.getReconciliationStats(user)).resolves.toEqual({
+      totalCount: 6,
+      confirmedCount: 3,
+      discrepancyCount: 2,
+      adjustedCount: 0,
+      draftCount: 1,
+      // 45000 分 = 450 元
+      totalDiffAmount: 450,
+      newThisMonth: 3,
+    });
   });
 
   it('createReconciliation 会按后端统一金额规则派生净额、差异和状态', async () => {
@@ -351,57 +375,17 @@ describe('FinanceReconciliationService', () => {
   });
 
   it('confirmReconciliation 带调整说明时标记为 adjusted', async () => {
-    prismaService.financeReconciliationRecord.findFirst.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      operatorStaffId: 8,
-      title: '5月月度对账',
-      type: 'monthly',
-      status: FinanceReconciliationStatus.discrepancy,
-      channel: null,
-      counterpart: null,
-      periodStart: new Date('2026-05-01T00:00:00.000Z'),
-      periodEnd: new Date('2026-05-31T23:59:59.999Z'),
-      bookIncome: new Prisma.Decimal('12000.00'),
-      bookExpense: new Prisma.Decimal('8000.00'),
-      bookNet: new Prisma.Decimal('4000.00'),
-      actualIncome: new Prisma.Decimal('11800.00'),
-      actualExpense: new Prisma.Decimal('8100.00'),
-      actualNet: new Prisma.Decimal('3700.00'),
-      diffAmount: new Prisma.Decimal('-300.00'),
-      adjustNote: null,
-      operator: '财务张姐',
-      note: '节假日汇总',
-      date: new Date('2026-05-14T00:00:00.000Z'),
-      createdAt: new Date('2026-05-14T12:00:00.000Z'),
-      updatedAt: new Date('2026-05-14T12:00:00.000Z'),
-      items: [],
-    });
-    prismaService.financeReconciliationRecord.update.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      operatorStaffId: 8,
-      title: '5月月度对账',
-      type: 'monthly',
-      status: FinanceReconciliationStatus.adjusted,
-      channel: null,
-      counterpart: null,
-      periodStart: new Date('2026-05-01T00:00:00.000Z'),
-      periodEnd: new Date('2026-05-31T23:59:59.999Z'),
-      bookIncome: new Prisma.Decimal('12000.00'),
-      bookExpense: new Prisma.Decimal('8000.00'),
-      bookNet: new Prisma.Decimal('4000.00'),
-      actualIncome: new Prisma.Decimal('11800.00'),
-      actualExpense: new Prisma.Decimal('8100.00'),
-      actualNet: new Prisma.Decimal('3700.00'),
-      diffAmount: new Prisma.Decimal('-300.00'),
-      adjustNote: '微信手续费差额',
-      operator: '财务张姐',
-      note: '节假日汇总',
-      date: new Date('2026-05-14T00:00:00.000Z'),
-      createdAt: new Date('2026-05-14T12:00:00.000Z'),
-      updatedAt: new Date('2026-05-14T12:05:00.000Z'),
-      items: [],
+    prismaService.financeReconciliationRecord.findFirst
+      .mockResolvedValueOnce(buildDiscrepancyRecord())
+      // 条件更新成功后同事务回读，返回最新的 adjusted 记录
+      .mockResolvedValueOnce({
+        ...buildDiscrepancyRecord(),
+        status: FinanceReconciliationStatus.adjusted,
+        adjustNote: '微信手续费差额',
+        updatedAt: new Date('2026-05-14T12:05:00.000Z'),
+      });
+    prismaService.financeReconciliationRecord.updateMany.mockResolvedValue({
+      count: 1,
     });
 
     await expect(
@@ -413,16 +397,102 @@ describe('FinanceReconciliationService', () => {
       status: 'adjusted',
       adjustNote: '微信手续费差额',
     });
+    // 状态流转带前置状态条件，防止并发下重复确认
+    expect(
+      prismaService.financeReconciliationRecord.updateMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: 21,
+        storeId: 18,
+        status: FinanceReconciliationStatus.discrepancy,
+      },
+      data: {
+        status: FinanceReconciliationStatus.adjusted,
+        adjustNote: '微信手续费差额',
+      },
+    });
     expect(
       cacheInvalidatorService.invalidateFinanceDerived,
     ).toHaveBeenCalledWith(18);
   });
 
+  it('confirmReconciliation 在前置状态被并发修改时抛 Conflict', async () => {
+    prismaService.financeReconciliationRecord.findFirst.mockResolvedValueOnce(
+      buildDiscrepancyRecord(),
+    );
+    prismaService.financeReconciliationRecord.updateMany.mockResolvedValue({
+      count: 0,
+    });
+
+    await expect(
+      service.confirmReconciliation(user, 21, { adjustNote: '手续费差额' }),
+    ).rejects.toThrow('对账单已被其他操作处理，请刷新后重试');
+    expect(
+      cacheInvalidatorService.invalidateFinanceDerived,
+    ).not.toHaveBeenCalled();
+  });
+
   it('删除不存在的对账单时抛 NotFound', async () => {
+    prismaService.financeReconciliationRecord.deleteMany.mockResolvedValue({
+      count: 0,
+    });
     prismaService.financeReconciliationRecord.findFirst.mockResolvedValue(null);
 
     await expect(
       service.deleteReconciliation(user, 999),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('deleteReconciliation 把可删状态下推为删除条件并带上门店约束', async () => {
+    prismaService.financeReconciliationRecord.deleteMany.mockResolvedValue({
+      count: 1,
+    });
+
+    await expect(
+      service.deleteReconciliation(user, 21),
+    ).resolves.toBeUndefined();
+    expect(
+      prismaService.financeReconciliationRecord.deleteMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: 21,
+        storeId: 18,
+        status: {
+          in: [
+            FinanceReconciliationStatus.draft,
+            FinanceReconciliationStatus.discrepancy,
+          ],
+        },
+      },
+    });
+  });
 });
+
+function buildDiscrepancyRecord() {
+  return {
+    id: 21,
+    storeId: 18,
+    operatorStaffId: 8,
+    title: '5月月度对账',
+    type: 'monthly',
+    status: FinanceReconciliationStatus.discrepancy,
+    channel: null,
+    counterpart: null,
+    periodStart: new Date('2026-05-01T00:00:00.000Z'),
+    periodEnd: new Date('2026-05-31T23:59:59.999Z'),
+    bookIncome: new Prisma.Decimal('12000.00'),
+    bookExpense: new Prisma.Decimal('8000.00'),
+    bookNet: new Prisma.Decimal('4000.00'),
+    actualIncome: new Prisma.Decimal('11800.00'),
+    actualExpense: new Prisma.Decimal('8100.00'),
+    actualNet: new Prisma.Decimal('3700.00'),
+    diffAmount: new Prisma.Decimal('-300.00'),
+    adjustNote: null,
+    operator: '财务张姐',
+    note: '节假日汇总',
+    date: new Date('2026-05-14T00:00:00.000Z'),
+    createdAt: new Date('2026-05-14T12:00:00.000Z'),
+    updatedAt: new Date('2026-05-14T12:00:00.000Z'),
+    items: [],
+  };
+}

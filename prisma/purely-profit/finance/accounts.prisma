@@ -20,9 +20,18 @@ model FinanceAccountRecord {
   @@index([storeId, status, updatedAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, type, updatedAt])
   @@index([storeId, dueDate])
+  /// 覆盖账款列表全序（due_date ASC, updated_at DESC, id DESC）：与 (storeId, dueDate) 同前缀，
+  /// 让首页与深页都不再产生 Sort 节点。详见迁移 20261117100000_add_finance_perf_indexes。
+  @@index([storeId, dueDate, updatedAt(sort: Desc), id(sort: Desc)])
   @@index([operatorStaffId, createdAt])
   /// 覆盖派生开户状态查询（overdue/partial/pending 均含 remaining > 0），不走 DB status 列
   @@index([storeId, remaining], where: raw("(remaining > 0)"))
+  /// 报表「未结清账款」明细行按 created_at DESC 取前 N 条：部分索引让 Index Scan 直接取前 N 行，
+  /// 不再先取出单店全部未结清记录再 Sort。详见迁移 20261117120000_add_finance_perf_indexes_round3。
+  @@index([storeId, createdAt(sort: Desc), id(sort: Desc)], where: raw("(remaining > 0)"))
+  /// 搜索列 counterpart / note 的 trigram（GIN）索引无法用 Prisma DSL 表达，
+  /// 只存在于迁移 20261117120000_add_finance_perf_indexes_round3 的 SQL 中，
+  /// 因此 `prisma migrate dev` 生成的差异里不会出现它们，请勿手工删除。
   @@map("finance_account_records")
 }
 

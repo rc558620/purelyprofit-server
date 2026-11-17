@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
+import {
+  HandoverPageShiftRecordService,
+  type NextShiftLookupMemo,
+} from './handover-page-shift-record.service';
 import type {
   DisplayOperatorInfo,
   MembershipContext,
@@ -98,11 +101,14 @@ export class HandoverPageShiftViewService {
   async findReceiverCandidate(
     storeId: number,
     currentShiftRecord: ShiftRecordRow | null,
+    nextShiftMemo?: NextShiftLookupMemo,
   ): Promise<ReceiverCandidate | null> {
     const nextShiftRecord =
       await this.handoverPageShiftRecordService.findNextShiftRecord(
         storeId,
         currentShiftRecord,
+        undefined,
+        nextShiftMemo,
       );
     if (!nextShiftRecord?.employeeId) {
       return null;

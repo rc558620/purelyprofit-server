@@ -30,11 +30,21 @@ export function buildProfitDashboardHomeTrendCacheKey(
   return `profit:dashboard:home-chunk:trend:store:${storeId}:period:${period}`;
 }
 
-/** 动态数据只按门店聚合（与周期无关），缓存键不带 period */
-export function buildProfitDashboardHomeActivitiesCacheKey(
+/**
+ * 动态数据「实时块」缓存键：只按门店聚合（与周期无关），缓存键不带 period。
+ * 与状态块分开，避免分钟级不变的数据被 45s 一起重算。
+ */
+export function buildProfitDashboardHomeActivitiesLiveCacheKey(
   storeId: number,
 ): string {
-  return `profit:dashboard:home-chunk:activities:store:${storeId}`;
+  return `profit:dashboard:home-chunk:activities-live:store:${storeId}`;
+}
+
+/** 动态数据「状态块」缓存键：只按门店聚合（与周期无关），缓存键不带 period */
+export function buildProfitDashboardHomeActivitiesStableCacheKey(
+  storeId: number,
+): string {
+  return `profit:dashboard:home-chunk:activities-stable:store:${storeId}`;
 }
 
 /**

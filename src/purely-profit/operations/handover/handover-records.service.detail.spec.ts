@@ -548,7 +548,6 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const singleResult = await revenueService.countRecordRevenue(
         100,
         shiftRange,
-        null,
       );
       // 批量 $queryRaw mock 已被消费，重新设置
       prismaService.$queryRaw.mockReset();
@@ -658,7 +657,6 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const singleResult = await revenueService.countRecordRevenue(
         100,
         shiftRange,
-        null,
       );
       // 批量 $queryRaw mock 已被消费，重新设置
       prismaService.$queryRaw.mockReset();

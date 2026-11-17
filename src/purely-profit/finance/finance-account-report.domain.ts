@@ -1,9 +1,13 @@
 import { FinanceAccountStatus } from '@prisma/client';
 import type {
   FinanceReportAccountRowDto,
+  FinanceReportCashFlowRowDto,
   FinanceReportResponseDto,
 } from './dto/finance-report.response.dto';
-import { buildFinanceReportCashFlowRows } from './finance-cash-flow.domain';
+import {
+  buildFinanceReportCashFlowRows,
+  mapFinanceReportCashFlowRow,
+} from './finance-cash-flow.domain';
 import {
   FINANCE_REPORT_ACCOUNT_STATUS_LABELS,
   FINANCE_REPORT_ACCOUNT_TYPE_LABELS,
@@ -13,27 +17,26 @@ import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import type {
   FinanceReportCashFlowRow,
   FinanceReportCashFlowTotals,
+  FinanceReportOpenAccountTotals,
+  FinanceReportRowsData,
 } from './finance-overview-report.query';
-import type { FinanceAccountRecordWithAmount } from './finance.types';
+import type { FinanceReportAccountRow } from './finance.types';
 import { withDerivedAccountFields } from './finance-account.domain';
 
-export function buildFinanceReportResponse(params: {
-  /** 仅用于渲染明细行；汇总一律走 currentCashFlowTotals，避免明细截断影响金额 */
-  currentCashFlowRecords: FinanceReportCashFlowRow[];
-  currentCashFlowTotals: FinanceReportCashFlowTotals;
-  currentCashFlowCount: number;
-  previousCashFlowTotals: FinanceReportCashFlowTotals;
-  accountRecords: FinanceAccountRecordWithAmount[];
-}): FinanceReportResponseDto {
+/**
+ * 报表明细行 DTO 装配（对应独立的 rows 缓存 part）。
+ *
+ * 输出的是已经完全映射好的 DTO（日期已转 label 字符串、金额已转元），
+ * 因此可以直接 JSON 序列化进 Redis：缓存读回来不需要再做 Date 反解，
+ * 也就不会出现「从缓存命中的行时间字段变成字符串」这类隐式差异。
+ */
+export function buildFinanceReportRows(rows: FinanceReportRowsData): {
+  cashFlowRows: FinanceReportCashFlowRowDto[];
+  accountRows: FinanceReportAccountRowDto[];
+} {
   return {
-    summary: buildFinanceReportSummary({
-      currentCashFlowTotals: params.currentCashFlowTotals,
-      currentCashFlowCount: params.currentCashFlowCount,
-      previousCashFlowTotals: params.previousCashFlowTotals,
-      accountRecords: params.accountRecords,
-    }),
-    cashFlowRows: buildFinanceReportCashFlowRows(params.currentCashFlowRecords),
-    accountRows: buildFinanceReportAccountRows(params.accountRecords),
+    cashFlowRows: buildFinanceReportCashFlowRows(rows.currentCashFlowRecords),
+    accountRows: buildFinanceReportAccountRows(rows.accountRecords),
   };
 }
 
@@ -41,14 +44,13 @@ export function buildFinanceReportSummary(params: {
   currentCashFlowTotals: FinanceReportCashFlowTotals;
   currentCashFlowCount: number;
   previousCashFlowTotals: FinanceReportCashFlowTotals;
-  accountRecords: FinanceAccountRecordWithAmount[];
+  /** 未结清账款合计（SQL 聚合产出），不得改为对明细行累加 */
+  openAccountTotals: FinanceReportOpenAccountTotals;
 }): FinanceReportResponseDto['summary'] {
   let totalIncome = Money.zero();
   let totalExpense = Money.zero();
   let previousIncome = Money.zero();
   let previousExpense = Money.zero();
-  let receivableTotal = Money.zero();
-  let payableTotal = Money.zero();
 
   for (const record of params.currentCashFlowTotals) {
     const amount = Money.fromDbCents(record.amount);
@@ -68,19 +70,12 @@ export function buildFinanceReportSummary(params: {
     }
   }
 
-  for (const record of params.accountRecords.map((item) =>
-    withDerivedAccountFields(item),
-  )) {
-    if (record.status === FinanceAccountStatus.settled) {
-      continue;
-    }
-    const remaining = Money.fromDbCents(record.remaining);
-    if (record.type === 'receivable') {
-      receivableTotal = receivableTotal.add(remaining);
-    } else {
-      payableTotal = payableTotal.add(remaining);
-    }
-  }
+  const receivableTotal = Money.fromDbCents(
+    params.openAccountTotals.receivableRemaining,
+  );
+  const payableTotal = Money.fromDbCents(
+    params.openAccountTotals.payableRemaining,
+  );
 
   const netCashFlow = totalIncome.subtract(totalExpense);
   const previousNetCashFlow = previousIncome.subtract(previousExpense);
@@ -104,8 +99,63 @@ export function buildFinanceReportSummary(params: {
   };
 }
 
+/** 财务报表 CSV 表头，列顺序必须与 buildFinanceReportCsvRows 逐列对齐 */
+export const FINANCE_REPORT_CSV_HEADERS = [
+  '日期',
+  '标题',
+  '收支方向',
+  '分类',
+  '金额',
+  '支付方式',
+];
+
+/**
+ * 单行 CSV 值组装（列顺序必须与 FINANCE_REPORT_CSV_HEADERS 对齐）。
+ *
+ * `\t` 前缀强制 Excel/WPS 按文本处理，避免日期/金额因列宽不足显示为 ####。
+ */
+export function buildFinanceReportCsvRow(
+  row: FinanceReportCashFlowRowDto,
+): unknown[] {
+  return [
+    `\t${row.dateLabel}`,
+    row.title,
+    row.direction,
+    row.categoryLabel,
+    `\t${row.amount}`,
+    row.paymentLabel,
+  ];
+}
+
+/**
+ * 财务报表 CSV 行（惰性生成）。
+ *
+ * 用生成器而非 `map` 数组：不再额外分配一个中间行数组。
+ */
+export function* buildFinanceReportCsvRows(
+  rows: Iterable<FinanceReportCashFlowRowDto>,
+): Iterable<unknown[]> {
+  for (const row of rows) {
+    yield buildFinanceReportCsvRow(row);
+  }
+}
+
+/**
+ * 导出用异步行流：DB 明细（异步分批）→ CSV 值数组（逐行产出）。
+ *
+ * 数据侧与格式化侧都以流的方式串联，内存占用只与单批大小相关；
+ * 调用方（`safeStreamCsvExportAsync`）拿到的是可直接逐行写出的异步迭代器。
+ */
+export async function* buildFinanceReportCsvRowStream(
+  records: AsyncIterable<FinanceReportCashFlowRow>,
+): AsyncIterable<unknown[]> {
+  for await (const record of records) {
+    yield buildFinanceReportCsvRow(mapFinanceReportCashFlowRow(record));
+  }
+}
+
 export function buildFinanceReportAccountRows(
-  records: FinanceAccountRecordWithAmount[],
+  records: FinanceReportAccountRow[],
 ): FinanceReportAccountRowDto[] {
   return records
     .map((record) => withDerivedAccountFields(record))

@@ -27,6 +27,19 @@ type ShiftLookupRange = {
   lte: Date;
 };
 
+/**
+ * 请求级「后续班次」查询缓存。
+ *
+ * 交班页里同一 (门店, 基准班次, 员工范围) 会被问两次：
+ * findReceiverCandidate 问「有没有接班人」，resolveHandoverCompletedAndNoUpcomingShift
+ * 再问一次「有没有后续班次」——两者落到 findNextShiftRecord 的参数完全相同。
+ * 缓存的是 Promise，因此即便两条链路并发也不会重复打到 DB。
+ *
+ * ⚠️ 与交班状态 memo 一样只能活在单次请求内：
+ * 排班会随时被改写，跨请求复用会读到陈旧班次。
+ */
+export type NextShiftLookupMemo = Map<string, Promise<ShiftRecordRow | null>>;
+
 @Injectable()
 export class HandoverPageShiftRecordService {
   constructor(
@@ -120,11 +133,37 @@ export class HandoverPageShiftRecordService {
     storeId: number,
     currentShiftRecord: ShiftRecordRow | null,
     employeeId?: number | null,
+    memo?: NextShiftLookupMemo,
   ): Promise<ShiftRecordRow | null> {
     if (!currentShiftRecord) {
       return null;
     }
 
+    const memoKey = memo
+      ? this.buildNextShiftMemoKey(storeId, currentShiftRecord, employeeId)
+      : null;
+    const cached = memoKey ? memo?.get(memoKey) : undefined;
+    if (cached) {
+      return cached;
+    }
+
+    const pending = this.loadNextShiftRecord(
+      storeId,
+      currentShiftRecord,
+      employeeId,
+    );
+    if (memo && memoKey) {
+      memo.set(memoKey, pending);
+    }
+
+    return pending;
+  }
+
+  private async loadNextShiftRecord(
+    storeId: number,
+    currentShiftRecord: ShiftRecordRow,
+    employeeId?: number | null,
+  ): Promise<ShiftRecordRow | null> {
     // 后续班次只需要当前班次日期之后的数据：显式给下界，避免把门店全部历史排班拉进内存。
     const allShifts = await this.loadShifts(
       storeId,
@@ -147,6 +186,19 @@ export class HandoverPageShiftRecordService {
     }
 
     return allShifts[currentShiftIndex + 1] ?? null;
+  }
+
+  /** memo key：同一门店内 (基准班次, 员工范围) 唯一确定一次后续班次查询 */
+  private buildNextShiftMemoKey(
+    storeId: number,
+    shift: ShiftRecordRow,
+    employeeId?: number | null,
+  ): string {
+    const shiftKey =
+      shift.id ??
+      `${shift.date.getTime()}|${shift.startTime}|${shift.endTime}|${shift.employeeId ?? 'null'}`;
+
+    return `${storeId}:${shiftKey}:${employeeId ?? 'all'}`;
   }
 
   /**

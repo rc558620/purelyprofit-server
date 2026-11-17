@@ -14,7 +14,7 @@ import type {
   FinanceDerivedAccountFields,
 } from './finance.types';
 import { Money } from '../../shared/money.utils';
-import { getShanghaiMonthStartMs } from '../../shared/shanghai-time.utils';
+import type { FinanceAccountStatsAggregate } from './finance-account-stats.query';
 
 export function assertAccountCategoryCanCreateManually(category: string): void {
   const rule = getAccountCategoryRule(category);
@@ -79,9 +79,18 @@ export function deriveAccountFields(
   };
 }
 
-export function withDerivedAccountFields(
-  record: FinanceAccountRecordWithAmount,
-): FinanceAccountRecordWithAmount {
+/**
+ * 补齐派生字段（remaining / status）。
+ *
+ * 泛型入参：报表只查字段子集，无法满足整行类型；传子集会原样透传其余字段，
+ * 避免为了「补两个派生字段」把无用列也一起查出来。
+ */
+export function withDerivedAccountFields<
+  T extends Pick<
+    FinanceAccountRecordWithAmount,
+    'amount' | 'paidAmount' | 'dueDate'
+  >,
+>(record: T): T & FinanceDerivedAccountFields {
   const amount = Money.fromDbCents(record.amount);
   const paidAmount = Money.fromDbCents(record.paidAmount);
   const derived = deriveAccountFields(
@@ -125,37 +134,23 @@ export function mapAccountRecord(
   };
 }
 
-export function buildAccountsStats(
-  records: FinanceAccountRecordWithAmount[],
+/**
+ * 由 DB 聚合结果组装账款统计卡。
+ *
+ * 统计口径不再依赖逐行派生：未结清余额、逾期笔数、本月新增都由 SQL 算好，
+ * 本函数只做「分 → 元」的展示层换算，保持纯函数、可单测。
+ */
+export function buildAccountsStatsFromAggregate(
+  aggregate: FinanceAccountStatsAggregate,
 ): FinanceAccountsStatsDto {
-  const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
-  let totalReceivable = Money.zero();
-  let totalPayable = Money.zero();
-  let overdueCount = 0;
-
-  const derivedRecords = records.map((item) => withDerivedAccountFields(item));
-
-  for (const record of derivedRecords) {
-    if (record.status !== FinanceAccountStatus.settled) {
-      const remaining = Money.fromDbCents(record.remaining);
-      if (record.type === 'receivable') {
-        totalReceivable = totalReceivable.add(remaining);
-      } else {
-        totalPayable = totalPayable.add(remaining);
-      }
-      if (record.status === FinanceAccountStatus.overdue) {
-        overdueCount += 1;
-      }
-    }
-  }
+  const totalReceivable = Money.fromDbCents(aggregate.receivableRemaining);
+  const totalPayable = Money.fromDbCents(aggregate.payableRemaining);
 
   return {
     totalReceivable: totalReceivable.toOutputYuan(),
     totalPayable: totalPayable.toOutputYuan(),
     netReceivable: totalReceivable.subtract(totalPayable).toOutputYuan(),
-    overdueCount,
-    newThisMonth: derivedRecords.filter(
-      (record) => record.createdAt.getTime() >= monthStart.getTime(),
-    ).length,
+    overdueCount: aggregate.overdueCount,
+    newThisMonth: aggregate.newThisMonthCount,
   };
 }

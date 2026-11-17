@@ -84,8 +84,19 @@ export class Money {
   /**
    * 仅用于数据库字段、Prisma 聚合结果、SQL SUM 结果等"分"金额。
    * 若传入非整数分，直接报错，避免把元误当分静默吞掉。
+   *
+   * ─── 整数快路径 ───────────────────────────────────────────────
+   * 数据库 Int 字段与 Prisma SUM(number) 走 `typeof number + isSafeInteger`
+   * 直接构造，省掉一次 Decimal 解析。分金额在链路里恒为整数分，
+   * 该快路径与原 `assertDbCents` 的校验语义一致：
+   * 非整数 / NaN / 超出安全整数范围仍会落到 Decimal 分支并按原文案抛错。
+   * 交班页这类按行循环（数千行 × 多次转分）的链路，该分支是主要 CPU 成本。
    */
   static fromDbCents(cents: MoneyDbCentsInput): Money {
+    if (typeof cents === 'number' && Number.isSafeInteger(cents)) {
+      return new Money(cents);
+    }
+
     return new Money(assertDbCents(cents));
   }
 
@@ -137,7 +148,23 @@ export class Money {
     return new Money(Math.max(0, this.dbCentsValue - other.dbCentsValue));
   }
 
+  /**
+   * 金额 × 乘数。
+   *
+   * ─── 整数乘数快路径 ───────────────────────────────────────────
+   * 商城/交班/空间链路里最常见的乘数是「数量」（数据库 Int，恒为整数）。
+   * 整数分 × 整数 = 精确整数，`toDecimalPlaces(0, ROUND_HALF_UP)` 恒等于原值，
+   * 因此可直接整数相乘，结果与被替换的 Decimal 计算逐分等价；
+   * 仅在乘数非整数或乘积超出安全整数范围时回退 Decimal 路线。
+   */
   multiply(multiplier: number): Money {
+    if (Number.isSafeInteger(multiplier)) {
+      const product = this.dbCentsValue * multiplier;
+      if (Number.isSafeInteger(product)) {
+        return new Money(product);
+      }
+    }
+
     const decimalMultiplier = parseFiniteNumber(multiplier, '金额乘数');
 
     return new Money(
@@ -263,9 +290,13 @@ export class Money {
 
   /**
    * 仅用于接口响应、页面展示、日志输出。
+   *
+   * 内部状态是整数分，÷100 后最多两位小数，`toDecimalPlaces(2)` 恒为无操作，
+   * 因此直接做双精度除法即可得到与「Decimal 精确除法 → toNumber」完全一致的数值，
+   * 省掉每次输出的 Decimal 构造与舍入。需要定长字符串时仍走 toFixedOutputYuan。
    */
   toOutputYuan(): number {
-    return roundDecimalToNumber(new Decimal(this.dbCentsValue).div(100), 2);
+    return this.dbCentsValue / 100;
   }
 
   toFixedOutputYuan(): string {

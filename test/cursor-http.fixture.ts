@@ -212,8 +212,14 @@ export async function bootstrapCursorHttpApp(): Promise<void> {
         options.loadValue(),
     } as never,
     {} as never,
-    { getFinanceStoreIdOrThrow: () => Promise.resolve(storeId) } as never,
-    { clampHistoryRange: clampWindow } as never,
+    {
+      getFinanceContext: () =>
+        Promise.resolve({
+          storeId,
+          callerIsSubAccount: false,
+          clamp: () => ({ start: WINDOW_START, end: WINDOW_END, empty: false }),
+        }),
+    } as never,
   );
   const salesRecordListService = new SalesRecordListService(
     prisma,

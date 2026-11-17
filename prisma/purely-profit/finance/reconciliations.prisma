@@ -35,6 +35,9 @@ model FinanceReconciliationRecord {
   @@index([storeId, status, date])
   @@index([storeId, type, date])
   @@index([operatorStaffId, createdAt])
+  /// 覆盖对账列表默认排序（date DESC, id DESC）：筛选为「全部」时不再全量 Sort。
+  /// 详见迁移 20261117120000_add_finance_perf_indexes_round3。
+  @@index([storeId, date(sort: Desc), id(sort: Desc)])
   @@map("finance_reconciliation_records")
 }
 

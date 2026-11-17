@@ -27,7 +27,7 @@ import {
   loadRecordRevenueDetailSource,
   loadScanOrderingRevenueSum,
   loadSpaceRevenueSum,
-  loadStoreOwnerUserId,
+  sumSettledSpaceRevenueDbCents,
   type RecordRevenueDetailSource,
   type SaleOrderItemDetailRow,
 } from './handover-records-revenue.query';
@@ -45,7 +45,6 @@ export class HandoverRecordsRevenueService {
   async countRecordRevenue(
     storeId: number,
     shiftRange: ShiftDateRange,
-    _operatorStaffId: number | null,
   ): Promise<number> {
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
@@ -83,7 +82,6 @@ export class HandoverRecordsRevenueService {
   async buildRecordRevenueDetail(
     storeId: number,
     shiftRange: ShiftDateRange,
-    _operatorStaffId: number | null,
     /** 当班操作员：扫码点餐订单（purelyClub 下单）无实际操作员时回退展示 */
     shiftOperatorName: string | null = null,
   ): Promise<
@@ -102,8 +100,7 @@ export class HandoverRecordsRevenueService {
     const paymentItems = mapPaymentItems(source.orderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
-      Number(source.spaceRevenue._sum.timeCost ?? 0) +
-        Number(source.spaceRevenue._sum.itemsCost ?? 0) +
+      sumSettledSpaceRevenueDbCents(source.settledSpaceSessions) +
         Number(source.scanOrderingRevenue._sum.totalRevenue ?? 0),
       source.additionalRevenue._sum.totalRevenue,
       computeRecordRefundAmount(
@@ -120,7 +117,6 @@ export class HandoverRecordsRevenueService {
       ),
       paymentItems: attachPaymentRatios(paymentItems, totalReceivedAmount),
       orderItems: await this.buildDisplayedOrderItems(
-        storeId,
         source,
         shiftOperatorName,
       ),
@@ -132,7 +128,6 @@ export class HandoverRecordsRevenueService {
    * 并按销售时点库存快照回填库存列。
    */
   private async buildDisplayedOrderItems(
-    storeId: number,
     source: RecordRevenueDetailSource,
     shiftOperatorName: string | null,
   ): Promise<HandoverOrderItemDto[]> {
@@ -140,8 +135,8 @@ export class HandoverRecordsRevenueService {
       0,
       ORDER_ITEMS_LIMIT,
     );
-    // 门店主账号 user.id：操作员职位判定依据（主账号=紫）
-    const storeOwnerUserId = await loadStoreOwnerUserId(this.prisma, storeId);
+    // 门店主账号 user.id 已在数据源 Promise.all 中取回，避免详情路径多一次串行往返
+    const storeOwnerUserId = source.storeOwnerUserId;
 
     // 销售时点库存快照：库存列显示该笔销售扣减完成后的库存；
     // 查不到流水的行按「当前库存 + 后续销量」倒推兜底（老订单/被退款流水）

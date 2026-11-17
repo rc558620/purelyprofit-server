@@ -282,6 +282,25 @@ export interface FinanceDerivedAccountFields {
   status: FinanceAccountStatus;
 }
 
+/**
+ * 财务报表「账款行」所需的字段子集。
+ *
+ * 报表只渲染这几列，查询侧不再连带 `note` / `category` / `updatedAt` / `date`：
+ * 报表结果会整体进 Redis（TTL 120s），少带无关列可直接压缩缓存值与传输量。
+ */
+export type FinanceReportAccountRow = Pick<
+  FinanceAccountRecordWithAmount,
+  | 'id'
+  | 'type'
+  | 'counterpart'
+  | 'amount'
+  | 'paidAmount'
+  | 'remaining'
+  | 'status'
+  | 'dueDate'
+  | 'createdAt'
+>;
+
 export type FinanceReconciliationRecordWithItems =
   Prisma.FinanceReconciliationRecordGetPayload<{
     include: { items: true };

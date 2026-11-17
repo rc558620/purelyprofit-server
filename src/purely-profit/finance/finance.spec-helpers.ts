@@ -64,19 +64,57 @@ export function useFinanceSpecRealTimers(): void {
   jest.useRealTimers();
 }
 
+/** 会员规则快照 mock（默认：已开通财务、可导出报表、无历史窗口限制） */
+export function createMembershipRuleSnapshotMock(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    level: 'pro',
+    productLimit: null,
+    employeeLimit: null,
+    spaceLimit: null,
+    historyDays: null,
+    reportExportEnabled: true,
+    financeEnabled: true,
+    marketingEnabled: true,
+    subAccountEligible: true,
+    ...overrides,
+  };
+}
+
+/**
+ * 会员访问上下文 mock：一次读档产出「快照 + 裁剪器」。
+ *
+ * 裁剪器默认原样返回，需要「被裁空 / 被截断」的场景用 `clamp` 覆盖。
+ */
+export function createMembershipAccessContextMock(options?: {
+  snapshot?: Record<string, unknown> | null;
+  clamp?: (range: { start: number; end: number }) => {
+    start: number;
+    end: number;
+    empty: boolean;
+  };
+}) {
+  return {
+    snapshot:
+      options?.snapshot === undefined
+        ? createMembershipRuleSnapshotMock()
+        : options.snapshot,
+    clamp: jest.fn(
+      options?.clamp ??
+        ((range: { start: number; end: number }) => ({
+          ...range,
+          empty: false,
+        })),
+    ),
+  };
+}
+
 export function createPlatformMembershipAccessServiceMock() {
   return {
-    ensureFinanceFeatureEnabled: jest.fn().mockResolvedValue(undefined),
-    clampHistoryRange: jest
-      .fn()
-      .mockImplementation(
-        (_storeId: number, range: { start: number; end: number }) =>
-          Promise.resolve({
-            ...range,
-            empty: false,
-          }),
-      ),
-    ensureReportExportEnabled: jest.fn().mockResolvedValue(undefined),
+    createMembershipAccessContext: jest.fn(() =>
+      Promise.resolve(createMembershipAccessContextMock()),
+    ),
   };
 }
 
@@ -89,6 +127,8 @@ export function createFinanceOverviewPrismaMock() {
     },
     financeAccountRecord: {
       findMany: jest.fn(),
+      // 未结清账款合计改走 groupBy 聚合（不再用明细行累加）；默认无未结清账款
+      groupBy: jest.fn(() => Promise.resolve<unknown[]>([])),
     },
     $queryRaw: jest.fn(),
   };
@@ -112,6 +152,7 @@ export function createFinanceAccountPrismaMock() {
   const financeAccountRecord = {
     findMany: jest.fn(),
     count: jest.fn(),
+    groupBy: jest.fn(),
     create: jest.fn(),
     findFirst: jest.fn(),
     updateMany: jest.fn(),
@@ -121,6 +162,7 @@ export function createFinanceAccountPrismaMock() {
 
   return {
     financeAccountRecord,
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(
       async (
         callback: (tx: {
@@ -132,15 +174,27 @@ export function createFinanceAccountPrismaMock() {
 }
 
 export function createFinanceReconciliationPrismaMock() {
+  const financeReconciliationRecord = {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
+    delete: jest.fn(),
+    deleteMany: jest.fn(),
+  };
+
   return {
-    financeReconciliationRecord: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      count: jest.fn(),
-      findFirst: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
+    financeReconciliationRecord,
+    $queryRaw: jest.fn(),
+    $transaction: jest.fn(
+      async (
+        callback: (tx: {
+          financeReconciliationRecord: typeof financeReconciliationRecord;
+        }) => Promise<unknown>,
+      ) => callback({ financeReconciliationRecord }),
+    ),
   };
 }
 

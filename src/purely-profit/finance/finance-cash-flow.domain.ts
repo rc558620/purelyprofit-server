@@ -96,19 +96,17 @@ export function buildCashFlowBaseStats(
   };
 }
 
-export function buildFinanceReportCashFlowRows(
-  records: Array<{
-    id: number;
-    date: Date;
-    createdAt: Date;
-    title: string;
-    direction: string;
-    category: string;
-    amount: number; // 数据库分
-    payment: string;
-  }>,
-): FinanceReportCashFlowRowDto[] {
-  return records.map((record) => ({
+export function mapFinanceReportCashFlowRow(record: {
+  id: number;
+  date: Date;
+  createdAt: Date;
+  title: string;
+  direction: string;
+  category: string;
+  amount: number; // 数据库分
+  payment: string;
+}): FinanceReportCashFlowRowDto {
+  return {
     id: String(record.id),
     dateLabel: formatReportDateTimeLabel(record.createdAt.getTime()),
     title: record.title,
@@ -118,5 +116,11 @@ export function buildFinanceReportCashFlowRows(
     amount: Money.fromDbCents(record.amount).toOutputYuan(),
     paymentLabel:
       FINANCE_REPORT_PAYMENT_LABELS[record.payment] ?? record.payment,
-  }));
+  };
+}
+
+export function buildFinanceReportCashFlowRows(
+  records: Array<Parameters<typeof mapFinanceReportCashFlowRow>[0]>,
+): FinanceReportCashFlowRowDto[] {
+  return records.map((record) => mapFinanceReportCashFlowRow(record));
 }

@@ -77,6 +77,31 @@ describe('HandoverRecordsService - 查询接口', () => {
         }),
       );
     });
+
+    it('摘要列表走轻量 include，不加载附加项', async () => {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+
+      await ctx.service.listHandoverRecordSummaries(ownerUser, {});
+
+      const findManyArgs = prismaService.storeHandoverRecord.findMany.mock
+        .calls[0]?.[0] as { include?: Record<string, unknown> };
+      // 摘要 DTO 不输出附加项：带 additionalValues 会白拉每页数十行并多两次查询
+      expect(findManyArgs?.include).not.toHaveProperty('additionalValues');
+      expect(findManyArgs?.include).toHaveProperty('fromEmployee');
+      expect(findManyArgs?.include).toHaveProperty('toEmployee');
+    });
+
+    it('交班记录列表仍加载附加项（详情 DTO 需要）', async () => {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+
+      await ctx.service.listHandoverRecords(ownerUser, 10, 0);
+
+      const findManyArgs = prismaService.storeHandoverRecord.findMany.mock
+        .calls[0]?.[0] as { include?: Record<string, unknown> };
+      expect(findManyArgs?.include).toHaveProperty('additionalValues');
+    });
   });
 
   describe('getMyPendingHandover', () => {

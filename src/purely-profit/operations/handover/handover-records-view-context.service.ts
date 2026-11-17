@@ -6,7 +6,8 @@ import {
   buildShiftDateRange,
   extendShiftRangeToReference,
   toDisplayName,
-  type HandoverRecordRow,
+  type HandoverRecordShiftRow,
+  type RecordShiftContext,
   type RecordShiftSnapshot,
   type RecordViewContext,
   type ShiftDateRange,
@@ -20,7 +21,10 @@ import {
   HandoverRecordBatchPreloaderService,
   type BatchPreloadedData,
 } from './handover-record-batch-preloader.service';
-import { HandoverRecordOperatorProfileService } from './handover-record-operator-profile.service';
+import {
+  HandoverRecordOperatorProfileService,
+  type RecordOperatorProfile,
+} from './handover-record-operator-profile.service';
 
 @Injectable()
 export class HandoverRecordsViewContextService {
@@ -37,7 +41,7 @@ export class HandoverRecordsViewContextService {
    */
   async resolveRecordViewContextBatch(
     storeId: number,
-    records: HandoverRecordRow[],
+    records: readonly HandoverRecordShiftRow[],
   ): Promise<RecordViewContext[]> {
     if (records.length === 0) {
       return [];
@@ -52,7 +56,7 @@ export class HandoverRecordsViewContextService {
 
   private resolveRecordViewContextFromPreloaded(
     storeId: number,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     preloaded: BatchPreloadedData,
   ): RecordViewContext {
     const referenceDate = record.handoverAt ?? record.createdAt;
@@ -81,14 +85,13 @@ export class HandoverRecordsViewContextService {
         record,
         shiftRecord,
       ),
-      operatorStaffId: operatorProf.linkedStaffId,
       operatorAvatar: operatorProf.avatar,
     };
   }
 
   private resolveRecordShiftRecordFromPreloaded(
     storeId: number,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     preloaded: BatchPreloadedData,
   ): RecordShiftSnapshot | null {
     const snapshotShiftRecord = this.buildRecordShiftSnapshotFromPreloaded(
@@ -110,17 +113,10 @@ export class HandoverRecordsViewContextService {
         (s) => s.date && s.date >= dayRange.gte && s.date <= dayRange.lte,
       );
 
-      return (
-        findMatchingShift(
-          employeeShifts,
-          referenceDate,
-          record.shiftTypeSnapshot,
-        ) ??
-        findLatestStartedShift(
-          employeeShifts,
-          referenceDate,
-          record.shiftTypeSnapshot,
-        )
+      return this.pickEmployeeShiftFallback(
+        employeeShifts,
+        referenceDate,
+        record,
       );
     }
 
@@ -133,83 +129,58 @@ export class HandoverRecordsViewContextService {
 
   private buildRecordShiftSnapshotFromPreloaded(
     storeId: number,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
     preloaded: BatchPreloadedData,
   ): RecordShiftSnapshot | null {
-    const shiftType = record.shiftTypeSnapshot ?? null;
-    const startTime = toDisplayName(record.shiftStartTimeSnapshot);
-    const endTime = toDisplayName(record.shiftEndTimeSnapshot);
-    if (!startTime || !endTime) {
+    const times = this.readRecordShiftTimes(record);
+    if (!times) {
       return null;
     }
 
-    if (record.employeeShiftIdSnapshot) {
-      const linkedShift = preloaded.shiftsById.get(
-        record.employeeShiftIdSnapshot,
-      );
-      if (
-        linkedShift &&
-        (linkedShift.storeId !== storeId ||
-          linkedShift.createdAt.getTime() > record.createdAt.getTime())
-      ) {
-        return null;
-      }
-
-      return {
-        employeeId: record.fromEmployeeId,
-        employeeName:
-          toDisplayName(record.fromEmployeeNameSnapshot) ??
-          toDisplayName(record.fromEmployee?.name) ??
-          null,
-        shiftType,
-        shiftName: toDisplayName(record.shiftNameSnapshot),
-        date: linkedShift?.date,
-        startTime,
-        endTime,
-      };
+    const linkedShift = record.employeeShiftIdSnapshot
+      ? preloaded.shiftsById.get(record.employeeShiftIdSnapshot)
+      : undefined;
+    if (!this.isSnapshotShiftUsable(linkedShift, storeId, record)) {
+      return null;
     }
 
-    return {
-      employeeId: record.fromEmployeeId,
-      employeeName:
-        toDisplayName(record.fromEmployeeNameSnapshot) ??
-        toDisplayName(record.fromEmployee?.name) ??
-        null,
-      shiftType,
-      shiftName: toDisplayName(record.shiftNameSnapshot),
-      startTime,
-      endTime,
-    };
+    return this.buildShiftSnapshotFromRecord(
+      record,
+      times.startTime,
+      times.endTime,
+      linkedShift?.date,
+    );
   }
 
-  async resolveRecordViewContext(
+  /**
+   * 只解析「班次归属 + 时间范围」（1 次查询）。
+   * 详情页营收聚合只需要 shiftRange，先拿这一半即可把营收与头像查询并行。
+   */
+  async resolveRecordShiftContext(
     storeId: number,
-    record: HandoverRecordRow,
-  ): Promise<RecordViewContext> {
+    record: HandoverRecordShiftRow,
+  ): Promise<RecordShiftContext> {
     const referenceDate = record.handoverAt ?? record.createdAt;
     const shiftRecord = await this.resolveRecordShiftRecord(storeId, record);
     const shiftBaseDate = shiftRecord?.date ?? referenceDate;
-    const shiftRange = this.buildRecordShiftRange(
-      shiftBaseDate,
-      shiftRecord,
-      referenceDate,
-    );
-    const operatorProf = await this.operatorProfile.resolveSingle(
-      record,
-      shiftRecord,
-    );
 
     return {
       referenceDate,
       shiftRecord,
-      shiftRange,
-      operatorName: HandoverRecordOperatorProfileService.resolveOperatorName(
-        record,
+      shiftRange: this.buildRecordShiftRange(
+        shiftBaseDate,
         shiftRecord,
+        referenceDate,
       ),
-      operatorStaffId: operatorProf.linkedStaffId ?? null,
-      operatorAvatar: operatorProf.avatar,
     };
+  }
+
+  /** 操作员档案（linkedStaffId + 头像）：仅在需要展示头像的路径查询 */
+  async resolveOperatorProfile(
+    record: HandoverRecordShiftRow,
+    shiftRecord: RecordShiftSnapshot | null,
+  ): Promise<RecordOperatorProfile> {
+    return this.operatorProfile.resolveSingle(record, shiftRecord);
   }
 
   private buildRecordShiftRange(
@@ -233,7 +204,7 @@ export class HandoverRecordsViewContextService {
 
   private async resolveRecordShiftRecord(
     storeId: number,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
   ): Promise<RecordShiftSnapshot | null> {
     const snapshotShiftRecord = await this.buildRecordShiftSnapshot(
       storeId,
@@ -265,17 +236,10 @@ export class HandoverRecordsViewContextService {
         orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
       });
 
-      return (
-        findMatchingShift(
-          employeeShifts,
-          referenceDate,
-          record.shiftTypeSnapshot,
-        ) ??
-        findLatestStartedShift(
-          employeeShifts,
-          referenceDate,
-          record.shiftTypeSnapshot,
-        )
+      return this.pickEmployeeShiftFallback(
+        employeeShifts,
+        referenceDate,
+        record,
       );
     }
 
@@ -302,7 +266,7 @@ export class HandoverRecordsViewContextService {
   private pickBestRecordShift(
     shifts: RecordShiftSnapshot[],
     referenceDate: Date,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
   ): RecordShiftSnapshot | null {
     if (shifts.length === 0) {
       return null;
@@ -334,56 +298,97 @@ export class HandoverRecordsViewContextService {
 
   private async buildRecordShiftSnapshot(
     storeId: number,
-    record: HandoverRecordRow,
+    record: HandoverRecordShiftRow,
   ): Promise<RecordShiftSnapshot | null> {
-    const shiftType = record.shiftTypeSnapshot ?? null;
+    const times = this.readRecordShiftTimes(record);
+    if (!times) {
+      return null;
+    }
+
+    const linkedShift = record.employeeShiftIdSnapshot
+      ? await this.prisma.employeeShift.findUnique({
+          where: { id: record.employeeShiftIdSnapshot },
+          select: {
+            storeId: true,
+            createdAt: true,
+            date: true,
+          },
+        })
+      : null;
+    if (!this.isSnapshotShiftUsable(linkedShift, storeId, record)) {
+      return null;
+    }
+
+    return this.buildShiftSnapshotFromRecord(
+      record,
+      times.startTime,
+      times.endTime,
+      linkedShift?.date,
+    );
+  }
+
+  /** 读取记录上的班次时间快照；缺失时无法组装班次视图，回退到时间窗口匹配。 */
+  private readRecordShiftTimes(
+    record: HandoverRecordShiftRow,
+  ): { startTime: string; endTime: string } | null {
     const startTime = toDisplayName(record.shiftStartTimeSnapshot);
     const endTime = toDisplayName(record.shiftEndTimeSnapshot);
     if (!startTime || !endTime) {
       return null;
     }
 
-    if (record.employeeShiftIdSnapshot) {
-      const linkedShift = await this.prisma.employeeShift.findUnique({
-        where: { id: record.employeeShiftIdSnapshot },
-        select: {
-          storeId: true,
-          createdAt: true,
-          date: true,
-        },
-      });
-      if (
-        linkedShift &&
-        (linkedShift.storeId !== storeId ||
-          linkedShift.createdAt.getTime() > record.createdAt.getTime())
-      ) {
-        return null;
-      }
+    return { startTime, endTime };
+  }
 
-      return {
-        employeeId: record.fromEmployeeId,
-        employeeName:
-          toDisplayName(record.fromEmployeeNameSnapshot) ??
-          toDisplayName(record.fromEmployee?.name) ??
-          null,
-        shiftType,
-        shiftName: toDisplayName(record.shiftNameSnapshot),
-        date: linkedShift?.date,
-        startTime,
-        endTime,
-      };
+  /**
+   * 快照关联班次是否可用：跨店或创建时间晚于交班记录的快照视为失效。
+   * 批量路径与单条路径共用同一判定，避免两条链路的兜底口径分叉。
+   */
+  private isSnapshotShiftUsable(
+    linkedShift: { storeId: number; createdAt: Date } | null | undefined,
+    storeId: number,
+    record: HandoverRecordShiftRow,
+  ): boolean {
+    if (!linkedShift) {
+      return true;
     }
 
+    return (
+      linkedShift.storeId === storeId &&
+      linkedShift.createdAt.getTime() <= record.createdAt.getTime()
+    );
+  }
+
+  /** 由记录快照字段组装班次视图，批量与单条路径共用同一字段口径。 */
+  private buildShiftSnapshotFromRecord(
+    record: HandoverRecordShiftRow,
+    startTime: string,
+    endTime: string,
+    shiftDate?: Date,
+  ): RecordShiftSnapshot {
     return {
       employeeId: record.fromEmployeeId,
       employeeName:
         toDisplayName(record.fromEmployeeNameSnapshot) ??
         toDisplayName(record.fromEmployee?.name) ??
         null,
-      shiftType,
+      shiftType: record.shiftTypeSnapshot ?? null,
       shiftName: toDisplayName(record.shiftNameSnapshot),
+      date: shiftDate,
       startTime,
       endTime,
     };
+  }
+
+  /** 兜底匹配：优先时间区间覆盖，其次取已开始的最近班次。 */
+  private pickEmployeeShiftFallback(
+    shifts: RecordShiftSnapshot[],
+    referenceDate: Date,
+    record: HandoverRecordShiftRow,
+  ): RecordShiftSnapshot | null {
+    return (
+      findMatchingShift(shifts, referenceDate, record.shiftTypeSnapshot) ??
+      findLatestStartedShift(shifts, referenceDate, record.shiftTypeSnapshot)
+    );
   }
 }
