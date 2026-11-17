@@ -1,7 +1,5 @@
 import {
-  BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -13,14 +11,13 @@ import {
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
-import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
-import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import type {
   ClubScanOrderStatusQueryDto,
@@ -30,32 +27,17 @@ import type {
 } from './dto/club-scan-ordering.dto';
 import { ClubScanOrderingWechatVerifyService } from './club-scan-ordering-wechat-verify.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
-import {
-  createScanOrderNo,
-  hashScanOrderRequest,
-} from './club-scan-ordering-order.utils';
-import {
-  fenToYuan,
-  toOrderAmountSummary,
-} from './club-scan-ordering-order.mapper';
-import {
-  createIdempotencyPlaceholder,
-  discardIdempotencyPlaceholder,
-  finalizeIdempotencyPlaceholder,
-} from './club-scan-ordering-idempotency.helper';
+import { createClubScanOrder } from './club-scan-ordering-order-create.flow';
+import type { CreateOrderFlowDeps } from './club-scan-ordering-order-create.flow';
 
-const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
-const IDEMPOTENCY_SCOPE = 'club:scan-order:create';
-
-/** 建单响应的稳定形状（同时作为幂等回放快照） */
-interface CreatedScanOrderResponse {
-  id: number;
-  orderNo: string;
-  payableAmount: number;
-  paymentExpiresAt: string | null;
-  version: number;
-}
-
+/**
+ * C 端扫码点餐订单门面。
+ *
+ * 本类只做三件事：路由到子服务（查询 / 历史 / 收银 / 预览）、维护跨子服务的
+ * 事务边界（取消订单）、把建单流程的依赖透传给
+ * {@link createClubScanOrder}。建单的幂等、门店一致性、新客额度与落库细节
+ * 都在 create flow 里，避免这个入口再次膨胀成「什么都干」的大文件。
+ */
 @Injectable()
 export class ClubScanOrderingOrderService {
   private readonly logger = new Logger(ClubScanOrderingOrderService.name);
@@ -71,10 +53,22 @@ export class ClubScanOrderingOrderService {
     private readonly previewService: ClubScanOrderingOrderPreviewService,
     private readonly orderQueryService: ClubScanOrderingOrderQueryService,
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
-    private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
     private readonly wechatVerifyService: ClubScanOrderingWechatVerifyService,
   ) {}
+
+  /** 建单流程依赖：与构造注入同源，避免流程内出现第二套服务定位逻辑 */
+  private get createFlowDeps(): CreateOrderFlowDeps {
+    return {
+      prisma: this.prisma,
+      quotaService: this.quotaService,
+      currentStoreContextService: this.currentStoreContextService,
+      cartPricingService: this.cartPricingService,
+      inventoryReservationService: this.inventoryReservationService,
+      realtimeService: this.realtimeService,
+      logger: this.logger,
+    };
+  }
 
   preview(
     user: AuthenticatedUser,
@@ -83,292 +77,17 @@ export class ClubScanOrderingOrderService {
     return this.previewService.preview(user, dto);
   }
 
-  async create(
+  /** 幂等建单：流程见 {@link createClubScanOrder}。 */
+  create(
     user: AuthenticatedUser,
     idempotencyKey: string | undefined,
     dto: CreateClubScanOrderDto,
   ): Promise<unknown> {
-    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
-      throw new ConflictException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.PARAM_IDEMPOTENCY_KEY_INVALID,
-          '请提供有效的 Idempotency-Key 以创建订单',
-        ),
-      );
-    }
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        scope_actorId_idempotencyKey: {
-          scope: IDEMPOTENCY_SCOPE,
-          actorId: user.id,
-          idempotencyKey,
-        },
-      },
+    return createClubScanOrder(this.createFlowDeps, {
+      user,
+      idempotencyKey,
+      dto,
     });
-    if (existing) return this.resolveExistingIdempotency(existing);
-
-    const session = await this.requireSession(user, dto.sessionId);
-
-    // 门店一致性：桌台会话所属门店必须等于当前门店。
-    //
-    // 扫桌码进店时后端已把当前门店切到桌台所属门店（见 ClubScanOrderingService
-    // .createOrRestoreSession），所以正常情况下两者恒等；不等只可能是用户在别处
-    // （另一台设备、或门店选择页）切了店，而本机还握着上一家店的会话——
-    // 此时必须拦住，否则订单与新客额度都会记到用户已经离开的那家店头上。
-    // 这道校验与其它下单链路同口径：自助下单按会话 storeId 过滤、团购券与
-    // 服务商品比对 dto.storeId。
-    const currentContext =
-      await this.currentStoreContextService.requireCurrentContext(user);
-    if (session.storeId !== currentContext.store.id) {
-      throw new BadRequestException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.RULE_STORE_CHANGED,
-          '当前门店已切换，请刷新页面后重试',
-        ),
-      );
-    }
-
-    // 新客额度闸门：新客在额度耗尽时禁止下单，商家充值后才能继续。
-    // 刻意放在定价之前——被拦时不必白算一轮价格与促销。
-    // 老客（**本店**已消耗过额度）不受限制，见 ensureAvailableForNewCustomer。
-    // 额度按门店独立计算：在别家店扣过不影响本店判定，本店扣过才算老客。
-    await this.quotaService.assertAvailableForOrder(session.storeId, user.id);
-
-    // 定价与定价版本共用一次取数（省掉版本计算的重复查询）
-    const { items: pricedItems, pricingVersion } =
-      await this.cartPricingService.priceCartWithPricingVersion(
-        session.id,
-        session.storeId,
-      );
-    const cartVersion = this.cartPricingService.cartVersion(pricedItems);
-    if (cartVersion !== dto.cartVersion) {
-      throw new ConflictException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_CART_UPDATED,
-          '购物车已更新，请刷新后重新确认订单',
-        ),
-      );
-    }
-    if (dto.pricingVersion !== pricingVersion) {
-      throw new ConflictException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_PRICE_CHANGED,
-          '订单价格已变化，请重新确认订单',
-        ),
-      );
-    }
-    // 下单是写路径：允许在此补建 / 认领顾客档案（预览已不再建档）
-    const promotionResult = await this.cartPricingService.resolvePromotions({
-      storeId: session.storeId,
-      clubUserId: user.id,
-      pricedItems,
-      usePoints: dto.usePoints === true,
-      customerLookup: 'ensure',
-    });
-    const amounts = this.cartPricingService.calculateAmounts(
-      pricedItems,
-      promotionResult,
-    );
-
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + PAYMENT_TIMEOUT_MS);
-
-    // 幂等占位记录提到建单事务外：唯一键本身就是并发闸门，不需要与订单同事务。
-    // 建单事务因此从 9 次往返降到 7 次，menu_product / spec_option / session /
-    // 新客额度这些行锁的持有时间同比缩短。占位失败（唯一键冲突）按「并发同 key」
-    // 处理，与改造前 `tx.idempotencyRecord.create` 抛错后的分支完全一致。
-    let idempotencyId = 0;
-    try {
-      idempotencyId = await createIdempotencyPlaceholder(this.prisma, {
-        scope: IDEMPOTENCY_SCOPE,
-        actorId: user.id,
-        idempotencyKey,
-        requestHash: hashScanOrderRequest(dto),
-        expiresAt,
-      });
-    } catch (error) {
-      const raced = await this.prisma.idempotencyRecord.findUnique({
-        where: {
-          scope_actorId_idempotencyKey: {
-            scope: IDEMPOTENCY_SCOPE,
-            actorId: user.id,
-            idempotencyKey,
-          },
-        },
-      });
-      if (raced) return this.resolveExistingIdempotency(raced);
-      throw error;
-    }
-
-    let result: CreatedScanOrderResponse;
-    try {
-      result = await this.prisma.$transaction(
-        async (tx) => {
-          await this.inventoryReservationService.reserveMenuProductStock(
-            tx,
-            pricedItems,
-            session.storeId,
-          );
-          await this.cartPricingService.reserveFiniteSpecStock(tx, pricedItems);
-          await tx.scanOrderingSession.update({
-            where: { id: session.id },
-            data: {
-              guestCount: Math.max(session.guestCount, dto.guestCount),
-              lastActiveAt: new Date(),
-            },
-          });
-          const order = await tx.scanOrders.create({
-            data: {
-              storeId: session.storeId,
-              tableId: session.tableId!,
-              sessionId: session.id,
-              clubUserId: user.id,
-              diningRoundId: session.diningRoundId,
-              orderNo: createScanOrderNo(),
-              guestCount: dto.guestCount,
-              remark: dto.remark,
-              idempotencyKey,
-              pricingVersion,
-              marketingSnapshot: {
-                memberBenefits: promotionResult.memberBenefits,
-                appliedPromotions: promotionResult.appliedPromotions,
-                breakdownItems: promotionResult.breakdownItems,
-                availableCoupons: promotionResult.availableCoupons.filter(
-                  (coupon) => coupon.usable,
-                ),
-                productDiscountAmount: amounts.productDiscountAmount,
-                orderDiscountAmount: amounts.orderDiscountAmount,
-                usePoints: dto.usePoints === true,
-                pointsDeductAmount: promotionResult.pointsDeductAmount,
-                pointsUsed: promotionResult.pointsUsed,
-                redeemRatioPoints: promotionResult.redeemRatioPoints,
-                availablePoints: promotionResult.availablePoints,
-                pointsSettlementStatus: 'pending',
-              },
-              itemOriginalAmount: amounts.itemOriginalAmount,
-              specificationExtraAmount: amounts.specificationExtraAmount,
-              productDiscountAmount: amounts.productDiscountAmount,
-              orderDiscountAmount: amounts.orderDiscountAmount,
-              serviceFeeAmount: amounts.serviceFeeAmount,
-              taxAmount: amounts.taxAmount,
-              payableAmount: promotionResult.afterPointsPayableAmount,
-              paymentExpiresAt: expiresAt,
-              items: {
-                create: this.cartPricingService.buildOrderItemCreateData(
-                  pricedItems,
-                  amounts.productDiscountAmount,
-                  session.storeId,
-                ),
-              },
-            },
-            select: {
-              id: true,
-              orderNo: true,
-              payableAmount: true,
-              paymentExpiresAt: true,
-              version: true,
-            },
-          });
-          await tx.scanOrderStatusHistory.create({
-            data: {
-              orderId: order.id,
-              storeId: session.storeId,
-              fromStatus: 'pending_payment',
-              toStatus: 'pending_payment',
-              operatorType: 'club_user',
-              operatorId: user.id,
-              reason: '用户创建扫码点餐订单',
-            },
-          });
-          await tx.scanOrderingCartItem.updateMany({
-            where: { sessionId: session.id, status: 'active', deletedAt: null },
-            data: { status: 'ordered', version: { increment: 1 } },
-          });
-          // 新客额度扣减：与订单落库在同一个事务里提交。
-          // 扣不到额度（并发下被别人抢走最后一个）就抛错让整笔建单回滚，
-          // 保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
-          await this.quotaService.consumeWithinOrderTransaction(
-            tx,
-            session.storeId,
-            user.id,
-            user.phone || null,
-          );
-          const response: CreatedScanOrderResponse = {
-            ...order,
-            paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
-          };
-          return response;
-        },
-        { timeout: TX_TIMEOUT_MEDIUM },
-      );
-    } catch (error) {
-      // 事务确定未提交：删掉占位记录，允许同 key 重试（此时订单不存在，删了不会丢单）
-      await discardIdempotencyPlaceholder(
-        this.prisma,
-        idempotencyId,
-        this.logger,
-      );
-      if (error instanceof ConflictException) throw error;
-      const raced = await this.prisma.idempotencyRecord.findUnique({
-        where: {
-          scope_actorId_idempotencyKey: {
-            scope: IDEMPOTENCY_SCOPE,
-            actorId: user.id,
-            idempotencyKey,
-          },
-        },
-      });
-      if (raced) return this.resolveExistingIdempotency(raced);
-      throw error;
-    }
-
-    // 事务已提交：从这里开始的失败都不得再删占位记录（订单已真实存在）。
-    // 回填失败只记日志，记录停在 processing 时同 key 重试会拿到「正在创建中」。
-    await finalizeIdempotencyPlaceholder(
-      this.prisma,
-      idempotencyId,
-      result,
-      this.logger,
-      result.id,
-    );
-
-    this.logger.log(
-      `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
-    );
-    // 菜单库存不再由 menuVersion 承载：menuVersion 只随菜单静态内容变化，
-    // 库存/销量由 ClubScanOrderingMenuStockService 的 5s 快照独立刷新，
-    // 因此下单路径无需再失效菜单缓存。
-    // 商家端新订单通知需要展示「位置 · 商品摘要 · 金额」：位置已由 requireSession
-    // 一并查出，桌台缺失时静默降级（仅展示商品摘要与金额）
-    const table = session.table;
-    const tableName = table?.name ?? null;
-    // 位置口径与服务呼叫通知一致：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」）
-    const locationLabel = table
-      ? [table.area?.name, table.type?.name, table.name]
-          .filter((value): value is string => Boolean(value?.trim()))
-          .join(' · ') || null
-      : null;
-    this.realtimeService.publishOrderCreated({
-      storeId: session.storeId,
-      orderId: result.id,
-      sessionId: session.id,
-      // 带上创建时的乐观锁版本：商家端可据此直接接单（缺失时首次接单必然 409）
-      version: result.version,
-      status: 'pending_payment',
-      paymentStatus: 'unpaid',
-      fulfillmentStatus: 'preparing',
-      orderNo: result.orderNo,
-      tableName,
-      locationLabel,
-      items: pricedItems.map((item) => ({
-        productName: item.productName,
-        quantity: item.quantity,
-      })),
-      amountFen: promotionResult.afterPointsPayableAmount,
-      remark: dto.remark?.trim() || null,
-      createdAt: now.toISOString(),
-    });
-    return result;
   }
 
   listOrders(
@@ -399,60 +118,7 @@ export class ClubScanOrderingOrderService {
     if (query?.verify === true) {
       await this.wechatVerifyService.verifyAndSettle(user.id, orderId);
     }
-
-    const order = await this.prisma.scanOrders.findFirst({
-      where: { id: orderId, clubUserId: user.id, deletedAt: null },
-      include: {
-        items: { include: { specs: true }, orderBy: { sortOrder: 'asc' } },
-        paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
-        refundTasks: { orderBy: { createdAt: 'desc' }, take: 1 },
-        balanceTransactions: {
-          where: { type: 'refund' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { createdAt: true },
-        },
-      },
-    });
-    if (!order)
-      throw new NotFoundException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
-          '订单不存在',
-        ),
-      );
-    // marketingSnapshot 只参与金额派生（积分抵扣 / 优惠清单），前端零消费；
-    // 实测它约占订单响应 2/3，故查询保留、响应剔除（与历史接口同口径）。
-    // manualEntryMetadata 是商家补录快照，C 端零消费，同样不下发。
-    const {
-      marketingSnapshot: _marketingSnapshot,
-      manualEntryMetadata: _manualEntryMetadata,
-      ...orderColumns
-    } = order;
-    return {
-      ...orderColumns,
-      items: order.items.map((item) => ({
-        ...item,
-        unitPriceAmount: fenToYuan(item.unitPriceAmount),
-        lineTotalAmount: fenToYuan(item.lineTotalAmount),
-        payableLineAmount: fenToYuan(item.payableLineAmount),
-      })),
-      ...toOrderAmountSummary(order),
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        order.pickupNumber,
-      ),
-      pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
-      pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
-      refundTasks: order.refundTasks.map((task) => ({
-        ...task,
-        refundSucceededAt:
-          task.refundSucceededAt ??
-          task.processedAt ??
-          task.triggeredAt ??
-          order.balanceTransactions[0]?.createdAt ??
-          null,
-      })),
-    };
+    return this.orderQueryService.getOrder(user, orderId);
   }
 
   createWechatPayment(
@@ -478,6 +144,7 @@ export class ClubScanOrderingOrderService {
     return this.checkoutService.confirmPaidForDevelopment(user, orderId);
   }
 
+  /** 取消待支付订单：本人订单 + 待支付前置状态，再交给统一的关单逻辑。 */
   async cancelOrder(
     user: AuthenticatedUser,
     orderId: number,
@@ -516,51 +183,5 @@ export class ClubScanOrderingOrderService {
         ),
       );
     }
-  }
-
-  private async requireSession(user: AuthenticatedUser, sessionId: number) {
-    const session = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        id: sessionId,
-        clubUserId: user.id,
-        status: 'active',
-        expiresAt: { gt: new Date() },
-        deletedAt: null,
-      },
-      // 带上桌台及其区域/类型：下单成功后的实时通知要拼「区域 · 类型 · 桌位」，
-      // 随会话一次查出，省掉提交后再补查 scanOrderingTable 的那一次往返
-      // （通知是 fire-and-forget，查询本不该卡在关键路径上）。
-      include: {
-        table: {
-          select: {
-            name: true,
-            area: { select: { name: true } },
-            type: { select: { name: true } },
-          },
-        },
-      },
-    });
-    if (!session?.tableId)
-      throw new ForbiddenException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
-          '当前桌台会话不可用，请重新扫码',
-        ),
-      );
-    return session;
-  }
-
-  private resolveExistingIdempotency(record: {
-    status: string;
-    responseSnapshot: unknown;
-  }): unknown {
-    if (record.status === 'succeeded' && record.responseSnapshot)
-      return record.responseSnapshot;
-    throw new ConflictException(
-      clubScanOrderingError(
-        CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_CREATING,
-        '订单正在创建中，请稍后重试',
-      ),
-    );
   }
 }

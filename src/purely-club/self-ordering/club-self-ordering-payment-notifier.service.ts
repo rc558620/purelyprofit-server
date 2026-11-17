@@ -1,6 +1,35 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
+
+/**
+ * 支付成功广播的字段白名单。
+ *
+ * 广播体只消费订单级 11 列与明细的 (productName, quantity)，改前用
+ * `include: { items: true }` 会把订单整行（含幂等键、删除标记、乐观锁审计列）
+ * 与商品行整行（含成本价、规格签名等）全部拉回再丢弃——一次支付广播的
+ * 无效 IO 与明细行数成正比，且落在支付链路的关键路径上。
+ */
+const SELF_ORDER_PAID_NOTIFY_SELECT = {
+  id: true,
+  storeId: true,
+  orderNo: true,
+  sessionId: true,
+  spaceId: true,
+  payableAmount: true,
+  remark: true,
+  paidAt: true,
+  status: true,
+  paymentStatus: true,
+  version: true,
+  items: {
+    select: {
+      productName: true,
+      quantity: true,
+    },
+  },
+} as const satisfies Prisma.SelfOrderSelect;
 
 /**
  * 自助下单支付成功通知
@@ -27,7 +56,7 @@ export class ClubSelfOrderingPaymentNotifierService {
   async broadcastOrderPaid(orderId: number): Promise<void> {
     const order = await this.prisma.selfOrder.findFirst({
       where: { id: orderId, status: 'paid', paymentStatus: 'paid' },
-      include: { items: true },
+      select: SELF_ORDER_PAID_NOTIFY_SELECT,
     });
     if (!order) return;
 

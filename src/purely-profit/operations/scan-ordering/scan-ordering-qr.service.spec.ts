@@ -6,6 +6,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingQrService } from './scan-ordering-qr.service';
+import { ScanOrderingQrStore } from './scan-ordering-qr.store';
+import { ScanOrderingQrTokenService } from './scan-ordering-qr-token.service';
 
 /**
  * 桌码二维码「长期有效性」保护测试。
@@ -52,6 +54,8 @@ describe('ScanOrderingQrService - 已印刷物料保护', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanOrderingQrService,
+        ScanOrderingQrStore,
+        ScanOrderingQrTokenService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },

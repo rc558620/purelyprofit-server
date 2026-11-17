@@ -15,6 +15,7 @@ import { CustodyPickupService } from './custody-pickup.service';
 import { CustodyRealtimePublisher } from './custody-realtime.publisher';
 import { CustodyReadService } from './custody-read.service';
 import { CustodySettingsService } from './custody-settings.service';
+import { CustodySummaryService } from './custody-summary.service';
 import { CustodyService } from './custody.service';
 import { CustodyWriteService } from './custody-write.service';
 
@@ -27,6 +28,7 @@ import { CustodyWriteService } from './custody-write.service';
   ],
   providers: [
     CustodyReadService,
+    CustodySummaryService,
     CustodyWriteService,
     CustodyPickupService,
     CustodyPickupVerifyService,

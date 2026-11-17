@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AuthSessionService } from './auth-session.service';
+import { AuthRefreshTokenService } from './auth-refresh-token.service';
 import { RedisService } from '../../redis/redis.service';
 import { aNonNegativeNumber } from '../../spec-matchers';
 
@@ -59,6 +60,7 @@ describe('AuthSessionService – Refresh Token', () => {
           useValue: mockRedis,
         },
         { provide: JwtService, useValue: mockJwt },
+        AuthRefreshTokenService,
         {
           provide: ConfigService,
           useValue: {

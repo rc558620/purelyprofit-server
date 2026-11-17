@@ -51,10 +51,11 @@ jest.mock('./products.domain', () => {
     ensureProductCategory: jest.fn(),
     ensureUniqueProductCode: jest.fn(),
     resolveProductCode: jest.fn(),
-    // deriveProductProfit 和 validateDerivedProfit 使用真实实现，
-    // 以便测试 service 层的利润重算逻辑
+    // deriveProductProfit / validateDerivedProfit / resolveUpdatedProductProfit
+    // 使用真实实现，以便测试 service 层的利润重算逻辑
     deriveProductProfit: actual.deriveProductProfit,
     validateDerivedProfit: actual.validateDerivedProfit,
+    resolveUpdatedProductProfit: actual.resolveUpdatedProductProfit,
   };
 });
 

@@ -10,23 +10,15 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../../../shared/audit-log.service';
 import { CustodyCodeService } from '../../../shared/custody/custody-code.service';
-import {
-  writeCustodyFreezeLog,
-  writeCustodyVoidReleaseLog,
-} from '../../../shared/custody/custody-frozen-log';
+import { writeCustodyFreezeLog } from '../../../shared/custody/custody-frozen-log';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
   CUSTODY_DISABLED_MESSAGE,
-  CUSTODY_MEMBER_NOT_FOUND_MESSAGE,
   CUSTODY_ORDER_NOT_FOUND_MESSAGE,
   CUSTODY_RESEND_REQUIRE_DRAFT_MESSAGE,
 } from './custody.constants';
-import {
-  resolveExpireAt,
-  type CustodyOperatorRole,
-  type CustodyStockModeValue,
-} from './custody.domain';
+import type { CustodyOperatorRole } from './custody.domain';
 import {
   mapCustodyOrder,
   type CustodyOrderMappingSource,
@@ -46,9 +38,16 @@ import type {
 import type {
   CreateCustodyOrderResponseDto,
   CustodyOrderActionResponseDto,
+  CustodyOrderResponseDto,
   VerifyCustodyMemberResponseDto,
 } from './dto/custody-response.dto';
 import type { CustodyCreateInput } from './custody.types';
+import {
+  buildCustodyCreateInput,
+  findCustodyMember,
+  findCustodyOrder,
+  voidCustodyOrderInTransaction,
+} from './custody-write-order.shared';
 
 @Injectable()
 export class CustodyWriteService {
@@ -84,7 +83,7 @@ export class CustodyWriteService {
      */
     const [existing, member] = await Promise.all([
       findIdempotentOrder(this.prisma, storeId, dto.idempotencyKey),
-      this.findMember(storeId, dto.memberPhone),
+      findCustodyMember(this.prisma, storeId, dto.memberPhone),
     ]);
     if (existing) {
       // 诊断：幂等命中直接重放已存在的单，不会再次推送。前端重复提交同一
@@ -102,32 +101,15 @@ export class CustodyWriteService {
         storeId,
       );
     const requireMemberConfirm = settings.requireMemberConfirm;
-    const fallbackName = member.phone ?? '';
-    const input: CustodyCreateInput = {
+    const input: CustodyCreateInput = buildCustodyCreateInput({
       storeId,
-      createdByStaffId: staffId,
-      createdByName: user.name,
-      member: {
-        memberId: member.id,
-        memberName: member.name || fallbackName,
-        memberPhone: member.phone ?? '',
-      },
-      productId: dto.productId ?? null,
-      productName: dto.productName,
-      specName: dto.specName?.trim() ? dto.specName.trim() : null,
-      unit: dto.unit,
-      totalQty: dto.totalQty,
-      location: dto.location?.trim() ? dto.location.trim() : null,
-      storedAt: now,
-      expireAt: resolveExpireAt(dto.expireAt, settings.defaultExpireDays, now),
-      stockMode:
-        (dto.stockMode as CustodyStockModeValue | undefined) ??
-        settings.stockMode,
-      sourceOrderId: dto.sourceOrderId ?? null,
-      note: dto.note?.trim() ? dto.note.trim() : null,
-      image: dto.image?.trim() ? dto.image.trim() : null,
-      idempotencyKey: dto.idempotencyKey ?? null,
-    };
+      user,
+      dto,
+      member,
+      staffId,
+      settings,
+      now,
+    });
 
     // 冻结口径：寄存量不得超过可用库存（物理库存 − 在存冻结量）。
     // 校验、落库、台账必须在同一事务内：并发建单否则会各自读到同一份可用库存并双双通过校验，
@@ -216,6 +198,23 @@ export class CustodyWriteService {
     );
   }
 
+  /** 按存档店员解析经手角色并映射响应（幂等重放 / 作废 / 重推共用） */
+  private async mapWithOperatorRole(
+    storeId: number,
+    record: CustodyOrderMappingSource,
+    createdByStaffId: number | null,
+    now: Date,
+  ): Promise<CustodyOrderResponseDto> {
+    return mapCustodyOrder(
+      record,
+      now,
+      await this.custodyReadService.resolveOperatorRole(
+        storeId,
+        createdByStaffId,
+      ),
+    );
+  }
+
   /** 作废：仅草稿 / 在存（含惰性过期）可作废，必须填写原因 */
   async voidOrder(
     user: AuthenticatedUser,
@@ -224,18 +223,16 @@ export class CustodyWriteService {
   ): Promise<CustodyOrderActionResponseDto> {
     const storeId = await this.resolveStoreId(user, 'custody:void');
     const now = new Date();
-    const order = await this.findOrder(storeId, orderId);
+    const order = await findCustodyOrder(this.prisma, storeId, orderId);
 
     if (order.status === 'void') {
       // 幂等重放：已作废单据直接回档，经手角色仍按原存档店员解析
       return {
-        order: mapCustodyOrder(
+        order: await this.mapWithOperatorRole(
+          storeId,
           order,
+          order.createdByStaffId,
           now,
-          await this.custodyReadService.resolveOperatorRole(
-            storeId,
-            order.createdByStaffId,
-          ),
         ),
       };
     }
@@ -253,47 +250,15 @@ export class CustodyWriteService {
      * 才释放冻结额度，各自判断会出现「状态没改成但台账已释放」。
      */
     await this.prisma.$transaction(async (tx) => {
-      // 条件更新：并发下只允许一个请求把状态从 draft/stored 改为 void
-      const updated = await tx.custodyOrder.updateMany({
-        where: {
-          id: orderId,
-          storeId,
-          deletedAt: null,
-          status: { in: ['draft', 'stored'] },
-        },
-        data: {
-          status: 'void',
-          voidedByStaffId: staffId,
-          voidedAt: now,
-          voidReason: dto.reason,
-        },
+      await voidCustodyOrderInTransaction({
+        tx,
+        orderId,
+        storeId,
+        staffId,
+        reason: dto.reason,
+        now,
+        order,
       });
-      if (updated.count === 0) {
-        throw new ConflictException('存单状态已变更，请刷新列表后重试');
-      }
-
-      /*
-       * 作废即释放剩余占用，可用库存回升，必须留痕。
-       * draft 单从未占用过额度（冻结只算 stored），不能产生台账，否则两边抵消不平。
-       */
-      if (
-        order.stockMode === 'frozen' &&
-        order.productId !== null &&
-        order.status === 'stored' &&
-        order.remainingQty > 0
-      ) {
-        await writeCustodyVoidReleaseLog(tx, {
-          storeId,
-          productId: order.productId,
-          productName: order.productName,
-          qty: order.remainingQty,
-          beforeRemainingQty: order.remainingQty,
-          afterRemainingQty: 0,
-          operatorStaffId: staffId,
-          orderNo: order.orderNo,
-          note: `客存作废解冻 ${order.remainingQty}${order.unit}（存单 ${order.orderNo}，物理库存未变动）`,
-        });
-      }
     });
 
     /*
@@ -321,13 +286,11 @@ export class CustodyWriteService {
     this.realtimePublisher.publishVoided(storeId, order, dto.reason, now);
 
     return {
-      order: mapCustodyOrder(
+      order: await this.mapWithOperatorRole(
+        storeId,
         voided,
+        order.createdByStaffId,
         now,
-        await this.custodyReadService.resolveOperatorRole(
-          storeId,
-          order.createdByStaffId,
-        ),
       ),
     };
   }
@@ -343,7 +306,7 @@ export class CustodyWriteService {
   ): Promise<CreateCustodyOrderResponseDto> {
     const storeId = await this.resolveStoreId(user, 'custody:create');
     const now = new Date();
-    const order = await this.findOrder(storeId, orderId);
+    const order = await findCustodyOrder(this.prisma, storeId, orderId);
 
     if (order.status !== 'draft') {
       throw new ConflictException(CUSTODY_RESEND_REQUIRE_DRAFT_MESSAGE);
@@ -360,13 +323,11 @@ export class CustodyWriteService {
     await this.realtimePublisher.publishStoreRequested(storeId, order);
 
     return {
-      order: mapCustodyOrder(
+      order: await this.mapWithOperatorRole(
+        storeId,
         order,
+        order.createdByStaffId,
         now,
-        await this.custodyReadService.resolveOperatorRole(
-          storeId,
-          order.createdByStaffId,
-        ),
       ),
       requireMemberConfirm: true,
     };
@@ -379,13 +340,11 @@ export class CustodyWriteService {
     now: Date,
   ): Promise<CreateCustodyOrderResponseDto> {
     return {
-      order: mapCustodyOrder(
+      order: await this.mapWithOperatorRole(
+        storeId,
         order,
+        order.createdByStaffId,
         now,
-        await this.custodyReadService.resolveOperatorRole(
-          storeId,
-          order.createdByStaffId,
-        ),
       ),
       requireMemberConfirm: order.status === 'draft',
     };
@@ -397,33 +356,12 @@ export class CustodyWriteService {
     phone: string,
   ): Promise<VerifyCustodyMemberResponseDto> {
     const storeId = await this.resolveStoreId(user, 'custody:create');
-    const member = await this.findMember(storeId, phone);
+    const member = await findCustodyMember(this.prisma, storeId, phone);
     return {
       memberId: member.id,
       memberName: member.name || (member.phone ?? ''),
       phoneMasked: maskPhone(member.phone ?? ''),
     };
-  }
-
-  private async findMember(storeId: number, phone: string) {
-    const member = await this.prisma.member.findFirst({
-      where: { storeId, phone, deletedAt: null, status: { not: 'banned' } },
-      select: { id: true, name: true, phone: true },
-    });
-    if (!member) {
-      throw new NotFoundException(CUSTODY_MEMBER_NOT_FOUND_MESSAGE);
-    }
-    return member;
-  }
-
-  private async findOrder(storeId: number, orderId: number) {
-    const order = await this.prisma.custodyOrder.findFirst({
-      where: { id: orderId, storeId, deletedAt: null },
-    });
-    if (!order) {
-      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
-    }
-    return order;
   }
 
   private async resolveStoreId(

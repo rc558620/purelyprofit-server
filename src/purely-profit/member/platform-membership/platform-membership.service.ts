@@ -1,8 +1,6 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
-import { IdentityType } from '../../access-control/access-control.service';
+import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
-  buildCacheRefreshTaskKey,
   buildPlatformMembershipCenterCacheKey,
   buildPlatformMembershipPartnerProfileCacheKey,
   buildPlatformMembershipPointsLogsCacheKey,
@@ -42,11 +40,21 @@ import type {
   MembershipPlanConfig,
   PromotionDetailCompatResponse,
 } from './platform-membership.types';
-
-const PLATFORM_MEMBERSHIP_READ_CACHE_TTL_SECONDS = 120;
-const PLATFORM_MEMBERSHIP_READ_REFRESH_AFTER_MS = 30_000;
-const PLATFORM_MEMBERSHIP_LEDGER_CACHE_TTL_SECONDS = 90;
-const PLATFORM_MEMBERSHIP_LEDGER_REFRESH_AFTER_MS = 20_000;
+import {
+  addPlatformPartnerFollowUpNote,
+  applyPlatformPartner,
+  approvePlatformPartnerApplication,
+  cancelPlatformPartnerApplication,
+  ensurePlatformMembershipOwnerOnly,
+  getPlatformMembershipStoreIdOrThrow,
+  markPlatformPartnerApplicationReviewing,
+  rejectPlatformPartnerApplication,
+} from './platform-membership-partner-ops.shared';
+import { mapPurchaseMembershipResult } from './platform-membership-purchase-response.shared';
+import {
+  loadPlatformMembershipCachedLedger,
+  loadPlatformMembershipCachedRead,
+} from './platform-membership-cache.shared';
 
 @Injectable()
 export class PlatformMembershipService {
@@ -99,7 +107,8 @@ export class PlatformMembershipService {
   async getCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    return this.loadCachedRead(
+    return loadPlatformMembershipCachedRead(
+      this.refreshableCache,
       buildPlatformMembershipCenterCacheKey(storeId),
       () => this.platformMembershipReadService.getCenterByStoreId(storeId),
     );
@@ -132,7 +141,8 @@ export class PlatformMembershipService {
   async getProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    return this.loadCachedRead(
+    return loadPlatformMembershipCachedRead(
+      this.refreshableCache,
       buildPlatformMembershipProfileCacheKey(storeId),
       () => this.platformMembershipReadService.getProfileByStoreId(storeId),
     );
@@ -187,26 +197,7 @@ export class PlatformMembershipService {
       storeId,
       dto,
     );
-
-    // 真实模式：只回支付信息，权益等回调生效
-    // qrCodeImageUrl 必须透传：weixin:// 协议串无法直接作为 <img> 源，前端只认这个字段
-    if (result.mode === 'live') {
-      return {
-        mode: 'live',
-        orderNo: result.orderNo,
-        codeUrl: result.codeUrl,
-        qrCodeImageUrl: result.qrCodeImageUrl,
-        amountFen: result.amountFen,
-        expiresAt: result.expiresAt.toISOString(),
-      };
-    }
-
-    return {
-      mode: 'test',
-      order: result.order,
-      profile: result.profile,
-      overview: result.overview,
-    };
+    return mapPurchaseMembershipResult(result);
   }
 
   /** 查询会员支付单状态（真实模式扫码支付后轮询） */
@@ -241,7 +232,8 @@ export class PlatformMembershipService {
   async listPointsLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    return this.loadCachedLedger(
+    return loadPlatformMembershipCachedLedger(
+      this.refreshableCache,
       buildPlatformMembershipPointsLogsCacheKey(storeId),
       () =>
         this.platformMembershipLedgerService.listPointsLogsByStoreId(storeId),
@@ -276,7 +268,8 @@ export class PlatformMembershipService {
   async getPromoCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    return this.loadCachedLedger(
+    return loadPlatformMembershipCachedLedger(
+      this.refreshableCache,
       buildPlatformMembershipPromoCenterCacheKey(storeId),
       () => this.platformMembershipReadService.getPromoCenterByStoreId(storeId),
     );
@@ -304,7 +297,8 @@ export class PlatformMembershipService {
   async getPartnerProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.loadCachedRead(
+    return loadPlatformMembershipCachedRead(
+      this.refreshableCache,
       buildPlatformMembershipPartnerProfileCacheKey(storeId),
       () =>
         this.platformMembershipPartnerService.getPartnerProfileByStoreId(
@@ -317,11 +311,9 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     dto: ApplyPlatformPartnerDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipPartnerService.applyPartner(
-      user.id,
-      storeId,
+    return applyPlatformPartner(
+      this.platformMembershipPartnerService,
+      user,
       dto,
     );
   }
@@ -330,10 +322,9 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipPartnerService.markPartnerApplicationReviewing(
-      storeId,
+    return markPlatformPartnerApplicationReviewing(
+      this.platformMembershipPartnerService,
+      user,
       applicationId,
     );
   }
@@ -342,10 +333,9 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipPartnerService.approvePartnerApplication(
-      storeId,
+    return approvePlatformPartnerApplication(
+      this.platformMembershipPartnerService,
+      user,
       applicationId,
     );
   }
@@ -355,14 +345,11 @@ export class PlatformMembershipService {
     applicationId: number,
     dto: RejectPlatformPartnerApplicationDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    const reason = dto.reason?.trim();
-    const finalReason = reason && reason.length > 0 ? reason : '审核未通过';
-    return this.platformMembershipPartnerService.rejectPartnerApplication(
-      storeId,
+    return rejectPlatformPartnerApplication(
+      this.platformMembershipPartnerService,
+      user,
       applicationId,
-      finalReason,
+      dto,
     );
   }
 
@@ -370,11 +357,9 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipPartnerService.cancelPartnerApplication(
-      user.id,
-      storeId,
+    return cancelPlatformPartnerApplication(
+      this.platformMembershipPartnerService,
+      user,
       applicationId,
     );
   }
@@ -384,55 +369,19 @@ export class PlatformMembershipService {
     applicationId: number,
     dto: CreatePlatformPartnerFollowUpNoteDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.platformMembershipPartnerService.addPartnerFollowUpNote(
-      storeId,
+    return addPlatformPartnerFollowUpNote(
+      this.platformMembershipPartnerService,
+      user,
       applicationId,
       dto,
     );
   }
 
-  private async loadCachedRead<T>(
-    cacheKey: string,
-    loadValue: () => Promise<T>,
-  ): Promise<T> {
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: PLATFORM_MEMBERSHIP_READ_CACHE_TTL_SECONDS,
-      refreshAfterMs: PLATFORM_MEMBERSHIP_READ_REFRESH_AFTER_MS,
-      loadValue,
-    });
-  }
-
-  private async loadCachedLedger<T>(
-    cacheKey: string,
-    loadValue: () => Promise<T>,
-  ): Promise<T> {
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: PLATFORM_MEMBERSHIP_LEDGER_CACHE_TTL_SECONDS,
-      refreshAfterMs: PLATFORM_MEMBERSHIP_LEDGER_REFRESH_AFTER_MS,
-      loadValue,
-    });
-  }
-
   private getCurrentStoreIdOrThrow(user: AuthenticatedUser): number {
-    const storeId = user.currentMembership?.storeId;
-    if (!storeId) {
-      throw new ForbiddenException('当前账号未绑定门店，暂无法使用会员中心');
-    }
-
-    return storeId;
+    return getPlatformMembershipStoreIdOrThrow(user);
   }
 
   private ensureOwnerOnly(user: AuthenticatedUser, message: string): void {
-    if (
-      user.currentMembership?.subjectType === ('sub_account' as IdentityType)
-    ) {
-      throw new ForbiddenException(message);
-    }
+    ensurePlatformMembershipOwnerOnly(user, message);
   }
 }

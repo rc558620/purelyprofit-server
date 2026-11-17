@@ -180,3 +180,6 @@ export const resolveTimeCategory = (
   }
   return null;
 };
+
+/** 无实际操作人时的操作员兜底展示名（空间自动结账 / 扫码点餐取当班操作员） */
+export const AUTO_SETTLEMENT_OPERATOR_NAME = '空间自动结账';

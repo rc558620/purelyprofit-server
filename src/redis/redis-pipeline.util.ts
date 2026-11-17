@@ -66,6 +66,21 @@ export async function executeReadPipeline(
 }
 
 /**
+ * 用一次 pipeline 往返执行一组互不依赖的写命令。
+ *
+ * pipeline 不保证原子性，需要原子语义请改用 multi。
+ * 抽成公共函数，供 RedisService 与各命令分组共用同一实现。
+ */
+export async function executeWritePipeline(
+  client: Redis,
+  build: (pipeline: ChainableCommander) => void,
+): Promise<void> {
+  const pipeline = client.pipeline();
+  build(pipeline);
+  await pipeline.exec();
+}
+
+/**
  * 项目内缓存失效 pattern 只使用 `*` 通配符（见 src/redis/keys/*）。
  * 含 `?` / `[]` / `\` 的复杂模式不走合并路径，仍由 Redis 服务端 MATCH 处理，
  * 避免客户端匹配与 Redis glob 语义分叉。

@@ -32,6 +32,7 @@ import {
   PulseAdminSmsBroadcastsResponseDto,
   PulseAdminSmsWalletLogsResponseDto,
 } from './dto/pulse-sms.response.dto';
+import { PulseSmsBroadcastService } from './pulse-sms-broadcast.service';
 import { PulseSmsService } from './pulse-sms.service';
 import { PulseSmsWalletLogsService } from './pulse-sms-wallet-logs.service';
 
@@ -44,6 +45,7 @@ export class PulseSmsController {
   constructor(
     private readonly pulseSmsService: PulseSmsService,
     private readonly walletLogsService: PulseSmsWalletLogsService,
+    private readonly broadcastService: PulseSmsBroadcastService,
   ) {}
 
   @Get('accounts')
@@ -107,7 +109,7 @@ export class PulseSmsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @Query() query: GetPulseAdminSmsBroadcastsQueryDto,
   ): Promise<PulseAdminSmsBroadcastsResponseDto> {
-    return this.pulseSmsService.listAdminSmsBroadcasts(user, storeId, query);
+    return this.broadcastService.listAdminSmsBroadcasts(user, storeId, query);
   }
 
   @Post('accounts/:storeId/broadcasts/:broadcastId/refund')
@@ -124,7 +126,7 @@ export class PulseSmsController {
     @Param('broadcastId') broadcastId: string,
     @Body() dto: RefundPulseAdminSmsBroadcastDto,
   ): Promise<PulseAdminSmsBroadcastRefundResultDto> {
-    return this.pulseSmsService.refundAdminSmsBroadcast(
+    return this.broadcastService.refundAdminSmsBroadcast(
       user,
       storeId,
       broadcastId,

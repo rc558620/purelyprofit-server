@@ -9,6 +9,8 @@ import { ClubCardBusinessModeGuard } from './club-card-business-mode.guard';
 import { ClubCardContextService } from './club-card-context.service';
 import { ClubCardImmediateSettlementService } from './club-card-immediate-settlement.service';
 import { ClubCardOrderService } from './club-card-order.service';
+import { ClubCardOrderCreateService } from './club-card-order-create.service';
+import { ClubCardOrderReaderService } from './club-card-order-reader.service';
 import { ClubCardQueryService } from './club-card-query.service';
 import { ClubCardSettlementService } from './club-card-settlement.service';
 import { ClubCardsController } from './club-cards.controller';
@@ -35,6 +37,10 @@ import { ClubCardsController } from './club-cards.controller';
     ClubCardContextService,
     ClubCardQueryService,
     ClubCardOrderService,
+    // 下单链路独立成服务（幂等占位 + 预下单 + 落库 + 即时落账）
+    ClubCardOrderCreateService,
+    // 订单读取（本人订单 / 幂等命中 / 重读 / 首张卡）
+    ClubCardOrderReaderService,
     // 落账事务（建卡 + purchase 流水）独立成服务，回调与手动确认共用
     ClubCardSettlementService,
     // 零元卡 / 余额支付的即时落账：下单即发卡，不走微信收银台

@@ -32,6 +32,12 @@ export interface ClubPointsCustomerLinkRecord extends ClubPointsCustomerRecord {
   clubUserId: number | null;
 }
 
+/** 积分汇总原生聚合行：SUM 在 PG 侧返回 bigint，需转 number 对齐 DTO */
+interface ClubPointsSummaryAggregateRow {
+  totalEarned: bigint;
+  totalRedeemed: bigint;
+}
+
 /** 积分记录游标载荷（解码后）：时间 + ID 用于定位（同刻记录按 ID 补足次序） */
 export interface ClubPointsCursorPayload {
   /** 上一页最后一条记录的创建时间 ISO 字符串 */
@@ -148,39 +154,36 @@ export class ClubPointsQueryService {
 
   /**
    * 计算指定客户在指定门店的积分汇总：累计获得积分、累计消耗积分。
-   * 使用数据库 SUM 聚合，保证精度且不需要前端遍历。
+   *
+   * 改前是 `amount > 0` / `amount < 0` 两条 aggregate 并行发出：同一张
+   * `marketing_points_records`、同一 `(store_id, customer_id)` 条件各扫一遍。
+   * 两条查询的谓词互为补集、表与等值条件完全相同，因此用一条 `FILTER` 聚合
+   * 一次算完：PG 查询数 2 → 1，该顾客积分流水的扫描量减半。
+   *
+   * 与 `club-custody-read.service.ts` 的 `aggregateSummary` 保持同一范式
+   * （单条 SQL + FILTER 多指标），避免同模块内两种聚合口径并存。
    */
   async calculateSummary(
     storeId: number,
     customerId: number,
   ): Promise<ClubPointsSummaryDto> {
-    const [earnedResult, redeemedResult] = await Promise.all([
-      this.prisma.marketingPointsRecord.aggregate({
-        where: {
-          storeId,
-          customerId,
-          amount: { gt: 0 },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-      this.prisma.marketingPointsRecord.aggregate({
-        where: {
-          storeId,
-          customerId,
-          amount: { lt: 0 },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-    ]);
+    const rows = await this.prisma.$queryRaw<ClubPointsSummaryAggregateRow[]>`
+      SELECT
+        COALESCE(SUM("amount") FILTER (WHERE "amount" > 0), 0)::bigint
+          AS "totalEarned",
+        COALESCE(SUM("amount") FILTER (WHERE "amount" < 0), 0)::bigint
+          AS "totalRedeemed"
+      FROM "marketing_points_records"
+      WHERE "store_id" = ${storeId}
+        AND "customer_id" = ${customerId}
+    `;
 
-    const totalEarned = earnedResult._sum.amount ?? 0;
-    const totalRedeemed = Math.abs(redeemedResult._sum.amount ?? 0);
-
-    return { totalEarned, totalRedeemed };
+    // FILTER 聚合无 GROUP BY，恒返回一行；`rows[0]` 缺失只是类型层面的兜底
+    const row = rows[0];
+    return {
+      totalEarned: Number(row?.totalEarned ?? 0),
+      totalRedeemed: Math.abs(Number(row?.totalRedeemed ?? 0)),
+    };
   }
 
   /**

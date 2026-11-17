@@ -12,6 +12,7 @@ import {
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthCodeVerifyService } from '../../purely-profit/auth/auth-code-verify.service';
 import { ClubAccountMergeService } from './club-account-merge.service';
+import { ClubAuthQuotaGateService } from './club-auth-quota-gate.service';
 import { ClubAuthService } from './club-auth.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubPhoneBindService } from './club-phone-bind.service';
@@ -170,6 +171,7 @@ describe('ClubAuthService 新用户额度', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubAuthService,
+        ClubAuthQuotaGateService,
         NewCustomerQuotaService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ClubWechatAuthService, useValue: clubWechatAuthService },

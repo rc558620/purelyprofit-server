@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthRefreshTokenService } from './auth-refresh-token.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthUserCacheService } from './auth-user-cache.service';
 import { AuthValidateContextService } from './auth-validate-context.service';
@@ -167,6 +168,7 @@ describe('AuthValidateContextService', () => {
     const sessionService = new AuthSessionService(
       redis as never,
       {} as never,
+      new AuthRefreshTokenService(redis as never, configService as never),
       configService as never,
     );
     const userCacheService = new AuthUserCacheService(

@@ -1,0 +1,254 @@
+// 纯利宝团购券订单：响应 DTO
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { type ClubVoucherOrderStatusValue } from '../club-voucher-orders.types';
+
+/** 优惠拆解展示行（与服务详情页口径一致） */
+export interface ClubVoucherOrderBreakdownItem {
+  id: string;
+  label: string;
+  value: string;
+  isDeduction: boolean;
+  isStrikethrough: boolean;
+}
+
+/** 团购券订单价格预计算结果 */
+export class ClubVoucherOrderPreviewResponseDto {
+  @ApiProperty({ example: 17850, description: '应付金额（分，原价口径）' })
+  originalAmountFen: number;
+
+  @ApiProperty({ example: 5000, description: '优惠金额（分）' })
+  discountAmountFen: number;
+
+  @ApiProperty({ example: 12850, description: '实付金额（分）' })
+  paidAmountFen: number;
+
+  @ApiProperty({ example: 0, description: '积分抵扣金额（分）' })
+  pointsDeductFen: number;
+
+  @ApiProperty({ example: 0, description: '实际扣减积分个数' })
+  pointsUsed: number;
+
+  @ApiProperty({ example: 2, description: '到店人数（下单时落订单快照）' })
+  personCount: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '余额是否足以支付本单，用于前端展示余额不足提示',
+  })
+  balanceEnough?: boolean;
+
+  @ApiPropertyOptional({
+    example: '当前余额 ¥0.00，本次需支付 ¥128.50，请先充值',
+    description:
+      '余额不足时的完整提示文案（含金额，后端拼装）；余额足够时为 null，前端直接展示不做计算',
+  })
+  insufficientBalanceMessage?: string | null;
+
+  @ApiProperty({
+    example: 8800,
+    description: '会员价小计（分）= 商品会员价 × 数量',
+  })
+  memberAmountFen: number;
+
+  @ApiProperty({ example: 6600, description: '活动折后小计（分，满减前）' })
+  afterDiscountAmountFen: number;
+
+  @ApiProperty({ example: 800, description: '整单满减金额（分）' })
+  reduceFen: number;
+
+  @ApiProperty({ example: 2200, description: '活动折扣优惠金额（分）' })
+  promotionDiscountFen: number;
+
+  @ApiPropertyOptional({ example: 'discount', description: '命中活动类型' })
+  promotionType?: string | null;
+
+  @ApiPropertyOptional({ example: '折扣', description: '命中活动标签' })
+  promotionTag?: string | null;
+
+  @ApiPropertyOptional({
+    example: 75,
+    description: '命中活动折扣率（0-100 整数）',
+  })
+  discountRate?: number | null;
+
+  @ApiPropertyOptional({
+    example: 0.8,
+    description: '会员等级折扣率（0-1 小数）',
+  })
+  memberDiscountRate?: number | null;
+
+  @ApiProperty({
+    type: [Object],
+    description: '优惠拆解展示行（前端直接渲染）',
+  })
+  breakdownItems: ClubVoucherOrderBreakdownItem[];
+}
+
+/** 微信支付参数（前端 wx.requestPayment 入参） */
+export class ClubVoucherWechatPaymentParamsDto {
+  @ApiProperty({ description: '时间戳（秒）' })
+  timeStamp: string;
+
+  @ApiProperty({ description: '随机字符串' })
+  nonceStr: string;
+
+  @ApiProperty({ description: '订单详情扩展字符串（prepay_id=xxx）' })
+  package: string;
+
+  @ApiProperty({ description: '签名方式，固定 RSA' })
+  signType: string;
+
+  @ApiProperty({ description: '支付签名' })
+  paySign: string;
+}
+
+/** 团购券订单条目（列表/详情共用基础字段） */
+export class ClubVoucherOrderItemDto {
+  @ApiProperty({ example: 'VC20260810143000001', description: '业务订单号' })
+  orderNo: string;
+
+  @ApiPropertyOptional({ example: 'VC20260810ABCDEF', description: '团购券码' })
+  voucherCode?: string;
+
+  @ApiProperty({ example: 'chunlibao', description: '团购平台' })
+  platform: string;
+
+  @ApiProperty({ example: '小包套餐', description: '商品名称' })
+  productName: string;
+
+  @ApiProperty({ example: 1, description: '购买数量' })
+  quantity: number;
+
+  @ApiProperty({ example: 2, description: '到店人数' })
+  personCount?: number;
+
+  @ApiProperty({ example: 17850, description: '应付金额（分）' })
+  originalAmountFen: number;
+
+  @ApiProperty({ example: 5000, description: '优惠金额（分）' })
+  discountAmountFen: number;
+
+  @ApiProperty({ example: 12850, description: '实付金额（分）' })
+  paidAmountFen: number;
+
+  @ApiProperty({ example: 'pending', description: '订单状态' })
+  status: ClubVoucherOrderStatusValue;
+
+  @ApiProperty({ example: '待使用', description: '状态展示文案' })
+  statusLabel: string;
+
+  @ApiProperty({ example: '测试门店', description: '下单门店名称' })
+  storeName: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.xxx/1.jpg',
+    description: '商品图片 URL',
+  })
+  image?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-07-15',
+    description: '有效期至（日期）',
+  })
+  expireDate?: string;
+
+  @ApiProperty({ example: '2026-08-10 14:30', description: '下单时间' })
+  createdAtLabel: string;
+}
+
+/** 团购券订单详情 */
+export class ClubVoucherOrderDetailDto extends ClubVoucherOrderItemDto {
+  @ApiPropertyOptional({ description: '用户端立即核销时间' })
+  verifyAt?: string;
+
+  @ApiPropertyOptional({ description: '开台核销时间（used-已开台）' })
+  usedAt?: string;
+
+  @ApiPropertyOptional({ description: '核销门店名称' })
+  usedStoreName?: string;
+
+  @ApiPropertyOptional({ description: '退款时间' })
+  refundAt?: string;
+
+  @ApiPropertyOptional({ description: '退款金额（分）' })
+  refundAmountFen?: number;
+
+  @ApiPropertyOptional({
+    example: 500,
+    description: '实际扣减积分个数（退款时原路返还）',
+  })
+  pointsUsed?: number;
+
+  @ApiProperty({ example: '微信支付', description: '支付方式文案' })
+  paymentMethodLabel: string;
+
+  @ApiProperty({ description: '订单编号（复制用）' })
+  orderId: string;
+
+  @ApiProperty({ description: '下单时间文案' })
+  orderTimeLabel: string;
+
+  @ApiPropertyOptional({
+    example: '不要辣，多加一份餐具',
+    description: '下单备注（顾客填写，可为空）',
+  })
+  remark?: string;
+
+  @ApiProperty({
+    type: [Object],
+    description: '优惠拆解展示行（与服务详情页一致，前端直接渲染）',
+  })
+  breakdownItems: ClubVoucherOrderBreakdownItem[];
+}
+
+/** 创建订单响应：订单草稿 + 微信支付参数 */
+export class ClubVoucherOrderResponseDto {
+  @ApiProperty({ description: '业务订单号（草稿态 id）' })
+  id: string;
+
+  @ApiProperty({ description: '业务订单号（微信 out_trade_no）' })
+  orderNo: string;
+
+  @ApiPropertyOptional({
+    example: 'VC20260810143000001',
+    description: '团购券码（支付成功后返回）',
+  })
+  voucherCode?: string;
+
+  @ApiProperty({ example: 'unpaid', description: '订单状态' })
+  status: ClubVoucherOrderStatusValue;
+
+  @ApiProperty({ example: 12850, description: '应付金额（分）' })
+  amountFen: number;
+
+  @ApiProperty({
+    description: '微信支付参数；openid 未传时为 undefined（开发态）',
+  })
+  paymentParams?: ClubVoucherWechatPaymentParamsDto;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否为幂等复用：true 表示本次请求命中了已创建的订单，未新建订单，此时不返回支付参数',
+  })
+  reused?: boolean;
+}
+
+/** 团购券订单列表响应（游标分页） */
+export class ClubVoucherOrderListResponseDto {
+  @ApiProperty({ type: [ClubVoucherOrderItemDto], description: '订单列表' })
+  items: ClubVoucherOrderItemDto[];
+
+  @ApiProperty({
+    example: false,
+    description: '是否还有下一页（等价于 nextCursor !== null，保留兼容字段）',
+  })
+  hasMore: boolean;
+
+  @ApiProperty({
+    example: 'v1:eyJrZXlzIjpbMTc2MTAwMDAwMDAwMF0sImlkIjoxOH0',
+    nullable: true,
+    description: '下一页游标；null 表示已到最后一页，需原样回传给 cursor 参数',
+  })
+  nextCursor: string | null;
+}

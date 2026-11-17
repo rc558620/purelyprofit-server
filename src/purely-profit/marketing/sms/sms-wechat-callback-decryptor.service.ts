@@ -11,7 +11,7 @@
 import { Injectable } from '@nestjs/common';
 import { PlatformWechatCallbackDecryptorService } from '../../payments/platform-wechat-callback-decryptor.service';
 import type { WechatDecryptedTransaction } from '../../../purely-club/payments/dto/club-wechat-callback.dto';
-import type { SmsWechatCallbackDto } from './dto/sms.dto';
+import type { SmsWechatCallbackDto } from './dto/sms-callback.dto';
 
 @Injectable()
 export class SmsWechatCallbackDecryptorService {

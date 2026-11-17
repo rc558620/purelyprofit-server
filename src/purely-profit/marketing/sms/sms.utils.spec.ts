@@ -4,14 +4,17 @@ import {
   calcSmsSegments,
   countSmsSegmentDiff,
   formatFenAmountDisplay,
+  isSmsOrderNo,
   normalizeSmsMobile,
   resolveSmsRechargeTiersFen,
   resolveSmsUnitPriceFen,
   toE164MainlandMobile,
   type SmsSegmentLimits,
 } from './sms.utils';
-import { SMS_SEGMENT_COUNT_MODE_DEFAULT } from './sms.constants';
-import { SMS_ORDER_NO_PATTERN, isSmsOrderNo } from './dto/sms.dto';
+import {
+  SMS_ORDER_NO_PATTERN,
+  SMS_SEGMENT_COUNT_MODE_DEFAULT,
+} from './sms.constants';
 
 const LIMITS: SmsSegmentLimits = { singleLimit: 70, longLimit: 67 };
 

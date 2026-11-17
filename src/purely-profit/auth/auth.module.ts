@@ -32,6 +32,7 @@ import { AuthPromoRecordService } from './auth-promo-record.service';
 import { AuthWechatLoginService } from './auth-wechat-login.service';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthService } from './auth.service';
+import { AuthRefreshTokenService } from './auth-refresh-token.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
@@ -87,6 +88,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProductAuthService,
     AuthProfileService,
     AuthPromoRecordService,
+    AuthRefreshTokenService,
     AuthSessionService,
     AuthSmsModeService,
     AuthSmsService,

@@ -5,7 +5,10 @@ import { RedisService } from '../../../redis/redis.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SmsAccountService } from './sms-account.service';
 import { SMS_QUOTE_TTL_SECONDS } from './sms.constants';
-import type { CreateSmsQuoteDto, SmsQuoteResponseDto } from './dto/sms.dto';
+import type {
+  CreateSmsQuoteDto,
+  SmsQuoteResponseDto,
+} from './dto/sms-quote.dto';
 import type { SmsQuoteSnapshot, SmsResolvedRecipient } from './sms.types';
 import type { SmsSegmentCountMode } from './sms.constants';
 import {

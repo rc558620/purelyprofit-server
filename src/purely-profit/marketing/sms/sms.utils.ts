@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import { Money } from '../../../shared/money.utils';
 import { normalizePhone } from '../marketing.utils';
 import {
+  SMS_ORDER_NO_PATTERN,
   SMS_ORDER_NO_PREFIX,
   SMS_RECHARGE_TIERS_FEN_DEFAULT,
   SMS_SEGMENT_COUNT_MODE_DEFAULT,
@@ -209,6 +210,11 @@ export function buildSmsOrderNo(now: number = Date.now()): string {
   ].join('');
 
   return `${SMS_ORDER_NO_PREFIX}${serial}`;
+}
+
+/** 判定订单号是否属于短信钱包（前缀格式不符即拒，防回调串台） */
+export function isSmsOrderNo(orderNo: string): boolean {
+  return SMS_ORDER_NO_PATTERN.test(orderNo);
 }
 
 const MAINLAND_MOBILE_PATTERN = /^1[3-9]\d{9}$/;

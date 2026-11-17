@@ -8,10 +8,8 @@ import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
-import {
-  mapSalesRecordResponse,
-  type SaleOrderWithItems,
-} from './sales-record.domain';
+import type { SaleOrderWithItems } from './sales-record.domain';
+import { mapSalesRecordResponse } from './sales-record-response.mapping';
 import { generateOrderNo } from './sales-record.query';
 import type {
   CreateSalesRecordOptions,

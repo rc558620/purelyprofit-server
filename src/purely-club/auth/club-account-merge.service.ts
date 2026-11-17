@@ -1,16 +1,14 @@
 import { CLUB_AUTH_ERROR_CODE, clubAuthError } from './club-auth.errors';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { AuthLegacyOwnerRepairService } from '../../purely-profit/auth/auth-legacy-owner-repair.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
-import { buildClubWechatMemberPhone } from '../../purely-profit/auth/auth.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../prisma/prisma.service';
 import {
-  buildCustomerMergeStatements,
-  buildMemberMergeStatements,
-  type CustomerMergePair,
-  type MemberMergePair,
-} from './club-account-merge.statements';
+  mergeCustomerProfiles,
+  mergeMemberProfiles,
+  resolveSourceMembership,
+} from './club-account-merge.membership';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 
 /** 合并时的源账号（微信账号）信息 */
@@ -23,26 +21,14 @@ export interface ClubMergeSourceUser {
   wechatPhone: string | null;
 }
 
-interface MergeSourceMember {
-  id: number;
-  storeId: number;
-  beanBalance: number;
-}
-
-interface MergeSourceCustomer {
-  id: number;
-  storeId: number;
-  balance: number;
-  points: number;
-  totalSpent: number;
-  visitCount: number;
-}
-
 /**
  * 账号合并：把微信账号（源）的 openid、会员档案、门店归属合到手机号账号（目标）。
  *
  * 从 ClubAuthService 抽离，因为它是「绑定手机号」的一个分支（手机号已有账号时），
  * 换绑路径完全用不到它。
+ *
+ * 档案定位与资产迁移的细节见 `club-account-merge.membership.ts`，本类只负责
+ * 事务编排与事务外副作用（缓存失效、登录态失效、签发 token）。
  */
 @Injectable()
 export class ClubAccountMergeService {
@@ -59,9 +45,6 @@ export class ClubAccountMergeService {
    *
    * 合并步骤（全部在同一个数据库事务中）：
    * 1. 迁移源用户（微信账号）在各门店的 Member / MarketingCustomer 档案到目标用户
-   *    - 同一门店下目标用户已有档案 → 先把源档案的资产（纯利豆 / 储值 / 积分）
-   *      并入目标档案，再**软删除**源档案并清空 phone
-   *    - 同一门店下目标用户无档案 → 直接将源档案的 phone / clubUserId 改到目标用户
    * 2. 迁移源用户的 Store ownership（ownerId）到目标用户
    * 3. 迁移源用户的新客额度消耗留痕（clubUserId）到目标用户
    * 4. 将 openid 从源用户移到目标用户，清除源用户的微信相关字段
@@ -98,214 +81,36 @@ export class ClubAccountMergeService {
           const mergedAt = new Date();
           // 1. 迁移会员档案（Member + MarketingCustomer）
           //    定位方式见 resolveSourceMembership —— 不再假设 phone 还是占位值
-          const { members: sourceMembers, customers: sourceCustomers } =
-            await this.resolveSourceMembership(
-              tx,
-              sourceUserId,
-              sourceOpenid,
-              sourceUser.wechatPhone,
-            );
+          const { members, customers } = await resolveSourceMembership(
+            tx,
+            sourceUserId,
+            sourceOpenid,
+            sourceUser.wechatPhone,
+          );
+          await mergeMemberProfiles(tx, this.logger, members, phone, mergedAt);
+          await mergeCustomerProfiles(
+            tx,
+            this.logger,
+            customers,
+            targetUserId,
+            phone,
+            mergedAt,
+          );
 
-          if (sourceMembers.length > 0) {
-            // 批量查询目标用户在这些门店是否已有 Member 记录，避免逐个 findUnique
-            const storeIds = sourceMembers.map((m) => m.storeId);
-            const targetMembers = await tx.member.findMany({
-              where: { storeId: { in: storeIds }, phone },
-              select: { id: true, storeId: true },
-            });
-            const targetMemberByStoreId = new Map(
-              targetMembers.map((m) => [m.storeId, m]),
-            );
+          // 2. 迁移 Store ownership
+          await this.migrateStoreOwnership(tx, sourceUserId, targetUserId);
 
-            const sourceMemberIdsToUpdate: number[] = [];
-            const memberMergePairs: MemberMergePair[] = [];
+          // 3. 迁移新客额度消耗留痕
+          await this.migrateQuotaConsumeRecords(tx, sourceUserId, targetUserId);
 
-            for (const sourceMember of sourceMembers) {
-              const targetMember = targetMemberByStoreId.get(
-                sourceMember.storeId,
-              );
-
-              if (!targetMember) {
-                sourceMemberIdsToUpdate.push(sourceMember.id);
-                this.logger.log(
-                  `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 更新为 ${phone}`,
-                );
-                continue;
-              }
-
-              // 目标门店已有 Member：先把纯利豆结转过去，再软删除源 Member。
-              // 不硬删：纯利豆 / 积分 / 充值流水是必填外键且没有级联，硬删会直接抛错；
-              // 同时必须清空 phone —— findAccessibleStores 的 members.some({ phone })
-              // 不过滤 deletedAt，留着旧号会让将来绑了这个号的人看到本用户的门店。
-              //
-              // 逐门店的两条 update 改为事务末尾两条集合 UPDATE
-              // （见 club-account-merge.statements）：事务往返次数与门店数解耦。
-              memberMergePairs.push({
-                targetId: targetMember.id,
-                sourceId: sourceMember.id,
-                beanBalance: sourceMember.beanBalance,
-              });
-              this.logger.log(
-                `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标已有 Member ${targetMember.id}，` +
-                  `结转纯利豆 ${sourceMember.beanBalance} 后软删除源 Member ${sourceMember.id}`,
-              );
-            }
-
-            await this.executeStatements(
-              tx,
-              buildMemberMergeStatements(memberMergePairs, mergedAt),
-            );
-
-            if (sourceMemberIdsToUpdate.length > 0) {
-              await tx.member.updateMany({
-                where: { id: { in: sourceMemberIdsToUpdate } },
-                data: { phone },
-              });
-            }
-          }
-
-          // 1.2 迁移营销顾客档案：储值余额 / 积分 / 消费记录都挂在它上面。
-          //     此前合并完全没搬这类档案，用户在新账号里会凭空"没有资产"。
-          if (sourceCustomers.length > 0) {
-            const targetCustomers = await tx.marketingCustomer.findMany({
-              where: {
-                storeId: { in: sourceCustomers.map((c) => c.storeId) },
-                clubUserId: targetUserId,
-              },
-              select: { id: true, storeId: true },
-            });
-            const targetCustomerByStoreId = new Map(
-              targetCustomers.map((c) => [c.storeId, c]),
-            );
-
-            const customerIdsToRebind: number[] = [];
-            const customerMergePairs: CustomerMergePair[] = [];
-
-            for (const sourceCustomer of sourceCustomers) {
-              const targetCustomer = targetCustomerByStoreId.get(
-                sourceCustomer.storeId,
-              );
-
-              if (!targetCustomer) {
-                customerIdsToRebind.push(sourceCustomer.id);
-                continue;
-              }
-
-              // 目标门店已有顾客档案：把资产并入后软删除源档案
-              //（同样不硬删：消费 / 积分 / 充值流水是必填外键且无级联）
-              customerMergePairs.push({
-                targetId: targetCustomer.id,
-                sourceId: sourceCustomer.id,
-                balance: sourceCustomer.balance,
-                points: sourceCustomer.points,
-                totalSpent: sourceCustomer.totalSpent,
-                visitCount: sourceCustomer.visitCount,
-              });
-              this.logger.log(
-                `bindPhone 合并 MarketingCustomer：门店 ${sourceCustomer.storeId} 目标已有档案 ${targetCustomer.id}，` +
-                  `并入余额 ${sourceCustomer.balance} / 积分 ${sourceCustomer.points} 后软删除源档案 ${sourceCustomer.id}`,
-              );
-            }
-
-            await this.executeStatements(
-              tx,
-              buildCustomerMergeStatements(customerMergePairs, mergedAt),
-            );
-
-            // 目标在该门店没有档案：直接改绑 clubUserId 并同步为新手机号
-            if (customerIdsToRebind.length > 0) {
-              await tx.marketingCustomer.updateMany({
-                where: { id: { in: customerIdsToRebind } },
-                data: { clubUserId: targetUserId, phone },
-              });
-            }
-          }
-
-          // 2. 迁移 Store ownership（源用户拥有的门店转移到目标用户）
-          const ownedStores = await tx.store.findMany({
-            where: { ownerId: sourceUserId, deletedAt: null },
-            select: { id: true },
-          });
-
-          if (ownedStores.length > 0) {
-            await tx.store.updateMany({
-              where: { ownerId: sourceUserId },
-              data: { ownerId: targetUserId },
-            });
-            this.logger.log(
-              `bindPhone 合并 Store ownership：将 ${ownedStores.length} 个门店从用户 ${sourceUserId} 转移到用户 ${targetUserId}`,
-            );
-          }
-
-          // 3. 迁移新客额度消耗留痕。
-          //
-          // `store_new_customer_quota_consumes.club_user_id` 是**全局唯一**的，
-          // 且合并后签发的 token 属于目标用户 —— 留痕若留在源账号上，目标账号
-          // 永远查不到它，下次下单 / 换店会被判成新客再扣一次额度
-          // （等于「换一家店又验证一次手机号」，正是要消除的行为）。
-          const sourceConsume =
-            await tx.storeNewCustomerQuotaConsume.findUnique({
-              where: { clubUserId: sourceUserId },
-              select: { id: true },
-            });
-
-          if (sourceConsume) {
-            const targetConsume =
-              await tx.storeNewCustomerQuotaConsume.findUnique({
-                where: { clubUserId: targetUserId },
-                select: { id: true },
-              });
-
-            if (targetConsume) {
-              // 两端都消耗过：只保留目标那条。源记录对应的额度已由源门店承担，
-              // 不做退款——顾客一生只该消耗一个额度，合并不能变成「退一个再扣一个」。
-              await tx.storeNewCustomerQuotaConsume.delete({
-                where: { id: sourceConsume.id },
-              });
-              this.logger.log(
-                `bindPhone 合并新客额度留痕：目标用户 ${targetUserId} 已消耗过，删除源记录 ${sourceConsume.id}`,
-              );
-            } else {
-              await tx.storeNewCustomerQuotaConsume.update({
-                where: { id: sourceConsume.id },
-                data: { clubUserId: targetUserId },
-              });
-              this.logger.log(
-                `bindPhone 合并新客额度留痕：源记录 ${sourceConsume.id} 由用户 ${sourceUserId} 改挂到 ${targetUserId}`,
-              );
-            }
-          }
-
-          // 4. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
-          //    否则 wechat_openid 的唯一约束会导致写入目标用户时冲突
-          await tx.user.update({
-            where: { id: sourceUserId },
-            data: {
-              wechatOpenid: null,
-              wechatUnionid: null,
-              wechatNickname: null,
-              wechatAvatar: null,
-              wechatPhone: null,
-            },
-          });
-
-          // 4. 将 openid 绑定到目标用户，同时写入 wechatPhone
-          await tx.user.update({
-            where: { id: targetUserId },
-            data: {
-              wechatOpenid: sourceUser.wechatOpenid,
-              ...(sourceUser.wechatUnionid != null && {
-                wechatUnionid: sourceUser.wechatUnionid,
-              }),
-              ...(sourceUser.wechatNickname != null && {
-                wechatNickname: sourceUser.wechatNickname,
-              }),
-              ...(sourceUser.wechatAvatar != null && {
-                wechatAvatar: sourceUser.wechatAvatar,
-              }),
-              wechatPhone: phone,
-            },
-          });
+          // 4. 迁走 openid 并清除源账号微信字段
+          await this.rebindWechatIdentity(
+            tx,
+            sourceUserId,
+            targetUserId,
+            phone,
+            sourceUser,
+          );
         },
         { timeout: TX_TIMEOUT_LONG },
       );
@@ -322,31 +127,158 @@ export class ClubAccountMergeService {
       );
     }
 
-    // 门店 ownership 已迁到目标账号：必须清掉「该账号无 owner 门店」负缓存，
-    // 否则目标账号在 TTL 窗口内不会被遗留店主补齐，进商家端看不到刚迁过来的门店。
+    await this.invalidateMergedAccountCaches(sourceUserId, targetUserId);
+
+    return this.issueMergedAccountToken(targetUserId, phone);
+  }
+
+  /**
+   * 迁移 Store ownership（源用户拥有的门店转移到目标用户）。
+   */
+  private async migrateStoreOwnership(
+    tx: Prisma.TransactionClient,
+    sourceUserId: number,
+    targetUserId: number,
+  ): Promise<void> {
+    const ownedStores = await tx.store.findMany({
+      where: { ownerId: sourceUserId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (ownedStores.length === 0) return;
+
+    await tx.store.updateMany({
+      where: { ownerId: sourceUserId },
+      data: { ownerId: targetUserId },
+    });
+    this.logger.log(
+      `bindPhone 合并 Store ownership：将 ${ownedStores.length} 个门店从用户 ${sourceUserId} 转移到用户 ${targetUserId}`,
+    );
+  }
+
+  /**
+   * 迁移新客额度消耗留痕。
+   *
+   * `store_new_customer_quota_consumes.club_user_id` 是**全局唯一**的，且合并后
+   * 签发的 token 属于目标用户 —— 留痕若留在源账号上，目标账号永远查不到它，
+   * 下次下单 / 换店会被判成新客再扣一次额度（等于「换一家店又验证一次手机号」，
+   * 正是要消除的行为）。
+   */
+  private async migrateQuotaConsumeRecords(
+    tx: Prisma.TransactionClient,
+    sourceUserId: number,
+    targetUserId: number,
+  ): Promise<void> {
+    const sourceConsume = await tx.storeNewCustomerQuotaConsume.findUnique({
+      where: { clubUserId: sourceUserId },
+      select: { id: true },
+    });
+    if (!sourceConsume) return;
+
+    const targetConsume = await tx.storeNewCustomerQuotaConsume.findUnique({
+      where: { clubUserId: targetUserId },
+      select: { id: true },
+    });
+
+    if (targetConsume) {
+      // 两端都消耗过：只保留目标那条。源记录对应的额度已由源门店承担，
+      // 不做退款——顾客一生只该消耗一个额度，合并不能变成「退一个再扣一个」。
+      await tx.storeNewCustomerQuotaConsume.delete({
+        where: { id: sourceConsume.id },
+      });
+      this.logger.log(
+        `bindPhone 合并新客额度留痕：目标用户 ${targetUserId} 已消耗过，删除源记录 ${sourceConsume.id}`,
+      );
+      return;
+    }
+
+    await tx.storeNewCustomerQuotaConsume.update({
+      where: { id: sourceConsume.id },
+      data: { clubUserId: targetUserId },
+    });
+    this.logger.log(
+      `bindPhone 合并新客额度留痕：源记录 ${sourceConsume.id} 由用户 ${sourceUserId} 改挂到 ${targetUserId}`,
+    );
+  }
+
+  /**
+   * 把 openid 从源账号迁到目标账号。
+   *
+   * 必须先清空源账号的微信字段再写目标账号，否则 `wechat_openid` 的唯一约束
+   * 会让写入目标用户时冲突。
+   */
+  private async rebindWechatIdentity(
+    tx: Prisma.TransactionClient,
+    sourceUserId: number,
+    targetUserId: number,
+    phone: string,
+    sourceUser: ClubMergeSourceUser,
+  ): Promise<void> {
+    await tx.user.update({
+      where: { id: sourceUserId },
+      data: {
+        wechatOpenid: null,
+        wechatUnionid: null,
+        wechatNickname: null,
+        wechatAvatar: null,
+        wechatPhone: null,
+      },
+    });
+
+    await tx.user.update({
+      where: { id: targetUserId },
+      data: {
+        wechatOpenid: sourceUser.wechatOpenid,
+        ...(sourceUser.wechatUnionid != null && {
+          wechatUnionid: sourceUser.wechatUnionid,
+        }),
+        ...(sourceUser.wechatNickname != null && {
+          wechatNickname: sourceUser.wechatNickname,
+        }),
+        ...(sourceUser.wechatAvatar != null && {
+          wechatAvatar: sourceUser.wechatAvatar,
+        }),
+        wechatPhone: phone,
+      },
+    });
+  }
+
+  /**
+   * 事务提交后的缓存与登录态失效。
+   *
+   * - 门店 ownership 已迁到目标账号：必须清掉「该账号无 owner 门店」负缓存，
+   *   否则目标账号在 TTL 窗口内不会被遗留店主补齐，进商家端看不到刚迁过来的门店。
+   * - 失效两端的旧登录态，确保合并后旧 token 立即无效。`bumpTokenVersion` 只让旧
+   *   access_token 立刻失效，而 refresh_token 在 Redis 里还有 30 天 TTL，客户端拿它
+   *   照样能换出新 token —— 因此两步缺一不可。
+   */
+  private async invalidateMergedAccountCaches(
+    sourceUserId: number,
+    targetUserId: number,
+  ): Promise<void> {
     await this.legacyOwnerRepairService.invalidateOwnerAbsentCache(
       targetUserId,
     );
 
-    // 失效两端的旧登录态，确保合并后旧 token 立即无效。
-    //
-    // `bumpTokenVersion` 只让旧 access_token 立刻失效，而 refresh_token 在 Redis 里
-    // 还有 30 天 TTL，客户端拿它照样能换出新 token——等于把这次失效绕过去了。
-    // 因此两步缺一不可（换绑路径 ClubPhoneRebindService 也是同样的两步）。
-    await Promise.all([
-      this.authSessionService.bumpTokenVersion(sourceUserId),
-      this.authSessionService.bumpTokenVersion(targetUserId),
-    ]);
-    // 两步都必须严格早于下面的 signToken：
+    // 两步都必须严格早于 signToken：
     // - 晚于 signToken 的 bump，会让新 access_token 签发即失效；
     // - removeAllSessions 按 userId 删 Redis 里的 refresh_token，晚于 signToken
     //   执行会把刚签发的那份一并删除，用户从此再无法续期。
     await Promise.all([
+      this.authSessionService.bumpTokenVersion(sourceUserId),
+      this.authSessionService.bumpTokenVersion(targetUserId),
+    ]);
+    await Promise.all([
       this.authSessionService.removeAllSessions(sourceUserId),
       this.authSessionService.removeAllSessions(targetUserId),
     ]);
+  }
 
-    // 签发新 token（以手机号账号身份登录）
+  /** 以手机号账号身份签发新 token */
+  private async issueMergedAccountToken(
+    targetUserId: number,
+    phone: string,
+  ): Promise<AuthTokenResponseDto> {
     const targetUser = await this.prisma.user.findUnique({
       where: { id: targetUserId },
       select: { email: true },
@@ -357,106 +289,5 @@ export class ClubAccountMergeService {
       email: targetUser?.email ?? '',
       accountScope: 'purely_club',
     });
-  }
-
-  /**
-   * 串行执行批量语句。
-   *
-   * 交互式事务是单连接，`Promise.all` 只会排队等待，串行 await 语义更明确；
-   * 语句本身已经是「一条 SQL 处理全部门店」，条数与门店数无关。
-   */
-  private async executeStatements(
-    tx: Prisma.TransactionClient,
-    statements: Prisma.Sql[],
-  ): Promise<void> {
-    for (const statement of statements) {
-      await tx.$executeRaw(statement);
-    }
-  }
-
-  /**
-   * 定位源用户在各门店的会员档案（Member + MarketingCustomer）。
-   *
-   * **不能假设 `Member.phone` 还是占位值 `club_wechat:{openid}`**：用户可能先绑过
-   * 一个手机号（那时 `migrateWechatPlaceholderPhone` 已把 Member.phone 迁成真实号码），
-   * 之后才绑到另一个已有账号上触发合并。只按占位值查找会**一条都找不到**，
-   * 结果是 openid 合过去了、会员档案与资产全留在源账号上。
-   *
-   * Member 既没有 `clubUserId`，`customerId` 在现存数据里又全为 null，
-   * 因此只能以 `MarketingCustomer.clubUserId` 为**权威桥梁**先拿到门店范围，
-   * 再在该范围内按「可能的手机号」定位；同时保留按占位值全局定位
-   * （占位值由 openid 派生、在同一 appid 内天然唯一）。
-   *
-   * @param sourcePhone 源用户当前已绑定的手机号，可能是真实号码而非占位值
-   */
-  private async resolveSourceMembership(
-    tx: Prisma.TransactionClient,
-    sourceUserId: number,
-    sourceWechatOpenid: string,
-    sourcePhone: string | null,
-  ): Promise<{
-    members: MergeSourceMember[];
-    customers: MergeSourceCustomer[];
-  }> {
-    const placeholderPhone = buildClubWechatMemberPhone(sourceWechatOpenid);
-    const candidatePhones = Array.from(
-      new Set(
-        [placeholderPhone, sourcePhone].filter(
-          (value): value is string => !!value && value.trim().length > 0,
-        ),
-      ),
-    );
-
-    const customers = await tx.marketingCustomer.findMany({
-      where: { clubUserId: sourceUserId },
-      select: {
-        id: true,
-        storeId: true,
-        balance: true,
-        points: true,
-        totalSpent: true,
-        visitCount: true,
-      },
-    });
-    const storeIds = customers.map((item) => item.storeId);
-
-    // 占位值定位：覆盖「有 Member 但尚未建立 clubUserId 关联」的历史形态
-    const membersByPlaceholder = await tx.member.findMany({
-      where: { phone: placeholderPhone },
-      select: { id: true, storeId: true, beanBalance: true },
-    });
-
-    // 门店范围 + 候选手机号：覆盖「已迁到真实号码」的形态
-    const membersInScopedStores =
-      storeIds.length > 0
-        ? await tx.member.findMany({
-            where: {
-              storeId: { in: storeIds },
-              phone: { in: candidatePhones },
-            },
-            select: { id: true, storeId: true, beanBalance: true },
-          })
-        : [];
-
-    // 正向关联（customerId 将来会被填充），有则用其精确定位
-    const membersByCustomerLink =
-      customers.length > 0
-        ? await tx.member.findMany({
-            where: { customerId: { in: customers.map((item) => item.id) } },
-            select: { id: true, storeId: true, beanBalance: true },
-          })
-        : [];
-
-    // 三条路径可能命中同一条记录，按 id 去重
-    const membersById = new Map<number, MergeSourceMember>();
-    for (const member of [
-      ...membersByPlaceholder,
-      ...membersInScopedStores,
-      ...membersByCustomerLink,
-    ]) {
-      membersById.set(member.id, member);
-    }
-
-    return { members: [...membersById.values()], customers };
   }
 }

@@ -26,6 +26,7 @@ import {
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
+  resolveUpdatedProductProfit,
   validateDerivedProfit,
 } from './products.domain';
 import { buildProductResponse } from './products.mapper';
@@ -68,9 +69,11 @@ export class ProductsService {
       'goods:view',
       '无权查看该门店商品',
     );
-    const { page, skip, take } = this.resolvePagination(
+    const { page, skip, take } = resolvePagination(
       query.page,
       query.pageSize,
+      this.configService.get<number>('app.defaultPageSize') ?? 20,
+      this.configService.get<number>('app.maxPageSize') ?? 100,
     );
 
     if (storeId === null) {
@@ -232,19 +235,8 @@ export class ProductsService {
     }
 
     // 服务端重算利润：合并 dto 与现有记录，推导最终 profit
-    const nextPrice =
-      dto.price !== undefined
-        ? Money.fromInputYuan(dto.price)
-        : Money.fromDbCents(product.price);
-    const nextCostPrice =
-      dto.costPrice !== undefined
-        ? dto.costPrice !== null
-          ? Money.fromInputYuan(dto.costPrice)
-          : null
-        : product.costPrice !== null
-          ? Money.fromDbCents(product.costPrice)
-          : null;
-    const nextProfit = deriveProductProfit(nextPrice, nextCostPrice);
+    const { nextPrice, nextCostPrice, nextProfit } =
+      resolveUpdatedProductProfit(product, dto);
 
     validateProductMoney(nextPrice, nextCostPrice);
     validateDerivedProfit(nextProfit);
@@ -397,13 +389,5 @@ export class ProductsService {
       id: String(productId),
       scanOrderingEnabled: dto.enabled,
     };
-  }
-
-  private resolvePagination(page?: number, pageSize?: number) {
-    const defaultPageSize =
-      this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize =
-      this.configService.get<number>('app.maxPageSize') ?? 100;
-    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 }

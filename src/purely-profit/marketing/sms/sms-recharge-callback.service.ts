@@ -12,8 +12,8 @@ import { PlatformPaymentRealtimeService } from '../../payments/platform-payment-
 import type {
   SmsWechatCallbackAckDto,
   SmsWechatCallbackDto,
-} from './dto/sms.dto';
-import { isSmsOrderNo } from './dto/sms.dto';
+} from './dto/sms-callback.dto';
+import { isSmsOrderNo } from './sms.utils';
 
 /** 与 club 侧 `ClubWechatCallbackHeaders` 同构，独立定义避免反向依赖 club 模块 */
 export interface SmsWechatCallbackHeaders {

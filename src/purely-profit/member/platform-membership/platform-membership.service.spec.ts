@@ -18,6 +18,9 @@ import { PlatformMembershipService } from './platform-membership.service';
 import type { PurchaseMembershipResult } from './platform-membership-order.service';
 import { PlatformMembershipActivationService } from './platform-membership-activation.service';
 import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
+import { PlatformMembershipPaymentPurchaseService } from './platform-membership-payment-purchase.service';
+import { PlatformMembershipPaymentActivationService } from './platform-membership-payment-activation.service';
+import { PlatformMembershipPaymentRecoveryService } from './platform-membership-payment-recovery.service';
 import { PlatformPaymentOrderService } from '../../payments/platform-payment-order.service';
 import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
 import { PlatformWechatNativeService } from '../../payments/platform-wechat-native.service';
@@ -346,6 +349,10 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipOrderService,
         PlatformMembershipActivationService,
         PlatformMembershipPaymentService,
+        // 支付门面按阶段拆分为子服务，装配时需一并注册
+        PlatformMembershipPaymentPurchaseService,
+        PlatformMembershipPaymentActivationService,
+        PlatformMembershipPaymentRecoveryService,
         PlatformMembershipPromoService,
         PlatformMembershipPromoBackfillService,
         PlatformMembershipPromoBeanReconciliationService,

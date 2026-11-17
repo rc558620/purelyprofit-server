@@ -18,13 +18,7 @@ import {
   SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE,
 } from './membership-renewal-policy.shared';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
-import { buildProfileResponse } from './membership-profile.mapper';
-import {
-  buildOrdersOverview,
-  calcMemberPlanPayment,
-  calcPreviewResult,
-  mapOrder,
-} from './platform-membership-ledger.domain';
+import { calcPreviewResult } from './platform-membership-ledger.domain';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 import {
   PreviewPlatformMembershipOrderDto,
@@ -42,18 +36,8 @@ import {
 } from './platform-membership.query';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
 import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
-import {
-  closeExpiredPendingOrders,
-  sumPendingOccupiedDeductions,
-} from './membership-pending-occupancy.shared';
-
-/**
- * 测试模式（跳过支付）的重复提交判定窗口。
- *
- * 真实模式靠「未过期待支付单直接复用」挡住连点；测试模式下单即生效，
- * 没有可复用的待支付态，必须靠时间窗 + 同档案同档位把连点收成一次。
- */
-const SKIP_PAYMENT_DEDUP_WINDOW_MS = 30 * 1000;
+import { sumPendingOccupiedDeductions } from './membership-pending-occupancy.shared';
+import { purchaseWithSkippedPaymentInTransaction } from './platform-membership-skip-payment-purchase.shared';
 
 /**
  * 购买会员的结果。
@@ -213,167 +197,17 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     storeId: number,
     dto: PurchasePlatformMembershipOrderDto,
   ): Promise<Extract<PurchaseMembershipResult, { mode: 'test' }>> {
-    const requestedPoints = dto.usePoints ?? 0;
-    const requestedBeans = dto.useBeans ?? 0;
-
-    const response = await this.prisma.$transaction(async (tx) => {
-      const plan = await requirePlan(tx, dto.planId);
-      const profile = await ensureMembershipProfile(tx, storeId);
-
-      // 测试模式下单即生效，没有「待支付单复用」这层天然去重：
-      // 连点 / 网络重试会各扣一次积分与纯利豆、各开一次会员档期。
-      // 窗口内同档案同档位的已支付订单视为同一次操作，直接拒绝而不是再扣一笔。
-      const duplicated = await tx.storeMembershipOrder.findFirst({
-        where: {
-          storeId,
-          profileId: profile.id,
-          planId: plan.id,
-          status: 'paid',
-          createdAt: {
-            gte: new Date(Date.now() - SKIP_PAYMENT_DEDUP_WINDOW_MS),
-          },
+    const response = await this.prisma.$transaction((tx) =>
+      purchaseWithSkippedPaymentInTransaction(
+        {
+          logger: this.logger,
+          lockedPriceService: this.lockedPriceService,
+          paymentOrderService: this.paymentOrderService,
+          activationService: this.activationService,
         },
-        select: { id: true },
-      });
-      if (duplicated) {
-        this.logger.warn(
-          `[会员购买] 测试模式重复提交已拦截 orderId=${duplicated.id} storeId=${storeId} planId=${plan.id}`,
-        );
-        throw new ConflictException('订单正在处理，请勿重复提交');
-      }
-
-      const partner = await findCurrentStorePartner(tx, storeId);
-      // 真实余额：生效时扣减要基于它，不能用扣掉占用后的额度
-      const availableBeans = partner?.beanBalance ?? 0;
-
-      // 与真实模式下单共用同一份占用口径：待支付订单已承诺出去的额度不能再算可用
-      await closeExpiredPendingOrders(tx, profile.id);
-      const occupied = await sumPendingOccupiedDeductions(tx, profile.id);
-      const usablePoints = Math.max(
-        0,
-        profile.availablePoints - occupied.points,
-      );
-      const usableBeans = Math.max(0, availableBeans - occupied.beans);
-
-      // 曾开通子账号功能的门店按首购锁定价结算；月 / 季会被直接拒绝，避免误降级
-      // （会员到期后实时能力会被归零，故必须用「曾开通」口径，否则到期即可降级）
-      const pricingContext =
-        await this.lockedPriceService.loadRenewalPricingContext(storeId, tx);
-      this.assertRenewalPlanAllowed(
-        dto.planId,
-        pricingContext.subAccountFeatureOwned,
-      );
-      const { price: planPrice } = this.lockedPriceService.resolvePlanPrice({
-        plan,
-        context: pricingContext,
-      });
-
-      const payment = calcMemberPlanPayment({
-        planPrice,
-        requestedPoints,
-        availablePoints: usablePoints,
-        requestedBeans,
-        availableBeans: usableBeans,
-      });
-
-      if (requestedPoints > 0 && payment.actualPointsUsed === 0) {
-        throw new ConflictException('当前无可抵扣积分');
-      }
-
-      if (requestedBeans > 0 && payment.actualBeansUsed === 0) {
-        throw new ConflictException('当前无可抵扣纯利豆');
-      }
-
-      // 测试模式也必须落一条支付单：否则「跳过支付」的订单在对账里完全不可见，
-      // 真实单与测试单就无从区分（与额度充值链路同口径）
-      const paymentOrder = await this.paymentOrderService.createOrder({
-        bizType: 'membership',
-        storeId,
-        operatorUserId: userId,
-        amountFen: payment.finalAmount,
-        payMode: 'test',
-        executor: tx,
-      });
-
-      // 生效（扣豆 / 更新档期与积分 / 写流水 / 建单）统一走激活服务，
-      // 与支付回调路径同源，避免两条路径的权益结果漂移
-      const activated = await this.activationService.activate(tx, {
-        storeId,
-        profileId: profile.id,
-        planId: plan.id,
-        planPrice,
-        actualBeansUsed: payment.actualBeansUsed,
-        actualPointsUsed: payment.actualPointsUsed,
-        finalAmount: payment.finalAmount,
-        paymentOrderId: paymentOrder.orderNo,
-        partner: partner
-          ? { id: partner.id, beanBalance: availableBeans }
-          : null,
-        profile: {
-          availablePoints: profile.availablePoints,
-          totalPoints: profile.totalPoints,
-          currentPlanId: profile.currentPlanId,
-          startsAt: profile.startsAt,
-          expiresAt: profile.expiresAt,
-        },
-      });
-
-      await this.paymentOrderService.markPaid({
-        orderNo: paymentOrder.orderNo,
-        transactionId: `manual-test-${paymentOrder.orderNo}`,
-        executor: tx,
-      });
-
-      // 订单与会员档案都由生效服务直接回传，避免写完再回查一次
-      const order = activated.order;
-      const updatedProfile = activated.profile;
-
-      // 首次成交价快照：已存在则不覆盖（锁定语义）
-      await this.lockedPriceService.lockPriceOnFirstDeal({
-        storeId,
-        planId: plan.id,
-        price: planPrice,
-        source: 'purchase',
-        executor: tx,
-      });
-
-      const [latestPartner, allOrders, inviteCodeRecord] = await Promise.all([
-        findCurrentStorePartner(tx, storeId),
-        tx.storeMembershipOrder.findMany({
-          where: { storeId },
-          select: {
-            id: true,
-            planId: true,
-            planName: true,
-            amount: true,
-            pointsUsed: true,
-            beansUsed: true,
-            status: true,
-            paymentChannel: true,
-            paymentOrderId: true,
-            createdAt: true,
-          },
-        }),
-        tx.storeInviteCode.findFirst({
-          where: { storeId, isActive: true },
-          select: { code: true },
-          orderBy: { createdAt: 'desc' },
-        }),
-      ]);
-
-      return {
-        order: mapOrder(order),
-        profile: buildProfileResponse(
-          updatedProfile,
-          latestPartner,
-          inviteCodeRecord?.code ?? null,
-        ),
-        overview: buildOrdersOverview(allOrders),
-        // 用于事务后异步触发推广奖励
-        _planId: plan.id as PlatformMembershipPlanId,
-        _amount: payment.finalAmount,
-      };
-    });
+        { tx, userId, storeId, dto },
+      ),
+    );
 
     await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 

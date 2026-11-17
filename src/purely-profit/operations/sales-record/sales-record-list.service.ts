@@ -18,7 +18,7 @@ import {
   buildScanOrderingEnrichment,
   buildSpaceSessionSpecsEnrichment,
 } from './sales-record-enrichment';
-import { mapSalesRecordResponse } from './sales-record.domain';
+import { mapSalesRecordResponse } from './sales-record-response.mapping';
 import {
   countSaleOrders,
   querySaleOrders,

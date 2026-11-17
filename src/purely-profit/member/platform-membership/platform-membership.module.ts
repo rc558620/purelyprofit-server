@@ -5,6 +5,9 @@ import { NewCustomerQuotaModule } from '../new-customer-quota/new-customer-quota
 import { PlatformMembershipAccessModule } from './platform-membership-access.module';
 import { PlatformMembershipActivationService } from './platform-membership-activation.service';
 import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
+import { PlatformMembershipPaymentPurchaseService } from './platform-membership-payment-purchase.service';
+import { PlatformMembershipPaymentActivationService } from './platform-membership-payment-activation.service';
+import { PlatformMembershipPaymentRecoveryService } from './platform-membership-payment-recovery.service';
 import { PartnerReviewController } from './partner-review.controller';
 import { PlatformMembershipController } from './platform-membership.controller';
 import { PromotionDetailCompatController } from './promotion-detail-compat.controller';
@@ -44,7 +47,11 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
     PlatformMembershipPartnerService,
     PlatformMembershipOrderService,
     PlatformMembershipActivationService,
+    // 会员支付按阶段拆分为子服务，门面只做编排转发
     PlatformMembershipPaymentService,
+    PlatformMembershipPaymentPurchaseService,
+    PlatformMembershipPaymentActivationService,
+    PlatformMembershipPaymentRecoveryService,
     PlatformMembershipPromoService,
     PlatformMembershipPromoBackfillService,
     PlatformMembershipPromoBeanReconciliationService,

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ClubScanOrderingCartService } from '../src/purely-club/scan-ordering/club-scan-ordering-cart.service';
+import { ClubScanOrderingCartQueryService } from '../src/purely-club/scan-ordering/club-scan-ordering-cart-query.service';
 import type { AuthenticatedUser } from '../src/purely-profit/auth/strategies/jwt.strategy';
 
 /**
@@ -81,7 +82,11 @@ describe('扫码点餐购物车原子写入 (e2e, real database)', () => {
     const downgradeStub = {
       assertStoreCanOrder: (): Promise<void> => Promise.resolve(),
     };
-    service = new ClubScanOrderingCartService(prisma, downgradeStub as never);
+    service = new ClubScanOrderingCartService(
+      prisma,
+      downgradeStub as never,
+      new ClubScanOrderingCartQueryService(prisma),
+    );
 
     const suffix = `${Date.now()}`;
     const created = await prisma.user.create({

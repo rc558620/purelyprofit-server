@@ -17,8 +17,8 @@ import {
   isSelfOrderDeductionRow,
   listVisibleSaleOrderItems,
 } from './sales-record-item-aggregation';
+import { resolveReportProductName } from './sales-record-display-name.utils';
 import {
-  resolveReportProductName,
   resolveSalesRecordAmountsFromOrder,
   type SaleOrderWithItems,
 } from './sales-record.domain';

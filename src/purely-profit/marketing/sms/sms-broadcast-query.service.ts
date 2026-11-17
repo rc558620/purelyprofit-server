@@ -18,7 +18,7 @@ import type {
   SmsBroadcastTaskDetailDto,
   SmsBroadcastTaskItemDto,
   SmsBroadcastTaskListResponseDto,
-} from './dto/sms.dto';
+} from './dto/sms-broadcast.dto';
 
 /** 任务列表查询字段（不含正文，列表页不下拉全文） */
 const TASK_LIST_SELECT = {

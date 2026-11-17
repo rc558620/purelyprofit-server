@@ -39,6 +39,7 @@ import { ClubStoresService } from '../src/purely-club/stores/club-stores.service
 import type { ClubCurrentContext } from '../src/purely-club/stores/club-stores.types';
 import { StoresProfileService } from '../src/purely-profit/stores/stores-profile.service';
 import { AuthBanGuardService } from '../src/purely-profit/auth/auth-ban-guard.service';
+import { AuthRefreshTokenService } from '../src/purely-profit/auth/auth-refresh-token.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
 import { AuthUserCacheService } from '../src/purely-profit/auth/auth-user-cache.service';
 import type { ResolvedAuthUserRecord } from '../src/purely-profit/auth/auth-user-cache.service';
@@ -715,10 +716,12 @@ const createAuthChainStack = (warmCache = true): AuthChainStack => {
     ]);
   }
 
+  const configService = { get: () => undefined };
   const sessionService = new AuthSessionService(
     redis as never,
     {} as never,
-    { get: () => undefined } as never,
+    new AuthRefreshTokenService(redis as never, configService as never),
+    configService as never,
   );
   const userCacheService = new AuthUserCacheService(
     prisma as never,

@@ -82,9 +82,22 @@ export class ClubSelfOrderingPaymentRepository {
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<Record<string, unknown>> {
+    // 摘要是支付结果轮询的返回体，只消费订单级 9 列：
+    // 改前的 `include: { items: true }` 把整张商品明细（及其全部列）连同
+    // 订单整行一起拉回后直接丢弃，属纯无效 IO，且随明细行数线性增长。
     const order = await this.prisma.selfOrder.findFirst({
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
-      include: { items: true },
+      select: {
+        id: true,
+        orderNo: true,
+        sessionId: true,
+        spaceId: true,
+        status: true,
+        paymentStatus: true,
+        payableAmount: true,
+        paidAt: true,
+        version: true,
+      },
     });
     if (!order)
       throw new NotFoundException(

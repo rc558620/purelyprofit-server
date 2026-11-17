@@ -29,22 +29,17 @@ import {
   queryRechargePage,
 } from './marketing-flow.query';
 import {
-  queryCustomerGiftBalanceCents,
   queryCustomerRechargeRefundSums,
   queryRechargeRowById,
 } from './marketing.query';
+import { createRechargeInTransaction } from './marketing-recharge-transaction.shared';
 import {
   buildMarketingFlowPage,
   resolveMarketingFlowPaging,
 } from './marketing-flow.cursor';
 import { MarketingSharedService } from './marketing-shared.service';
 import { Money } from '../../shared/money.utils';
-import {
-  buildMarketingPaginationMeta,
-  safeEnumCoerce,
-  MARKETING_RECHARGE_TYPE_VALUES,
-  type MarketingRechargeTypeValue,
-} from './marketing.utils';
+import { buildMarketingPaginationMeta } from './marketing.utils';
 
 @Injectable()
 export class MarketingRechargesService {
@@ -238,128 +233,26 @@ export class MarketingRechargesService {
       throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
-    let giftClearedAmountCents = 0;
     const transactionResult = this.prisma.$transaction(
-      async (tx) => {
-        // 事务内重新校验退款金额，防止并发退款导致超额退款
-        let actualBalanceDeltaCents: number;
-        let noteForDb: string | null = dto.note?.trim() || null;
-        if (rechargeType === 'refund') {
-          const freshCustomer = await tx.marketingCustomer.findUnique({
-            where: { id: dto.customerId },
-            select: { balance: true },
-          });
-          if (!freshCustomer) {
-            throw new BadRequestException('顾客不存在');
-          }
-          // 事务内复核仍必须保留（防止并发超额退款），但只发一次聚合查询，
-          // 缩短余额行锁的持有时间。
-          const { rechargeCents, refundCents } =
-            await queryCustomerRechargeRefundSums(tx, dto.customerId);
-          const refundableCents = Math.max(0, rechargeCents - refundCents);
-          if (Money.fromDbCents(refundableCents).lessThan(totalMoney)) {
-            throw new BadRequestException('退款金额不能超过最大可退本金');
-          }
-
-          // 计算赠送金额余额：基于时间线遍历，退款清零 + 充值重新累计
-          const giftBalanceCents = await queryCustomerGiftBalanceCents(
-            tx,
-            dto.customerId,
-          );
-          const clearGift = dto.clearRemainingGift === true;
-          actualBalanceDeltaCents = clearGift
-            ? -(totalMoney.toDbCents() + giftBalanceCents)
-            : -totalMoney.toDbCents();
-
-          // B1: 事务内余额兗底校验——实际扣减额不得超过当前余额
-          if (
-            Money.fromDbCents(freshCustomer.balance).lessThan(
-              Money.fromDbCents(Math.abs(actualBalanceDeltaCents)),
-            )
-          ) {
-            throw new BadRequestException(
-              '退款金额（含赠送清零）不能超过顾客当前储值余额',
-            );
-          }
-
-          // 在 note 中追加赠送清零金额（向后兼容），同时记录结构化字段
-          if (clearGift && giftBalanceCents > 0) {
-            giftClearedAmountCents = giftBalanceCents;
-            const giftClearedYuan =
-              Money.fromDbCents(giftBalanceCents).toOutputYuan();
-            noteForDb = `${noteForDb ?? ''} | 赠送清零¥${giftClearedYuan}`;
-          }
-        } else {
-          actualBalanceDeltaCents = totalMoney.toDbCents();
-        }
-
-        const recharge = await tx.marketingRecharge.create({
-          data: {
-            storeId,
-            customerId: dto.customerId,
-            amount: rechargeMoney.toDbCents(),
-            // BUG-1: 退款记录存储实际清零的赠送金额，供读取算法使用
-            giftAmount:
-              rechargeType === 'refund'
-                ? giftClearedAmountCents
-                : giftMoney.toDbCents(),
-            totalAmount: totalMoney.toDbCents(),
-            // F7: 运行时枚举校验，避免脏值进入数据库
-            type: safeEnumCoerce(
-              rechargeType,
-              MARKETING_RECHARGE_TYPE_VALUES,
-              'recharge' as MarketingRechargeTypeValue,
-            ),
-            promotionId: dto.promotionId ?? null,
-            note: noteForDb,
-          },
-        });
-
-        // 并发守卫：上面的 freshCustomer.balance 校验在 Read Committed 下挡不住并发——
-        // 两笔退款可以读到同一个余额并都通过校验。条件更新确保余额不会被扣成负数
-        // （与消费路径 updateMany + balance gte 同口径）。
-        const balanceUpdated = await tx.marketingCustomer.updateMany({
-          where: {
-            id: dto.customerId,
-            ...(actualBalanceDeltaCents < 0
-              ? { balance: { gte: Math.abs(actualBalanceDeltaCents) } }
-              : {}),
-          },
-          data: { balance: { increment: actualBalanceDeltaCents } },
-        });
-        if (balanceUpdated.count === 0) {
-          throw new BadRequestException(
-            '退款金额（含赠送清零）超过顾客当前储值余额，请刷新后重试',
-          );
-        }
-
-        if (dto.promotionId && rechargeType !== 'refund') {
-          // 校验 promotionId 存在性且归属当前门店
-          const promotion = await tx.marketingPromotion.findUnique({
-            where: { id: dto.promotionId },
-            select: { storeId: true },
-          });
-          if (!promotion || promotion.storeId !== storeId) {
-            throw new BadRequestException('关联活动不存在或不属于当前门店');
-          }
-          await tx.marketingPromotion.updateMany({
-            where: { id: dto.promotionId, storeId },
-            data: {
-              usageCount: { increment: 1 },
-              totalDiscount: { increment: giftMoney.toDbCents() },
-            },
-          });
-        }
-
-        return [recharge] as const;
-      },
+      (tx) =>
+        createRechargeInTransaction({
+          tx,
+          storeId,
+          dto,
+          rechargeType,
+          rechargeMoney,
+          giftMoney,
+          totalMoney,
+        }),
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
     let rechargeRecordId: number;
+    let giftClearedAmountCents = 0;
     try {
-      const [created] = await transactionResult;
-      rechargeRecordId = created.id;
+      const completed = await transactionResult;
+      rechargeRecordId = completed.rechargeId;
+      giftClearedAmountCents = completed.giftClearedAmountCents;
     } catch (error: unknown) {
       // 事务失败（余额不足、活动不属于门店、并发余额条件不满足等）必须立刻
       // 释放 5s 幂等占位，让用户修正参数后能重试；事务提交成功后绝不释放，

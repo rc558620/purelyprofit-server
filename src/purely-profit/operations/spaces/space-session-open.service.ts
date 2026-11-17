@@ -1,17 +1,14 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
-  SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { Money } from '../../../shared/money.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
   PrismaService,
@@ -24,11 +21,7 @@ import {
   bindVoucherOnOpen,
   type BindVoucherResult,
 } from './space-session-voucher.shared';
-import {
-  assertMemberCardUsable,
-  reserveMemberCardTimes,
-  type UsableMemberCardSnapshot,
-} from './space-session-card.shared';
+import { reserveMemberCardTimes } from './space-session-card.shared';
 import type {
   OpenSpaceSessionDto,
   SpaceSessionResponseDto,
@@ -37,7 +30,11 @@ import { toSpaceSessionResponse } from './space-sessions.mapper';
 import { normalizeOpenSessionPayload } from './space-session-payload.shared';
 import { ensureOpenSessionPayload } from './space-session-open-validation.shared';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
-import type { SpaceBillingModeValue } from './spaces.constants';
+import {
+  buildOpenSessionCreateData,
+  type OpenSessionSpaceContext,
+} from './space-session-open-create.shared';
+import { resolveOpenSessionMemberCardSnapshot } from './space-session-open-card.shared';
 import { CommissionCoreService } from '../commission/commission-core.service';
 import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import type { CommissionAssignmentInput } from '../commission/commission.types';
@@ -50,16 +47,6 @@ const OPEN_SESSION_LOCK_TTL_SECONDS = 15;
 const OPEN_SESSION_LOCK_RETRY_TIMES = 3;
 /** 开台分布式锁重试间隔（毫秒） */
 const OPEN_SESSION_LOCK_RETRY_DELAY_MS = 60;
-
-/** 开台所需的门店空间上下文（含类型快照，供会员卡模板限制校验） */
-interface OpenSessionSpaceContext {
-  id: number;
-  name: string;
-  storeId: number;
-  capacity: number | null;
-  autoCheckout: boolean;
-  type: { id: number; name: string };
-}
 
 @Injectable()
 export class SpaceSessionOpenService {
@@ -265,64 +252,20 @@ export class SpaceSessionOpenService {
 
         // 会员卡核销：先做只读可用性校验（归属 / 状态 / 有效期 / 模板限制 / 剩余次数），
         // 校验失败直接抛错，不落任何数据；校验通过后建台，再原子预扣次数
-        const cardSnapshot = await this.resolveMemberCardSnapshot(
+        const cardSnapshot = await resolveOpenSessionMemberCardSnapshot(
           transaction,
           space,
           payload,
         );
 
         const created = await transaction.spaceSession.create({
-          data: {
-            storeId: space.storeId,
-            spaceId: space.id,
-            reservationId: payload.reservationId,
-            guestName: payload.guestName ?? null,
-            guestPhone: payload.guestPhone ?? null,
-            guestCount: payload.guestCount ?? null,
-            // 开台识别到的会员与本次核销的持卡实例：结账据此取储值余额 / 卡抵扣
-            customerId: payload.customerId ?? null,
-            activeCardId: payload.activeCardId ?? null,
-            startTime: new Date(),
-            billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
-            hourlyRate:
-              payload.hourlyRate !== undefined
-                ? Money.fromInputYuan(payload.hourlyRate).toDbCents()
-                : null,
-            countdownMinutes: payload.countdownMinutes ?? null,
-            // B4 fix: autoCheckout 未传时继承空间配置，避免运行态与会话级漂移，
-            // 同时保证换房强校验 Boolean(session.autoCheckout) !== targetSpace.autoCheckout 有意义。
-            autoCheckout: payload.autoCheckout ?? space.autoCheckout ?? null,
-            prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
-            prepaidCustomerPaymentMethod:
-              payload.prepaidCustomerPaymentMethod ?? null,
-            prepaidSettlementChannel: payload.prepaidSettlementChannel ?? null,
-            prepaidGrouponCode: payload.prepaidGrouponCode ?? null,
-            prepaidGrouponPlatform: payload.prepaidGrouponPlatform ?? null,
-            prepaidVoucherCode: payload.prepaidVoucherCode ?? null,
-            prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
-            prepaidNote: payload.prepaidNote ?? null,
-            prepaidAmount:
-              payload.prepaidAmount !== undefined
-                ? Money.fromInputYuan(payload.prepaidAmount).toDbCents()
-                : null,
-            prepaidVoucherFaceAmount:
-              payload.prepaidVoucherFaceAmount !== undefined
-                ? Money.fromInputYuan(
-                    payload.prepaidVoucherFaceAmount,
-                  ).toDbCents()
-                : null,
-            /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
-            itemsCost: 0,
+          data: buildOpenSessionCreateData({
+            space,
+            payload,
             openOperatorStaffId,
             openOperatorNameSnapshot,
-            ...(commissionAssignments
-              ? {
-                  commissionAssignments:
-                    commissionAssignments as unknown as Prisma.InputJsonValue,
-                }
-              : {}),
-            status: PrismaSpaceSessionStatus.active,
-          },
+            commissionAssignments,
+          }),
           include: {
             space: {
               select: {
@@ -397,44 +340,6 @@ export class SpaceSessionOpenService {
     );
 
     return toSpaceSessionResponse(session);
-  }
-
-  /**
-   * 解析开台会员卡快照：未使用会员卡返回 null，否则做只读可用性校验。
-   *
-   * 校验在事务内、建台之前完成——失败直接抛错且不落任何数据，
-   * 避免「会话已建、卡不可用」这类需要补偿的中间态。
-   */
-  private async resolveMemberCardSnapshot(
-    transaction: Prisma.TransactionClient,
-    space: OpenSessionSpaceContext,
-    payload: ReturnType<typeof normalizeOpenSessionPayload>,
-  ): Promise<UsableMemberCardSnapshot | null> {
-    const { activeCardId, customerId } = payload;
-    if (activeCardId === undefined) {
-      return null;
-    }
-    if (customerId === undefined) {
-      // ensureOpenSessionPayload 已在输入层拦截，此处防御根路径开台等旁路调用
-      throw new BadRequestException('会员卡核销缺少会员信息，请重新识别会员');
-    }
-
-    return assertMemberCardUsable(transaction, {
-      storeId: space.storeId,
-      customerId,
-      cardId: activeCardId,
-      spaceTypeId: space.type.id,
-      spaceTypeName: space.type.name,
-      ...(payload.guestCount !== undefined
-        ? { guestCount: payload.guestCount }
-        : {}),
-    });
-  }
-
-  private toPrismaSpaceBillingMode(
-    value: SpaceBillingModeValue,
-  ): PrismaSpaceBillingMode {
-    return value;
   }
 
   /** 将开台提成分配收敛为落库快照（服务人员校验 + 金额解析，金额为分）。 */

@@ -16,7 +16,7 @@ import { SMS_RECHARGE_ORDER_TTL_SECONDS } from './sms.constants';
 import type {
   SmsRechargeOrderResponseDto,
   SmsRechargeOrderStatusDto,
-} from './dto/sms.dto';
+} from './dto/sms-wallet.dto';
 import { buildSmsOrderNo, formatFenAmountDisplay } from './sms.utils';
 
 /** 微信下单描述文案（微信限制 127 字符内） */

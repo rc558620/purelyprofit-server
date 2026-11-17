@@ -10,6 +10,8 @@ import { ClubWechatOpenidService } from '../payments/club-wechat-openid.service'
 import { ClubWechatVerifyService } from '../payments/club-wechat-verify.service';
 import { ClubCardContextService } from './club-card-context.service';
 import { ClubCardImmediateSettlementService } from './club-card-immediate-settlement.service';
+import { ClubCardOrderCreateService } from './club-card-order-create.service';
+import { ClubCardOrderReaderService } from './club-card-order-reader.service';
 import { ClubCardOrderService } from './club-card-order.service';
 import { ClubCardSettlementService } from './club-card-settlement.service';
 
@@ -153,6 +155,9 @@ describe('ClubCardOrderService（并行化后契约不变）', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubCardOrderService,
+        // 下单链路与订单读取已拆成独立服务：用例走真实实现，只替换基础设施依赖
+        ClubCardOrderCreateService,
+        ClubCardOrderReaderService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ClubCardContextService, useValue: contextService },
         { provide: ClubPaymentModeService, useValue: paymentModeService },

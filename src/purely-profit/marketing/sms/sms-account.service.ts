@@ -6,7 +6,7 @@ import {
   SMS_UNIT_PRICE_FEN_DEFAULT,
   SMS_WARNING_THRESHOLD_FEN_DEFAULT,
 } from './sms.constants';
-import type { SmsRechargeTierDto } from './dto/sms.dto';
+import type { SmsRechargeTierDto } from './dto/sms-wallet.dto';
 import {
   formatFenAmountDisplay,
   resolveSmsRechargeTiersFen,

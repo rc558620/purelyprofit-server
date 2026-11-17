@@ -3,6 +3,8 @@ import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { PrintAgentService } from './print-agent.service';
+import { PrintAgentRegistryService } from './print-agent-registry.service';
+import { PrintAgentBindingService } from './print-agent-binding.service';
 import type { PrintAgentConnection } from './print-agent.service';
 
 describe('PrintAgentService', () => {
@@ -32,6 +34,8 @@ describe('PrintAgentService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PrintAgentService,
+        PrintAgentRegistryService,
+        PrintAgentBindingService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
       ],

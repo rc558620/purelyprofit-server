@@ -12,8 +12,10 @@ import {
   resolveCheckoutAssets,
 } from './space-session-checkout-assets.shared';
 import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
-import { isSpaceSessionDeductionProductId } from './space-session-settlement-system-item.shared';
-import { Money } from '../../../shared/money.utils';
+import {
+  buildSettlementSaleOrderParams,
+  buildSettlementSessionItemRows,
+} from './space-session-settlement-order.shared';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
@@ -187,52 +189,11 @@ export class SpaceSessionSettlementService {
             effectiveUser,
             {
               transaction,
-              storeId: params.session.storeId,
-              checkoutAt: params.checkoutAt,
-              paymentMethod: params.paymentMethod,
-              note: params.note,
-              items: freshSettlement.orderItems,
-              // 营业额 / 利润按列表口径（消费毛额）落库：券面/卡抵扣不能被抵扣行抹掉
-              totalRevenue: freshSettlement.grossRevenue,
-              totalProfit: freshSettlement.grossProfit,
-              totalQuantity: freshSettlement.totalQuantity,
-              // be-06：收款构成按列拆分（现金 / 卡抵扣 / 储值余额）
-              cardDeductAmount: checkoutAssets.cardDeductionMoney.toDbCents(),
-              balancePaidAmount:
-                checkoutAssets.balanceDeductionMoney.toDbCents(),
-              ...(params.customerPaymentMethod !== undefined
-                ? { customerPaymentMethod: params.customerPaymentMethod }
-                : {}),
-              ...(params.grouponCode !== undefined
-                ? { grouponCode: params.grouponCode }
-                : {}),
-              ...(params.grouponPlatform !== undefined
-                ? { grouponPlatform: params.grouponPlatform }
-                : {}),
-              ...(params.settlementChannel !== undefined
-                ? { settlementChannel: params.settlementChannel }
-                : {}),
-              ...(params.voucherCode !== undefined
-                ? { voucherCode: params.voucherCode }
-                : {}),
-              ...(params.voucherPlatform !== undefined
-                ? { voucherPlatform: params.voucherPlatform }
-                : {}),
-              ...(params.voucherFaceAmount !== undefined
-                ? { voucherFaceAmount: params.voucherFaceAmount }
-                : {}),
-              ...(params.settlementStatus !== undefined
-                ? { settlementStatus: params.settlementStatus }
-                : {}),
-              ...(params.platformReceivable !== undefined
-                ? { platformReceivable: params.platformReceivable }
-                : {}),
-              ...(params.platformSettledAmount !== undefined
-                ? { platformSettledAmount: params.platformSettledAmount }
-                : {}),
-              ...(params.platformFee !== undefined
-                ? { platformFee: params.platformFee }
-                : {}),
+              ...buildSettlementSaleOrderParams(
+                params,
+                freshSettlement,
+                checkoutAssets,
+              ),
             },
           );
 
@@ -285,31 +246,10 @@ export class SpaceSessionSettlementService {
             where: { sessionId: params.session.id },
           });
           await transaction.spaceSessionItem.createMany({
-            data: freshSettlement.orderItems.map((item, index) => ({
-              sessionId: params.session.id,
-              productId: item.productId,
-              productName: item.productName,
-              categoryName: item.categoryName,
-              // BUG-7 fix: 统一使用 productId 判定抵扣项，避免 productName 文案变更后判定静默失效
-              salePrice: isSpaceSessionDeductionProductId(item.productId)
-                ? Money.fromInputYuan(Math.abs(item.salePrice)).toDbCents()
-                : Money.fromInputYuan(item.salePrice).toDbCents(),
-              profit: isSpaceSessionDeductionProductId(item.productId)
-                ? Money.fromInputYuan(Math.abs(item.profit)).toDbCents()
-                : Money.fromInputYuan(item.profit).toDbCents(),
-              quantity: item.quantity,
-              sortOrder: index,
-              // 保留来源标记（自助下单已在线支付等），供审计与后续对账
-              sourceType: item.sourceType ?? null,
-              sourceOrderNo: item.sourceOrderNo ?? null,
-              sourceOrderItemId: item.sourceOrderItemId ?? null,
-              // 规格维度必须随结账重写一起保留：销售记录/交班页的非扫码订单
-              // 规格展示依赖此处的快照，漏写会导致结账后规格「消失」
-              specSignature: item.specSignature ?? null,
-              ...(item.specNames && item.specNames.length > 0
-                ? { specNames: item.specNames }
-                : {}),
-            })),
+            data: buildSettlementSessionItemRows(
+              params.session.id,
+              freshSettlement,
+            ),
           });
 
           // Step 8.1: renewRecords 已经在 renew 时写入了独立表

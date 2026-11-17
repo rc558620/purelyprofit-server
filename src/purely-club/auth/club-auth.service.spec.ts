@@ -16,8 +16,10 @@ import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { ClubAccountMergeService } from './club-account-merge.service';
+import { ClubAuthQuotaGateService } from './club-auth-quota-gate.service';
 import { ClubAuthService } from './club-auth.service';
 import { ClubPhoneBindService } from './club-phone-bind.service';
+import { ClubPhoneRebindProfilesService } from './club-phone-rebind-profiles.service';
 import { ClubPhoneRebindService } from './club-phone-rebind.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
 
@@ -110,9 +112,11 @@ describe('ClubAuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubAuthService,
+        ClubAuthQuotaGateService,
         // 手机号首次绑定 / 换绑已抽离为专职服务，这里用真实实现 + 共享 mock 依赖，
         // 以保证用例仍验证的是同一条端到端链路。
         ClubPhoneBindService,
+        ClubPhoneRebindProfilesService,
         ClubPhoneRebindService,
         ClubAccountMergeService,
         {

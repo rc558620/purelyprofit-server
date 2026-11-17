@@ -8,6 +8,8 @@ import { SmsAccountService } from './sms-account.service';
 import { SmsDeliveryCallbackController } from './sms-delivery-callback.controller';
 import { SmsDeliveryCallbackService } from './sms-delivery-callback.service';
 import { SmsDeliveryReconcileService } from './sms-delivery-reconcile.service';
+import { SmsBroadcastChargeService } from './sms-broadcast-charge.service';
+import { SmsBroadcastDispatchService } from './sms-broadcast-dispatch.service';
 import { SmsBroadcastQueryService } from './sms-broadcast-query.service';
 import { SmsBroadcastRecoveryService } from './sms-broadcast-recovery.service';
 import { SmsBroadcastService } from './sms-broadcast.service';
@@ -46,6 +48,8 @@ import { SmsController } from './sms.controller';
     SmsAccountService,
     SmsQuoteService,
     SmsBroadcastService,
+    SmsBroadcastChargeService,
+    SmsBroadcastDispatchService,
     SmsBroadcastRecoveryService,
     SmsBroadcastQueryService,
     SmsDeliveryCallbackService,

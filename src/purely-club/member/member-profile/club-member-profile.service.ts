@@ -1,5 +1,5 @@
 import { CLUB_MEMBER_ERROR_CODE, clubMemberError } from '../club-member.errors';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiDateKey } from '../../../shared/shanghai-time.utils';
@@ -28,6 +28,8 @@ const CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS = 5;
 
 @Injectable()
 export class ClubMemberProfileService {
+  private readonly logger = new Logger(ClubMemberProfileService.name);
+
   /**
    * 同一 (storeId, clubUserId) 的在途快照解析共享一个 Promise。
    *
@@ -125,13 +127,34 @@ export class ClubMemberProfileService {
     );
 
     // 写缓存：有快照写 15s，空结果写哨兵 5s 防穿透
+    //
+    // 回写不阻塞返回：缓存写的成败不影响本次数据的正确性（失败只是下次再回源），
+    // 却会被算进读接口的响应延迟。首页 / 账户 / 商品定价三处共用本快照，
+    // 冷启动那一次请求原先要把一次 Redis SET 往返加在 DB 定位 + 聚合之后。
     const ttl =
       snapshot !== null
         ? CLUB_MEMBER_SNAPSHOT_CACHE_TTL_SECONDS
         : CLUB_MEMBER_SNAPSHOT_NULL_CACHE_TTL_SECONDS;
-    await this.redisService.setJson(cacheKey, snapshot ?? MISS_SENTINEL, ttl);
+    void this.persistSnapshotCache(cacheKey, snapshot ?? MISS_SENTINEL, ttl);
 
     return snapshot;
+  }
+
+  /** 异步回写会员快照缓存：失败只记 warn，降级为「下次回源」 */
+  private async persistSnapshotCache(
+    cacheKey: string,
+    value: ClubMemberSnapshotCacheValue,
+    ttlSeconds: number,
+  ): Promise<void> {
+    try {
+      await this.redisService.setJson(cacheKey, value, ttlSeconds);
+    } catch (error) {
+      this.logger.warn(
+        `会员快照缓存回写失败 key=${cacheKey}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**

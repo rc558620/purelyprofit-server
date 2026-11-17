@@ -8,6 +8,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
+import { ClubSelfOrderingIdempotencyService } from './club-self-ordering-order.idempotency.service';
+import { ClubSelfOrderingGateService } from './club-self-ordering-order.gate.service';
 import { ClubSelfOrderingPricingService } from './club-self-ordering-pricing.service';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
 import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
@@ -133,6 +135,9 @@ describe('ClubSelfOrderingOrderService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubSelfOrderingOrderService,
+        // 幂等与门禁已拆到独立 service：均只依赖本 spec 已注入的桩
+        ClubSelfOrderingIdempotencyService,
+        ClubSelfOrderingGateService,
         // 定价已拆到独立 service：仍复用同一份商品规格定价桩
         ClubSelfOrderingPricingService,
         { provide: PrismaService, useValue: prisma },

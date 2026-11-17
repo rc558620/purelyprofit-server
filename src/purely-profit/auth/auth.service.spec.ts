@@ -35,6 +35,7 @@ import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthService } from './auth.service';
+import { AuthRefreshTokenService } from './auth-refresh-token.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuditLogService } from '../../shared/audit-log.service';
 import { AuthSmsService } from './auth-sms.service';
@@ -200,6 +201,7 @@ describe('AuthService', () => {
         AuthPasswordService,
         AuthProductAuthService,
         AuthProfileService,
+        AuthRefreshTokenService,
         AuthSessionService,
         AuthCapabilityService,
         AuthRegisterStoreService,

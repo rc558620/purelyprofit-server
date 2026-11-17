@@ -18,6 +18,7 @@ import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingQrTokenService } from './club-scan-ordering-qr-token.service';
 import { ClubScanOrderingSessionService } from './club-scan-ordering-session.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
+import { ClubScanOrderingCartQueryService } from './club-scan-ordering-cart-query.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingMenuStockService } from './club-scan-ordering-menu-stock.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
@@ -35,6 +36,10 @@ import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.ser
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+// 网关拆分：Socket 鉴权、Redis adapter 生命周期、房间订阅各自独立 provider
+import { ScanOrderingSocketAuthService } from './scan-ordering-socket-auth.service';
+import { ScanOrderingSocketRedisAdapterService } from './scan-ordering-socket-redis-adapter.service';
+import { ScanOrderingSubscriptionService } from './scan-ordering-subscription.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPaymentExpirationService } from './scan-ordering-payment-expiration.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
@@ -70,6 +75,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubScanOrderingQrTokenService,
     ClubScanOrderingSessionService,
     ClubScanOrderingCartService,
+    // 购物车读写分离：会话 / 商品 / 快照读取与归属校验独立成 provider
+    ClubScanOrderingCartQueryService,
     ClubScanOrderingMenuQueryService,
     ClubScanOrderingMenuStockService,
     ClubScanOrderingServiceCallService,
@@ -98,6 +105,9 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ScanOrderingPricingVersionService,
     ScanOrderingPickupNumberService,
     ScanOrderingPickupSettingsService,
+    ScanOrderingSocketAuthService,
+    ScanOrderingSocketRedisAdapterService,
+    ScanOrderingSubscriptionService,
     ScanOrderingGateway,
   ],
   exports: [

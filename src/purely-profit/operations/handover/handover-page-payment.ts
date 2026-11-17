@@ -143,6 +143,43 @@ export const computeRefundAmountFromSessions = (
   return Money.fromDbCents(totalRefundCents).toOutputYuan();
 };
 
+/**
+ * 本班营业额口径（交班记录列表 / 交班记录详情 / 实时交班页共用）：
+ * totalRevenue = 非空间销售营收（分） + 空间会话消费与扫码点餐收入（分）。
+ * 退款不在此处扣减，由详情作为独立字段展示。
+ */
+export const sumShiftRevenueYuan = (
+  additionalRevenueCents: number,
+  spaceRevenueCents: number,
+): number =>
+  Money.fromInputYuan(dbCentsToOutputYuan(additionalRevenueCents))
+    .add(Money.fromInputYuan(dbCentsToOutputYuan(spaceRevenueCents)))
+    .toOutputYuan();
+
+/**
+ * 交班退款金额合并口径：
+ * 退款 = 空间会话预付/续费溢出（computeRefundAmountFromSessions）
+ *      + 扫码点餐退款明细（SaleOrderRefund）。
+ * 两个来源必须同时累加，任一缺失都会导致退款少算。
+ */
+export const computeRecordRefundAmount = (
+  settledSpaceSessions: Parameters<typeof computeRefundAmountFromSessions>[0],
+  scanOrderingRefunds: readonly { amount: number | null }[],
+): number => {
+  const scanOrderingRefundCents = scanOrderingRefunds.reduce(
+    (sum, refund) => sum + Number(refund.amount ?? 0),
+    0,
+  );
+
+  return Money.fromDbCents(scanOrderingRefundCents)
+    .add(
+      Money.fromInputYuan(
+        computeRefundAmountFromSessions(settledSpaceSessions),
+      ),
+    )
+    .toOutputYuan();
+};
+
 export const buildRevenueAmounts = (
   spaceRevenue: Prisma.Decimal | number | null | undefined,
   additionalRevenue: Prisma.Decimal | number | null | undefined,

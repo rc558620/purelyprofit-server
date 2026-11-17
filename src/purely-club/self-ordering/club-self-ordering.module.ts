@@ -9,6 +9,8 @@ import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.modu
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubSelfOrderingController } from './club-self-ordering.controller';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
+import { ClubSelfOrderingIdempotencyService } from './club-self-ordering-order.idempotency.service';
+import { ClubSelfOrderingGateService } from './club-self-ordering-order.gate.service';
 import { ClubSelfOrderingPricingService } from './club-self-ordering-pricing.service';
 import { ClubSelfOrderingWechatVerifyService } from './club-self-ordering-wechat-verify.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
@@ -46,6 +48,9 @@ import { ClubNewCustomerQuotaService } from '../shared/club-new-customer-quota.s
   providers: [
     ClubSelfOrderingService,
     ClubSelfOrderingOrderService,
+    // 建单服务的两个协作类：幂等闸门（键校验 / 占位 / 回放）与下单门禁（业态 / 会话 / 会员 / 额度）
+    ClubSelfOrderingIdempotencyService,
+    ClubSelfOrderingGateService,
     // 商品定价与快照（服务端权威重算），建单服务只负责幂等与事务
     ClubSelfOrderingPricingService,
     ClubSelfOrderingWechatVerifyService,

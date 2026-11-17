@@ -10,7 +10,10 @@ import {
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { SmsRechargeCallbackService } from './sms-recharge-callback.service';
-import { SmsWechatCallbackAckDto, SmsWechatCallbackDto } from './dto/sms.dto';
+import {
+  SmsWechatCallbackAckDto,
+  SmsWechatCallbackDto,
+} from './dto/sms-callback.dto';
 
 /** 原始报文请求的最小结构（Fastify 按路由开启 rawBody 才有 rawBody 字段） */
 interface RawBodyRequest {

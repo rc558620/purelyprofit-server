@@ -27,10 +27,8 @@ import type {
   PulseAdminMemberDetailSnapshot,
   PulseAdminMemberListDependencies,
 } from './membership-admin-member-read.types';
-import {
-  buildPulseAdminMemberDetail,
-  buildPulseAdminMemberListItem,
-} from './membership-admin-member.builder';
+import { buildPulseAdminMemberDetail } from './membership-admin-member-detail.builder';
+import { buildPulseAdminMemberListItem } from './membership-admin-member.builder';
 import { matchesAdminMemberFilters } from './membership-admin-query.helper';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
 import type { PulseAdminMembershipProfileRecord } from './membership.types';

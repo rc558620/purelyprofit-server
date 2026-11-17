@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, type MarketingPromotionType } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -38,9 +34,12 @@ import {
   resolveMarketingPagination,
   type MarketingPromotionTypeValue,
   assertPromotionRange,
-  PROMOTION_TYPE_CONFLICT_MESSAGE,
   throwOnPromotionTypeConflict,
 } from './marketing.utils';
+import {
+  ensureDailyCheckInUniqueness,
+  ensurePromotionTypeUnique,
+} from './marketing-promotion-uniqueness.shared';
 import { validatePromotionParams } from './schemas/promotion-params.schema';
 
 const MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS = 60;
@@ -209,9 +208,9 @@ export class MarketingPromotionsService {
     if (dto.type === 'daily_check_in') {
       // 签到配置按「门店 + 类型」读取，停用态重复会造成 C 端取错积分值，
       // 因此含停用态也按全量唯一校验（DB 侧另有部分唯一索引兜底）。
-      await this.ensureDailyCheckInUniqueness(storeId);
+      await ensureDailyCheckInUniqueness(this.prisma, storeId);
     } else if (willBeEnabled) {
-      await this.ensurePromotionTypeUnique(storeId, dto.type);
+      await ensurePromotionTypeUnique(this.prisma, storeId, dto.type);
     }
 
     // 前端入参（元）→ DB 存储（分）
@@ -285,9 +284,14 @@ export class MarketingPromotionsService {
     // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
     const willBeEnabled = dto.enabled ?? promotion.enabled;
     if (promotion.type === 'daily_check_in') {
-      await this.ensureDailyCheckInUniqueness(promotion.storeId, promotionId);
+      await ensureDailyCheckInUniqueness(
+        this.prisma,
+        promotion.storeId,
+        promotionId,
+      );
     } else if (willBeEnabled) {
-      await this.ensurePromotionTypeUnique(
+      await ensurePromotionTypeUnique(
+        this.prisma,
         promotion.storeId,
         promotion.type as MarketingPromotionTypeValue,
         promotionId,
@@ -379,46 +383,5 @@ export class MarketingPromotionsService {
       this.redisService.del(buildClubPromotionsCacheKey(storeId)),
       this.redisService.del(buildClubPromotionListCacheKey(storeId)),
     ]);
-  }
-
-  private async ensurePromotionTypeUnique(
-    storeId: number,
-    type: MarketingPromotionTypeValue,
-    excludePromotionId?: number,
-  ): Promise<void> {
-    const duplicatedCount = await this.prisma.marketingPromotion.count({
-      where: {
-        storeId,
-        type,
-        enabled: true,
-        ...(excludePromotionId !== undefined
-          ? { id: { not: excludePromotionId } }
-          : {}),
-      },
-    });
-
-    if ((duplicatedCount ?? 0) > 0) {
-      throw new ConflictException(PROMOTION_TYPE_CONFLICT_MESSAGE);
-    }
-  }
-
-  /** 签到活动的全量唯一校验（含停用态）：与 DB 部分唯一索引口径一致 */
-  private async ensureDailyCheckInUniqueness(
-    storeId: number,
-    excludePromotionId?: number,
-  ): Promise<void> {
-    const duplicatedCount = await this.prisma.marketingPromotion.count({
-      where: {
-        storeId,
-        type: 'daily_check_in',
-        ...(excludePromotionId !== undefined
-          ? { id: { not: excludePromotionId } }
-          : {}),
-      },
-    });
-
-    if ((duplicatedCount ?? 0) > 0) {
-      throw new ConflictException(PROMOTION_TYPE_CONFLICT_MESSAGE);
-    }
   }
 }

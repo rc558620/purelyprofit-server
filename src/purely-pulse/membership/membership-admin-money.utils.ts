@@ -1,10 +1,15 @@
 /**
- * Pulse 会员管理端的「元字符串 → 分」解析。
+ * Pulse 会员管理端的金额口径转换。
  *
- * 运营在管理端填的金额一律是**展示字符串**（与后端下发的 `xxxDisplay` 同口径），
- * 后端入库前必须转成分。三个写入/计算入口（设置会员等级、成交价预览、子账号补录）
- * 过去各写了一份，语义稍有出入，改一处容易漏两处，因此收敛到这里。
+ * 上行（元字符串 → 分）：运营在管理端填的金额一律是**展示字符串**（与后端下发的
+ * `xxxDisplay` 同口径），入库前必须转成分。
+ * 下行（分 → 元字符串）：DTO 里的 `xxxDisplay` 一律由后端算好，前端不做乘除。
+ *
+ * 三个写入/计算入口（设置会员等级、成交价预览、子账号补录）过去各写了一份，
+ * 语义稍有出入，改一处容易漏两处，因此收敛到这里。
  */
+
+import { Money } from '../../shared/money.utils';
 
 /**
  * 金额上限（分）= 100 万元。
@@ -55,6 +60,27 @@ export function resolveAmountFen(display?: string | null): number | null {
   }
 
   return toBoundedFen(parsedValue);
+}
+
+/**
+ * 分 → 元展示字符串（去掉无意义的 `.00`）。
+ *
+ * 与下发给前端的 `xxxDisplay` 完全同口径：管理端只展示，不再自行分转元。
+ */
+export function formatAdminMemberFenDisplay(fen: number): string {
+  return Money.fromDbCents(fen).toFixedOutputYuan().replace(/\.00$/, '');
+}
+
+/**
+ * 分 → 元展示字符串；null / undefined 原样返回 null。
+ *
+ * ⚠️ 用 `typeof === 'number'` 而非 `!== null`：审计行 / mock 残行缺列时值为
+ * undefined，直接交给金额格式化会渲染出 `NaN`。
+ */
+export function formatAdminMemberFenDisplayOrNull(
+  fen: number | null | undefined,
+): string | null {
+  return typeof fen === 'number' ? formatAdminMemberFenDisplay(fen) : null;
 }
 
 /** 元 → 分，并在超过 `MAX_MEMBERSHIP_AMOUNT_FEN` 时返回 null（视为非法输入） */

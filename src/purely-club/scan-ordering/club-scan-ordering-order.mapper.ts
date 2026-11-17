@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+
 /**
  * 扫码点餐订单金额对外映射。
  *
@@ -168,3 +170,61 @@ export const toOrderAmountSummary = (
   paidAmount: fenToYuan(order.paidAmount),
   discountItems: toDiscountItems(order.marketingSnapshot),
 });
+
+/** 订单详情一次性取全参与响应组装的关联数据（最新一条支付 / 退款 / 余额流水）。 */
+export const SCAN_ORDER_DETAIL_INCLUDE = {
+  items: { include: { specs: true }, orderBy: { sortOrder: 'asc' } },
+  paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
+  refundTasks: { orderBy: { createdAt: 'desc' }, take: 1 },
+  balanceTransactions: {
+    where: { type: 'refund' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { createdAt: true },
+  },
+} satisfies Prisma.ScanOrdersInclude;
+
+/** 订单详情查询结果（include 推导，避免手写漂移） */
+export type ScanOrderDetailRecord = Prisma.ScanOrdersGetPayload<{
+  include: typeof SCAN_ORDER_DETAIL_INCLUDE;
+}>;
+
+/**
+ * 组装订单详情响应。
+ *
+ * marketingSnapshot 只参与金额派生（积分抵扣 / 优惠清单），前端零消费；
+ * 实测它约占订单响应 2/3，故查询保留、响应剔除（与历史接口同口径）。
+ * manualEntryMetadata 是商家补录快照，C 端零消费，同样不下发。
+ */
+export const toScanOrderDetailResponse = (
+  order: ScanOrderDetailRecord,
+  pickupNumberLabel: string | null,
+): Record<string, unknown> => {
+  const {
+    marketingSnapshot: _marketingSnapshot,
+    manualEntryMetadata: _manualEntryMetadata,
+    ...orderColumns
+  } = order;
+  return {
+    ...orderColumns,
+    items: order.items.map((item) => ({
+      ...item,
+      unitPriceAmount: fenToYuan(item.unitPriceAmount),
+      lineTotalAmount: fenToYuan(item.lineTotalAmount),
+      payableLineAmount: fenToYuan(item.payableLineAmount),
+    })),
+    ...toOrderAmountSummary(order),
+    pickupNumberLabel,
+    pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+    pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
+    refundTasks: order.refundTasks.map((task) => ({
+      ...task,
+      refundSucceededAt:
+        task.refundSucceededAt ??
+        task.processedAt ??
+        task.triggeredAt ??
+        order.balanceTransactions[0]?.createdAt ??
+        null,
+    })),
+  };
+};

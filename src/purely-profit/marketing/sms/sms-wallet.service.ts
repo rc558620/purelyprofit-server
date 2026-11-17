@@ -10,7 +10,7 @@ import type {
   SmsWalletLogsQueryDto,
   SmsWalletLogsResponseDto,
   SmsWalletResponseDto,
-} from './dto/sms.dto';
+} from './dto/sms-wallet.dto';
 import { toSmsWalletLogItem } from './sms.mapper';
 
 /** 短信钱包：概览 / 充值档位 / 流水列表 */

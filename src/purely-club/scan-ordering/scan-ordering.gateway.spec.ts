@@ -9,6 +9,9 @@ import { AuthSessionService } from '../../purely-profit/auth/auth-session.servic
 import { AuthUserCacheService } from '../../purely-profit/auth/auth-user-cache.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import { ScanOrderingSocketAuthService } from './scan-ordering-socket-auth.service';
+import { ScanOrderingSocketRedisAdapterService } from './scan-ordering-socket-redis-adapter.service';
+import { ScanOrderingSubscriptionService } from './scan-ordering-subscription.service';
 import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedMembership } from '../../purely-profit/access-control/access-control.service';
 import type { JwtPayload } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -135,6 +138,10 @@ describe('ScanOrderingGateway', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanOrderingGateway,
+        // 网关行为已拆到三个 provider：鉴权 / Redis adapter / 房间订阅
+        ScanOrderingSocketAuthService,
+        ScanOrderingSocketRedisAdapterService,
+        ScanOrderingSubscriptionService,
         { provide: JwtService, useValue: jwtService },
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },

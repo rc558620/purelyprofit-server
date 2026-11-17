@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
   ScanOrderStatus,
@@ -9,8 +9,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import type { ListClubScanOrdersQueryDto } from './dto/club-scan-ordering.dto';
 import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
+import {
+  SCAN_ORDER_DETAIL_INCLUDE,
   fenToYuan,
   toOrderAmountSummary,
+  toScanOrderDetailResponse,
 } from './club-scan-ordering-order.mapper';
 
 /** 在途订单状态：只要会话里还有这些订单，这一轮用餐就还没结束 */
@@ -333,5 +339,27 @@ export class ClubScanOrderingOrderQueryService {
       items,
       nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
     };
+  }
+
+  /**
+   * 订单详情：明细 + 最新支付 / 退款 / 余额流水。
+   * clubUserId 参与过滤，他人的订单一律按「不存在」处理，不泄露存在性。
+   */
+  async getOrder(user: AuthenticatedUser, orderId: number): Promise<unknown> {
+    const order = await this.prisma.scanOrders.findFirst({
+      where: { id: orderId, clubUserId: user.id, deletedAt: null },
+      include: SCAN_ORDER_DETAIL_INCLUDE,
+    });
+    if (!order)
+      throw new NotFoundException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          '订单不存在',
+        ),
+      );
+    return toScanOrderDetailResponse(
+      order,
+      this.pickupNumberService.formatPickupNumber(order.pickupNumber),
+    );
   }
 }

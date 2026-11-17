@@ -13,10 +13,9 @@ import {
   normalizePhone,
 } from '../../purely-profit/auth/auth.utils';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { NewCustomerQuotaService } from '../../purely-profit/member/new-customer-quota/new-customer-quota.service';
 import type { NewCustomerQuotaCheckResult } from '../../purely-profit/member/new-customer-quota/new-customer-quota.types';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
+import { ClubAuthQuotaGateService } from './club-auth-quota-gate.service';
 import { ClubPhoneBindService } from './club-phone-bind.service';
 import { ClubPhoneRebindService } from './club-phone-rebind.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
@@ -49,8 +48,7 @@ export class ClubAuthService {
     private readonly clubPhoneBindService: ClubPhoneBindService,
     private readonly clubPhoneRebindService: ClubPhoneRebindService,
     private readonly configService: ConfigService,
-    private readonly quotaService: NewCustomerQuotaService,
-    private readonly clubCurrentStoreContextService: ClubCurrentStoreContextService,
+    private readonly quotaGate: ClubAuthQuotaGateService,
   ) {}
 
   /**
@@ -155,7 +153,7 @@ export class ClubAuthService {
     /** 当前登录用户：用于解析额度归属门店，缺省时不触发额度校验（历史/测试调用路径） */
     currentUser?: AuthenticatedUser,
   ): Promise<AuthTokenResponseDto> {
-    const storeId = await this.assertQuotaAvailableForBind(
+    const storeId = await this.quotaGate.assertAvailableForBind(
       currentUser,
       dto.sessionId,
     );
@@ -179,9 +177,12 @@ export class ClubAuthService {
 
     // 3. 绑定成功后扣减：同一顾客全局只扣一次（consume 内部按 clubUserId 幂等）
     if (storeId !== null) {
-      await this.consumeQuotaForNewCustomer(
+      await this.quotaGate.consumeForNewCustomer(
         storeId,
-        await this.resolveBoundUserId(dto.phone, currentUser?.id ?? userId),
+        await this.quotaGate.resolveBoundUserId(
+          dto.phone,
+          currentUser?.id ?? userId,
+        ),
         dto.phone,
       );
     }
@@ -257,7 +258,7 @@ export class ClubAuthService {
     //
     // 仅对尚未消耗过额度的顾客生效：老顾客换设备 / 重新绑定 / 换店都不该被拦住，
     // 也不该被要求再验证一次手机号。
-    const storeId = await this.assertQuotaAvailableForBind(
+    const storeId = await this.quotaGate.assertAvailableForBind(
       currentUser,
       dto.sessionId,
     );
@@ -288,9 +289,12 @@ export class ClubAuthService {
     // 绑定成功后扣减：同一顾客全局只扣一次（consume 内部按 clubUserId 幂等）。
     // 手机号若命中已有账号会触发合并，扣减必须落到合并后的最终账号上。
     if (storeId !== null) {
-      await this.consumeQuotaForNewCustomer(
+      await this.quotaGate.consumeForNewCustomer(
         storeId,
-        await this.resolveBoundUserId(phone, currentUser?.id ?? userId),
+        await this.quotaGate.resolveBoundUserId(
+          phone,
+          currentUser?.id ?? userId,
+        ),
         phone,
       );
     }
@@ -299,123 +303,14 @@ export class ClubAuthService {
   }
 
   /**
-   * C 端额度预检：告知前端「当前顾客是否新客」以及「额度是否阻止其下单」。
-   *
-   * 关键语义：blocked **只对新客为真**。新客是**全局口径**——手机号认证一位顾客
-   * 只需一次，已在任意门店消耗过额度的顾客换到哪家店都不该被额度挡住。
-   *
-   * @param sessionId 扫码点餐会话 ID。传了就以会话所属门店为准——
-   *   「当前选中门店」与「扫码进的那家店」是两回事，用错会把额度算到别的门店。
+   * C 端额度预检：完整语义（全局新客口径、会话门店优先）见
+   * `ClubAuthQuotaGateService.getStatus`。
    */
-  async getNewCustomerQuotaStatus(
+  getNewCustomerQuotaStatus(
     user: AuthenticatedUser,
     sessionId?: number | null,
   ): Promise<NewCustomerQuotaCheckResult> {
-    const storeId = sessionId
-      ? await this.resolveStoreIdBySessionId(sessionId, user.id)
-      : await this.resolveQuotaStoreId(user);
-    if (storeId === null) {
-      return { isNewCustomer: false, blocked: false, remaining: 0 };
-    }
-
-    const isNewCustomer = await this.quotaService.isNewCustomer(user.id);
-    const overview = await this.quotaService.getOverview(storeId);
-    return {
-      isNewCustomer,
-      blocked: isNewCustomer && overview.remaining <= 0,
-      remaining: overview.remaining,
-    };
-  }
-
-  /**
-   * 由扫码点餐会话解析门店：会话与 clubUserId 绑定，取到的 storeId 就是
-   * 用户扫码进的那家店，不受「当前选中门店」影响。
-   *
-   * 会话不存在 / 不属于该用户 / 已结束 → 返回 null，按「不拦截」处理。
-   */
-  private async resolveStoreIdBySessionId(
-    sessionId: number,
-    clubUserId: number,
-  ): Promise<number | null> {
-    const session = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        id: sessionId,
-        clubUserId,
-        status: 'active',
-        deletedAt: null,
-      },
-      select: { storeId: true },
-    });
-    return session?.storeId ?? null;
-  }
-
-  /**
-   * 解析额度归属门店。
-   *
-   * `@param sessionId` 优先：用户可能是在扫码点餐流程中被引导来绑手机的，
-   * 此时「当前选中门店」与「扫码进的那家店」是两回事，必须用后者，否则额度
-   * 会记到别的门店头上。缺省（从个人中心进入绑定页等）时才退回「当前选中门店」。
-   * 两者都取不到（未加入任何门店）时不拦截也不扣减，返回 null。
-   */
-  private async resolveQuotaStoreId(
-    user: AuthenticatedUser,
-    sessionId?: number | null,
-  ): Promise<number | null> {
-    if (sessionId !== null && sessionId !== undefined && sessionId > 0) {
-      return this.resolveStoreIdBySessionId(sessionId, user.id);
-    }
-
-    try {
-      const store =
-        await this.clubCurrentStoreContextService.getCurrentStore(user);
-      return store.id ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * 绑定前的额度闸门：两条绑定链路（短信 / 微信 getPhoneNumber）共用。
-   *
-   * 仅对尚未消耗过额度的顾客生效：老顾客换设备 / 重新绑定 / 换店都不该被
-   * 额度拦住，更不该被要求再验证一次手机号。
-   *
-   * @returns 额度归属门店，供绑定成功后扣减复用；null 表示定位不到门店，
-   *   按「不拦截也不扣减」处理（绑定本身是账号级操作，不能因为额度查不到就拒绝）
-   */
-  private async assertQuotaAvailableForBind(
-    currentUser: AuthenticatedUser | undefined,
-    sessionId?: number | null,
-  ): Promise<number | null> {
-    if (currentUser === undefined) return null;
-
-    const storeId = await this.resolveQuotaStoreId(currentUser, sessionId);
-    if (storeId === null) return null;
-
-    await this.quotaService.ensureAvailableForNewCustomer(
-      storeId,
-      currentUser.id,
-    );
-    return storeId;
-  }
-
-  /**
-   * 新客扣减：由 `consumeForNewCustomer` 按 clubUserId 保证幂等，
-   * 老顾客重复绑定 / 重复下单 / 换店都不会重复扣；额度意外耗尽时只记日志，
-   * 不阻断主流程。
-   */
-  private async consumeQuotaForNewCustomer(
-    storeId: number,
-    clubUserId: number,
-    phone: string,
-  ): Promise<void> {
-    try {
-      await this.quotaService.consumeForNewCustomer(storeId, clubUserId, phone);
-    } catch (error) {
-      this.logger.warn(
-        `新用户额度扣减失败，store ${storeId} user ${clubUserId}：${String(error)}`,
-      );
-    }
+    return this.quotaGate.getStatus(user, sessionId);
   }
 
   /** 换绑手机号：完整语义见 ClubPhoneRebindService */

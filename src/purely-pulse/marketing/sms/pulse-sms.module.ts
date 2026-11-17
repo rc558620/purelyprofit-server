@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { SmsModule } from '../../../purely-profit/marketing/sms/sms.module';
 import { PulseMembershipModule } from '../../membership/membership.module';
+import { PulseSmsBroadcastService } from './pulse-sms-broadcast.service';
 import { PulseSmsController } from './pulse-sms.controller';
 import { PulseSmsService } from './pulse-sms.service';
 import { PulseSmsWalletLogsService } from './pulse-sms-wallet-logs.service';
@@ -19,6 +20,10 @@ import { PulseSmsWalletLogsService } from './pulse-sms-wallet-logs.service';
 @Module({
   imports: [PrismaModule, PulseMembershipModule, SmsModule],
   controllers: [PulseSmsController],
-  providers: [PulseSmsService, PulseSmsWalletLogsService],
+  providers: [
+    PulseSmsService,
+    PulseSmsBroadcastService,
+    PulseSmsWalletLogsService,
+  ],
 })
 export class PulseSmsModule {}

@@ -5,7 +5,6 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   PrismaService,
@@ -52,11 +51,14 @@ import {
   APPLY_LOCK_TTL_SECONDS,
   APPLY_LOCK_RETRY_TIMES,
   APPLY_LOCK_RETRY_DELAY_MS,
-  APPLY_IDEMPOTENCY_KEY_MAX_LENGTH,
   findIdempotentWithdrawal,
   createWithdrawalApplication,
   refundRejectedWithdrawalOrThrow,
 } from './withdrawals.utils';
+import {
+  assertSameWithdrawalApplication,
+  resolveWithdrawalIdempotencyKey,
+} from './withdrawals-apply.shared';
 
 @Injectable()
 export class WithdrawalsService {
@@ -160,7 +162,7 @@ export class WithdrawalsService {
       dto.accountNo,
       dto.accountName,
     );
-    const idempotencyKey = this.resolveIdempotencyKey(rawIdempotencyKey);
+    const idempotencyKey = resolveWithdrawalIdempotencyKey(rawIdempotencyKey);
 
     try {
       // 资金写入串行化：同门店同合伙人的申请共用一把短锁；
@@ -173,7 +175,7 @@ export class WithdrawalsService {
               idempotencyKey,
             });
             if (existing) {
-              this.assertSameApplication(existing, {
+              assertSameWithdrawalApplication(existing, {
                 partnerId: partner.id,
                 beanAmount: dto.beanAmount,
               });
@@ -222,27 +224,6 @@ export class WithdrawalsService {
         }
       }
       throw error;
-    }
-  }
-
-  private resolveIdempotencyKey(rawKey?: string): string {
-    const trimmed = rawKey?.trim();
-    if (trimmed && trimmed.length <= APPLY_IDEMPOTENCY_KEY_MAX_LENGTH) {
-      return trimmed;
-    }
-    // 老客户端未携带幂等键：服务端生成，保证同额合法二次申请也不会被误拒
-    return `srv-${randomUUID()}`;
-  }
-
-  private assertSameApplication(
-    existing: WithdrawalRecordSnapshot,
-    input: { partnerId: number; beanAmount: number },
-  ): void {
-    if (
-      existing.partnerId !== input.partnerId ||
-      existing.beanAmount !== input.beanAmount
-    ) {
-      throw new ConflictException('幂等键已被其它提现申请使用，请重试');
     }
   }
 

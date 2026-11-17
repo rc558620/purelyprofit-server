@@ -1,4 +1,4 @@
-// Pulse / 群发短信管理服务
+// Pulse / 群发短信账户服务
 //
 // 供 purelyPulse「群发短信」页面使用：跨可访问门店聚合短信账户现状，
 // 并允许**平台运营**为单个门店赠送或回收短信余额。
@@ -9,6 +9,10 @@
 // 💡 `grant`（赠送）/ `admin_adjust`（回收）两种钱包流水类型此前在全系统
 // **没有任何写入方**——本服务是它们的第一个生产者，即「运营给商家补额度」
 // 这条链路的唯一入口。商家自付的充值仍然走 purelyProfit 的微信支付链路。
+//
+// 拆分说明：群发任务列表 / 失败退费见 `pulse-sms-broadcast.service.ts`，
+// 账户读模型（查询字段 / 健康度 / DTO 组装）见 `pulse-sms-account.helper.ts`，
+// 钱包流水查询见 `pulse-sms-wallet-logs.service.ts`。
 import {
   BadRequestException,
   Injectable,
@@ -18,22 +22,10 @@ import { Prisma, SmsWalletLogType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../../purely-profit/auth/strategies/jwt.strategy';
 import { SmsAccountService } from '../../../purely-profit/marketing/sms/sms-account.service';
-import {
-  resolveAdminMemberDisplayName,
-  resolveAdminMemberPhone,
-} from '../../membership/membership-admin-query.helper';
 import { PulseMembershipAccessService } from '../../membership/membership-access.service';
-import type { PulseAdminStoreIdentityRecord } from '../../membership/membership.types';
-import {
-  SMS_BROADCAST_REFUNDABLE_STATUS_VALUES,
-  SMS_BROADCAST_DEFAULT_PAGE_SIZE,
-} from '../../../purely-profit/marketing/sms/sms.constants';
 import type {
   GetPulseAdminSmsAccountsQueryDto,
-  GetPulseAdminSmsBroadcastsQueryDto,
   GrantPulseAdminSmsBalanceDto,
-  PulseAdminSmsHealthFilter,
-  RefundPulseAdminSmsBroadcastDto,
 } from './dto/pulse-sms.request.dto';
 import {
   PULSE_ADMIN_SMS_DEFAULT_PAGE_SIZE,
@@ -42,59 +34,20 @@ import {
 import type {
   PulseAdminSmsAccountDto,
   PulseAdminSmsAccountsResponseDto,
-  PulseAdminSmsAccountsStatsDto,
-  PulseAdminSmsBroadcastDto,
-  PulseAdminSmsBroadcastRefundResultDto,
-  PulseAdminSmsBroadcastsResponseDto,
 } from './dto/pulse-sms.response.dto';
-
-/** 短信账户列表行所需的最小门店记录：主账号身份 */
-interface PulseSmsStoreRecord extends PulseAdminStoreIdentityRecord {
-  id: number;
-}
-
-/** 门店 + 主账号身份的查询字段（与会员列表口径保持一致） */
-const SMS_STORE_SELECT = {
-  id: true,
-  name: true,
-  contactPhone: true,
-  owner: {
-    select: {
-      email: true,
-      name: true,
-      realName: true,
-      avatar: true,
-      wechatPhone: true,
-      lastActiveAt: true,
-    },
-  },
-} as const;
-
-/** 短信账户查询字段 */
-const SMS_ACCOUNT_SELECT = {
-  storeId: true,
-  balanceFen: true,
-  totalRechargedFen: true,
-  totalConsumedFen: true,
-  sentSmsCount: true,
-  updatedAt: true,
-} as const;
-
-/** 短信账户行快照：与 SMS_ACCOUNT_SELECT 一一对应，服务内部流转的完整形态 */
-interface PulseSmsAccountRow {
-  storeId: number;
-  balanceFen: number;
-  totalRechargedFen: number;
-  totalConsumedFen: number;
-  sentSmsCount: number;
-  updatedAt: Date;
-}
-
-/** 判定余额健康度所需的最小账户信息（从未开过户的门店没有账户行） */
-type SmsBalanceSnapshot = Pick<
+import {
+  SMS_ACCOUNT_SELECT,
+  SMS_STORE_SELECT,
+  buildEmptySmsAccountsPage,
+  buildSmsAccountDto,
+  buildSmsAccountsStats,
+  matchesSmsStoreKeyword,
+  resolveSmsAccountHealth,
+} from './pulse-sms-account.helper';
+import type {
   PulseSmsAccountRow,
-  'balanceFen' | 'totalConsumedFen'
->;
+  PulseSmsStoreRecord,
+} from './pulse-sms-account.helper';
 
 /** Serializable 事务写冲突（P2034）的重试次数 */
 const SERIALIZABLE_RETRY_TIMES = 3;
@@ -104,26 +57,12 @@ const isSerializationFailure = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError &&
   error.code === 'P2034';
 
-/**
- * 短信账户余额健康度。
- *
- * 口径必须与前端 `resolveSmsAccountHealth` 完全一致：
- * - 余额 <= 0 且累计消费 > 0 → 已耗尽
- * - 余额 <= 0 且累计消费 = 0 → 未赠送（平台从没给过额度，不能算耗尽）
- * - 余额 > 0 且低于预警阈值 → 预警
- */
-type SmsAccountHealth = 'none' | 'exhausted' | 'warning' | 'healthy';
-
-const resolveSmsAccountHealth = (
-  account: SmsBalanceSnapshot | undefined,
-  warningThresholdFen: number,
-): SmsAccountHealth => {
-  const balanceFen = account?.balanceFen ?? 0;
-  if (balanceFen <= 0) {
-    return (account?.totalConsumedFen ?? 0) > 0 ? 'exhausted' : 'none';
-  }
-  return balanceFen < warningThresholdFen ? 'warning' : 'healthy';
-};
+/** 账户一览的中间态：关键词命中集 / 最终可见集 / 门店账户索引 */
+interface SmsAccountsSnapshot {
+  keywordMatchedStores: PulseSmsStoreRecord[];
+  visibleStores: PulseSmsStoreRecord[];
+  accountByStoreId: Map<number, PulseSmsAccountRow>;
+}
 
 @Injectable()
 export class PulseSmsService {
@@ -155,54 +94,32 @@ export class PulseSmsService {
 
     const storeIds = await this.resolveVisibleStoreIds(user);
     if (storeIds.length === 0) {
-      return this.buildEmptyPageResult(page, pageSize);
+      return buildEmptySmsAccountsPage(page, pageSize);
     }
 
-    const [stores, accounts] = await Promise.all([
-      this.prisma.store.findMany({
-        where: { id: { in: storeIds }, deletedAt: null },
-        select: SMS_STORE_SELECT,
-        orderBy: { id: 'asc' },
-      }),
-      this.prisma.storeSmsAccount.findMany({
-        where: { storeId: { in: storeIds } },
-        select: SMS_ACCOUNT_SELECT,
-      }),
-    ]);
-
-    const accountByStoreId = new Map(
-      accounts.map((account) => [account.storeId, account]),
+    const snapshot = await this.loadAccountSnapshot(
+      storeIds,
+      query,
+      warningThresholdFen,
     );
-
-    const keywordMatchedStores = stores.filter((store) =>
-      this.matchesKeyword(store, query.keyword),
-    );
-    const filteredStores = query.health
-      ? keywordMatchedStores.filter((store) =>
-          this.matchesHealth(
-            accountByStoreId.get(store.id),
-            query.health as PulseAdminSmsHealthFilter,
-            warningThresholdFen,
-          ),
-        )
-      : keywordMatchedStores;
+    const { keywordMatchedStores, visibleStores, accountByStoreId } = snapshot;
 
     return {
-      items: filteredStores
+      items: visibleStores
         .slice((page - 1) * pageSize, page * pageSize)
         .map((store) =>
-          this.buildAccountDto(
+          buildSmsAccountDto(
             store,
             accountByStoreId.get(store.id),
             warningThresholdFen,
           ),
         ),
-      total: filteredStores.length,
+      total: visibleStores.length,
       page,
       pageSize,
-      hasMore: page * pageSize < filteredStores.length,
+      hasMore: page * pageSize < visibleStores.length,
       // 统计只吃 keyword 过滤：概览指标不随「已耗尽」等 Tab 抖动
-      stats: this.buildStats(
+      stats: buildSmsAccountsStats(
         keywordMatchedStores,
         accountByStoreId,
         warningThresholdFen,
@@ -229,7 +146,6 @@ export class PulseSmsService {
     const store = await this.loadStoreOrThrow(storeId);
     const warningThresholdFen =
       this.smsAccountService.resolveWarningThresholdFen();
-    const reason = dto.reason?.trim();
     const isGrant = dto.amountFen > 0;
 
     /*
@@ -238,7 +154,8 @@ export class PulseSmsService {
      * 一行动两遍同样的信息。
      * 没填原因时回落到简短默认文案，保证流水永远有可读说明。
      */
-    const description = reason ?? (isGrant ? '平台运营赠送' : '平台运营回收');
+    const description =
+      dto.reason?.trim() ?? (isGrant ? '平台运营赠送' : '平台运营回收');
 
     const account = await this.runGrantTransaction(
       storeId,
@@ -246,200 +163,48 @@ export class PulseSmsService {
       description,
     );
 
-    return this.buildAccountDto(store, account, warningThresholdFen);
+    return buildSmsAccountDto(store, account, warningThresholdFen);
   }
 
-  /**
-   * 门店群发任务列表（平台运营视角）。
-   *
-   * 用途：群发失败**不自动退费**，运营要能「看到哪些任务失败了、失败了多少人」，
-   * 才能人工核实后走 {@link refundBroadcast}。没有这个列表，失败任务只能靠
-   * 商家反馈才知道，退费链路等于断了。
-   */
-  async listAdminSmsBroadcasts(
-    user: AuthenticatedUser,
-    storeId: number,
-    query: GetPulseAdminSmsBroadcastsQueryDto,
-  ): Promise<PulseAdminSmsBroadcastsResponseDto> {
-    await this.accessService.assertAdminMemberMutationAccess(user, storeId);
-
-    const page = query.page ?? 1;
-    const pageSize = Math.min(
-      query.pageSize ?? SMS_BROADCAST_DEFAULT_PAGE_SIZE,
-      PULSE_ADMIN_SMS_MAX_PAGE_SIZE,
-    );
-
-    const where = {
-      storeId,
-      ...(query.status ? { status: query.status } : {}),
-    };
-
-    const [rows, total] = await Promise.all([
-      this.prisma.smsBroadcastTask.findMany({
-        where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-          broadcastId: true,
-          content: true,
-          status: true,
-          recipientCount: true,
-          validMobileCount: true,
-          successCount: true,
-          failedCount: true,
-          chargedAmountFen: true,
-          refundedAmountFen: true,
-          lastError: true,
-          createdAt: true,
-        },
+  /** 拉取门店与短信账户，并完成 keyword / health 内存过滤 */
+  private async loadAccountSnapshot(
+    storeIds: number[],
+    query: GetPulseAdminSmsAccountsQueryDto,
+    warningThresholdFen: number,
+  ): Promise<SmsAccountsSnapshot> {
+    const [stores, accounts] = await Promise.all([
+      this.prisma.store.findMany({
+        where: { id: { in: storeIds }, deletedAt: null },
+        select: SMS_STORE_SELECT,
+        orderBy: { id: 'asc' },
       }),
-      this.prisma.smsBroadcastTask.count({ where }),
+      this.prisma.storeSmsAccount.findMany({
+        where: { storeId: { in: storeIds } },
+        select: SMS_ACCOUNT_SELECT,
+      }),
     ]);
 
-    return {
-      items: rows.map(
-        (row): PulseAdminSmsBroadcastDto => ({
-          broadcastId: row.broadcastId,
-          content: row.content,
-          status: row.status,
-          recipientCount: row.recipientCount,
-          validMobileCount: row.validMobileCount,
-          successCount: row.successCount,
-          failedCount: row.failedCount,
-          chargedAmountFen: row.chargedAmountFen,
-          refundedAmountFen: row.refundedAmountFen,
-          refundable:
-            this.isRefundableStatus(row.status) && row.refundedAmountFen === 0,
-          lastError: row.lastError,
-          createdAt: row.createdAt.getTime(),
-        }),
-      ),
-      total,
-      page,
-      pageSize,
-      hasMore: page * pageSize < total,
-    };
-  }
-
-  /**
-   * 群发失败退费：把**未送达**部分的钱退回门店短信余额，并写 refund 流水。
-   *
-   * 设计约束：
-   * - 只退失败条数对应的金额（成功送达的不退），且一个任务只能退一次；
-   * - 只允许 failed / partial_failed：`sending` 还有机会发成功，提前退费等于白送钱；
-   * - 只允许平台运营发起（商家端没有入口），原因写入流水便于对账。
-   */
-  async refundAdminSmsBroadcast(
-    user: AuthenticatedUser,
-    storeId: number,
-    broadcastId: string,
-    dto: RefundPulseAdminSmsBroadcastDto,
-  ): Promise<PulseAdminSmsBroadcastRefundResultDto> {
-    // 退费是加钱操作：权限校验必须在查任务之前，避免越权探测到「任务存在但无权」
-    await this.accessService.assertAdminMemberMutationAccess(user, storeId);
-
-    const task = await this.prisma.smsBroadcastTask.findFirst({
-      where: { storeId, broadcastId },
-      select: {
-        id: true,
-        status: true,
-        unitPriceFen: true,
-        chargedAmountFen: true,
-        refundedAmountFen: true,
-        smsSegments: true,
-        validMobileCount: true,
-        failedCount: true,
-      },
-    });
-    if (!task) {
-      throw new NotFoundException('群发任务不存在');
-    }
-
-    if (!this.isRefundableStatus(task.status)) {
-      throw new BadRequestException(
-        '只有发送失败或部分失败的任务可以退费；发送中的任务请等待派发结束',
-      );
-    }
-    if (task.refundedAmountFen > 0) {
-      throw new BadRequestException('该任务已退费，不能重复退费');
-    }
-
-    // 计费条数 = 每人分段数 × 有效收件人，反推每人分段数后按失败人数折算
-    const perRecipientSegments =
-      task.validMobileCount > 0
-        ? Math.ceil(task.smsSegments / task.validMobileCount)
-        : 0;
-    const refundableFen = Math.min(
-      task.failedCount * perRecipientSegments * task.unitPriceFen,
-      task.chargedAmountFen - task.refundedAmountFen,
-    );
-    if (refundableFen <= 0) {
-      throw new BadRequestException('该任务没有可退费金额');
-    }
-
-    const reason = dto.reason?.trim();
-    const description = `群发短信失败退费（${task.failedCount} 人未送达）${reason ? `：${reason}` : ''}`;
-
-    // 事务内二次确认「未退过」：并发点两次也不能退两遍
-    const balanceFen = await this.prisma.$transaction(
-      async (tx) => {
-        const fresh = await tx.smsBroadcastTask.findUniqueOrThrow({
-          where: { id: task.id },
-          select: { refundedAmountFen: true },
-        });
-        if (fresh.refundedAmountFen > 0) {
-          throw new BadRequestException('该任务已退费，不能重复退费');
-        }
-
-        await tx.storeSmsAccount.upsert({
-          where: { storeId },
-          create: { storeId },
-          update: {},
-        });
-
-        const account = await tx.storeSmsAccount.update({
-          where: { storeId },
-          data: {
-            balanceFen: { increment: refundableFen },
-            totalConsumedFen: { decrement: refundableFen },
-          },
-          select: { balanceFen: true },
-        });
-
-        await tx.smsWalletLog.create({
-          data: {
-            storeId,
-            type: SmsWalletLogType.refund,
-            changeFen: refundableFen,
-            balanceAfterFen: account.balanceFen,
-            description,
-            broadcastId,
-          },
-        });
-
-        await tx.smsBroadcastTask.update({
-          where: { id: task.id },
-          data: { refundedAmountFen: { increment: refundableFen } },
-        });
-
-        return account.balanceFen;
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    const accountByStoreId = new Map(
+      accounts.map((account) => [account.storeId, account]),
     );
 
-    return {
-      broadcastId,
-      refundedAmountFen: refundableFen,
-      failedCount: task.failedCount,
-      balanceFen,
-    };
-  }
+    const keywordMatchedStores = stores.filter((store) =>
+      matchesSmsStoreKeyword(store, query.keyword),
+    );
 
-  private isRefundableStatus(status: string): boolean {
-    return (
-      SMS_BROADCAST_REFUNDABLE_STATUS_VALUES as readonly string[]
-    ).includes(status);
+    // 先收敛成局部常量，闭包里才能保留非空收窄，避免把类型断言散进业务代码
+    const healthFilter = query.health;
+    const visibleStores = healthFilter
+      ? keywordMatchedStores.filter(
+          (store) =>
+            resolveSmsAccountHealth(
+              accountByStoreId.get(store.id),
+              warningThresholdFen,
+            ) === healthFilter,
+        )
+      : keywordMatchedStores;
+
+    return { keywordMatchedStores, visibleStores, accountByStoreId };
   }
 
   /**
@@ -471,6 +236,7 @@ export class PulseSmsService {
     }
   }
 
+  /** 事务内落账：确保账户行存在 → 调整余额 → 带余额快照写钱包流水 */
   private async applyBalanceChange(
     tx: Prisma.TransactionClient,
     storeId: number,
@@ -485,40 +251,7 @@ export class PulseSmsService {
       update: {},
     });
 
-    let actualChangeFen = amountFen;
-
-    if (amountFen >= 0) {
-      await tx.storeSmsAccount.update({
-        where: { storeId },
-        data: { balanceFen: { increment: amountFen } },
-      });
-    } else {
-      // 回收：条件更新防超扣——`balanceFen >= 扣减额` 由数据库原子判定，
-      // 不做 read-then-write，否则并发回收会扣成负数。
-      const requestedFen = -amountFen;
-      const deducted = await tx.storeSmsAccount.updateMany({
-        where: { storeId, balanceFen: { gte: requestedFen } },
-        data: { balanceFen: { decrement: requestedFen } },
-      });
-
-      if (deducted.count === 0) {
-        // 余额不足以全额回收：按清零处理（前端预览也是这个口径）
-        const current = await tx.storeSmsAccount.findUnique({
-          where: { storeId },
-          select: { balanceFen: true },
-        });
-        const currentBalanceFen = current?.balanceFen ?? 0;
-        if (currentBalanceFen <= 0) {
-          throw new BadRequestException('当前门店短信余额已为 0，无法继续回收');
-        }
-
-        await tx.storeSmsAccount.update({
-          where: { storeId },
-          data: { balanceFen: 0 },
-        });
-        actualChangeFen = -currentBalanceFen;
-      }
-    }
+    const actualChangeFen = await this.adjustBalanceFen(tx, storeId, amountFen);
 
     const updated = await tx.storeSmsAccount.findUniqueOrThrow({
       where: { storeId },
@@ -539,6 +272,48 @@ export class PulseSmsService {
     });
 
     return updated;
+  }
+
+  /** 按增量调整余额，返回真实变动金额 */
+  private async adjustBalanceFen(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+    amountFen: number,
+  ): Promise<number> {
+    if (amountFen >= 0) {
+      await tx.storeSmsAccount.update({
+        where: { storeId },
+        data: { balanceFen: { increment: amountFen } },
+      });
+      return amountFen;
+    }
+
+    // 回收：条件更新防超扣——`balanceFen >= 扣减额` 由数据库原子判定，
+    // 不做 read-then-write，否则并发回收会扣成负数。
+    const requestedFen = -amountFen;
+    const deducted = await tx.storeSmsAccount.updateMany({
+      where: { storeId, balanceFen: { gte: requestedFen } },
+      data: { balanceFen: { decrement: requestedFen } },
+    });
+    if (deducted.count > 0) {
+      return amountFen;
+    }
+
+    // 余额不足以全额回收：按清零处理（前端预览也是这个口径）
+    const current = await tx.storeSmsAccount.findUnique({
+      where: { storeId },
+      select: { balanceFen: true },
+    });
+    const currentBalanceFen = current?.balanceFen ?? 0;
+    if (currentBalanceFen <= 0) {
+      throw new BadRequestException('当前门店短信余额已为 0，无法继续回收');
+    }
+
+    await tx.storeSmsAccount.update({
+      where: { storeId },
+      data: { balanceFen: 0 },
+    });
+    return -currentBalanceFen;
   }
 
   /**
@@ -582,105 +357,5 @@ export class PulseSmsService {
     }
 
     return store;
-  }
-
-  /** 关键词命中门店名 / 主账号昵称 / 手机号（与前端 toLowerCase().includes 同口径） */
-  private matchesKeyword(
-    store: PulseSmsStoreRecord,
-    keyword: string | undefined,
-  ): boolean {
-    const normalizedKeyword = keyword?.trim().toLowerCase();
-    if (!normalizedKeyword) {
-      return true;
-    }
-
-    return (
-      resolveAdminMemberDisplayName(store)
-        .toLowerCase()
-        .includes(normalizedKeyword) ||
-      resolveAdminMemberPhone(store).includes(normalizedKeyword) ||
-      store.name.toLowerCase().includes(normalizedKeyword)
-    );
-  }
-
-  private matchesHealth(
-    account: SmsBalanceSnapshot | undefined,
-    health: PulseAdminSmsHealthFilter,
-    warningThresholdFen: number,
-  ): boolean {
-    return resolveSmsAccountHealth(account, warningThresholdFen) === health;
-  }
-
-  private buildAccountDto(
-    store: PulseSmsStoreRecord,
-    account: PulseSmsAccountRow | undefined,
-    warningThresholdFen: number,
-  ): PulseAdminSmsAccountDto {
-    return {
-      storeId: String(store.id),
-      storeName: store.name,
-      ownerName: resolveAdminMemberDisplayName(store),
-      ownerPhone: resolveAdminMemberPhone(store),
-      ownerAvatarUrl: store.owner.avatar ?? '',
-      balanceFen: account?.balanceFen ?? 0,
-      totalRechargedFen: account?.totalRechargedFen ?? 0,
-      totalConsumedFen: account?.totalConsumedFen ?? 0,
-      sentSmsCount: account?.sentSmsCount ?? 0,
-      warningThresholdFen,
-      updatedAt: account?.updatedAt?.getTime() ?? null,
-    };
-  }
-
-  /**
-   * 统计概览：只吃 keyword 过滤的完整门店集合。
-   * 未赠送（余额 0 且从未消费）不计入「已耗尽」，否则新商家会被误标红。
-   */
-  private buildStats(
-    stores: PulseSmsStoreRecord[],
-    accountByStoreId: Map<number, PulseSmsAccountRow>,
-    warningThresholdFen: number,
-  ): PulseAdminSmsAccountsStatsDto {
-    let totalBalanceFen = 0;
-    let warningCount = 0;
-    let exhaustedCount = 0;
-
-    for (const store of stores) {
-      const account = accountByStoreId.get(store.id);
-      totalBalanceFen += account?.balanceFen ?? 0;
-
-      const health = resolveSmsAccountHealth(account, warningThresholdFen);
-      if (health === 'warning') {
-        warningCount += 1;
-      } else if (health === 'exhausted') {
-        exhaustedCount += 1;
-      }
-    }
-
-    return {
-      storeCount: stores.length,
-      totalBalanceFen,
-      warningCount,
-      exhaustedCount,
-    };
-  }
-
-  /** 无可访问门店时的空分页结果（统计归零，结构与正常分页一致） */
-  private buildEmptyPageResult(
-    page: number,
-    pageSize: number,
-  ): PulseAdminSmsAccountsResponseDto {
-    return {
-      items: [],
-      total: 0,
-      page,
-      pageSize,
-      hasMore: false,
-      stats: {
-        storeCount: 0,
-        totalBalanceFen: 0,
-        warningCount: 0,
-        exhaustedCount: 0,
-      },
-    };
   }
 }

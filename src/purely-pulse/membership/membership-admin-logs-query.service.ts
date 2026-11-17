@@ -13,13 +13,15 @@ import { PulseMembershipAccessService } from './membership-access.service';
 import {
   buildPulseAdminBeanLogItem,
   buildPulseAdminPointsLogItem,
-} from './membership-admin-member.builder';
+} from './membership-admin-member-logs.builder';
 import {
   encodeAdminMemberLogsCursor,
   resolveAdminMemberLogsCursorPagination,
 } from './membership-admin-query.helper';
-
-type AdminMemberLogsCursor = { createdAt: Date; id: number };
+import {
+  buildBeanLogsWhere,
+  buildPointsLogsWhere,
+} from './membership-admin-logs-where.helper';
 
 /** 统计为 null 时的兜底：分页失败也不让概览卡拿到 undefined。 */
 const EMPTY_BEAN_LOGS_STATS: PulseAdminMemberBeanLogsStatsDto = {
@@ -57,11 +59,7 @@ export class PulseMembershipAdminLogsQueryService {
       query,
       async (storeIds, cursorPagination) =>
         this.prisma.storeMembershipPointsLog.findMany({
-          where: this.buildPointsLogsWhere(
-            query,
-            storeIds,
-            cursorPagination.cursor,
-          ),
+          where: buildPointsLogsWhere(query, storeIds, cursorPagination.cursor),
           select: {
             id: true,
             storeId: true,
@@ -94,9 +92,7 @@ export class PulseMembershipAdminLogsQueryService {
         }),
       // 与纯利豆同口径：统计吃「同筛选、不含游标」的完整结果集
       async (storeIds) =>
-        this.countPointsLogsStats(
-          this.buildPointsLogsWhere(query, storeIds, null),
-        ),
+        this.countPointsLogsStats(buildPointsLogsWhere(query, storeIds, null)),
     );
 
     return {
@@ -116,11 +112,7 @@ export class PulseMembershipAdminLogsQueryService {
       query,
       async (storeIds, cursorPagination) =>
         this.prisma.storePartnerBeanLog.findMany({
-          where: this.buildBeanLogsWhere(
-            query,
-            storeIds,
-            cursorPagination.cursor,
-          ),
+          where: buildBeanLogsWhere(query, storeIds, cursorPagination.cursor),
           select: {
             id: true,
             storeId: true,
@@ -154,7 +146,7 @@ export class PulseMembershipAdminLogsQueryService {
       // 统计必须吃「同筛选、不含游标」的完整结果集：分页后前端只有一页数据，
       // 由前端自己 count 会让概览卡数字随加载量变化（member-list 的 stats 同口径）
       async (storeIds) =>
-        this.countBeanLogsStats(this.buildBeanLogsWhere(query, storeIds, null)),
+        this.countBeanLogsStats(buildBeanLogsWhere(query, storeIds, null)),
     );
 
     return {
@@ -162,83 +154,6 @@ export class PulseMembershipAdminLogsQueryService {
       hasMore: result.hasMore,
       nextCursor: result.nextCursor,
       stats: result.stats ?? EMPTY_BEAN_LOGS_STATS,
-    };
-  }
-
-  /**
-   * 构造纯利豆流水的查询条件。
-   *
-   * Tab 与关键词过滤和统计查询共用同一份条件，避免出现「列表被筛过、统计没筛过」的口径错位。
-   *
-   * 各条件统一走 AND 组合：Tab（尤其是「消耗/提现」）与关键词都会用到 OR，
-   * 平铺展开会让后一个 OR 覆盖前一个，条件被静默丢弃。
-   */
-  private buildBeanLogsWhere(
-    query: GetPulseAdminMemberLogsQueryDto,
-    storeIds: number[],
-    cursor: AdminMemberLogsCursor | undefined | null,
-  ): Prisma.StorePartnerBeanLogWhereInput {
-    const andConditions: Prisma.StorePartnerBeanLogWhereInput[] = [];
-    const tabWhere = buildBeanTabWhere(query.beanTab);
-
-    if (Object.keys(tabWhere).length > 0) {
-      andConditions.push(tabWhere);
-    }
-
-    if (query.keyword) {
-      andConditions.push({ OR: buildBeanKeywordConditions(query.keyword) });
-    }
-
-    // 单合伙人（门店）过滤：与权限范围 storeId: { in: storeIds } 取交集，
-    // 传了无权门店的 ID 只会得到空结果，不会越权
-    if (query.storeId !== undefined) {
-      andConditions.push({ storeId: query.storeId });
-    }
-
-    if (cursor) {
-      andConditions.push(buildCursorWhere(cursor));
-    }
-
-    return {
-      storeId: { in: storeIds },
-      ...(andConditions.length > 0 ? { AND: andConditions } : {}),
-    };
-  }
-
-  /**
-   * 构造积分流水的查询条件：与纯利豆同构，Tab / 关键词 / 游标统一走 AND 组合。
-   *
-   * 平铺展开会让后一个 OR 覆盖前一个（「消耗」Tab 自带 OR、关键词也是 OR），
-   * 条件被静默丢弃后前端会看到「筛选没生效」。
-   */
-  private buildPointsLogsWhere(
-    query: GetPulseAdminMemberLogsQueryDto,
-    storeIds: number[],
-    cursor: AdminMemberLogsCursor | undefined | null,
-  ): Prisma.StoreMembershipPointsLogWhereInput {
-    const andConditions: Prisma.StoreMembershipPointsLogWhereInput[] = [];
-    const tabWhere = buildPointsTabWhere(query.pointsTab);
-
-    if (Object.keys(tabWhere).length > 0) {
-      andConditions.push(tabWhere);
-    }
-
-    if (query.keyword) {
-      andConditions.push({ OR: buildPointsKeywordConditions(query.keyword) });
-    }
-
-    // 与纯利豆同口径：单合伙人（门店）过滤在积分流水里同样生效
-    if (query.storeId !== undefined) {
-      andConditions.push({ storeId: query.storeId });
-    }
-
-    if (cursor) {
-      andConditions.push(buildCursorWhere(cursor));
-    }
-
-    return {
-      storeId: { in: storeIds },
-      ...(andConditions.length > 0 ? { AND: andConditions } : {}),
     };
   }
 
@@ -347,126 +262,4 @@ export class PulseMembershipAdminLogsQueryService {
       ...(stats !== undefined ? { stats } : {}),
     };
   }
-}
-
-/** 游标条件的结构：积分与纯利豆两张流水表的 where 都能吃下这一段。 */
-interface AdminMemberLogsCursorWhere {
-  OR: Array<
-    { createdAt: { lt: Date } } | { createdAt: Date; id: { lt: number } }
-  >;
-}
-
-/** 游标条件：同时间戳时按 id 二次排序，保证翻页不重不漏。 */
-function buildCursorWhere(
-  cursor: AdminMemberLogsCursor,
-): AdminMemberLogsCursorWhere {
-  return {
-    OR: [
-      { createdAt: { lt: cursor.createdAt } },
-      { createdAt: cursor.createdAt, id: { lt: cursor.id } },
-    ],
-  };
-}
-
-/**
- * 积分 Tab 语义转换。
- *
- * 边界必须与 `buildPulseAdminPointsLogItem` 的 type 推导逐条对齐：
- * type = source==='expire' ? 'expire' : changeType==='increase' ? 'earn' : 'spend'。
- * 于是「获得」= 非过期来源且 increase，「消耗」= 过期来源或 decrease ——
- * 两个 Tab 都排除管理员调整（管理员调整在 memberPoints 页单独成 Tab）。
- */
-function buildPointsTabWhere(
-  pointsTab: GetPulseAdminMemberLogsQueryDto['pointsTab'],
-): Prisma.StoreMembershipPointsLogWhereInput {
-  switch (pointsTab) {
-    case 'admin':
-      return { source: 'admin_adjust' };
-    case 'earn':
-      return {
-        source: { notIn: ['admin_adjust', 'expire'] },
-        changeType: 'increase',
-      };
-    case 'spend':
-      return {
-        source: { not: 'admin_adjust' },
-        OR: [{ source: 'expire' }, { changeType: 'decrease' }],
-      };
-    case 'all':
-    default:
-      return {};
-  }
-}
-
-/**
- * 积分关键词：流水说明 + 门店 / 会员身份字段，覆盖前端搜索框的三种意图。
- *
- * 必须带上 owner.email：展示手机号 `resolveAdminMemberPhone` 的最后一级兜底是
- * 从占位邮箱 `phone_13619654020@purelyprofit.local` 里解析出手机号，
- * 只搜 contactPhone / wechatPhone 会让这批用户「看得见手机号却搜不到」。
- */
-function buildPointsKeywordConditions(
-  keyword: string,
-): Prisma.StoreMembershipPointsLogWhereInput[] {
-  return [
-    { description: { contains: keyword } },
-    { store: { name: { contains: keyword } } },
-    { store: { contactPhone: { contains: keyword } } },
-    { store: { owner: { realName: { contains: keyword } } } },
-    { store: { owner: { name: { contains: keyword } } } },
-    { store: { owner: { wechatPhone: { contains: keyword } } } },
-    { store: { owner: { email: { contains: keyword } } } },
-  ];
-}
-
-/**
- * Tab 语义转换。
- *
- * 「获得」「消耗/提现」两个 Tab 都要排除管理员调整（管理员调整在 partnerBeans 页单独成 Tab）。
- * 边界必须与 `buildPulseAdminBeanLogItem` 的 type 推导完全对齐：
- * type = source==='withdrawal' ? 'withdraw' : changeAmount > 0 ? 'earn' : 'spend'。
- * 也即在「提现恒为 withdraw」的前提下，earn=金额>0、spend=金额<=0 ——
- * 若 earn 用 >=0、spend 用 <0，金额恰好为 0 的流水会在两个 Tab 里都查不到。
- */
-function buildBeanTabWhere(
-  beanTab: GetPulseAdminMemberLogsQueryDto['beanTab'],
-): Prisma.StorePartnerBeanLogWhereInput {
-  switch (beanTab) {
-    case 'admin':
-      return { source: 'admin_adjust' };
-    case 'earn':
-      return {
-        source: { notIn: ['admin_adjust', 'withdrawal'] },
-        changeAmount: { gt: 0 },
-      };
-    case 'spend':
-      return {
-        source: { not: 'admin_adjust' },
-        OR: [{ source: 'withdrawal' }, { changeAmount: { lte: 0 } }],
-      };
-    case 'all':
-    default:
-      return {};
-  }
-}
-
-/**
- * 关键词：流水说明 + 门店 / 合伙人身份字段，覆盖前端搜索框的三种意图。
- *
- * 必须带上 owner.email：展示手机号 `resolveAdminMemberPhone` 的最后一级兜底是
- * 从占位邮箱 `phone_13619654020@purelyprofit.local` 里解析出手机号，
- * 只搜 contactPhone / wechatPhone 会让这批用户「看得见手机号却搜不到」。
- */
-function buildBeanKeywordConditions(
-  keyword: string,
-): Prisma.StorePartnerBeanLogWhereInput[] {
-  return [
-    { description: { contains: keyword } },
-    { store: { name: { contains: keyword } } },
-    { store: { contactPhone: { contains: keyword } } },
-    { store: { owner: { realName: { contains: keyword } } } },
-    { store: { owner: { name: { contains: keyword } } } },
-    { store: { owner: { wechatPhone: { contains: keyword } } } },
-    { store: { owner: { email: { contains: keyword } } } },
-  ];
 }

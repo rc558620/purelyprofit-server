@@ -98,8 +98,28 @@ export const SMS_MAX_RECIPIENTS_PER_BROADCAST = 200;
 /** 短信正文最大长度（超出部分按长短信计费，故给一个明确上限） */
 export const SMS_CONTENT_MAX_LENGTH = 500;
 
+/**
+ * 收件人 ID 列表校验文案。
+ *
+ * 询价与群发两个 DTO 共用同一份文案与上限，避免两处口径漂移。
+ * 顾客 ID 是字符串数组（前端 Map 的 key），后端查询时统一转 Int。
+ */
+export const SMS_CUSTOMER_IDS_MESSAGE = `收件人 ID 列表必须是非空字符串数组，且不能超过 ${SMS_MAX_RECIPIENTS_PER_BROADCAST} 个`;
+
 /** 短信充值订单号前缀（与 club 的 RC/SV/SO/VC/SF 互斥，回调不会串台） */
 export const SMS_ORDER_NO_PREFIX = 'SM';
+
+/**
+ * 短信充值订单号格式：`SM` 前缀 + 上海时区时间戳 + 随机 HEX。
+ *
+ * 回调路由是独立的（不会收到 club 订单），但仍做前缀校验：
+ * 一旦有人把 `SMS_WECHAT_PAY_NOTIFY_URL` 错配到 club 回调地址上，
+ * 会把 RC/SV 订单当成短信充值单入账，属于资金事故级错误。
+ */
+export const SMS_ORDER_NO_PATTERN = /^SM\d{17}[0-9A-F]{4}$/;
+
+/** 幂等键允许字符集（后端只做字符校验，避免任意字符串写进唯一索引） */
+export const SMS_IDEMPOTENCY_KEY_PATTERN: RegExp = /^[A-Za-z0-9_-]+$/;
 
 // ─── 前端对齐的枚举值常量 ─────────────────────────────────────────────
 

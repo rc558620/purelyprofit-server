@@ -1,5 +1,10 @@
+import { ConflictException } from '@nestjs/common';
 import type { Logger } from '@nestjs/common';
 import type { PrismaService } from '../../prisma/prisma.service';
+import {
+  CLUB_SCAN_ORDERING_ERROR_CODE,
+  clubScanOrderingError,
+} from './club-scan-ordering.errors';
 
 /**
  * 扫码点餐建单的幂等记录读写。
@@ -21,6 +26,40 @@ export interface CreateIdempotencyPlaceholderInput {
   requestHash: string;
   expiresAt: Date;
 }
+
+/** 幂等记录中建单路径关心的最小字段 */
+export interface IdempotencyRecordSnapshot {
+  status: string;
+  responseSnapshot: unknown;
+}
+
+/** 读取幂等记录：scope + actorId + key 唯一键，缺任一维度都不会误命中。 */
+export const findIdempotencyRecord = (
+  prisma: PrismaService,
+  input: { scope: string; actorId: number; idempotencyKey: string },
+): Promise<IdempotencyRecordSnapshot | null> =>
+  prisma.idempotencyRecord.findUnique({
+    where: { scope_actorId_idempotencyKey: input },
+  });
+
+/**
+ * 已存在记录时的处理：成功快照原样回放（客户端拿到首次的订单 ID 与版本）；
+ * 记录仍停在 processing 时提示「正在创建中」，让客户端按同一 key 重试，
+ * 而不是再发起一笔新订单。
+ */
+export const resolveExistingIdempotencyResponse = (
+  record: IdempotencyRecordSnapshot,
+): unknown => {
+  if (record.status === 'succeeded' && record.responseSnapshot) {
+    return record.responseSnapshot;
+  }
+  throw new ConflictException(
+    clubScanOrderingError(
+      CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_ORDER_CREATING,
+      '订单正在创建中，请稍后重试',
+    ),
+  );
+};
 
 /** 占位写入：唯一键冲突直接抛给调用方按「并发同 key」处理。 */
 export async function createIdempotencyPlaceholder(

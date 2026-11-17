@@ -6,59 +6,28 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { JwtService } from '@nestjs/jwt';
 import {
   Logger,
   OnApplicationBootstrap,
   OnApplicationShutdown,
-  UnauthorizedException,
 } from '@nestjs/common';
-import {
-  CLUB_SCAN_ORDERING_ERROR_CODE,
-  clubScanOrderingError,
-} from './club-scan-ordering.errors';
-import { createAdapter } from '@socket.io/redis-adapter';
-import type Redis from 'ioredis';
 import type { Namespace, Socket } from 'socket.io';
-import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
-import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
-import { AuthMembershipResolverService } from '../../purely-profit/auth/auth-membership-resolver.service';
-import { AuthBanGuardService } from '../../purely-profit/auth/auth-ban-guard.service';
-import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
-import { AuthUserCacheService } from '../../purely-profit/auth/auth-user-cache.service';
-import type { AuthenticatedMembership } from '../../purely-profit/access-control/access-control.service';
-import type {
-  AuthenticatedUser,
-  JwtPayload,
-} from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
   SCAN_ORDERING_NAMESPACE,
   ScanOrderingRealtimeService,
 } from './scan-ordering-realtime.service';
-
-interface SocketIdentity {
-  userId: number;
-  email: string;
-  phone: string;
-  currentMembership: AuthenticatedMembership | null;
-}
-
-interface JoinOrderPayload {
-  orderId: number;
-}
-
-interface JoinSessionPayload {
-  sessionId: number;
-}
-
-interface JoinStorePayload {
-  storeId: number;
-}
-
-interface JoinVoucherOrderPayload {
-  orderNo: string;
-}
+import { ScanOrderingSocketAuthService } from './scan-ordering-socket-auth.service';
+import { ScanOrderingSocketRedisAdapterService } from './scan-ordering-socket-redis-adapter.service';
+import { ScanOrderingSubscriptionService } from './scan-ordering-subscription.service';
+import type {
+  JoinOrderPayload,
+  JoinRoomResult,
+  JoinSessionPayload,
+  JoinStorePayload,
+  JoinStoreRoomResult,
+  JoinVoucherOrderPayload,
+  SocketIdentity,
+} from './scan-ordering-socket.types';
 
 // 实时链路防误改：管理端必须连接该 namespace；事件广播也必须从同一 namespace 发出，
 // 不能改为顶层 Server 的默认 / namespace，否则客户端订阅房间将收不到订单事件。
@@ -76,19 +45,12 @@ export class ScanOrderingGateway
   server: Namespace;
 
   private readonly logger = new Logger(ScanOrderingGateway.name);
-  private redisPublisher: Redis | null = null;
-  private redisSubscriber: Redis | null = null;
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
-    private readonly commerceAccessService: CommerceAccessService,
-    private readonly authMembershipResolverService: AuthMembershipResolverService,
-    private readonly authUserCacheService: AuthUserCacheService,
-    private readonly authBanGuardService: AuthBanGuardService,
-    private readonly authSessionService: AuthSessionService,
+    private readonly socketAuthService: ScanOrderingSocketAuthService,
     private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly redisAdapterService: ScanOrderingSocketRedisAdapterService,
+    private readonly subscriptionService: ScanOrderingSubscriptionService,
   ) {}
 
   afterInit(server: Namespace): void {
@@ -102,79 +64,18 @@ export class ScanOrderingGateway
     if (!this.server) {
       throw new Error('Socket.IO server 尚未初始化');
     }
-    const { publisher, subscriber } = this.redisService.createPubSubClients();
-    this.redisPublisher = publisher;
-    this.redisSubscriber = subscriber;
-    try {
-      await Promise.all([
-        this.waitForRedisReady(publisher),
-        this.waitForRedisReady(subscriber),
-      ]);
-      // 多 Worker / 多实例必须在顶层 Socket.IO Server 挂载官方 Redis Adapter；
-      // Namespace 没有 adapter()，不能改为 this.server.adapter(...).
-      this.server.server.adapter(createAdapter(publisher, subscriber));
-      this.realtimeService.markSocketIoAdapterReady();
-      this.logger.debug(
-        `Socket.IO Redis adapter initialized on namespace=${SCAN_ORDERING_NAMESPACE}`,
-      );
-    } catch (error) {
-      await Promise.allSettled([publisher.quit(), subscriber.quit()]);
-      this.redisPublisher = null;
-      this.redisSubscriber = null;
-      throw error;
-    }
+    await this.redisAdapterService.connect(this.server);
   }
 
-  private async waitForRedisReady(client: Redis): Promise<void> {
-    if (client.status === 'ready') return;
-    await new Promise<void>((resolve, reject) => {
-      const handleReady = (): void => cleanup(resolve);
-      const handleError = (error: Error): void => cleanup(() => reject(error));
-      const cleanup = (complete: () => void): void => {
-        client.off('ready', handleReady);
-        client.off('error', handleError);
-        complete();
-      };
-      client.once('ready', handleReady);
-      client.once('error', handleError);
-    });
-  }
-
-  // 关闭是一次性事件，保留 log 便于运维确认下线过程
   async onApplicationShutdown(_signal?: string): Promise<void> {
-    this.logger.log(
-      `Shutting down Socket.IO Redis adapter for namespace=${SCAN_ORDERING_NAMESPACE}`,
-    );
-
-    // 先断开所有客户端连接，停止接收新消息
-    if (this.server) {
-      this.server.sockets.forEach((socket) => {
-        void socket.leave('*'); // 退出所有房间
-      });
-      this.server.emit('server_shutting_down');
-    }
-
-    // 退出频道订阅
-    await Promise.allSettled([
-      this.redisPublisher?.punsubscribe('*') ?? Promise.resolve('OK'),
-      this.redisSubscriber?.punsubscribe('*') ?? Promise.resolve('OK'),
-    ]);
-
-    // 最后才关闭 Redis 连接
-    await Promise.allSettled([
-      this.redisPublisher?.quit() ?? Promise.resolve('OK'),
-      this.redisSubscriber?.quit() ?? Promise.resolve('OK'),
-    ]);
-
-    this.redisPublisher = null;
-    this.redisSubscriber = null;
-    this.logger.log(`Socket.IO Redis adapter shutdown complete`);
+    await this.redisAdapterService.disconnect(this.server);
   }
 
   async handleConnection(client: Socket): Promise<void> {
     try {
       const storedIdentity = client.data.identity as SocketIdentity | undefined;
-      const identity = storedIdentity ?? (await this.authenticate(client));
+      const identity =
+        storedIdentity ?? (await this.socketAuthService.authenticate(client));
       client.data.identity = identity;
       const transport = client.conn?.transport.name ?? 'unknown';
       this.logger.debug(
@@ -189,12 +90,61 @@ export class ScanOrderingGateway
     }
   }
 
+  @SubscribeMessage('subscribe.order')
+  subscribeOrder(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinOrderPayload,
+  ): Promise<JoinRoomResult> {
+    return this.subscriptionService.subscribeOrder(client, payload);
+  }
+
+  @SubscribeMessage('subscribe.session')
+  subscribeSession(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinSessionPayload,
+  ): Promise<JoinRoomResult> {
+    return this.subscriptionService.subscribeSession(client, payload);
+  }
+
+  @SubscribeMessage('subscribe.voucher-order')
+  subscribeVoucherOrder(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinVoucherOrderPayload,
+  ): Promise<JoinRoomResult> {
+    return this.subscriptionService.subscribeVoucherOrder(client, payload);
+  }
+
+  @SubscribeMessage('subscribe.voucher-store')
+  subscribeVoucherStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<JoinStoreRoomResult> {
+    return this.subscriptionService.subscribeVoucherStore(client, payload);
+  }
+
+  @SubscribeMessage('subscribe.store')
+  subscribeStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<JoinStoreRoomResult> {
+    return this.subscriptionService.subscribeStore(client, payload);
+  }
+
+  /** 自助下单门店房间订阅（purelyProfit 商家端新订单弹窗），权限与扫码点餐分开 */
+  @SubscribeMessage('subscribe.self-ordering-store')
+  subscribeSelfOrderingStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<JoinStoreRoomResult> {
+    return this.subscriptionService.subscribeSelfOrderingStore(client, payload);
+  }
+
   private async authenticateBeforeConnection(
     client: Socket,
     next: (error?: Error) => void,
   ): Promise<void> {
     try {
-      client.data.identity = await this.authenticate(client);
+      client.data.identity = await this.socketAuthService.authenticate(client);
       next();
     } catch (error) {
       this.logger.warn(
@@ -202,296 +152,5 @@ export class ScanOrderingGateway
       );
       next(new Error('认证失败，请重新登录'));
     }
-  }
-
-  @SubscribeMessage('subscribe.order')
-  async subscribeOrder(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinOrderPayload,
-  ): Promise<{ room: string }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.order requested: socketId=${client.id}, userId=${identity.userId}, orderId=${payload.orderId}`,
-    );
-    const order = await this.prisma.scanOrders.findFirst({
-      where: {
-        id: payload.orderId,
-        clubUserId: identity.userId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (!order)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_ORDER_SUBSCRIBE_FORBIDDEN,
-          '无权订阅该订单',
-        ),
-      );
-    const room = this.realtimeService.orderRoom(order.id);
-    await client.join(room);
-    this.logger.debug(
-      `subscribe.order joined: socketId=${client.id}, room=${room}`,
-    );
-    return { room };
-  }
-
-  @SubscribeMessage('subscribe.session')
-  async subscribeSession(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinSessionPayload,
-  ): Promise<{ room: string }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.session requested: socketId=${client.id}, userId=${identity.userId}, sessionId=${payload.sessionId}`,
-    );
-    const session = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        id: payload.sessionId,
-        clubUserId: identity.userId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (!session)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_SUBSCRIBE_FORBIDDEN,
-          '无权订阅该点餐会话',
-        ),
-      );
-    const room = this.realtimeService.sessionRoom(session.id);
-    await client.join(room);
-    this.logger.debug(
-      `subscribe.session joined: socketId=${client.id}, room=${room}`,
-    );
-    return { room };
-  }
-
-  @SubscribeMessage('subscribe.voucher-order')
-  async subscribeVoucherOrder(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinVoucherOrderPayload,
-  ): Promise<{ room: string }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.voucher-order requested: socketId=${client.id}, userId=${identity.userId}, orderNo=${payload.orderNo}`,
-    );
-    // 与 subscribe.order 对齐：强制归属校验，
-    // 否则任何登录用户凭 orderNo 即可订阅他人团购券订单的核销/退款实时状态。
-    const order = await this.prisma.clubVoucherOrder.findFirst({
-      where: {
-        orderNo: payload.orderNo,
-        userId: identity.userId,
-      },
-      select: { orderNo: true },
-    });
-    if (!order)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_VOUCHER_SUBSCRIBE_FORBIDDEN,
-          '该团购券订单不存在',
-        ),
-      );
-    const room = this.realtimeService.voucherOrderRoom(payload.orderNo);
-    await client.join(room);
-    this.logger.debug(
-      `subscribe.voucher-order joined: socketId=${client.id}, room=${room}`,
-    );
-    return { room };
-  }
-
-  @SubscribeMessage('subscribe.voucher-store')
-  async subscribeVoucherStore(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinStorePayload,
-  ): Promise<{ room: string; storeId: number }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.voucher-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
-    );
-    try {
-      // 团购券订单实时订阅：能查看/处理团购券订单（space:view 或 operation-entry:create）即可订阅，
-      // 兼容餐饮店长（无 space:view 但有 operation-entry:create 可确认/拒绝团购券订单）
-      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
-        this.toAuthenticatedUser(identity),
-        payload.storeId,
-        ['space:view', 'operation-entry:create'],
-        '无权订阅该门店团购券订单',
-      );
-      const room = this.realtimeService.voucherOrderStoreRoom(payload.storeId);
-      await client.join(room);
-      this.logger.debug(
-        `subscribe.voucher-store joined: socketId=${client.id}, room=${room}`,
-      );
-      return { room, storeId: payload.storeId };
-    } catch (error) {
-      this.logger.error(
-        `subscribe.voucher-store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    }
-  }
-
-  @SubscribeMessage('subscribe.store')
-  async subscribeStore(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinStorePayload,
-  ): Promise<{ room: string; storeId: number }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
-    );
-    try {
-      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
-        this.toAuthenticatedUser(identity),
-        payload.storeId,
-        ['scan-ordering:view', 'scan-ordering:order-process'],
-        '无权订阅该门店',
-      );
-      const room = this.realtimeService.storeRoom(payload.storeId);
-      await client.join(room);
-      this.logger.debug(
-        `subscribe.store joined: socketId=${client.id}, room=${room}`,
-      );
-      return { room, storeId: payload.storeId };
-    } catch (error) {
-      this.logger.error(
-        `subscribe.store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    }
-  }
-
-  /** 自助下单门店房间订阅（purelyProfit 商家端新订单弹窗），权限与扫码点餐分开 */
-  @SubscribeMessage('subscribe.self-ordering-store')
-  async subscribeSelfOrderingStore(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinStorePayload,
-  ): Promise<{ room: string; storeId: number }> {
-    const identity = this.identityOf(client);
-    this.logger.debug(
-      `subscribe.self-ordering-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
-    );
-    try {
-      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
-        this.toAuthenticatedUser(identity),
-        payload.storeId,
-        ['self-ordering:view', 'self-ordering:order-process'],
-        '无权订阅该门店',
-      );
-      const room = this.realtimeService.selfOrderingStoreRoom(payload.storeId);
-      await client.join(room);
-      this.logger.debug(
-        `subscribe.self-ordering-store joined: socketId=${client.id}, room=${room}`,
-      );
-      return { room, storeId: payload.storeId };
-    } catch (error) {
-      this.logger.error(
-        `subscribe.self-ordering-store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    }
-  }
-
-  private async authenticate(client: Socket): Promise<SocketIdentity> {
-    const rawToken =
-      client.handshake.auth?.token ??
-      client.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (typeof rawToken !== 'string' || !rawToken) {
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_TOKEN_MISSING,
-          '缺少访问令牌',
-        ),
-      );
-    }
-    const payload = this.jwtService.verify<JwtPayload>(rawToken);
-    if (!payload.sub)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_TOKEN_INVALID,
-          '访问令牌无效',
-        ),
-      );
-    // 与 HTTP 侧 JwtStrategy 同源校验：用户快照走 5 分钟 Redis 缓存，
-    // tokenVersion / 会话活性 / 封禁三者并行检查。
-    //
-    // 此前这里直查 `users` 表且只验签名：小程序弱网重连风暴下每个 socket 都打一次
-    // DB，同时踢下线与封禁的账号仍能建连成功（HTTP 侧已拒绝）。
-    const [account, currentTokenVersion, sessionActive] = await Promise.all([
-      this.authUserCacheService.resolveUser(payload.sub),
-      this.authSessionService.getTokenVersion(payload.sub),
-      payload.sid
-        ? this.authSessionService.isSessionActive(payload.sub, payload.sid)
-        : Promise.resolve(true),
-      this.authBanGuardService.ensureUserNotBanned(payload.sub),
-    ] as const);
-
-    if (!account)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_USER_NOT_FOUND,
-          '用户不存在',
-        ),
-      );
-
-    if ((payload.sessionVersion ?? 0) < currentTokenVersion) {
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_REVOKED,
-          '登录态已失效，请重新登录',
-        ),
-      );
-    }
-
-    if (!sessionActive) {
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_SESSION_REVOKED,
-          '您的账号已在其他设备登录，当前会话已失效',
-        ),
-      );
-    }
-
-    const currentMembership =
-      await this.authMembershipResolverService.resolveAuthenticatedMembership(
-        payload,
-        account.email,
-      );
-    return {
-      userId: payload.sub,
-      email: account.email,
-      phone: payload.phone,
-      currentMembership,
-    };
-  }
-
-  private toAuthenticatedUser(identity: SocketIdentity): AuthenticatedUser {
-    return {
-      id: identity.userId,
-      email: identity.email,
-      phone: identity.phone,
-      name: null,
-      createdAt: new Date(0),
-      updatedAt: new Date(0),
-      lastActiveAt: null,
-      currentMembership: identity.currentMembership,
-    };
-  }
-
-  private identityOf(client: Socket): SocketIdentity {
-    const identity = client.data.identity as SocketIdentity | undefined;
-    if (!identity)
-      throw new UnauthorizedException(
-        clubScanOrderingError(
-          CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_WS_CONNECTION_UNAUTHENTICATED,
-          '连接尚未认证',
-        ),
-      );
-    return identity;
   }
 }

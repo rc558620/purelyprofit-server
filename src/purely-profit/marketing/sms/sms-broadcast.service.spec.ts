@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { SmsAccountService } from './sms-account.service';
+import { SmsBroadcastChargeService } from './sms-broadcast-charge.service';
+import { SmsBroadcastDispatchService } from './sms-broadcast-dispatch.service';
 import { SmsBroadcastService } from './sms-broadcast.service';
 import { SmsQuoteService } from './sms-quote.service';
 import { SmsRefundService } from './sms-refund.service';
@@ -177,9 +179,16 @@ describe('SmsBroadcastService', () => {
       prisma as unknown as PrismaService,
       config as never,
       quoteService,
-      accountService as unknown as SmsAccountService,
       provider as unknown as SmsTencentProvider,
-      refundService as unknown as SmsRefundService,
+      new SmsBroadcastChargeService(
+        prisma as unknown as PrismaService,
+        accountService as unknown as SmsAccountService,
+      ),
+      new SmsBroadcastDispatchService(
+        prisma as unknown as PrismaService,
+        provider as unknown as SmsTencentProvider,
+        refundService as unknown as SmsRefundService,
+      ),
     );
   });
 

@@ -18,6 +18,8 @@ import { ScanOrderingTypeService } from './scan-ordering-type.service';
 import { ScanOrderingDashboardService } from './scan-ordering-dashboard.service';
 import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
 import { ScanOrderingQrService } from './scan-ordering-qr.service';
+import { ScanOrderingQrStore } from './scan-ordering-qr.store';
+import { ScanOrderingQrTokenService } from './scan-ordering-qr-token.service';
 import { ScanOrderingTableService } from './scan-ordering-table.service';
 import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
 import { ScanOrderingTableClearService } from './scan-ordering-table-clear.service';
@@ -52,6 +54,8 @@ import type { EscPosEncoding } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
 import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 import { PrintAgentService } from './print-agent.service';
+import { PrintAgentRegistryService } from './print-agent-registry.service';
+import { PrintAgentBindingService } from './print-agent-binding.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -79,6 +83,8 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingDashboardService,
     ScanOrderingPricingService,
     ScanOrderingQrService,
+    ScanOrderingQrStore,
+    ScanOrderingQrTokenService,
     ScanOrderingTableService,
     ScanOrderingTableQueryService,
     ScanOrderingTableClearService,
@@ -110,6 +116,8 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingCloudPrintService,
     UsbPrintService,
     ScanOrderingUsbPrintService,
+    PrintAgentRegistryService,
+    PrintAgentBindingService,
     PrintAgentService,
     {
       provide: EscPosTicketBuilder,

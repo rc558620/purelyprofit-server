@@ -29,6 +29,39 @@ export function deriveProductProfit(
   return price.subtract(costPrice);
 }
 
+/** 商品编辑时合并 dto 与现有记录后的金额口径（服务端重算利润用） */
+export interface UpdatedProductProfit {
+  nextPrice: Money;
+  nextCostPrice: Money | null;
+  nextProfit: Money;
+}
+
+/**
+ * 服务端重算利润：合并 dto 与现有记录，推导最终 price / costPrice / profit。
+ *
+ * dto 未传的字段沿用库内值（分→Money），显式传 null 表示清空成本价。
+ */
+export function resolveUpdatedProductProfit(
+  product: { price: number; costPrice: number | null },
+  dto: { price?: number; costPrice?: number | null },
+): UpdatedProductProfit {
+  const nextPrice =
+    dto.price !== undefined
+      ? Money.fromInputYuan(dto.price)
+      : Money.fromDbCents(product.price);
+  const nextCostPrice =
+    dto.costPrice !== undefined
+      ? dto.costPrice !== null
+        ? Money.fromInputYuan(dto.costPrice)
+        : null
+      : product.costPrice !== null
+        ? Money.fromDbCents(product.costPrice)
+        : null;
+  const nextProfit = deriveProductProfit(nextPrice, nextCostPrice);
+
+  return { nextPrice, nextCostPrice, nextProfit };
+}
+
 /**
  * 根据售价与利润推导利润率（百分比数值，如 38.5 表示 38.5%）。
  *

@@ -9,6 +9,7 @@ import { createNewCustomerQuotaServiceMock } from '../../member/new-customer-quo
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
+import { DashboardHomeCapabilityService } from './dashboard-home.capability.service';
 import { DashboardHomeService } from './dashboard-home.service';
 
 describe('DashboardHomeService', () => {
@@ -256,6 +257,7 @@ describe('DashboardHomeService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DashboardHomeService,
+        DashboardHomeCapabilityService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: RefreshableCacheService, useValue: refreshableCache },

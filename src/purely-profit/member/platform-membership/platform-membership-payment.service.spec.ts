@@ -8,6 +8,9 @@ import { PlatformWechatNativeService } from '../../payments/platform-wechat-nati
 import { PlatformPaymentQrCodeService } from '../../payments/platform-payment-qrcode.service';
 import { PlatformMembershipActivationService } from './platform-membership-activation.service';
 import { PlatformMembershipPaymentService } from './platform-membership-payment.service';
+import { PlatformMembershipPaymentPurchaseService } from './platform-membership-payment-purchase.service';
+import { PlatformMembershipPaymentActivationService } from './platform-membership-payment-activation.service';
+import { PlatformMembershipPaymentRecoveryService } from './platform-membership-payment-recovery.service';
 import { PlatformMembershipPromoService } from './platform-membership-promo.service';
 import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
 import { NewCustomerQuotaService } from '../new-customer-quota/new-customer-quota.service';
@@ -223,6 +226,10 @@ describe('PlatformMembershipPaymentService', () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         PlatformMembershipPaymentService,
+        // 门面把下单换码 / 回调生效 / 补偿自愈拆成了子服务，需一并装配
+        PlatformMembershipPaymentPurchaseService,
+        PlatformMembershipPaymentActivationService,
+        PlatformMembershipPaymentRecoveryService,
         PlatformMembershipActivationService,
         { provide: PrismaService, useValue: prismaMock },
         {

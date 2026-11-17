@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
+import { HandoverMode, HandoverStatus } from '@prisma/client';
 import {
   PrismaService,
   TX_TIMEOUT_MEDIUM,
@@ -23,7 +23,6 @@ import type {
   HandoverRecordSummaryQueryDto,
 } from './dto/handover-records.dto';
 import { HandoverRecordsQueryService } from './handover-records-query.service';
-import type { ShiftRecordRow } from './handover.types';
 import {
   buildHandoverAdvisoryLockKeys,
   buildHandoverShiftLockResource,
@@ -41,9 +40,7 @@ import {
   normalizeRequiredText,
   toDisplayName,
 } from './handover.shared';
-
-/** 完成/取消交班记录时用于定位所属班次的回溯条数上限 */
-const OWNED_SHIFT_LOOKUP_TAKE = 30;
+import { findOwnedHandoverShift } from './handover-records-shift.shared';
 
 @Injectable()
 export class HandoverRecordsService {
@@ -136,7 +133,7 @@ export class HandoverRecordsService {
         // 因为规则 5 要求 handoverAt > endAt，合法交班必然落在 endAt 之后）。
         const ownedShift =
           record.fromEmployeeId && record.createdAt
-            ? await this.findOwnedShift(
+            ? await findOwnedHandoverShift(
                 tx,
                 storeId,
                 record.fromEmployeeId,
@@ -224,51 +221,6 @@ export class HandoverRecordsService {
     );
 
     return mapRecordToDto(updated);
-  }
-
-  /**
-   * 定位 pending 记录所属班次：以记录 createdAt 为时间基准，找到当时正在进行的班次。
-   * 上界放宽到 endAt + 宽限，覆盖"班次结束后补建交班记录"的场景。
-   */
-  private async findOwnedShift(
-    tx: Prisma.TransactionClient,
-    storeId: number,
-    employeeId: number,
-    createdAt: Date,
-  ): Promise<ShiftRecordRow | null> {
-    const employeeShifts = await tx.employeeShift.findMany({
-      where: {
-        storeId,
-        employeeId,
-        date: { lte: createdAt },
-      },
-      select: {
-        id: true,
-        employeeId: true,
-        employeeName: true,
-        shiftType: true,
-        shiftName: true,
-        startTime: true,
-        endTime: true,
-        date: true,
-      },
-      orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
-      take: OWNED_SHIFT_LOOKUP_TAKE,
-    });
-
-    return (
-      employeeShifts.find((shift) => {
-        const range = buildShiftDateRange(
-          shift.startTime,
-          shift.endTime,
-          shift.date,
-        );
-        return (
-          createdAt.getTime() >= range.startAt.getTime() &&
-          createdAt.getTime() <= buildShiftGraceEndAt(range).getTime()
-        );
-      }) ?? null
-    );
   }
 
   async cancelHandoverRecord(
