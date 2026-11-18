@@ -116,7 +116,8 @@ describe('SpaceSessionWriteService 规格落库', () => {
           Promise.resolve(callback(transaction)),
         ),
     };
-    const specPricingService = { price: jest.fn() };
+    // 定价层现为「批量取数 + 逐行容错」，调用方只关心每行结果
+    const specPricingService = { priceManySettled: jest.fn() };
     const cacheInvalidatorService = {
       invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
     };
@@ -150,16 +151,22 @@ describe('SpaceSessionWriteService 规格落库', () => {
 
   it('数字商品 ID + 规格：以服务端定价覆盖前端传值，并落 specSignature / specNames', async () => {
     const { service, transaction, specPricingService, deps } = setup();
-    specPricingService.price.mockResolvedValue({
-      menuProductId: 77,
-      unitPriceCents: 1200,
-      costPriceCents: 300,
-      profitCents: 900,
-      specOptionIds: [11],
-      specNames: ['大杯'],
-      specSignature: 'sig-large',
-      displayName: '可乐（大杯）',
-    });
+    specPricingService.priceManySettled.mockResolvedValue([
+      {
+        ok: true,
+        value: {
+          menuProductId: 77,
+          unitPriceCents: 1200,
+          costPriceCents: 300,
+          profitCents: 900,
+          specOptionIds: [11],
+          specNames: ['大杯'],
+          specOptions: [],
+          specSignature: 'sig-large',
+          displayName: '可乐（大杯）',
+        },
+      },
+    ]);
 
     await service.addItemsToSession(
       user,
@@ -181,11 +188,9 @@ describe('SpaceSessionWriteService 规格落库', () => {
       deps,
     );
 
-    expect(specPricingService.price).toHaveBeenCalledWith({
-      storeId: 18,
-      productId: 297,
-      specOptionIds: [11],
-    });
+    expect(specPricingService.priceManySettled).toHaveBeenCalledWith(18, [
+      { productId: 297, specOptionIds: [11] },
+    ]);
 
     const createManyArg = transaction.spaceSessionItem.createMany.mock
       .calls[0][0] as { data: Record<string, unknown>[] };
@@ -223,7 +228,7 @@ describe('SpaceSessionWriteService 规格落库', () => {
       deps,
     );
 
-    expect(specPricingService.price).not.toHaveBeenCalled();
+    expect(specPricingService.priceManySettled).not.toHaveBeenCalled();
     const createManyArg = transaction.spaceSessionItem.createMany.mock
       .calls[0][0] as { data: Record<string, unknown>[] };
     expect(createManyArg.data).toEqual([
@@ -239,9 +244,9 @@ describe('SpaceSessionWriteService 规格落库', () => {
 
   it('带规格但商品不可定价时直接抛错，不静默丢规格', async () => {
     const { service, specPricingService, deps } = setup();
-    specPricingService.price.mockRejectedValue(
-      new Error('商品规格已更新，请重新选择'),
-    );
+    specPricingService.priceManySettled.mockResolvedValue([
+      { ok: false, error: new Error('商品规格已更新，请重新选择') },
+    ]);
 
     await expect(
       service.addItemsToSession(

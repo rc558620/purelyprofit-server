@@ -191,6 +191,8 @@ export interface InventoryAdjustmentLogCreateInput {
   note?: string | null;
   purchaseOrderId?: number;
   saleOrderId?: number;
+  /** 空间会话 ID：销售单尚未创建时先落，结账据此等值回填 saleOrderId */
+  relatedSpaceSessionId?: number;
 }
 
 export interface InventoryStockMutationPlan {
@@ -224,8 +226,26 @@ export interface InventoryStockChangeCommand {
   note?: string;
   purchaseOrderId?: number;
   saleOrderId?: number;
+  /** 空间会话 ID：结账回填的等值定位键 */
+  relatedSpaceSessionId?: number;
 }
 
 import type { Prisma } from '@prisma/client';
 
 export type InventoryTransactionClient = Prisma.TransactionClient;
+
+/**
+ * 服务内库存扣减入参（空间管理等复用路径）。
+ *
+ * 字段已超过 4 个，统一走对象传参，避免继续追加位置参数。
+ */
+export interface InventoryDeductionParams {
+  transaction: InventoryTransactionClient;
+  storeId: number;
+  items: Array<{ productId: number; quantity: number; productName?: string }>;
+  operatorStaffId: number | null;
+  adjustType: InventoryAdjustType;
+  note?: string;
+  /** 空间会话 ID：销售单尚未创建时先落，结账据此等值回填 saleOrderId */
+  relatedSpaceSessionId?: number;
+}

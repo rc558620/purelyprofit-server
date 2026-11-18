@@ -2,8 +2,10 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 /**
  * 构建后台自动结账使用的系统用户。
- * 该用户无实际 membership，因此销售单创建会直接使用传入的可信门店，
- * 且 shouldAssignToCurrentShiftOperator 会返回 false，避免误归属到虚拟操作人。
+ *
+ * 该用户无实际 membership：销售单创建直接使用传入的可信门店，
+ * 且 operatorStaffId / operatorNameSnapshot 均为 null（见 resolveOperatorStaffId），
+ * 交班页按「空间自动结账」兜底展示，避免把自动结账记到某个虚拟操作人名下。
  */
 export const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
   id: 0,
@@ -47,6 +49,8 @@ export const buildAutoCheckoutLogContext = (params: {
   count?: number;
   failedCount?: number;
   skippedNoPaymentCount?: number;
+  /** 认领失败的跳过数：另一路调度已认领该会话（多 worker / 手工结账交界） */
+  skippedClaimedCount?: number;
   reason?: string;
 }): string => {
   const segments = [
@@ -63,6 +67,9 @@ export const buildAutoCheckoutLogContext = (params: {
       : []),
     ...(params.skippedNoPaymentCount !== undefined
       ? [`skippedNoPaymentCount=${params.skippedNoPaymentCount}`]
+      : []),
+    ...(params.skippedClaimedCount !== undefined
+      ? [`skippedClaimedCount=${params.skippedClaimedCount}`]
       : []),
     ...(params.reason ? [`reason=${params.reason}`] : []),
   ];

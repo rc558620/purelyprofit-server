@@ -39,6 +39,10 @@ export class CacheInvalidatorProfitReadService {
     await this.registry.invalidateSpacesReadCaches(storeId);
   }
 
+  async invalidateSpaceQrImageCache(spaceId: number): Promise<void> {
+    await this.registry.invalidateSpaceQrImageCache(spaceId);
+  }
+
   async invalidateProfitDetail(storeId: number): Promise<void> {
     await this.registry.invalidateProfitDetail(storeId);
   }

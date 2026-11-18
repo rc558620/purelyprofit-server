@@ -269,6 +269,14 @@ describe('SpaceSessionReadService 状态修复', () => {
 
   const readStateService = {};
 
+  // 缓存 mock：直接透传 loadValue，模拟「缓存未命中走回源」
+  const refreshableCacheService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -310,6 +318,10 @@ describe('SpaceSessionReadService 状态修复', () => {
         {
           provide: SpaceSessionReadStateService,
           useValue: readStateService,
+        },
+        {
+          provide: RefreshableCacheService,
+          useValue: refreshableCacheService,
         },
       ],
     }).compile();

@@ -107,6 +107,7 @@ export function buildInventoryStockChangePlan(params: {
       note: params.command.note,
       purchaseOrderId: params.command.purchaseOrderId,
       saleOrderId: params.command.saleOrderId,
+      relatedSpaceSessionId: params.command.relatedSpaceSessionId,
     }),
   };
 }
@@ -148,6 +149,7 @@ function buildInventoryAdjustmentLogCreateInput(params: {
   note?: string;
   purchaseOrderId?: number;
   saleOrderId?: number;
+  relatedSpaceSessionId?: number;
 }): InventoryAdjustmentLogCreateInput {
   return {
     storeId: params.storeId,
@@ -164,6 +166,9 @@ function buildInventoryAdjustmentLogCreateInput(params: {
       : {}),
     ...(params.saleOrderId !== undefined
       ? { saleOrderId: params.saleOrderId }
+      : {}),
+    ...(params.relatedSpaceSessionId !== undefined
+      ? { relatedSpaceSessionId: params.relatedSpaceSessionId }
       : {}),
   };
 }

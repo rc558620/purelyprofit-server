@@ -25,8 +25,7 @@ describe('SpaceDashboardSummaryService.buildTodaySettledSessionStats', () => {
     } as never);
   });
 
-  it('营业额复用销售记录页口径聚合，结账次数统计所有今日销售单', async () => {
-    countMock.mockResolvedValue(5);
+  it('营业额与结账次数复用同一次聚合，不再单独 COUNT 今日订单', async () => {
     aggregateMock.mockResolvedValue({
       totalRevenue: 2675,
       totalProfit: 1000,
@@ -36,15 +35,8 @@ describe('SpaceDashboardSummaryService.buildTodaySettledSessionStats', () => {
     const result = await service.buildTodaySettledSessionStats(42);
 
     expect(result).toEqual({ todaySettled: 5, todayRevenue: 2675 });
-    expect(countMock).toHaveBeenCalledWith({
-      where: {
-        storeId: 42,
-        date: {
-          gte: expect.any(Date),
-          lte: expect.any(Date),
-        },
-      },
-    });
+    // 笔数直接取聚合结果的 orderCount，避免对同一批今日订单重复 COUNT
+    expect(countMock).not.toHaveBeenCalled();
     expect(aggregateMock).toHaveBeenCalledWith(
       expect.anything(),
       42,
@@ -56,7 +48,6 @@ describe('SpaceDashboardSummaryService.buildTodaySettledSessionStats', () => {
   });
 
   it('无今日销售单时营业额回落 0', async () => {
-    countMock.mockResolvedValue(0);
     aggregateMock.mockResolvedValue({
       totalRevenue: 0,
       totalProfit: 0,

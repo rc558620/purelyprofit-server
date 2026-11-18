@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildCacheRefreshTaskKey,
   buildSpacesDashboardCacheKey,
+  buildSpacesDashboardStatsCacheKey,
 } from '../../../redis/cache-keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import {
@@ -74,6 +75,51 @@ export class SpaceDashboardService {
       refreshAfterMs: SPACES_DASHBOARD_CACHE_REFRESH_AFTER_MS,
       loadValue: () => this.buildDashboard(storeId),
     });
+  }
+
+  /**
+   * 看板统计汇总（轻量）：首屏统计条只需要 stats。
+   *
+   * 与完整看板分开的原因：完整看板要为每个空间组装主预约/未来预约摘要
+   * （空间数 × 2 条聚合），而统计条只用「空间状态计数 + 今日结账/营业额」。
+   * 独立缓存键，写路径失效时与主看板一起删除。
+   */
+  async getSpacesDashboardStats(
+    user: AuthenticatedUser,
+    query: GetSpacesDashboardQueryDto,
+  ): Promise<SpaceStatsResponseDto> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'space:view',
+      '无权查看该门店空间看板',
+    );
+
+    if (storeId === null) {
+      return this.buildEmptyDashboard().stats;
+    }
+
+    const cacheKey = buildSpacesDashboardStatsCacheKey(storeId);
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACES_DASHBOARD_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACES_DASHBOARD_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.buildDashboardStats(storeId),
+    });
+  }
+
+  /** 只组装 stats：不查看板摘要，省掉完整看板里最重的一段聚合 */
+  private async buildDashboardStats(
+    storeId: number,
+  ): Promise<SpaceStatsResponseDto> {
+    const [spaces, sessionStats, lastSettledMap] = await Promise.all([
+      this.findSpacesByStore(storeId),
+      this.summaryService.buildTodaySettledSessionStats(storeId),
+      this.buildLastSettledEndTimeMap(storeId),
+    ]);
+
+    return this.buildSpaceStats(spaces, sessionStats, lastSettledMap);
   }
 
   private async buildDashboard(

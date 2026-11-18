@@ -227,10 +227,10 @@ describe('SpaceSessionCheckoutService', () => {
 
     expect(timedResult.preview).toMatchObject({
       durationMinutes: 70,
-      timeCost: 906.51, // 70/60*777*100 因浮点精度 Math.ceil(90650.00...01) = 90651 / 100 = 906.51
+      timeCost: 906.5, // 70 × 777元 ÷ 60 = 906.50 元（整数分先乘后除，只向上取整一次）
       itemsCost: 0,
       prepaidDeduction: 1500, // 150000分 = 1500元
-      totalAmount: -593.49, // 906.51 + 0 - 1500 = -593.49
+      totalAmount: -593.5, // 906.5 + 0 - 1500 = -593.5
       timeFeeMode: 'timed',
       countdownFeeMode: 'timed',
     });
@@ -339,6 +339,61 @@ describe('SpaceSessionCheckoutService', () => {
       spaceStatus: 'idle',
       salesOrder: createdOrder,
     });
+  });
+
+  it('结账后清锁失败不应把已完成的结账打成接口失败', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = createSpaceCheckoutAt();
+    const session = createSpaceSessionRecord();
+    const createdOrder = createSalesOrderResponse();
+    const updatedSession = createUpdatedSpaceSession();
+
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
+    checkoutLockService.requireValidLock.mockResolvedValue({
+      sessionId: 9,
+      lockId: 'lock_1',
+      lockedAt: checkoutAt,
+      expiresAt: checkoutAt + 5 * 60 * 1000,
+      sessionUpdatedAt: session.updatedAt.getTime(),
+    });
+    // 故障注入：主事务已提交后清锁失败（Redis 抖动）
+    checkoutLockService.deleteLock.mockRejectedValueOnce(
+      new Error('redis down'),
+    );
+    salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.$queryRaw.mockResolvedValue(undefined);
+    transactionClient.spaceSession.findUnique.mockResolvedValue({
+      status: 'active',
+      updatedAt: session.updatedAt,
+      reservationId: session.reservationId,
+      guestName: session.guestName,
+      guestPhone: session.guestPhone,
+      startTime: session.startTime,
+      spaceId: session.spaceId,
+    });
+    transactionClient.space.findUnique.mockResolvedValue({
+      id: 7,
+      enableDirtyRoom: true,
+    });
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
+    transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
+    transactionClient.space.update.mockResolvedValue({ id: 7 });
+    transactionClient.spaceReservation.findMany.mockResolvedValue([]);
+    transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+
+    const result = await service.checkoutSpaceSession(user, 9, {
+      paymentMethod: 'cash',
+      lockId: 'lock_1',
+      lockedAt: checkoutAt,
+    });
+
+    // 销售单与会话已落库：清锁失败只能告警，接口必须返回成功
+    expect(result.session.status).toBe('settled');
+    expect(result.salesOrder).toEqual(createdOrder);
+    expect(checkoutLockService.deleteLock).toHaveBeenCalledWith('lock_1');
   });
 
   it('手动结账倒计时在按实际计时时也应抵扣开台预付款', async () => {

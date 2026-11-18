@@ -170,24 +170,18 @@ export class SpaceDashboardSummaryService {
     // （台位费 + 商品费），排除「预付款/续费抵扣」负项行并扣除退款。
     // 之前直接 SUM(saleOrder.totalRevenue) 会把预付款抵扣算作负收入，
     // 导致「预付 > 消费」的结账单（如倒计时/团购预付）拉低甚至翻转今日营业额。
-    const [todaySettled, salesStats] = await Promise.all([
-      this.prisma.saleOrder.count({
-        where: {
-          storeId,
-          date: {
-            gte: todayRange.start,
-            lte: todayRange.end,
-          },
-        },
-      }),
-      aggregateOrderStats(this.prisma, storeId, {
-        start: todayRange.start.getTime(),
-        end: todayRange.end.getTime(),
-      }),
-    ]);
+    //
+    // 性能：笔数与营业额共用同一次聚合。aggregateOrderStats 的 per_order
+    // 已经按 store_id + date 收敛出「今日订单集合」并返回 COUNT(*)，与原先
+    // 单独执行 saleOrder.count 的 where 口径完全一致；再从同一批订单独立
+    // COUNT 一次属于纯冗余扫描（看板 15s TTL / 5s 轮询下会反复执行）。
+    const salesStats = await aggregateOrderStats(this.prisma, storeId, {
+      start: todayRange.start.getTime(),
+      end: todayRange.end.getTime(),
+    });
 
     return {
-      todaySettled,
+      todaySettled: salesStats.orderCount,
       todayRevenue: salesStats.totalRevenue,
     };
   }

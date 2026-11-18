@@ -11,10 +11,13 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  buildCacheRefreshTaskKey,
   buildSpaceTypesCacheKey,
   buildSpaceTypesPattern,
 } from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import {
   CreateSpaceTypeDto,
   ListSpaceTypesQueryDto,
@@ -31,13 +34,15 @@ interface SpaceTypeRecord {
 }
 
 /**
- * 空间类型列表缓存 TTL（秒）。
+ * 空间类型列表缓存策略（与空间看板 / 列表同模式）。
  *
  * 空间类型是低频变更的门店运营配置（仅主账号可增改删），命中缓存后
- * GET /space-types 从「6 次 Redis + 2 次 DB」降为「6 次 Redis + 0 次 DB」。
- * TTL 只兜底，一致性由写路径主动失效保证（与空间看板同策略）。
+ * GET /space-types 从「鉴权缓存 + 2 次 DB」降为「鉴权缓存 + 0 次 DB」。
+ * TTL 只兜底，一致性由写路径 invalidateSpaceTypesCache 主动失效保证。
  */
 const SPACE_TYPES_CACHE_TTL_SECONDS = 60;
+/** 提前刷新窗口：超过 20s 的命中由后台刷新，避免多端在同一秒集体回源 */
+const SPACE_TYPES_CACHE_REFRESH_AFTER_MS = 20_000;
 
 @Injectable()
 export class SpaceTypesService {
@@ -47,6 +52,8 @@ export class SpaceTypesService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async listSpaceTypes(
@@ -65,29 +72,24 @@ export class SpaceTypesService {
     }
 
     const cacheKey = buildSpaceTypesCacheKey(storeId);
-    const cached =
-      await this.redisService.getJson<SpaceTypeResponseDto[]>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACE_TYPES_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACE_TYPES_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.loadSpaceTypes(storeId),
+    });
+  }
 
+  private async loadSpaceTypes(
+    storeId: number,
+  ): Promise<SpaceTypeResponseDto[]> {
     const items = await this.prisma.spaceType.findMany({
       where: { storeId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
-    const response = items.map((item) => this.toSpaceTypeResponse(item));
-
-    // 一致性边界：load 与写回之间若发生写请求（写路径提交后按 key 失效），
-    // 本次 load 读到的旧值仍会被写回并存活一个 TTL，属于有界陈旧。
-    // 空间类型为运营配置、写路径极低频，该窗口可接受。
-    await this.redisService.setJson(
-      cacheKey,
-      response,
-      SPACE_TYPES_CACHE_TTL_SECONDS,
-    );
-
-    return response;
+    return items.map((item) => this.toSpaceTypeResponse(item));
   }
 
   async createSpaceType(
@@ -187,6 +189,10 @@ export class SpaceTypesService {
     });
 
     await this.invalidateSpaceTypesCache(item.storeId);
+
+    // 空间列表 / 看板缓存内嵌 type.name 快照：只清类型自身缓存不够，
+    // 类型改名后必须同步失效空间读缓存，否则看板仍展示旧类型名直到列表 TTL 过期。
+    await this.cacheInvalidatorService.invalidateSpacesReadCaches(item.storeId);
 
     return this.toSpaceTypeResponse(updated);
   }

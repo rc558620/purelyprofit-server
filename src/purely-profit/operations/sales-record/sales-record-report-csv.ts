@@ -18,10 +18,9 @@ import {
   listVisibleSaleOrderItems,
 } from './sales-record-item-aggregation';
 import { resolveReportProductName } from './sales-record-display-name.utils';
-import {
-  resolveSalesRecordAmountsFromOrder,
-  type SaleOrderWithItems,
-} from './sales-record.domain';
+import { resolveSalesRecordAmountsFromOrder } from './sales-record.domain';
+import type { SalesCsvOrder } from './sales-record-export.query';
+import type { SalesReportOrder } from './sales-record-report.query';
 
 const CSV_FILENAME = '销售记录.csv';
 
@@ -66,7 +65,7 @@ function resolvePaymentLabel(paymentMethod: string): string {
  * 商品行 + 抵扣行相互冲减，台位费计入金额，团购券订单按券面 + 超时 + 点单计收。
  * 统一走 resolveSalesRecordAmountsFromOrder，避免导出与页面口径漂移。
  */
-function resolveOrderAmounts(order: SaleOrderWithItems) {
+function resolveOrderAmounts(order: SalesReportOrder) {
   return resolveSalesRecordAmountsFromOrder(order);
 }
 
@@ -75,7 +74,7 @@ function resolveOrderAmounts(order: SaleOrderWithItems) {
  *                  缺省表示该订单无规格可展示。
  */
 export function buildCsvRowFromOrder(
-  order: SaleOrderWithItems,
+  order: SalesCsvOrder,
   specsRows?: string[][],
 ): string[] {
   const amounts = resolveOrderAmounts(order);
@@ -169,9 +168,15 @@ export const EMPTY_SALES_REPORT_CSV_SUMMARY: SalesReportCsvSummary = {
   avgOrderValue: 0,
 };
 
-/** 按现有口径从订单列表累加汇总（退款单不计入金额与笔数）。 */
+/**
+ * 按现有口径从订单列表累加汇总（退款单不计入金额与笔数）。
+ *
+ * 这是「经营汇总」的唯一产出函数：CSV 汇总行、报表 JSON 的 summary 都调用它，
+ * 保证营业额 / 利润 / 笔数 / 客单价四个数在任何出口都同源。
+ * 入参只依赖报表字段集，CSV 的精简查询与报表查询都能直接传入。
+ */
 export function accumulateSalesReportCsvSummary(
-  orders: SaleOrderWithItems[],
+  orders: SalesReportOrder[],
 ): SalesReportCsvSummary {
   let totalRevenue = 0;
   let totalProfit = 0;
@@ -226,7 +231,7 @@ function buildSummaryPrefixRows(
 
 /** 按订单逐行渲染 CSV 明细行。 */
 export function buildSalesReportCsvRows(
-  orders: SaleOrderWithItems[],
+  orders: SalesCsvOrder[],
   specsRowsMap: SalesReportSpecsRowsMap = new Map(),
 ): string[][] {
   return orders.map((order) =>
@@ -237,7 +242,7 @@ export function buildSalesReportCsvRows(
 /** 一次性导出销售记录 CSV（小结果集路径）：统计汇总前缀 + 明细表头 + 明细行。 */
 export function streamSalesReportCsv(
   reply: ServerResponse,
-  orders: SaleOrderWithItems[],
+  orders: SalesCsvOrder[],
   query: SalesReportQueryDto,
   specsRowsMap?: SalesReportSpecsRowsMap,
 ): void {

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
@@ -40,6 +41,8 @@ const SPACE_SESSION_CHECKOUT_LOCK_TTL_SECONDS = 5 * 60;
 
 @Injectable()
 export class SpaceSessionCheckoutService {
+  private readonly logger = new Logger(SpaceSessionCheckoutService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -234,8 +237,16 @@ export class SpaceSessionCheckoutService {
       ...(requestId ? { requestId } : {}),
     });
 
+    // 结账主事务已提交：锁单清理失败只能告警，禁止把已落库的结账结果打成接口失败。
+    // 残留锁单会在 TTL（5 分钟）后自然过期，不影响订单、会话与资金一致性。
     if (payload.lockId) {
-      await this.checkoutLockService.deleteLock(payload.lockId);
+      try {
+        await this.checkoutLockService.deleteLock(payload.lockId);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[space-checkout] 删除结账锁单失败 sessionId=${session.id} lockId=${payload.lockId} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+      }
     }
 
     // BUG-8 修复：空间状态已由 settleSession 在事务内推导，保证与写入数据一致

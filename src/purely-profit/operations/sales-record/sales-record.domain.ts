@@ -294,7 +294,12 @@ function resolveGrouponVoucherAdjustment(
 }
 
 /**
- * 解析订单级金额（列表 / 报表 / CSV 唯一口径）。
+ * 解析订单级金额（列表 / 报表 / CSV / 打印唯一口径）。
+ *
+ * 已退款订单的营业额、利润、实付一律归零：退款后这笔钱不再是收入，
+ * 归零必须发生在**后端金额映射层**，否则列表卡片、打印页、CSV 明细各自判断
+ * `refundedAt`，任一出口漏判就会出现「汇总已排除、明细仍显示原额」的自相矛盾。
+ * 件数保留真实销量（退款状态另有专列展示），不做归零。
  *
  * 团购券空间订单：券程台位费按券实际抵扣计收（min(台位费, 券程, 券面)），
  * 超时台位费由顾客到店另付，点单全额计入；其余订单沿用商品行聚合结果。
@@ -304,6 +309,16 @@ export function resolveSalesRecordAmounts(
   visibleRows: SalesRecordItemRow[],
   amountsSnapshot: SalesRecordAmountsSnapshot,
 ): SalesRecordOrderAmounts {
+  if (order.refund?.refundedAt) {
+    return {
+      totalRevenue: 0,
+      totalProfit: 0,
+      totalQuantity: amountsSnapshot.totalQuantity,
+      payableAmount: 0,
+      grouponVoucherBreakdown: null,
+    };
+  }
+
   let totalRevenue = amountsSnapshot.totalRevenue;
   let totalProfit = amountsSnapshot.totalProfit;
   let grouponVoucherBreakdown: GrouponVoucherBreakdown | null = null;
@@ -324,11 +339,8 @@ export function resolveSalesRecordAmounts(
   // - 其余订单：本次消费额。预付/续费抵扣只是分次收款（钱已真实收到，不减），
   //   抵扣超过消费时（如续费券 ¥35.2 本次只消费 ¥1.64）多余部分在结账时退回顾客
   //   （产品口径：超额按退款处理，见 buildSalesRecordPaymentEvents 的 checkout_refund），
-  //   营业额仍按本次消费额记，既不出现负数也不凭空放大；
-  // - 已退款订单归零（与卡片 +¥0 口径一致）。
-  const payableAmount = order.refund?.refundedAt
-    ? 0
-    : Math.max(0, totalRevenue);
+  //   营业额仍按本次消费额记，既不出现负数也不凭空放大。
+  const payableAmount = Math.max(0, totalRevenue);
 
   return {
     totalRevenue,

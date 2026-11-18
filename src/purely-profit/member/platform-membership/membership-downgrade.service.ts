@@ -17,9 +17,10 @@ import {
   MembershipClockDriftProbe,
 } from './membership-downgrade.query';
 import {
-  incrementManualEntryCount,
   readDowngradeStateCache,
   readManualEntryCount,
+  releaseManualEntryCount,
+  reserveManualEntryCount,
   writeDowngradeStateCache,
 } from './membership-downgrade.store';
 import {
@@ -194,39 +195,40 @@ export class MembershipDowngradeService {
   // ─── B 端：手动录单每日限额 ──────────────────────────────────────────
 
   /**
-   * 手动录单门禁：过期账号每日最多录 N 单。
+   * 手动录单门禁：原子预占一次额度，超限直接抛会员过期异常。
    *
    * 这是 C 端停新单后的营业兜底通道——不让商家完全做不了生意，
    * 但限制规模，形成续费驱动力。未过期账号不受限。
    *
-   * @returns 今日已录单数（供调用方展示剩余额度）
+   * 必须「先占后建」而不是「先查后建再累加」：
+   * 旧实现是读计数 → 建单 → INCR，并发请求会读到同一份计数而全部通过校验，
+   * 且建单成功后的 INCR 失败会让已提交订单变成接口失败（客户端重试可能重复建单）。
+   * 现在判定与占用在 Redis Lua 里一次完成。
+   *
+   * @returns 本次是否真的占用了额度（true 时调用方必须在建单失败后归还）
    */
-  async assertManualEntryQuota(storeId: number): Promise<number> {
+  async consumeManualEntryQuota(storeId: number): Promise<boolean> {
     const state = await this.getDowngradeState(storeId);
     if (!state.isExpired) {
-      return 0;
+      return false;
     }
 
-    const used = await readManualEntryCount(
+    const reservation = await reserveManualEntryCount(
       this.redisService,
       this.logger,
       storeId,
+      MANUAL_ENTRY_DAILY_LIMIT,
     );
-    if (used >= MANUAL_ENTRY_DAILY_LIMIT) {
+    if (!reservation.allowed) {
       throw buildMembershipExpiredException(MANUAL_ENTRY_QUOTA_MESSAGE);
     }
 
-    return used;
+    return true;
   }
 
-  /** 手动录单成功后累加当日计数（仅过期账号需要） */
-  async incrementManualEntryCount(storeId: number): Promise<void> {
-    const state = await this.getDowngradeState(storeId);
-    if (!state.isExpired) {
-      return;
-    }
-
-    await incrementManualEntryCount(this.redisService, storeId);
+  /** 归还一次预占（建单事务失败或命中幂等回放时调用） */
+  async releaseManualEntryQuota(storeId: number): Promise<void> {
+    await releaseManualEntryCount(this.redisService, this.logger, storeId);
   }
 
   /** 查询今日已手动录单数（未过期恒为 0） */

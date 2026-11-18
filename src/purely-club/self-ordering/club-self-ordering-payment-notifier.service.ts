@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 
 /**
@@ -39,9 +40,14 @@ const SELF_ORDER_PAID_NOTIFY_SELECT = {
  */
 @Injectable()
 export class ClubSelfOrderingPaymentNotifierService {
+  private readonly logger = new Logger(
+    ClubSelfOrderingPaymentNotifierService.name,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /**
@@ -73,6 +79,11 @@ export class ClubSelfOrderingPaymentNotifierService {
       .filter((part): part is string => Boolean(part))
       .join(' · ');
 
+    // 自助下单会在事务内往空间会话账单追加商品行并累加 itemsCost，
+    // 收银台的会话快照 / 空间列表 / 看板都带缓存，必须同步失效；
+    // 否则「顾客已自助加单、收银台结账看不到该商品」会少算金额。
+    await this.invalidateSpacesReadCaches(order.storeId);
+
     this.realtimeService.publishSelfOrderCreated({
       storeId: order.storeId,
       orderId: order.id,
@@ -99,5 +110,24 @@ export class ClubSelfOrderingPaymentNotifierService {
       paymentStatus: order.paymentStatus,
       version: order.version,
     });
+  }
+
+  /**
+   * 失效空间读侧缓存（best-effort）。
+   *
+   * 走到这里时支付事务已经提交，资金与账单已落定；缓存只是读侧加速层，
+   * Redis 抖动不应把一次成功的支付变成接口报错，因此降级为告警日志，
+   * 由 15s TTL 兜底自愈。
+   */
+  private async invalidateSpacesReadCaches(storeId: number): Promise<void> {
+    try {
+      await this.cacheInvalidatorService.invalidateSpacesReadCaches(storeId);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `自助下单落账后失效空间读缓存失败 storeId=${storeId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

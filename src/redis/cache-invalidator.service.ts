@@ -80,6 +80,14 @@ export class CacheInvalidatorService {
     await this.profitReadInvalidator.invalidateSpacesReadCaches(storeId);
   }
 
+  /**
+   * 空间二维码图片产物失效（空间维度）。
+   * 空间删除后调用，避免图片产物在 Redis 里滞留到 TTL。
+   */
+  async invalidateSpaceQrImageCache(spaceId: number): Promise<void> {
+    await this.profitReadInvalidator.invalidateSpaceQrImageCache(spaceId);
+  }
+
   async invalidatePulseDashboardHome(): Promise<void> {
     await this.pulseInvalidator.invalidatePulseDashboardHome();
   }

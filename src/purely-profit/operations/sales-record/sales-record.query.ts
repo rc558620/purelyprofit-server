@@ -40,8 +40,11 @@ export async function aggregateOrderStats(
   //（相同金额的退款行会被错误去重），且三表 JOIN 在 sale_order_items
   // 大表上产生笛卡尔积。改为子查询预聚合：先按 order_id 聚合 items、
   // refunds 与会话时薪，再在主查询中做加减，消除 DISTINCT 语义风险。
-  // 笔数与列表分页 COUNT(*) 同口径（含退款单），否则 meta.total 条数与
-  // 「订单数」会不一致。
+  // 笔数只统计有效订单（排除退款单），与营收 / 利润 / CSV 汇总 / 报表
+  // orderCount 完全同口径：否则「营业额已排除退款、客单价却按含退款单的
+  // 笔数相除」，同一周期在销售卡片与导出文件里会得到两个客单价。
+  // 列表分页的 meta.total 仍是全部单据（列表本身要展示退款单），两者语义不同，
+  // 不要为了对齐而把退款单塞回经营统计。
   // ⚠️ 性能：三个明细 CTE 必须先用 scoped_orders 做 semi-join 收敛范围。
   // 原始写法让 soi_agg / sor_agg / ss_agg 对全表 GROUP BY，门店与日期过滤
   // 直到最外层 per_order 才生效——数据量增长后聚合成本与全店历史成正比。
@@ -97,6 +100,8 @@ export async function aggregateOrderStats(
     ),
     per_order AS (
       SELECT so.id,
+             -- 退款单参与行计算（金额已归零）但计入 is_refunded，供外层扣减笔数
+             (sor_agg.refund_amount IS NOT NULL) AS is_refunded,
              CASE
                WHEN sor_agg.refund_amount IS NOT NULL THEN 0
                WHEN so.voucher_face_amount > 0
@@ -146,7 +151,7 @@ export async function aggregateOrderStats(
     SELECT
       COALESCE(SUM(order_revenue), 0) AS revenue,
       COALESCE(SUM(order_profit), 0) AS profit,
-      COUNT(*) AS order_count
+      COUNT(*) FILTER (WHERE NOT is_refunded) AS order_count
     FROM per_order
   `;
 
@@ -173,18 +178,11 @@ export async function querySaleOrders(
     skip?: number;
     take?: number;
     /**
-     * 游标分页起点（上一批最后一条的 id），配合 orderBy [date desc, id desc]
-     * 做 keyset 分页，供大结果集（报表 CSV 导出）分批扫描使用。
-     * 传了 cursor 就忽略 skip —— 两者语义互斥，且 keyset 必须 skip: 1 跳过游标自身。
-     */
-    cursor?: { id: number };
-    /**
-     * 列表接口的游标条件（`(date, id)` 复合键），与上面的 `cursor` 语义互斥：
-     * - 报表 CSV 用 `cursor` + `skip: 1`（Prisma 原生 keyset，跳过游标自身一行）；
-     * - 列表接口用 `listCursor`（把「排在游标之后」写进 where，不传 skip）。
+     * 列表接口的游标条件（`(date, id)` 复合键）。
      *
-     * 二者不能合并成同一个参数：列表游标必须按 `date` 逐级比较，
-     * 只用 id 定位在跨日补录（id 递增但 date 更早）时会漏掉整段记录。
+     * 条件写进 where 而不传 skip：Prisma 的 `cursor` 是「按唯一键定位锚点行」，
+     * 本接口直接按 (date, id) 逐级比较更直观，也避免两条分页路径混用。
+     * CSV 分批扫描走 `querySaleOrdersForCsv`，与本函数互不影响。
      */
     listCursor?: SalesRecordListCursor | null;
   },
@@ -196,18 +194,6 @@ export async function querySaleOrders(
       lte: new Date(params.range.end),
     },
   };
-
-  /*
-   * 三条路径互斥，顺序不能调换：
-   * 1. `cursor`（报表 CSV）：Prisma 原生 keyset，靠 skip: 1 跳过游标自身；
-   * 2. `listCursor`（列表接口）：条件已写进 where，绝不能带 skip，否则每页少一行；
-   * 3. 都没有：兼容期 offset 分页，skip 语义与迁移前逐字一致。
-   */
-  const pagingArgs: { cursor?: { id: number }; skip?: number } = params.cursor
-    ? { cursor: { id: params.cursor.id }, skip: 1 }
-    : params.listCursor
-      ? {}
-      : { skip: params.skip };
 
   return prisma.saleOrder.findMany({
     where: params.listCursor
@@ -289,7 +275,8 @@ export async function querySaleOrders(
       },
     },
     orderBy: SALES_RECORD_LIST_ORDER_BY,
-    ...pagingArgs,
+    // 游标路径不带 skip，否则每页会少一行（游标条件已在 where 中表达）
+    skip: params.listCursor ? undefined : params.skip,
     take: params.take,
   });
 }

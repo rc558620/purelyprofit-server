@@ -45,6 +45,34 @@ describe('会员到期限制 (e2e, real database)', () => {
   /** 手动录单计数的 mock 存储：按 Redis key 存取，让限额逻辑可控 */
   const redisStore = new Map<string, unknown>();
 
+  /**
+   * 模拟额度脚本（真实实现走 Redis Lua）：
+   * - 预占脚本返回 [allowed, used]；
+   * - 归还脚本返回归还后的值。
+   */
+  const evalQuotaScript = (
+    script: string,
+    _numKeys: number,
+    key: string,
+    limit?: number,
+  ): Promise<unknown> => {
+    const current = redisStore.get(key);
+    const used = typeof current === 'number' ? current : 0;
+    if (script.includes('INCR')) {
+      if (limit !== undefined && used >= limit) {
+        return Promise.resolve([0, used]);
+      }
+      const next = used + 1;
+      redisStore.set(key, next);
+      return Promise.resolve([1, next]);
+    }
+    const next = Math.max(0, used - 1);
+    redisStore.set(key, next);
+    return Promise.resolve(next);
+  };
+
+  const redisClient = { eval: jest.fn(evalQuotaScript) };
+
   const redisService = {
     getJson: jest.fn((key: string) =>
       Promise.resolve(redisStore.get(key) ?? null),
@@ -53,13 +81,7 @@ describe('会员到期限制 (e2e, real database)', () => {
       redisStore.set(key, value);
       return Promise.resolve();
     }),
-    // 对齐 Redis INCR 语义：原子自增并返回新值，值与 getJson 互通
-    incr: jest.fn((key: string) => {
-      const current = redisStore.get(key);
-      const next = (typeof current === 'number' ? current : 0) + 1;
-      redisStore.set(key, next);
-      return Promise.resolve(next);
-    }),
+    getClient: jest.fn(() => redisClient),
   };
 
   const configService = {
@@ -571,18 +593,25 @@ describe('会员到期限制 (e2e, real database)', () => {
 
   // ─── D. 手动录单每日限额 ───────────────────────────────────────────────
 
-  describe('手动录单每日限额（Redis 计数）', () => {
-    it('过期门店未达上限时放行并返回已用数量', async () => {
+  describe('手动录单每日限额（Redis 原子预占）', () => {
+    it('过期门店未达上限时预占成功并累计已用数量', async () => {
       const { storeId } = await seedStore('manual-ok');
       await seedMembership(storeId, 'expired', { expiredDaysAgo: 1 });
       redisStore.clear();
 
-      await downgradeService.incrementManualEntryCount(storeId);
-      await downgradeService.incrementManualEntryCount(storeId);
+      await expect(
+        downgradeService.consumeManualEntryQuota(storeId),
+      ).resolves.toBe(true);
+      await expect(
+        downgradeService.consumeManualEntryQuota(storeId),
+      ).resolves.toBe(true);
 
       await expect(
-        downgradeService.assertManualEntryQuota(storeId),
-      ).resolves.toBe(2);
+        downgradeService.getManualEntryUsage(storeId),
+      ).resolves.toEqual({
+        used: 2,
+        limit: MANUAL_ENTRY_DAILY_LIMIT,
+      });
     });
 
     it('达到上限后拦截并带业务码', async () => {
@@ -591,26 +620,40 @@ describe('会员到期限制 (e2e, real database)', () => {
       redisStore.clear();
 
       for (let i = 0; i < MANUAL_ENTRY_DAILY_LIMIT; i += 1) {
-        await downgradeService.incrementManualEntryCount(storeId);
+        await downgradeService.consumeManualEntryQuota(storeId);
       }
 
       const error = await captureError(() =>
-        downgradeService.assertManualEntryQuota(storeId),
+        downgradeService.consumeManualEntryQuota(storeId),
       );
 
       expect(isMembershipExpiredError(error)).toBe(true);
     });
 
-    it('未过期门店不计数、不限额', async () => {
+    it('归还预占后额度可复用（建单失败不白吃额度）', async () => {
+      const { storeId } = await seedStore('manual-release');
+      await seedMembership(storeId, 'expired', { expiredDaysAgo: 1 });
+      redisStore.clear();
+
+      await downgradeService.consumeManualEntryQuota(storeId);
+      await downgradeService.releaseManualEntryQuota(storeId);
+
+      await expect(
+        downgradeService.getManualEntryUsage(storeId),
+      ).resolves.toEqual({
+        used: 0,
+        limit: MANUAL_ENTRY_DAILY_LIMIT,
+      });
+    });
+
+    it('未过期门店不占额度、不限额', async () => {
       const { storeId } = await seedStore('manual-active');
       await seedMembership(storeId, 'active', { remainingDays: 50 });
       redisStore.clear();
 
-      await downgradeService.incrementManualEntryCount(storeId);
-
       await expect(
-        downgradeService.assertManualEntryQuota(storeId),
-      ).resolves.toBe(0);
+        downgradeService.consumeManualEntryQuota(storeId),
+      ).resolves.toBe(false);
       await expect(
         downgradeService.getManualEntryUsage(storeId),
       ).resolves.toEqual({

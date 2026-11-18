@@ -6,17 +6,39 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  mapRenewRecordRows,
-  mapSessionItemRows,
-} from './space-sessions.mapper';
-import { buildSpaceSessionSettlementMoney } from './space-session-settlement.shared';
-import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
 import { MONEY_PRECISION_PATTERN } from './space-session-checkout-payload.shared';
 import { Money } from '../../../shared/money.utils';
+import {
+  buildLivePreviewAmounts,
+  findLivePreviewTarget,
+  resolveLivePreviewBucket,
+  type LivePreviewAmounts,
+} from './space-session-live-preview.shared';
+import {
+  buildCacheRefreshTaskKey,
+  buildSpaceLivePreviewCacheKey,
+} from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 
 /** B7 fix: 续费预览金额上限（元），与 normalizeRenewPayload 保持一致 */
 const RENEW_PREVIEW_AMOUNT_MAX = 99999.99;
+
+/**
+ * 实时预览缓存 TTL（秒）。
+ *
+ * 键里已经带 elapsed 分钟桶版本，跨桶必然换键回源，一致性不依赖 TTL；
+ * TTL 只承担「回收 Redis 内存」，取 90s ≈ 一个半桶，既覆盖命中窗口
+ * 又不会让已过桶的旧键长期滞留。
+ */
+const LIVE_PREVIEW_CACHE_TTL_SECONDS = 90;
+
+/**
+ * 提前刷新窗口（毫秒）= 60s = 一个完整桶。
+ *
+ * 有意不早于桶长度：桶内金额数学恒定，命中即最优，后台刷新只会产生
+ * 同值回源；等键自然跨桶换版本才是唯一有效的「刷新」。
+ */
+const LIVE_PREVIEW_CACHE_REFRESH_AFTER_MS = 60_000;
 
 /**
  * P3b fix: 预览专用的软校验，返回错误文案而非抛异常，
@@ -32,21 +54,14 @@ const checkMoneyPrecisionSoft = (
   return null;
 };
 
-export interface LivePreviewResult {
+export interface LivePreviewResult extends LivePreviewAmounts {
+  /**
+   * 服务端结算时点（毫秒时间戳）。
+   *
+   * 必须每次实时取，不能来自缓存：前端用它与 `asOf` 差值跑倒计时，
+   * 命中缓存时复用旧值会让倒计时直接倒退一分钟。
+   */
   asOf: number;
-  durationMinutes: number;
-  durationLabel: string;
-  timeCost: number;
-  itemsCost: number;
-  renewDeduction: number;
-  prepaidDeduction: number;
-  /** 自助下单已在线支付商品的抵扣合计（元），从待付总额中冲减 */
-  selfOrderDeduction: number;
-  /** 开台团购券券面金额（元），仅纯消费模式且开台用券时 > 0 */
-  voucherConsumption: number;
-  totalAmount: number;
-  timeFeeMode?: string;
-  countdownFeeMode?: string;
 }
 
 export interface RenewPreviewResult {
@@ -62,62 +77,58 @@ export class SpaceSessionPreviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
+  /**
+   * 实时结账预览：按 elapsed 分钟桶缓存结算金额。
+   *
+   * 收银台会按秒轮询这里，而金额刻度是「分钟」，因此同一分钟内的重复调用
+   * 完全等价；用桶做键版本后，命中率≈轮询频次，且不会引入金额误差。
+   */
   async getLivePreview(
     user: AuthenticatedUser,
     sessionId: number,
     requestId?: string,
   ): Promise<LivePreviewResult> {
     void requestId;
-    const session = await this.findActiveSessionForPreview(sessionId);
+    const target = await findLivePreviewTarget(this.prisma, sessionId);
 
     await this.commerceAccessService.ensureCanAccessStore(
       user,
-      session.storeId,
+      target.storeId,
       'space:view',
       '无权查看该门店空间会话预览',
     );
 
-    const asOf = Date.now();
-    const items = mapSessionItemRows(session.sessionItems);
-    const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
-    // 纯消费模式开台用券时，券面会额外生成一条正向消费行，
-    // 展示名取团购商品名、利润按「券面 - 商品成本快照」计算
-    const voucherFacts = await resolveGrouponVoucherFacts(
-      this.prisma,
-      session.storeId,
-      session.prepaidVoucherCode,
+    const bucket = resolveLivePreviewBucket(
+      target.startTime.getTime(),
+      Date.now(),
     );
-
-    const settlement = buildSpaceSessionSettlementMoney({
-      session,
-      checkoutAt: asOf,
-      payload: {},
-      items,
-      renewRecords,
-      voucherProductName: voucherFacts?.productName ?? null,
-      voucherCost: voucherFacts ?? undefined,
+    const cacheKey = buildSpaceLivePreviewCacheKey(
+      target.storeId,
+      target.id,
+      bucket,
+    );
+    const amounts = await this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: LIVE_PREVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: LIVE_PREVIEW_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.loadLivePreviewAmounts(sessionId, bucket),
     });
 
-    return {
-      asOf,
-      durationMinutes: settlement.durationMinutes,
-      durationLabel: settlement.durationLabel,
-      timeCost: settlement.timeCostMoney.toOutputYuan(),
-      itemsCost: settlement.itemsCostMoney.toOutputYuan(),
-      renewDeduction: settlement.renewDeductionMoney.toOutputYuan(),
-      prepaidDeduction: settlement.prepaidDeductionMoney.toOutputYuan(),
-      selfOrderDeduction: settlement.selfOrderDeductionMoney.toOutputYuan(),
-      voucherConsumption: settlement.voucherConsumptionMoney.toOutputYuan(),
-      totalAmount: settlement.totalAmountMoney.toOutputYuan(),
-      ...(settlement.timeFeeMode
-        ? { timeFeeMode: settlement.timeFeeMode }
-        : {}),
-      ...(settlement.countdownFeeMode
-        ? { countdownFeeMode: settlement.countdownFeeMode }
-        : {}),
-    };
+    // asOf 永远实时取：缓存体内只有金额，没有时间点
+    return { asOf: Date.now(), ...amounts };
+  }
+
+  /** 缓存未命中路径：完整读取会话明细后按桶内固定时点结算 */
+  private async loadLivePreviewAmounts(
+    sessionId: number,
+    bucket: number,
+  ): Promise<LivePreviewAmounts> {
+    const session = await this.findActiveSessionForPreview(sessionId);
+    return buildLivePreviewAmounts(this.prisma, session, bucket);
   }
 
   /**

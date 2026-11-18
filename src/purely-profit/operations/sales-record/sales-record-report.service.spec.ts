@@ -705,6 +705,10 @@ describe('SalesRecordReportService', () => {
     expect(
       result.dailySales.find((row) => row.productName === '已退商品'),
     ).toBeUndefined();
+    // 退款单既不计金额也不计笔数：报表、销售卡片、CSV 汇总必须给出同一个
+    // 订单数与客单价（3 单中 1 单已退 → 2 单，45.2 / 2 = 22.6）
+    expect(result.summary.orderCount).toBe(2);
+    expect(result.summary.avgOrderValue).toBe(22.6);
   });
 
   it('getReport 支持 year 周期并按整年范围查询', async () => {
@@ -870,6 +874,15 @@ describe('SalesRecordReportService', () => {
     expect(output).toContain('#20260514-0011');
     expect(output).toContain('#20260514-0012');
     expect(end).toHaveBeenCalledTimes(1);
+
+    // CSV 行不读操作员角色与续费记录：少两层关联，大导出时省下可观成本
+    const [[csvArgs]] = prismaService.saleOrder.findMany.mock.calls as Array<
+      [{ select: { spaceSession: { select: Record<string, unknown> } } }]
+    >;
+    expect(csvArgs.select).not.toHaveProperty('operatorStaff');
+    expect(csvArgs.select.spaceSession.select).not.toHaveProperty(
+      'sessionRenewRecords',
+    );
   });
 
   it('streamReportCsv 取满一批时会按游标续查，不漏单也不重复', async () => {

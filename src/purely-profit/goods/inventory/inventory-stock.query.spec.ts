@@ -206,6 +206,7 @@ describe('inventory-stock.query', () => {
           note: '销售扣减',
           purchaseOrderId: null,
           saleOrderId: 66,
+          relatedSpaceSessionId: null,
         },
         {
           storeId: 18,
@@ -219,6 +220,7 @@ describe('inventory-stock.query', () => {
           note: null,
           purchaseOrderId: 88,
           saleOrderId: null,
+          relatedSpaceSessionId: null,
         },
       ],
     });

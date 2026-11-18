@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubPaymentModeService } from '../payments/club-payment-mode.service';
@@ -147,6 +148,13 @@ describe('ClubSelfOrderingPaymentService', () => {
           useValue: sessionBridge,
         },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },
+        {
+          // 支付落账后需要失效空间读侧缓存（会话快照/列表/看板）
+          provide: CacheInvalidatorService,
+          useValue: {
+            invalidateSpacesReadCaches: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         // 抽离出的协作类使用真实实现，底层依赖仍是上面的 mock，断言不变
         ClubSelfOrderingPaymentRepository,
         ClubSelfOrderingPaymentSettlementService,

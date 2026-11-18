@@ -16,6 +16,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
   let service: SpaceSessionAutoCheckoutService;
 
   const prismaService = {
+    // 到期候选 ID 由 raw SQL 下推筛出（start_time + countdown_minutes <= now）
+    $queryRaw: jest.fn(),
     spaceSession: {
       findMany: jest.fn(),
     },
@@ -45,6 +47,9 @@ describe('SpaceSessionAutoCheckoutService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认视为「存在 1 条到期会话」，具体会话内容由各类例的 findMany mock 决定；
+    // 需要验证「无到期会话」的分支时，用例内再覆盖成空数组
+    prismaService.$queryRaw.mockResolvedValue([{ id: 1 }]);
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.clubVoucherOrder.findMany.mockResolvedValue([]);
     settlementService.settleSession.mockResolvedValue(undefined);
@@ -111,21 +116,19 @@ describe('SpaceSessionAutoCheckoutService', () => {
       checkoutAt,
     );
 
+    // 门店锁 TTL 必须覆盖「多会话串行 × 单会话上限」，30s 只够跑完一个会话
     expect(redisClient.set).toHaveBeenCalledWith(
       'distributed-lock:space:auto-checkout:store:18',
       aUuid,
       'EX',
-      30,
+      120,
       'NX',
     );
+    // 到期判断已下推到 SQL：明细只按到期 ID 批量读取，不再读全店会话
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          storeId: 18,
-          status: 'active',
-          billingMode: 'countdown',
-          autoCheckout: true,
-        }),
+        where: { id: { in: [1] } },
       }),
     );
     expect(settlementService.settleSession).toHaveBeenCalledWith(
@@ -192,10 +195,25 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(result).toBe(0);
   });
 
+  it('autoCheckoutExpiredCountdownSessions 在没有到期会话时不读取会话明细', async () => {
+    const user = createSpaceTestUser();
+    prismaService.$queryRaw.mockResolvedValueOnce([]);
+
+    const result = await service.autoCheckoutExpiredCountdownSessions(
+      user,
+      18,
+      Date.now(),
+    );
+
+    expect(result).toBe(0);
+    expect(prismaService.spaceSession.findMany).not.toHaveBeenCalled();
+    expect(settlementService.settleSession).not.toHaveBeenCalled();
+  });
+
   it('autoCheckoutExpiredCountdownSessions 在查询待结账会话失败时不应中断调度流程', async () => {
     const user = createSpaceTestUser();
 
-    prismaService.spaceSession.findMany.mockRejectedValueOnce(
+    prismaService.$queryRaw.mockRejectedValueOnce(
       new Error('read sessions timeout'),
     );
 

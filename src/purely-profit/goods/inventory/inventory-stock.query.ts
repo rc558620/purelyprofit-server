@@ -67,6 +67,40 @@ export async function lockAndFindInventoryProductRow(
 }
 
 /**
+ * 批量锁定门店下多个商品行（`FOR UPDATE`），并连带读出当前库存。
+ *
+ * 为什么必须加锁：销售扣减是「读库存 → 校验可用量 → 原子自增」三步。
+ * 不加锁时两个并发订单会基于同一份旧库存同时通过校验，后提交的那次
+ * `stock = stock + delta` 会把库存压成负数，撞 `chk_products_stock_gte_0`
+ * —— 数据库约束错误既不是业务层的「库存不足」，也会让整单 500。
+ *
+ * ⚠️ 锁顺序必须稳定：按 `id` 升序加锁，避免两笔多商品订单以相反顺序
+ * 互相持锁形成死锁（PostgreSQL 按 `ORDER BY` 的顺序逐行加锁）。
+ */
+export async function lockInventoryProductRows(
+  transaction: InventoryTransactionClient,
+  storeId: number,
+  productIds: readonly number[],
+): Promise<InventoryMutableProductRecord[]> {
+  const uniqueIds = Array.from(new Set(productIds)).filter(
+    (id) => Number.isSafeInteger(id) && id > 0,
+  );
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  return transaction.$queryRaw<InventoryMutableProductRecord[]>`
+    SELECT "id", "name", "stock"
+    FROM "products"
+    WHERE "store_id" = ${storeId}
+      AND "deleted_at" IS NULL
+      AND "id" IN (${Prisma.join(uniqueIds)})
+    ORDER BY "id"
+    FOR UPDATE
+  `;
+}
+
+/**
  * 批量读取门店下多个商品行（与单条口径一致：同门店 + 未软删）。
  *
  * 销售 / 入库 / 回滚一次会涉及多个商品，逐条查询会让事务内往返次数随商品数线性增长，
@@ -127,10 +161,21 @@ export async function loadInventoryWriteContext(
   transaction: InventoryTransactionClient,
   storeId: number,
   productIds: readonly number[],
+  options: {
+    /**
+     * 是否需要一致性读：true 时先按 id 升序加行锁再读库存。
+     *
+     * 依赖「读到的 stock」做校验或计算新值的路径（销售扣减、进货回滚）必须开启；
+     * 纯增量回滚（`increment(-delta)`，结果不依赖旧值）可以不开，省掉锁开销。
+     */
+    lockRows?: boolean;
+  } = {},
 ): Promise<InventoryWriteContext> {
   const uniqueIds = Array.from(new Set(productIds));
   const [products, frozenQty] = await Promise.all([
-    findInventoryProductsForStore(transaction, storeId, uniqueIds),
+    options.lockRows
+      ? lockInventoryProductRows(transaction, storeId, uniqueIds)
+      : findInventoryProductsForStore(transaction, storeId, uniqueIds),
     resolveFrozenQtyMap(transaction, storeId, uniqueIds),
   ]);
 
@@ -173,16 +218,29 @@ export async function updateInventoryProductStocks(
     return;
   }
 
+  /*
+   * 按 productId 升序排列 VALUES 行：行锁的获取顺序与 lockInventoryProductRows
+   * （ORDER BY id FOR UPDATE）保持一致。两条链路顺序不同时，两笔多商品订单
+   * 仍可能互相持锁等待（A 持有 1 等 2、B 持有 2 等 1）。排序成本可忽略。
+   */
+  const orderedChanges = [...changes].sort(
+    (left, right) => left.productId - right.productId,
+  );
+
   // 单条时回退到 Prisma 的 update：没有往返可省，还能保留 @updatedAt 的自动维护
-  if (changes.length === 1) {
-    await updateInventoryProductStock(transaction, changes[0].productId, {
-      increment: changes[0].delta,
-    });
+  if (orderedChanges.length === 1) {
+    await updateInventoryProductStock(
+      transaction,
+      orderedChanges[0].productId,
+      {
+        increment: orderedChanges[0].delta,
+      },
+    );
     return;
   }
 
   const valueRows = Prisma.join(
-    changes.map(
+    orderedChanges.map(
       (change) => Prisma.sql`(${change.productId}::int, ${change.delta}::int)`,
     ),
   );
@@ -216,6 +274,9 @@ export async function createInventoryAdjustmentLog(
         : {}),
       ...(data.saleOrderId !== undefined
         ? { saleOrderId: data.saleOrderId }
+        : {}),
+      ...(data.relatedSpaceSessionId !== undefined
+        ? { relatedSpaceSessionId: data.relatedSpaceSessionId }
         : {}),
     },
     select: {
@@ -262,6 +323,7 @@ export async function createInventoryAdjustmentLogs(
       note: input.note ?? null,
       purchaseOrderId: input.purchaseOrderId ?? null,
       saleOrderId: input.saleOrderId ?? null,
+      relatedSpaceSessionId: input.relatedSpaceSessionId ?? null,
     })),
   });
 }

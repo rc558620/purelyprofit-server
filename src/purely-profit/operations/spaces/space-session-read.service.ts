@@ -6,6 +6,11 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { buildPaginationMeta } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  buildCacheRefreshTaskKey,
+  buildSpaceSessionsSnapshotCacheKey,
+} from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import {
   buildSpaceSessionListWhere,
   buildStoreSpaceSessionListWhere,
 } from './space-sessions.query-builder';
@@ -31,6 +36,27 @@ import type {
   SpaceSessionRecord,
 } from './space-sessions.types';
 
+/**
+ * 门店会话快照缓存策略（与看板 / 空间列表同模式）。
+ *
+ * GET /space-sessions 与 /space-sessions/active 是收银台轮询口，单次要带出
+ * 全量 sessionItems + sessionRenewRecords（take 200），命中缓存后从
+ * 「1 条主查询 + 2 条关系查询 + 数千行明细」降为 1 次 Redis GET。
+ *
+ * 一致性由写路径 invalidateSpacesReadCaches（开台 / 加单 / 续费 / 换房 /
+ * 结账 / 标记可用 / 预约变更）主动失效保证，TTL 只兜底。
+ * 快照里的 timeCost / itemsCost 均为落库快照值，实时滚动金额走 live-preview，
+ * 因此本缓存不会让金额停滞。
+ */
+const SPACE_SESSIONS_SNAPSHOT_CACHE_TTL_SECONDS = 15;
+const SPACE_SESSIONS_SNAPSHOT_CACHE_REFRESH_AFTER_MS = 5_000;
+
+/** 搜索参数归一化：空串与未传等价，避免同一查询分裂出多个缓存键 */
+const normalizeSearchTerm = (value?: string): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 @Injectable()
 export class SpaceSessionReadService {
   constructor(
@@ -38,6 +64,7 @@ export class SpaceSessionReadService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly configService: ConfigService,
     private readonly readStateService: SpaceSessionReadStateService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   /**
@@ -231,6 +258,29 @@ export class SpaceSessionReadService {
   }
 
   private async listStoreSpaceSessionsByQuery(
+    storeId: number,
+    query: SpaceSessionListQuery,
+  ): Promise<SpaceSessionResponseDto[]> {
+    const cacheKey = buildSpaceSessionsSnapshotCacheKey(storeId, {
+      status: query.status,
+      keyword: normalizeSearchTerm(query.keyword),
+      guestName: normalizeSearchTerm(query.guestName),
+      guestPhone: normalizeSearchTerm(query.guestPhone),
+      spaceName: normalizeSearchTerm(query.spaceName),
+      rangeStartDate: query.rangeStartDate,
+      rangeEndDate: query.rangeEndDate,
+    });
+
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACE_SESSIONS_SNAPSHOT_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACE_SESSIONS_SNAPSHOT_CACHE_REFRESH_AFTER_MS,
+      loadValue: () => this.loadStoreSpaceSessionsByQuery(storeId, query),
+    });
+  }
+
+  private async loadStoreSpaceSessionsByQuery(
     storeId: number,
     query: SpaceSessionListQuery,
   ): Promise<SpaceSessionResponseDto[]> {

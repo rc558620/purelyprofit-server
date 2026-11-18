@@ -8,6 +8,7 @@ import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
 import { SpaceReservationsWriteService } from './space-reservations-write.service';
+import { getReservationStatusRange } from './space-reservations.shared';
 
 describe('SpaceReservationsService', () => {
   let service: SpaceReservationsService;
@@ -107,19 +108,22 @@ describe('SpaceReservationsService', () => {
       'space:view',
       '无权查看该门店空间预约',
     );
+    const { start, end } = getReservationStatusRange();
     expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
         status: PrismaSpaceReservationStatus.pending,
         // P1 fix: 排除已软删除空间的预约
         space: { deletedAt: null },
+        // 看板未显式传日期时收敛到当前业务窗口，避免历史积压挤掉新预约
+        reservedAt: { gte: start, lte: end },
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       take: 200,
     });
   });
 
-  it('listStoreSpaceReservations 在显式传 status 时保留调用方筛选条件', async () => {
+  it('listStoreSpaceReservations 查非待处理状态时不套默认窗口', async () => {
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
 
     await service.listStoreSpaceReservations(user, {
@@ -132,6 +136,25 @@ describe('SpaceReservationsService', () => {
         status: PrismaSpaceReservationStatus.cancelled,
         // P1 fix: 排除已软删除空间的预约
         space: { deletedAt: null },
+      },
+      orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
+    });
+  });
+
+  it('listStoreSpaceReservations 显式传日期区间时不套用默认业务窗口', async () => {
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    const dateFrom = Date.UTC(2026, 0, 1);
+    const dateTo = Date.UTC(2026, 0, 31);
+
+    await service.listStoreSpaceReservations(user, { dateFrom, dateTo });
+
+    expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        status: PrismaSpaceReservationStatus.pending,
+        space: { deletedAt: null },
+        reservedAt: { gte: new Date(dateFrom), lte: new Date(dateTo) },
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       take: 200,

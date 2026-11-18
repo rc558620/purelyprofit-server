@@ -45,10 +45,15 @@ export const SALES_CALC_MODE_VALUES = [
   'business',
 ] as const satisfies readonly SalesCalcModeValue[];
 
-/** 录单来源；会员过期后对 additional / manual_entry 施加不同限制 */
-export type SalesRecordSourceValue = 'additional' | 'manual_entry';
+/**
+ * 录单来源：会员过期后据此施加禁用限制。
+ *
+ * 只保留 `additional`（追加点单）。手动录单不走本接口的 source 语义——
+ * 录入订单由 scan-ordering 的独立接口建单，额度在那边原子预占，
+ * 订单是否属于 `#M-` 手工补录号段由服务端按入口决定，不需要调用方声明。
+ */
+export type SalesRecordSourceValue = 'additional';
 
 export const SALES_RECORD_SOURCE_VALUES = [
   'additional',
-  'manual_entry',
 ] as const satisfies readonly SalesRecordSourceValue[];

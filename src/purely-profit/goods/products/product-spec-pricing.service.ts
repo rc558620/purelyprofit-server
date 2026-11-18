@@ -48,6 +48,17 @@ export interface PricedProductSpecs {
 }
 
 /**
+ * 批量定价的逐行结果（`priceManySettled` 返回值）。
+ *
+ * ok=false 时保留原始异常对象，由调用方决定「整单拒绝」还是「本行回退」——
+ * 追加点单允许无规格行回退前端传值，自助下单必须全量成功，两条链路语义不同，
+ * 定价层不替调用方做这个决定。
+ */
+export type PricedProductSpecsOutcome =
+  | { ok: true; value: PricedProductSpecs }
+  | { ok: false; error: unknown };
+
+/**
  * 定价所需商品投影：price() 与 priceMany() 共用，保证逐行定价与批量定价
  * 读到的商品字段、规格组排序、选项范围完全一致，不产生两套价格口径。
  */
@@ -120,6 +131,59 @@ export class ProductSpecPricingService {
   ): Promise<PricedProductSpecs[]> {
     if (items.length === 0) return [];
 
+    const productMap = await this.loadProductMap(storeId, items);
+
+    return items.map((item) => {
+      const product = productMap.get(item.productId);
+      if (!product) throw new NotFoundException('商品不存在或已下架');
+      return this.computePrice(product, item.specOptionIds);
+    });
+  }
+
+  /**
+   * 批量定价（逐行容错）：仍然只有 1 次 DB 查询，但单行失败不中断整批。
+   *
+   * 与「逐行调用 price() 并各自 try/catch」严格等价：
+   * - 结果顺序与入参一致；
+   * - 商品不存在/已下架 → 该行 ok=false + NotFoundException（与 price() 同一异常）；
+   * - 规格越界/选项非法 → 该行 ok=false + BadRequestException（与 price() 同一异常）；
+   * - 单行失败不影响其余行，由调用方决定整单拒绝还是回退。
+   *
+   * 用于「允许部分行无法定价」的链路（如空间追加点单：无规格行回退前端传值）。
+   */
+  async priceManySettled(
+    storeId: number,
+    items: PriceProductSpecsBatchItem[],
+  ): Promise<PricedProductSpecsOutcome[]> {
+    if (items.length === 0) return [];
+
+    const productMap = await this.loadProductMap(storeId, items);
+
+    return items.map((item): PricedProductSpecsOutcome => {
+      const product = productMap.get(item.productId);
+      if (!product) {
+        return {
+          ok: false,
+          error: new NotFoundException('商品不存在或已下架'),
+        };
+      }
+
+      try {
+        return {
+          ok: true,
+          value: this.computePrice(product, item.specOptionIds),
+        };
+      } catch (error: unknown) {
+        return { ok: false, error };
+      }
+    });
+  }
+
+  /** 一次查询取回整批商品的定价投影，price() 与 priceMany*() 共用同一 where 口径 */
+  private async loadProductMap(
+    storeId: number,
+    items: PriceProductSpecsBatchItem[],
+  ): Promise<Map<number, ProductPricingRow>> {
     const productIds = [...new Set(items.map((item) => item.productId))];
     const products = await this.prisma.product.findMany({
       where: {
@@ -130,15 +194,8 @@ export class ProductSpecPricingService {
       },
       select: PRODUCT_PRICING_SELECT,
     });
-    const productMap = new Map(
-      products.map((product) => [product.id, product]),
-    );
 
-    return items.map((item) => {
-      const product = productMap.get(item.productId);
-      if (!product) throw new NotFoundException('商品不存在或已下架');
-      return this.computePrice(product, item.specOptionIds);
-    });
+    return new Map(products.map((product) => [product.id, product]));
   }
 
   private async findProduct(

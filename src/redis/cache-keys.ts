@@ -75,12 +75,19 @@ export {
 export {
   buildSpacesDashboardCacheKey,
   buildSpacesDashboardPattern,
+  buildSpacesDashboardStatsCacheKey,
   buildSpacesListCacheKey,
   buildSpacesListPattern,
+  buildSpaceSessionsSnapshotCacheKey,
+  buildSpaceSessionsSnapshotPattern,
   buildSpaceTypesCacheKey,
   buildSpaceTypesPattern,
   buildSpaceZonesCacheKey,
   buildSpaceZonesPattern,
+  buildSpaceQrImageCacheKey,
+  buildSpaceQrImagePattern,
+  buildSpaceLivePreviewCacheKey,
+  buildSpaceLivePreviewPattern,
 } from './keys/spaces.cache-keys';
 
 export {

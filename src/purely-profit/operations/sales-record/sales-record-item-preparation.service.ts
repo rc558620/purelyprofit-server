@@ -77,8 +77,6 @@ export interface CreateSalesRecordOptions {
   skipInventoryValidationAndDeduction?: boolean;
   /** 跳过 sales:create 权限校验，由调用方自行保证已完成上游权限检查（如空间结账） */
   skipAccessCheck?: boolean;
-  /** 兼容 additional/space-management：主账号或店长下单时，优先归属到当前待交班班次员工 */
-  assignToCurrentShiftOperator?: boolean;
   /** 复用外层事务，避免跨业务写链路出现部分提交 */
   transactionClient?: Prisma.TransactionClient;
   /** 保留调用方传入的单价/利润，不用商品目录当前价格覆盖（空间结账等场景） */
@@ -96,6 +94,14 @@ export interface CreateSalesRecordOptions {
   totalProfitOverride?: number;
   /** 扫码点餐订单的唯一来源关联，用于支付回调幂等。 */
   scanOrderId?: number;
+  /**
+   * 建单幂等键（`Idempotency-Key` 请求头）。
+   *
+   * 仅 HTTP 建单入口使用，且与 `transactionClient` 互斥：外层事务最终是否提交
+   * 在这一层未知，写入「已成功」快照可能与实际结果相反，因此传了
+   * `transactionClient` 的调用方不参与幂等。
+   */
+  idempotencyKey?: string;
   /**
    * 手工补录（录入订单）元数据：传入后订单落入手工补录号段（#M-），
    * 并携带就餐方式/来源渠道等补录字段。
@@ -237,6 +243,12 @@ export class SalesRecordItemPreparationService {
             `商品【${matchedProduct.name}】已下架，无法销售`,
           );
         }
+        /*
+         * 这里只是「快速提示」：本次读的是事务外的目录快照，并发下可能已过期。
+         * 权威校验在 `recordInventoryStockChanges`（事务内按 productId 升序
+         * `FOR UPDATE` 加锁后重新读库存），因此并发超卖仍会以同样的
+         * 「商品【xx】库存不足」文案被拦下，而不是撞数据库非负约束。
+         */
         if (
           !options.skipInventoryValidationAndDeduction &&
           matchedProduct.stock < quantity

@@ -107,6 +107,9 @@ describe('SpaceSessionTransferService', () => {
     prismaService.$transaction.mockImplementation((callback) =>
       Promise.resolve(callback(transaction)),
     );
+    // FOR UPDATE 现在同时返回锁后复检所需的标量（id / spaceId），
+    // 不再额外发一条 findUnique 读同一行。
+    transaction.$queryRaw.mockResolvedValue([{ id: 5, spaceId: 7 }]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -142,30 +145,24 @@ describe('SpaceSessionTransferService', () => {
       enableDirtyRoom: false,
       autoCheckout: false,
     });
-    transaction.spaceSession.findUnique
-      .mockResolvedValueOnce({
-        id: 5,
+    transaction.spaceSession.findUnique.mockResolvedValueOnce({
+      id: 5,
+      storeId: 18,
+      spaceId: 7,
+      autoCheckout: false,
+      status: 'active',
+      space: {
+        id: 7,
+        name: 'A01',
         storeId: 18,
-        spaceId: 7,
-      })
-      .mockResolvedValueOnce({
-        id: 5,
-        storeId: 18,
-        spaceId: 7,
+        enableDirtyRoom: false,
         autoCheckout: false,
-        status: 'active',
-        space: {
-          id: 7,
-          name: 'A01',
-          storeId: 18,
-          enableDirtyRoom: false,
-          autoCheckout: false,
-          type: {
-            id: 101,
-            name: '台球桌',
-          },
+        type: {
+          id: 101,
+          name: '台球桌',
         },
-      });
+      },
+    });
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -218,12 +215,56 @@ describe('SpaceSessionTransferService', () => {
       targetSpaceId: 11,
     });
 
+    // 1 条会话行锁 + 2 条空间行锁（源/目标按 id 升序）：
+    // 会话行不再额外发一次 findUnique 复检（标量随 FOR UPDATE 一起返回）
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(transaction.spaceSession.findUnique).toHaveBeenCalledTimes(1);
     expect(
       reservationsStateService.resolveReservationBackStatus,
     ).toHaveBeenCalledWith(transaction, 7, false);
     expect(result.sourceSpaceStatus).toBe('reserved');
     expect(result.targetSpaceStatus).toBe('occupied');
+  });
+
+  it('换房时若锁内发现目标空间已软删应阻止继续换房', async () => {
+    prismaService.space.findFirst.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      name: 'A02',
+      status: 'idle',
+      typeId: 101,
+      enableDirtyRoom: false,
+      autoCheckout: false,
+    });
+    transaction.spaceSession.findUnique.mockResolvedValueOnce({
+      id: 5,
+      storeId: 18,
+      spaceId: 7,
+      autoCheckout: false,
+      status: 'active',
+      space: {
+        id: 7,
+        name: 'A01',
+        storeId: 18,
+        enableDirtyRoom: false,
+        autoCheckout: false,
+        type: { id: 101, name: '台球桌' },
+      },
+    });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      typeId: 101,
+      enableDirtyRoom: false,
+      autoCheckout: false,
+      deletedAt: new Date('2026-06-07T10:00:00.000Z'),
+    });
+
+    await expect(
+      service.transferSession(user, 5, { targetSpaceId: 11 }),
+    ).rejects.toThrow('目标空间不存在或已删除');
+
+    expect(transaction.spaceSession.update).not.toHaveBeenCalled();
   });
 
   it('换房时若锁内发现会话已结账应阻止继续写入', async () => {
@@ -238,30 +279,24 @@ describe('SpaceSessionTransferService', () => {
       enableDirtyRoom: false,
       autoCheckout: false,
     });
-    transaction.spaceSession.findUnique
-      .mockResolvedValueOnce({
-        id: 5,
+    transaction.spaceSession.findUnique.mockResolvedValueOnce({
+      id: 5,
+      storeId: 18,
+      spaceId: 7,
+      autoCheckout: false,
+      status: 'settled',
+      space: {
+        id: 7,
+        name: 'A01',
         storeId: 18,
-        spaceId: 7,
-      })
-      .mockResolvedValueOnce({
-        id: 5,
-        storeId: 18,
-        spaceId: 7,
+        enableDirtyRoom: false,
         autoCheckout: false,
-        status: 'settled',
-        space: {
-          id: 7,
-          name: 'A01',
-          storeId: 18,
-          enableDirtyRoom: false,
-          autoCheckout: false,
-          type: {
-            id: 101,
-            name: '台球桌',
-          },
+        type: {
+          id: 101,
+          name: '台球桌',
         },
-      });
+      },
+    });
 
     await expect(
       service.transferSession(user, 5, {

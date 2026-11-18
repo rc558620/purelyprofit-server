@@ -21,6 +21,11 @@ export type ProfitReadCacheInvalidatorRegistry = {
   invalidateMarketingCustomerDerived: (storeId: number) => Promise<void>;
   invalidateSalesReadCaches: (storeId: number) => Promise<void>;
   invalidateSpacesReadCaches: (storeId: number) => Promise<void>;
+  /**
+   * 空间二维码图片产物失效（空间维度，不是门店维度）：
+   * 空间删除后其图片缓存不再可能被命中，但需要主动清理避免占满 Redis。
+   */
+  invalidateSpaceQrImageCache: (spaceId: number) => Promise<void>;
   invalidateProfitDetail: (storeId: number) => Promise<void>;
   invalidateCostsCaches: (storeId: number) => Promise<void>;
 };

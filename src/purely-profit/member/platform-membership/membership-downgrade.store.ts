@@ -90,16 +90,91 @@ export async function readManualEntryCount(
   }
 }
 
+/** 额度预占结果：allowed=false 表示已达每日上限，used 为当前已用量 */
+export interface ManualEntryQuotaReservation {
+  allowed: boolean;
+  used: number;
+}
+
 /**
- * 累加当日手动录单计数。
+ * 「读取 → 判上限 → 递增 → 首次写入时设 TTL」的原子脚本。
  *
- * 必须用 Redis INCR 原子递增。
- * 若改回「先 get 再 set」：并发录单时两个请求可能同时读到 3、各自写 4，
- * 结果是实际录了 5 单而计数只有 4 —— 配额被悄悄突破且难以察觉。
+ * 为什么必须用 Lua：额度校验与计数递增若分成两次往返（GET 再 INCR），
+ * 两个并发录单会同时读到 4、都判定「未超限」，随后各 INCR 一次，
+ * 实际录了 6 单而单次判定都认为自己合法——上限被悄悄突破且无日志可查。
+ * 放在一个脚本里由 Redis 串行执行，判定与占用之间不存在窗口。
  */
-export async function incrementManualEntryCount(
+const RESERVE_MANUAL_ENTRY_SCRIPT = `
+local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+local limit = tonumber(ARGV[1])
+if used >= limit then
+  return {0, used}
+end
+local nextValue = redis.call('INCR', KEYS[1])
+if nextValue == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return {1, nextValue}
+`;
+
+/** 归还一次预占；不降到 0 以下（防止重复归还把额度放大） */
+const RELEASE_MANUAL_ENTRY_SCRIPT = `
+local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+if used <= 0 then
+  return 0
+end
+return redis.call('DECR', KEYS[1])
+`;
+
+/**
+ * 原子预占一次手动录单额度。
+ *
+ * 放行即已占用（调用方建单失败必须调用 releaseManualEntryCount 归还），
+ * 这样「先占后建」不会出现「订单已落库但额度没涨」的漏记。
+ * Redis 不可用时按放行处理：每日限额是可事后追补的商业控制，
+ * 不能因为计数组件故障阻断营业（与 readManualEntryCount 同策略）。
+ */
+export async function reserveManualEntryCount(
   redisService: RedisService,
+  logger: Logger,
+  storeId: number,
+  limit: number,
+): Promise<ManualEntryQuotaReservation> {
+  const key = buildManualEntryKey(storeId);
+
+  try {
+    // 需要「判定 + 递增」原子执行，属于切实需要底层能力的场景，故走 getClient().eval
+    const reply: unknown = await redisService
+      .getClient()
+      .eval(RESERVE_MANUAL_ENTRY_SCRIPT, 1, key, limit, ttlUntilNextDay());
+    const [allowedFlag, usedValue] = Array.isArray(reply) ? reply : [];
+    return {
+      allowed: Number(allowedFlag) === 1,
+      used: Number(usedValue ?? 0),
+    };
+  } catch (error) {
+    logger.warn(
+      `预占手动录单额度失败，本次按未超限处理：storeId=${storeId}, ` +
+        `error=${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { allowed: true, used: 0 };
+  }
+}
+
+/** 归还一次预占（建单事务失败 / 命中幂等回放时调用）；失败仅告警 */
+export async function releaseManualEntryCount(
+  redisService: RedisService,
+  logger: Logger,
   storeId: number,
 ): Promise<void> {
-  await redisService.incr(buildManualEntryKey(storeId), ttlUntilNextDay());
+  const key = buildManualEntryKey(storeId);
+
+  try {
+    await redisService.getClient().eval(RELEASE_MANUAL_ENTRY_SCRIPT, 1, key);
+  } catch (error) {
+    logger.warn(
+      `归还手动录单额度失败（额度可能偏紧，次日自动重置）：storeId=${storeId}, ` +
+        `error=${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }

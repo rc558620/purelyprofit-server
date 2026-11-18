@@ -40,7 +40,8 @@ export interface ScanOrderingEnrichment {
  * 3. 金额汇总以分转元输出，总优惠额由后端计算，前端只读展示。
  */
 export function buildScanOrderingEnrichment(
-  order: SaleOrderWithItems,
+  // 只读 items：列表（含操作员关联）与 CSV（精简 select）都能直接传入
+  order: Pick<SaleOrderWithItems, 'items'>,
   scan: ScanOrderingDetailSource,
 ): ScanOrderingEnrichment {
   const unitRows = buildScanOrderingUnitRows(scan.items);
@@ -148,7 +149,8 @@ export interface SpaceSessionSpecSource {
  * 因此规格行按行索引一一对应；长度不一致（防御性回退）时输出空规格。
  */
 export function buildSpaceSessionSpecsEnrichment(
-  order: SaleOrderWithItems,
+  // 只读 items：列表（含操作员关联）与 CSV（精简 select）都能直接传入
+  order: Pick<SaleOrderWithItems, 'items'>,
   session: SpaceSessionSpecSource,
 ): SalesRecordSpecsEnrichment {
   const sessionItems = session.sessionItems;

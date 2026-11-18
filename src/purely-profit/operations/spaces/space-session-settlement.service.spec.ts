@@ -163,11 +163,12 @@ describe('SpaceSessionSettlementService', () => {
 
     const result = await service.settleSession(user, params);
 
+    // 会话锁 TTL 必须大于结账事务上限 TX_TIMEOUT_LONG（30s），取 60s
     expect(redisClient.set).toHaveBeenCalledWith(
       'space:settlement:session:9',
       aUuid,
       'EX',
-      30,
+      60,
       'NX',
     );
     expect(salesRecordService.create).toHaveBeenCalledWith(

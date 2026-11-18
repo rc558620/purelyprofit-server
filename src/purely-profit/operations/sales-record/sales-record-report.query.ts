@@ -13,8 +13,13 @@ import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { SalesPeriodRange } from './sales-record.utils';
 
-/** 报表金额与按天商品聚合所需的最小订单字段集。 */
-const SALES_REPORT_ORDER_SELECT = {
+/**
+ * 报表金额与按天商品聚合所需的最小订单字段集。
+ *
+ * CSV 导出的 select 直接以它为基线（只补展示列），保证两条读路径的金额口径
+ * 依赖的字段不会分叉。
+ */
+export const SALES_REPORT_ORDER_SELECT = {
   id: true,
   date: true,
   scanOrderId: true,

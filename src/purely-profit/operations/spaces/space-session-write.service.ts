@@ -30,6 +30,7 @@ import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inv
 import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type { SpaceSessionItemDto } from './dto/space-session-items.request.dto';
+import { buildSpaceAddItemInventoryNote } from './spaces.constants';
 
 @Injectable()
 export class SpaceSessionWriteService {
@@ -193,16 +194,17 @@ export class SpaceSessionWriteService {
 
           // 如果有真实商品，执行库存扣减
           if (inventoryItems.length > 0) {
-            await applyInventoryDeductionsInTransaction(
+            await applyInventoryDeductionsInTransaction({
               transaction,
-              inventoryItems,
-              latestSession.storeId,
+              items: inventoryItems,
+              storeId: latestSession.storeId,
               operatorStaffId,
-              'sale',
-              // 备注携带会话 ID：结账时据此把流水回填销售单号，
-              // 交班库存列才能按「该笔销售后的库存」回溯
-              `空间管理追加点单（会话#${latestSession.id}）`,
-            );
+              adjustType: 'sale',
+              // 备注仅作人读文案；回填改走 relatedSpaceSessionId 等值定位，
+              // 文案改动不会再导致「钱已收、流水没挂单」
+              note: buildSpaceAddItemInventoryNote(latestSession.id),
+              relatedSpaceSessionId: latestSession.id,
+            });
           }
         }
 
@@ -250,40 +252,72 @@ export class SpaceSessionWriteService {
    * 只对数字型 productId（真实商品库商品）生效；`manual_` / `SYS_` 等虚拟行沿用前端传值。
    * 带规格的行定价失败一律抛错（不能静默丢弃规格）；无规格行若商品不可定价
    * （如已删除/已下架）则回退到前端传值，保持改造前的行为。
+   *
+   * 性能：加 N 行原本是 N 次 price()（每次都带三层嵌套规格查询），现改为
+   * 1 次批量取商品 + N 行纯内存计算，逐行异常语义与原来完全一致。
    */
   private async priceAppendedItems(
     storeId: number,
     items: SpaceSessionItemDto[],
   ): Promise<SessionItemPayloadInput[]> {
-    return Promise.all(
-      items.map(async (item): Promise<SessionItemPayloadInput> => {
-        const productId = Number.parseInt(item.productId.trim(), 10);
-        const hasSpecs = (item.specOptionIds?.length ?? 0) > 0;
+    const results: SessionItemPayloadInput[] = new Array(items.length);
+    const pending: Array<{
+      index: number;
+      productId: number;
+      item: SpaceSessionItemDto;
+      hasSpecs: boolean;
+    }> = [];
 
-        if (!Number.isInteger(productId) || productId <= 0) {
-          return { ...item, specSignature: null, specNames: null };
-        }
+    items.forEach((item, index) => {
+      const productId = Number.parseInt(item.productId.trim(), 10);
+      if (!Number.isInteger(productId) || productId <= 0) {
+        results[index] = { ...item, specSignature: null, specNames: null };
+        return;
+      }
 
-        try {
-          const priced = await this.specPricing.price({
-            storeId,
-            productId,
-            specOptionIds: item.specOptionIds,
-          });
-          return {
-            ...item,
-            // 展示名已含规格后缀（如「可乐（大杯）」），小票与明细直接可读
-            productName: priced.displayName,
-            salePrice: Money.fromDbCents(priced.unitPriceCents).toOutputYuan(),
-            profit: Money.fromDbCents(priced.profitCents).toOutputYuan(),
-            specSignature: priced.specSignature,
-            specNames: priced.specNames,
+      pending.push({
+        index,
+        productId,
+        item,
+        hasSpecs: (item.specOptionIds?.length ?? 0) > 0,
+      });
+    });
+
+    if (pending.length > 0) {
+      const outcomes = await this.specPricing.priceManySettled(
+        storeId,
+        pending.map((row) => ({
+          productId: row.productId,
+          specOptionIds: row.item.specOptionIds,
+        })),
+      );
+
+      pending.forEach((row, cursor) => {
+        const outcome = outcomes[cursor];
+        if (!outcome.ok) {
+          // 与逐行 price() + try/catch 的判定完全一致
+          if (row.hasSpecs) throw outcome.error;
+          results[row.index] = {
+            ...row.item,
+            specSignature: null,
+            specNames: null,
           };
-        } catch (error) {
-          if (hasSpecs) throw error;
-          return { ...item, specSignature: null, specNames: null };
+          return;
         }
-      }),
-    );
+
+        const priced = outcome.value;
+        results[row.index] = {
+          ...row.item,
+          // 展示名已含规格后缀（如「可乐（大杯）」），小票与明细直接可读
+          productName: priced.displayName,
+          salePrice: Money.fromDbCents(priced.unitPriceCents).toOutputYuan(),
+          profit: Money.fromDbCents(priced.profitCents).toOutputYuan(),
+          specSignature: priced.specSignature,
+          specNames: priced.specNames,
+        };
+      });
+    }
+
+    return results;
   }
 }

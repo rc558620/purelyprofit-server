@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,6 +17,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
@@ -113,13 +115,24 @@ export class SalesRecordController {
 
   @Post()
   @RequirePermissions('sales:create')
-  @ApiOperation({ summary: '新增销售记录' })
+  @ApiOperation({
+    summary: '新增销售记录',
+    description:
+      '可选携带 Idempotency-Key 头：同一 key 重复提交只会创建一单，' +
+      '重复请求按首次结果回放；同一 key 换了内容返回 409。',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: '建单幂等键（建议 UUID，至少 8 个字符）',
+  })
   @ApiCreatedResponse({ type: SalesRecordResponseDto })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ): Promise<SalesRecordResponseDto> {
-    return this.salesRecordService.create(user, dto);
+    return this.salesRecordService.create(user, dto, { idempotencyKey });
   }
 
   @Delete(':id')
@@ -200,15 +213,26 @@ export class SalesOrdersCompatController {
 
   @Post()
   @RequirePermissions('operation-entry:create')
-  @ApiOperation({ summary: '新增销售记录（purelyProfit 前端兼容）' })
+  @ApiOperation({
+    summary: '新增销售记录（purelyProfit 前端兼容）',
+    description:
+      '可选携带 Idempotency-Key 头：同一 key 重复提交只会创建一单，' +
+      '重复请求按首次结果回放；同一 key 换了内容返回 409。',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: '建单幂等键（建议 UUID，至少 8 个字符）',
+  })
   @ApiCreatedResponse({ type: SalesRecordResponseDto })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ): Promise<SalesRecordResponseDto> {
     return this.salesRecordService.create(user, dto, {
       skipAccessCheck: true,
-      assignToCurrentShiftOperator: true,
+      idempotencyKey,
     });
   }
 

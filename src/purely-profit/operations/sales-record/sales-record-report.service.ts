@@ -32,14 +32,16 @@ import {
 } from './sales-record-report-csv';
 import {
   resolveSalesRecordAmountsFromOrder,
-  type SaleOrderWithItems,
   type SalesRecordOrderAmounts,
 } from './sales-record.domain';
 import {
-  querySaleOrders,
   queryScanOrderingDetails,
   querySpaceSessionSpecDetails,
 } from './sales-record.query';
+import {
+  querySaleOrdersForCsv,
+  type SalesCsvOrder,
+} from './sales-record-export.query';
 import { queryReportOrders } from './sales-record-report.query';
 import {
   buildEmptySalesReport,
@@ -141,7 +143,7 @@ export class SalesRecordReportService {
 
     // 订单级金额统一口径（与列表 / CSV 导出完全一致）：
     // 台位费计入金额、团购券订单按券面 + 超时 + 点单计收。
-    // 已退款订单不计入（与列表卡片 +¥0、CSV 汇总、统计卡同口径）。
+    // 已退款订单不计入（金额映射层已把退款单归零，这里再过滤掉笔数与明细）。
     // 退款单不参与金额与明细聚合，先一次性收敛；否则后续金额计算与行聚合
     // 会对同一批退款单重复走一遍可见行展开 / 券面折损计算。
     const activeOrders = orders.filter((order) => !order.refund);
@@ -152,34 +154,23 @@ export class SalesRecordReportService {
         resolveSalesRecordAmountsFromOrder(order),
       );
     }
-    const orderAmounts = Array.from(amountsByOrderId.values());
-    const totalQuantity = orderAmounts.reduce(
+    // 汇总沿用 CSV 的同一份累加函数：营业额 / 利润 / 笔数 / 客单价
+    // 四个数必须由同一个函数产出，否则报表页与导出文件可能出现
+    // 「同周期两个客单价」（历史上就是笔数含退款、金额不含退款导致）。
+    const totals = accumulateSalesReportCsvSummary(activeOrders);
+    const totalQuantity = Array.from(amountsByOrderId.values()).reduce(
       (sum, amounts) => sum + amounts.totalQuantity,
-      0,
-    );
-    const totalRevenue = orderAmounts.reduce(
-      (sum, amounts) =>
-        Money.fromInputYuan(sum)
-          .add(Money.fromInputYuan(amounts.totalRevenue))
-          .toOutputYuan(),
       0,
     );
     // 商品明细沿用同一份订单级金额，保证明细营业额合计 = 汇总营业额
     const dailySales = aggregateReportRows(activeOrders, amountsByOrderId);
-    // orderCount 应为原始订单笔数，而非按 (日期+商品) 聚合后的行数
-    const orderCount = orders.length;
 
     return {
       summary: {
         totalQuantity,
-        totalRevenue,
-        orderCount,
-        avgOrderValue:
-          orderCount > 0
-            ? Money.fromInputYuan(totalRevenue)
-                .divide(orderCount)
-                .toOutputYuan()
-            : 0,
+        totalRevenue: totals.totalRevenue,
+        orderCount: totals.orderCount,
+        avgOrderValue: totals.avgOrderValue,
       },
       dailySales,
     };
@@ -228,7 +219,7 @@ export class SalesRecordReportService {
      * 「边查边写」。这里改成两趟 keyset 分批扫描：
      *   第一趟：分批取、累加营业额/利润/笔数，算完即弃；
      *   第二趟：按同样顺序分批取，边取边写响应。
-     * 两趟都走 querySaleOrders + resolveSalesRecordAmountsFromOrder，
+     * 两趟都走 querySaleOrdersForCsv + resolveSalesRecordAmountsFromOrder，
      * 与一次性导出的计算结果同源，导出内容逐字节一致。
      * 代价是多扫一遍（导出是低频操作），换来 O(批量) 而非 O(全量) 的常驻内存，
      * 避免大门店「导出全部」打爆堆内存。
@@ -242,7 +233,7 @@ export class SalesRecordReportService {
       let cursor: { id: number } | undefined;
       // 批次循环：取满一批就续游标，取不满说明已到末尾
       for (;;) {
-        const orders = await querySaleOrders(this.prisma, {
+        const orders = await querySaleOrdersForCsv(this.prisma, {
           storeId,
           range: { start: range.start, end: range.end },
           cursor,
@@ -280,7 +271,7 @@ export class SalesRecordReportService {
     let cursor: { id: number } | undefined;
 
     for (;;) {
-      const orders = await querySaleOrders(this.prisma, {
+      const orders = await querySaleOrdersForCsv(this.prisma, {
         storeId,
         range: { start: range.start, end: range.end },
         cursor,
@@ -326,7 +317,7 @@ export class SalesRecordReportService {
    * 未命中（无规格 / 数据缺失）时不写入 map，调用方按「无规格」渲染。
    */
   private async resolveSpecsRowsMap(
-    orders: SaleOrderWithItems[],
+    orders: SalesCsvOrder[],
   ): Promise<SalesReportSpecsRowsMap> {
     const specsRowsMap: SalesReportSpecsRowsMap = new Map();
     if (orders.length === 0) return specsRowsMap;

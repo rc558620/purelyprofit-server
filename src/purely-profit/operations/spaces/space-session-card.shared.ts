@@ -64,20 +64,6 @@ export interface MemberCardReserveResult {
   transactionId?: number;
 }
 
-/** 取消 / 失败补偿释放入参 */
-export interface ReleaseMemberCardParams {
-  sessionId: number;
-  /** 限定卡范围（跨卡核对时使用）；不传则释放该会话全部预扣 */
-  cardId?: number;
-  remark?: string;
-}
-
-/** 释放结果：实际释放的预扣条数与回加次数 */
-export interface MemberCardReleaseResult {
-  releasedTransactions: number;
-  restoredTimes: number;
-}
-
 /**
  * 卡状态 → 可直接展示的中文拦截原因（避免前端自拼枚举文案）。
  * 结账侧（space-session-checkout-card.shared）复用同一份文案，防止开台/结账两处漂移。
@@ -307,83 +293,9 @@ export async function reserveMemberCardTimes(
   };
 }
 
-/**
- * 取消 / 失败补偿：释放会话已预扣的次数。
- *
- * - 只处理 changeType=reserve 且 status=pending 的流水，天然幂等：
- *   先按 pending 条件置 cancelled（命中 0 行说明已被结账确认或已释放），再回加次数；
- * - 回加走 increment 原子更新，并在同一事务内追加 release 流水，保证「次数变化 = 流水之和」。
- *
- * 说明：开台预扣与建台在同一事务内完成，开台失败由数据库回滚兜底，
- * 本函数服务于「开台成功后取消 / 结账前作废」这类跨事务场景。
- */
-export async function releaseMemberCardReservation(
-  tx: Prisma.TransactionClient,
-  params: ReleaseMemberCardParams,
-): Promise<MemberCardReleaseResult> {
-  const pendingReservations = await tx.memberCardTransaction.findMany({
-    where: {
-      relatedSessionId: params.sessionId,
-      changeType: 'reserve',
-      status: 'pending',
-      ...(params.cardId === undefined ? {} : { cardId: params.cardId }),
-    },
-    select: {
-      id: true,
-      storeId: true,
-      cardId: true,
-      deltaTimes: true,
-      relatedSpaceNameSnapshot: true,
-    },
-  });
-
-  let releasedTransactions = 0;
-  let restoredTimes = 0;
-
-  for (const reservation of pendingReservations) {
-    const cancelled = await tx.memberCardTransaction.updateMany({
-      where: { id: reservation.id, status: 'pending' },
-      data: {
-        status: 'cancelled',
-        remark: params.remark ?? '开台取消释放预扣',
-      },
-    });
-    if (cancelled.count !== 1) {
-      continue;
-    }
-
-    releasedTransactions += 1;
-    const releaseTimes = Math.abs(reservation.deltaTimes);
-    if (releaseTimes === 0) {
-      continue;
-    }
-
-    const restored = await tx.memberCard.updateManyAndReturn({
-      where: { id: reservation.cardId },
-      data: { remainTimes: { increment: releaseTimes } },
-      select: { remainTimes: true },
-    });
-    const afterTimes = restored[0]?.remainTimes ?? null;
-
-    await tx.memberCardTransaction.create({
-      data: {
-        storeId: reservation.storeId,
-        cardId: reservation.cardId,
-        changeType: 'release',
-        status: 'done',
-        deltaTimes: releaseTimes,
-        beforeTimes: afterTimes === null ? null : afterTimes - releaseTimes,
-        afterTimes,
-        relatedSessionId: params.sessionId,
-        relatedSpaceNameSnapshot: reservation.relatedSpaceNameSnapshot,
-        operatorType: 'cashier',
-        remark: params.remark ?? '开台取消释放预扣',
-      },
-      select: { id: true },
-    });
-
-    restoredTimes += releaseTimes;
-  }
-
-  return { releasedTransactions, restoredTimes };
-}
+// 释放逻辑已拆到独立文件（控制单文件行数），此处保持对外导出路径不变。
+export {
+  releaseMemberCardReservation,
+  type MemberCardReleaseResult,
+  type ReleaseMemberCardParams,
+} from './space-session-card-release.shared';

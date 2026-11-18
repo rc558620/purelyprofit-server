@@ -1,4 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -9,11 +14,13 @@ import { Money } from '../../../shared/money.utils';
 import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-record.service';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
+import { SalesRecordIdempotencyService } from './sales-record-idempotency.service';
 import { SalesRecordWriteService } from './sales-record-write.service';
 import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 
 describe('SalesRecordWriteService', () => {
   let service: SalesRecordWriteService;
+  let idempotencyService: SalesRecordIdempotencyService;
 
   const transactionClient = {
     saleOrder: {
@@ -40,6 +47,12 @@ describe('SalesRecordWriteService', () => {
     },
     employeeShift: {
       findMany: jest.fn(),
+    },
+    idempotencyRecord: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -77,8 +90,6 @@ describe('SalesRecordWriteService', () => {
   // 默认「未过期」，不施加任何降级限制；需要验证拦截的用例自行覆盖
   const downgradeService = {
     assertAdditionalEnabled: jest.fn().mockResolvedValue(undefined),
-    assertManualEntryQuota: jest.fn().mockResolvedValue(0),
-    incrementManualEntryCount: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -177,10 +188,15 @@ describe('SalesRecordWriteService', () => {
           useValue: salesRecordCreateFlowService,
         },
         { provide: MembershipDowngradeService, useValue: downgradeService },
+        // 幂等服务用真实实现：它的分支（回放/占位/撞键/清理）就是被测逻辑
+        SalesRecordIdempotencyService,
       ],
     }).compile();
 
     service = module.get<SalesRecordWriteService>(SalesRecordWriteService);
+    idempotencyService = module.get<SalesRecordIdempotencyService>(
+      SalesRecordIdempotencyService,
+    );
     Object.assign(service as object, { logger });
   });
 
@@ -538,7 +554,6 @@ describe('SalesRecordWriteService', () => {
       },
       {
         skipAccessCheck: true,
-        assignToCurrentShiftOperator: true,
       },
     );
 
@@ -591,7 +606,6 @@ describe('SalesRecordWriteService', () => {
       },
       {
         skipAccessCheck: true,
-        assignToCurrentShiftOperator: true,
       },
     );
 
@@ -643,7 +657,6 @@ describe('SalesRecordWriteService', () => {
         },
         {
           skipAccessCheck: true,
-          assignToCurrentShiftOperator: true,
         },
       ),
     ).resolves.toEqual(response);
@@ -697,7 +710,6 @@ describe('SalesRecordWriteService', () => {
       },
       {
         skipAccessCheck: true,
-        assignToCurrentShiftOperator: true,
       },
     );
 
@@ -753,7 +765,6 @@ describe('SalesRecordWriteService', () => {
       },
       {
         skipAccessCheck: true,
-        assignToCurrentShiftOperator: true,
       },
     );
 
@@ -850,5 +861,175 @@ describe('SalesRecordWriteService', () => {
 
     expect(commerceAccessService.ensureCanAccessStore).not.toHaveBeenCalled();
     expect(prismaService.$transaction).not.toHaveBeenCalled();
+  });
+  /*
+   * 幂等键：解决「服务端已提交、客户端没收到响应 → 用户重试 → 多出一单」。
+   * 这里用真实 SalesRecordIdempotencyService，只把 Prisma 换成 mock，
+   * 覆盖「回放 / 同 key 换内容 / 占位 / 失败清理 / 并发撞键」五条分支。
+   */
+  describe('Idempotency-Key', () => {
+    const dto = {
+      storeId: 18,
+      items: [
+        {
+          productId: '201',
+          productName: '可口可乐 330ml',
+          categoryName: '饮品',
+          salePrice: 15.5,
+          profit: 4,
+          quantity: 2,
+        },
+      ],
+      paymentMethod: 'cash' as const,
+      calcMode: 'business' as const,
+    };
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: Money.fromInputYuan(15.5),
+        profit: Money.fromInputYuan(4),
+        quantity: 2,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const createdResponse = { id: '11', orderNo: '#20260514-004' };
+    const idempotencyKey = 'idem-0123456789';
+
+    beforeEach(() => {
+      commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+      commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+      salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+        preparedItems,
+      );
+      salesRecordCreateFlowService.createRecord.mockResolvedValue(
+        createdResponse,
+      );
+      prismaService.idempotencyRecord.create.mockResolvedValue({ id: 77 });
+      prismaService.idempotencyRecord.update.mockResolvedValue({});
+      prismaService.idempotencyRecord.delete.mockResolvedValue({});
+    });
+
+    it('同一 key 命中已成功记录时直接回放，不建单也不读商品目录', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'succeeded',
+        requestHash: idempotencyService.hashRequest({ storeId: 18, dto }),
+        responseSnapshot: createdResponse,
+      });
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).resolves.toEqual(createdResponse);
+
+      expect(
+        salesRecordItemPreparationService.prepareItems,
+      ).not.toHaveBeenCalled();
+      expect(salesRecordCreateFlowService.createRecord).not.toHaveBeenCalled();
+      expect(prismaService.idempotencyRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('同一 key 仍在处理中时返回 409，提示按同一 key 重试', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'processing',
+        requestHash: idempotencyService.hashRequest({ storeId: 18, dto }),
+        responseSnapshot: null,
+      });
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(salesRecordCreateFlowService.createRecord).not.toHaveBeenCalled();
+    });
+
+    it('同一 key 换了订单内容时返回 409，绝不回放别的订单', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'succeeded',
+        requestHash: 'another-request-hash',
+        responseSnapshot: createdResponse,
+      });
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('新 key 建单成功后回填幂等快照（关联销售单 ID）', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).resolves.toEqual(createdResponse);
+
+      expect(prismaService.idempotencyRecord.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'processing' }),
+        }),
+      );
+      expect(prismaService.idempotencyRecord.update).toHaveBeenCalledWith({
+        where: { id: 77 },
+        data: expect.objectContaining({
+          status: 'succeeded',
+          resourceType: 'sale_order',
+          resourceId: 11,
+        }),
+      });
+    });
+
+    it('建单失败时清理占位，同一 key 可以重试探底', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue(null);
+      salesRecordCreateFlowService.createRecord.mockRejectedValue(
+        new ConflictException('库存不足'),
+      );
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(prismaService.idempotencyRecord.delete).toHaveBeenCalledWith({
+        where: { id: 77 },
+      });
+      expect(prismaService.idempotencyRecord.update).not.toHaveBeenCalled();
+    });
+
+    it('并发双击撞唯一键时回读已有记录并回放', async () => {
+      prismaService.idempotencyRecord.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          status: 'succeeded',
+          requestHash: idempotencyService.hashRequest({ storeId: 18, dto }),
+          responseSnapshot: createdResponse,
+        });
+      prismaService.idempotencyRecord.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '7.8.0',
+        }),
+      );
+
+      await expect(
+        service.create(user, dto, { idempotencyKey }),
+      ).resolves.toEqual(createdResponse);
+
+      expect(salesRecordCreateFlowService.createRecord).not.toHaveBeenCalled();
+    });
+
+    it('未传 key 时保持原行为（不做任何幂等读写）', async () => {
+      await service.create(user, dto);
+
+      expect(prismaService.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+      expect(prismaService.idempotencyRecord.create).not.toHaveBeenCalled();
+      expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledTimes(
+        1,
+      );
+    });
+
+    it('幂等键过短时 400，不落占位记录', async () => {
+      await expect(
+        service.create(user, dto, { idempotencyKey: 'short' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prismaService.idempotencyRecord.create).not.toHaveBeenCalled();
+    });
   });
 });

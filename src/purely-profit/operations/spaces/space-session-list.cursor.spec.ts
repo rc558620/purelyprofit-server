@@ -4,6 +4,8 @@ import type { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import type { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import type { RefreshableCacheLoadOptions } from '../../../redis/refreshable-cache.types';
 import {
   decodeCursor,
   encodeCursor,
@@ -145,6 +147,12 @@ function buildService(dataset: FakeSessionRow[]) {
     }),
   } as unknown as ConfigService;
   const readState = {} as unknown as SpaceSessionReadStateService;
+  // 本用例只覆盖分页路径，缓存层直通 loadValue（不命中即回源）
+  const refreshableCache = {
+    getOrLoadRefreshableJson: jest.fn(
+      (options: RefreshableCacheLoadOptions<unknown>) => options.loadValue(),
+    ),
+  } as unknown as RefreshableCacheService;
 
   return {
     service: new SpaceSessionReadService(
@@ -152,6 +160,7 @@ function buildService(dataset: FakeSessionRow[]) {
       commerceAccess,
       configService,
       readState,
+      refreshableCache,
     ),
     spaceSession,
   };

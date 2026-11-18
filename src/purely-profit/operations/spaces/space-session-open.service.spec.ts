@@ -178,6 +178,11 @@ describe('SpaceSessionOpenService', () => {
       type: { name: '台球桌' },
     });
     prismaService.spaceSession.findFirst.mockResolvedValue(null);
+    // 行锁内会复检空间软删状态，未删除时必须返回 deletedAt: null
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      deletedAt: null,
+    });
     transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceSession.create.mockResolvedValue({
       id: 9,
@@ -407,6 +412,32 @@ describe('SpaceSessionOpenService', () => {
         }),
       }),
     );
+  });
+
+  it('开台时若锁内发现空间已被软删应阻止继续开台', async () => {
+    // 事务外预检时空间还在，拿到行锁后已被删除事务提交：必须复检 deletedAt
+    prismaService.space.findFirst.mockResolvedValue({
+      id: 7,
+      storeId: 18,
+      capacity: 4,
+      status: 'idle',
+      type: { name: '台球桌' },
+    });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'idle',
+      deletedAt: new Date('2026-06-07T10:00:00.000Z'),
+    });
+    transaction.spaceSession.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.openSession(user, 7, {
+        billingMode: 'timed',
+        hourlyRate: 68,
+      }),
+    ).rejects.toThrow('空间不存在或已删除');
+
+    expect(transaction.spaceSession.create).not.toHaveBeenCalled();
   });
 
   it('开台时若锁内发现目标空间已被占用应阻止继续开台', async () => {

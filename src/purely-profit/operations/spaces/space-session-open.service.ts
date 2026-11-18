@@ -185,6 +185,17 @@ export class SpaceSessionOpenService {
         FOR UPDATE
       `;
 
+        // 行锁拿到后必须复检软删状态：事务外的 deletedAt 预检与「删除空间」事务
+        // 之间存在 TOCTOU 窗口，删除先提交时这里仍会把会话写进已删除空间，
+        // 而列表/结账会按 deletedAt 过滤掉该空间，造成不可见的脏会话。
+        const lockedSpace = await transaction.space.findUnique({
+          where: { id: space.id },
+          select: { deletedAt: true },
+        });
+        if (!lockedSpace || lockedSpace.deletedAt) {
+          throw new NotFoundException('空间不存在或已删除');
+        }
+
         // Space.status 已移除，改为检查是否有 active session（双重检查）
         const activeSession = await transaction.spaceSession.findFirst({
           where: {

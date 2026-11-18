@@ -36,6 +36,8 @@ describe('space-session-card.shared', () => {
       create: jest.fn(),
       findMany: jest.fn(),
       updateMany: jest.fn(),
+      updateManyAndReturn: jest.fn(),
+      createMany: jest.fn(),
     },
   };
 
@@ -287,35 +289,51 @@ describe('space-session-card.shared', () => {
   });
 
   describe('releaseMemberCardReservation', () => {
+    const reservationRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 501,
+      storeId: 18,
+      cardId: 36,
+      deltaTimes: -2,
+      relatedSpaceNameSnapshot: 'A01',
+      ...overrides,
+    });
+
     it('把 pending 预扣置 cancelled 并回加次数、追加 release 流水', async () => {
-      mocks.memberCardTransaction.findMany.mockResolvedValue([
-        {
-          id: 501,
-          storeId: 18,
-          cardId: 36,
-          deltaTimes: -2,
-          relatedSpaceNameSnapshot: 'A01',
-        },
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([
+        reservationRow(),
       ]);
-      mocks.memberCardTransaction.updateMany.mockResolvedValue({ count: 1 });
       mocks.memberCard.updateManyAndReturn.mockResolvedValue([
         { remainTimes: 5 },
       ]);
 
       const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
 
-      expect(mocks.memberCardTransaction.updateMany).toHaveBeenCalledWith({
-        where: { id: 501, status: 'pending' },
+      // 1 条 UPDATE ... RETURNING 同时完成「幂等抢占」与「取回被释放的行」
+      expect(
+        mocks.memberCardTransaction.updateManyAndReturn,
+      ).toHaveBeenCalledWith({
+        where: {
+          relatedSessionId: 9,
+          changeType: 'reserve',
+          status: 'pending',
+        },
         data: { status: 'cancelled', remark: '开台取消释放预扣' },
+        select: {
+          id: true,
+          storeId: true,
+          cardId: true,
+          deltaTimes: true,
+          relatedSpaceNameSnapshot: true,
+        },
       });
       expect(mocks.memberCard.updateManyAndReturn).toHaveBeenCalledWith({
         where: { id: 36 },
         data: { remainTimes: { increment: 2 } },
         select: { remainTimes: true },
       });
-      expect(mocks.memberCardTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
+      expect(mocks.memberCardTransaction.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
             changeType: 'release',
             status: 'done',
             deltaTimes: 2,
@@ -323,27 +341,126 @@ describe('space-session-card.shared', () => {
             afterTimes: 5,
             relatedSessionId: 9,
           }),
-        }),
-      );
+        ],
+      });
       expect(result).toEqual({ releasedTransactions: 1, restoredTimes: 2 });
     });
 
-    it('预扣已被结账确认（条件更新命中 0 行）时幂等跳过，不回加次数', async () => {
-      mocks.memberCardTransaction.findMany.mockResolvedValue([
-        {
-          id: 501,
-          storeId: 18,
-          cardId: 36,
-          deltaTimes: -2,
-          relatedSpaceNameSnapshot: 'A01',
-        },
+    it('同一张卡多条预扣同时释放：只回加一次，流水前后值逐条递增', async () => {
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([
+        reservationRow({ id: 501, deltaTimes: -1 }),
+        reservationRow({ id: 502, deltaTimes: -2 }),
+        reservationRow({ id: 503, deltaTimes: -1 }),
       ]);
-      mocks.memberCardTransaction.updateMany.mockResolvedValue({ count: 0 });
+      // 回加 4 次后的最终余次
+      mocks.memberCard.updateManyAndReturn.mockResolvedValue([
+        { remainTimes: 10 },
+      ]);
+
+      const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
+
+      // 同一张卡只发一次 increment
+      expect(mocks.memberCard.updateManyAndReturn).toHaveBeenCalledTimes(1);
+      expect(mocks.memberCard.updateManyAndReturn).toHaveBeenCalledWith({
+        where: { id: 36 },
+        data: { remainTimes: { increment: 4 } },
+        select: { remainTimes: true },
+      });
+
+      const rows = mocks.memberCardTransaction.createMany.mock.calls[0][0]
+        .data as Array<{
+        deltaTimes: number;
+        beforeTimes: number | null;
+        afterTimes: number | null;
+      }>;
+      // 插入顺序与预扣顺序一致，前后值逐条衔接
+      expect(rows.map((row) => row.deltaTimes)).toEqual([1, 2, 1]);
+      expect(rows.map((row) => row.afterTimes)).toEqual([7, 9, 10]);
+      expect(rows.map((row) => row.beforeTimes)).toEqual([6, 7, 9]);
+      expect(result).toEqual({ releasedTransactions: 3, restoredTimes: 4 });
+    });
+
+    it('多张卡同时释放：每张卡各回加一次，互不串值', async () => {
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([
+        reservationRow({ id: 501, cardId: 36, deltaTimes: -2 }),
+        reservationRow({ id: 502, cardId: 37, deltaTimes: -1 }),
+        reservationRow({ id: 503, cardId: 36, deltaTimes: -3 }),
+      ]);
+      mocks.memberCard.updateManyAndReturn.mockImplementation(
+        ({ where }: { where: { id: number } }) =>
+          Promise.resolve([{ remainTimes: where.id === 36 ? 6 : 8 }]),
+      );
+
+      const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
+
+      expect(mocks.memberCard.updateManyAndReturn).toHaveBeenCalledTimes(2);
+
+      const rows = mocks.memberCardTransaction.createMany.mock.calls[0][0]
+        .data as Array<{
+        cardId: number;
+        beforeTimes: number | null;
+        afterTimes: number | null;
+      }>;
+      expect(rows.map((row) => row.cardId)).toEqual([36, 37, 36]);
+      // 卡 36：-2 落在 1→3，-3 落在 3→6；卡 37：-1 落在 7→8
+      expect(rows.map((row) => row.afterTimes)).toEqual([3, 8, 6]);
+      expect(rows.map((row) => row.beforeTimes)).toEqual([1, 7, 3]);
+      expect(result).toEqual({ releasedTransactions: 3, restoredTimes: 6 });
+    });
+
+    it('部分预扣已被结账确认（RETURNING 只回本次抢到的行）时只释放剩余部分', async () => {
+      // 两条 pending，其中一条已被结账确认 → 只有 1 条被本次置为 cancelled
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([
+        reservationRow({ id: 503, deltaTimes: -1 }),
+      ]);
+      mocks.memberCard.updateManyAndReturn.mockResolvedValue([
+        { remainTimes: 4 },
+      ]);
+
+      const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
+
+      expect(mocks.memberCard.updateManyAndReturn).toHaveBeenCalledWith({
+        where: { id: 36 },
+        data: { remainTimes: { increment: 1 } },
+        select: { remainTimes: true },
+      });
+      expect(result).toEqual({ releasedTransactions: 1, restoredTimes: 1 });
+    });
+
+    it('并发重复释放：RETURNING 为空集时幂等短路，不回加也不写流水', async () => {
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([]);
 
       const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
 
       expect(mocks.memberCard.updateManyAndReturn).not.toHaveBeenCalled();
+      expect(mocks.memberCardTransaction.createMany).not.toHaveBeenCalled();
       expect(result).toEqual({ releasedTransactions: 0, restoredTimes: 0 });
+    });
+
+    it('deltaTimes 为 0 的预扣只置 cancelled，不回加也不写流水', async () => {
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([
+        reservationRow({ deltaTimes: 0 }),
+      ]);
+
+      const result = await releaseMemberCardReservation(tx, { sessionId: 9 });
+
+      expect(mocks.memberCard.updateManyAndReturn).not.toHaveBeenCalled();
+      expect(mocks.memberCardTransaction.createMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ releasedTransactions: 1, restoredTimes: 0 });
+    });
+
+    it('限定 cardId 时把卡范围带进 UPDATE 条件', async () => {
+      mocks.memberCardTransaction.updateManyAndReturn.mockResolvedValue([]);
+
+      await releaseMemberCardReservation(tx, { sessionId: 9, cardId: 36 });
+
+      expect(
+        mocks.memberCardTransaction.updateManyAndReturn,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cardId: 36 }),
+        }),
+      );
     });
   });
 });

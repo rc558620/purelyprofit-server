@@ -4,10 +4,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  SpaceBillingMode as PrismaSpaceBillingMode,
-  SpaceSessionStatus as PrismaSpaceSessionStatus,
-} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -24,6 +20,7 @@ import {
 import { resolveSettlementChannelFromPlatformForRenew } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import {
+  findDueAutoCheckoutSessionIds,
   findStoresWithPendingAutoCheckoutSessions,
   loadVoucherFactsByCode,
 } from './space-session-auto-checkout.query';
@@ -33,12 +30,15 @@ import {
   createAutoCheckoutSystemUser,
   resolveAutoCheckoutAt,
 } from './space-session-auto-checkout.shared';
+import {
+  AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS,
+  buildAutoCheckoutStoreLockResource,
+  claimAutoCheckoutSession,
+  releaseAutoCheckoutSessionClaim,
+} from './space-session-auto-checkout-claim.shared';
 
 // Re-export for external consumers (handover.service, settlement.service)
 export { createAutoCheckoutSystemUser } from './space-session-auto-checkout.shared';
-
-/** 自动结账分布式锁 TTL（秒）：处理单门店所有超时会话的最长耗时 */
-const AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS = 30;
 
 /**
  * 调度按门店并发上限：每个门店各自持有独立分布式锁，门店间无写冲突；
@@ -116,7 +116,7 @@ export class SpaceSessionAutoCheckoutService {
   ): Promise<number> {
     // 分布式锁：防止多 worker 并发对同一门店执行自动结账
     const lock = await this.redisLockService.acquireLock(
-      `space:auto-checkout:store:${storeId}`,
+      buildAutoCheckoutStoreLockResource(storeId),
       {
         ttlSeconds: AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS,
       },
@@ -137,20 +137,21 @@ export class SpaceSessionAutoCheckoutService {
     }
 
     try {
+      // 先在 DB 侧精确筛出「已到期」的会话 ID（start_time + countdown_minutes <= now），
+      // 只对这些会话读取商品与续费明细：避免每 60s 把全店倒计时会话连同
+      // sessionItems / renewRecords 两个子表一起捞回内存再逐条算到期。
+      // 单轮上限 AUTO_CHECKOUT_SESSION_BATCH_SIZE，超出部分留给下一轮，避免长时间持锁。
+      const dueSessionIds = await findDueAutoCheckoutSessionIds(
+        this.prisma,
+        storeId,
+        now,
+      );
+      if (dueSessionIds.length === 0) {
+        return 0;
+      }
+
       const sessions = await this.prisma.spaceSession.findMany({
-        where: {
-          storeId,
-          status: PrismaSpaceSessionStatus.active,
-          endTime: null,
-          billingMode: PrismaSpaceBillingMode.countdown,
-          autoCheckout: true,
-          // 到期时间 = startTime + countdownMinutes（见 resolveAutoCheckoutAt）：
-          // 两者都是表字段，故「startTime < now 且 countdownMinutes > 0」
-          // 是可下推的必要非充分条件，先在 SQL 侧裁掉未到期会话，
-          // 避免每 60s 把全店倒计时会话连同两个子表一起捞回内存。
-          startTime: { lt: new Date(now) },
-          countdownMinutes: { gt: 0 },
-        },
+        where: { id: { in: dueSessionIds } },
         include: {
           space: {
             select: {
@@ -184,6 +185,7 @@ export class SpaceSessionAutoCheckoutService {
       let settledCount = 0;
       let failedCount = 0;
       let skippedNoPaymentCount = 0;
+      let skippedClaimedCount = 0;
       for (const session of sessions) {
         const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
         // BUG-1/2 fix: hasPrepaid 同时考虑开台预付与续费记录，
@@ -275,6 +277,24 @@ export class SpaceSessionAutoCheckoutService {
           }
         }
 
+        // 会话认领：门店锁只锁门店，认领标记再锁住「同一会话」；拿不到即跳过
+        const claimLock = await claimAutoCheckoutSession(
+          this.redisLockService,
+          session.id,
+        );
+        if (!claimLock) {
+          skippedClaimedCount += 1;
+          const claimLog = buildAutoCheckoutLogContext({
+            trigger,
+            storeId,
+            sessionId: session.id,
+            reason: 'SessionClaimed',
+            requestId,
+          });
+          this.logger.warn(`[space-auto-checkout] skipped_claimed ${claimLog}`);
+          continue;
+        }
+
         try {
           // BUG-1/2 fix: 自动结账支付方式与元数据来自 session.prepaid*（开台预付）
           // 或续费记录回退，不再依赖续费回写的 session.prepaid*
@@ -332,10 +352,21 @@ export class SpaceSessionAutoCheckoutService {
             error instanceof Error ? error.stack : undefined,
           );
           continue;
+        } finally {
+          // 认领必须立即释放（含 settleSession 抛异常路径），否则该会话在 TTL 内被整段跳过
+          await releaseAutoCheckoutSessionClaim(
+            this.redisLockService,
+            claimLock,
+          );
         }
       }
 
-      if (settledCount > 0 || failedCount > 0 || skippedNoPaymentCount > 0) {
+      if (
+        settledCount > 0 ||
+        failedCount > 0 ||
+        skippedNoPaymentCount > 0 ||
+        skippedClaimedCount > 0
+      ) {
         this.logger.log(
           `[space-auto-checkout] completed ${buildAutoCheckoutLogContext({
             trigger,
@@ -343,6 +374,7 @@ export class SpaceSessionAutoCheckoutService {
             count: settledCount,
             failedCount,
             skippedNoPaymentCount,
+            skippedClaimedCount,
             requestId,
           })}`,
         );

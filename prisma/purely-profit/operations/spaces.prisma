@@ -172,6 +172,9 @@ model SpaceSession {
   @@index([storeId, status, startTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, status, endTime(sort: Desc), id(sort: Desc)])
   @@index([storeId, guestPhone])
+  /// 空间维度手机号前缀匹配：[storeId, guestPhone] 以 storeId 前导，空间维度用不上。
+  /// 详见迁移 20261118110000_add_space_sessions_search_indexes。
+  @@index([spaceId, guestPhone], map: "idx_space_sessions_space_phone")
   /// 开台识别会员后按门店 + 顾客回查在用场次（会员资产占用校验）
   @@index([storeId, customerId])
   /// 结账 / 取消时按卡回查在用场次

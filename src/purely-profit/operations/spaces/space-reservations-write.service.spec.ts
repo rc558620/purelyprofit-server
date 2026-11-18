@@ -107,6 +107,34 @@ describe('SpaceReservationsWriteService', () => {
     );
   });
 
+  it('createSpaceReservation 锁内发现空间已软删时拒绝创建', async () => {
+    const now = Date.now();
+    prismaService.space.findFirst.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      capacity: 4,
+    });
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
+    transaction.space.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      capacity: 4,
+      deletedAt: new Date(now),
+    });
+
+    await expect(
+      service.createSpaceReservation(user, 11, {
+        guestName: '张三',
+        phone: '13800138000',
+        reservedAt: now + 30 * 60 * 1000,
+        reservedEndAt: now + 90 * 60 * 1000,
+        guestCount: 2,
+      }),
+    ).rejects.toThrow('空间不存在或已删除');
+
+    expect(transaction.spaceReservation.create).not.toHaveBeenCalled();
+  });
+
   it('createSpaceReservation 会在锁内重算时间冲突后再创建', async () => {
     const now = Date.now();
     prismaService.space.findFirst.mockResolvedValue({

@@ -262,6 +262,66 @@ describe('SalesRecordListService', () => {
     expect(prismaService.saleOrder.count).toHaveBeenCalled();
   });
 
+  /*
+   * 回归用：退款单的营业额 / 利润 / 实付必须由**后端**归零。
+   * 列表卡片、打印页、CSV 明细都直接展示这三个字段，任一出口漏判 `refundedAt`
+   * 就会出现「汇总已排除退款单、明细仍显示原额」的自相矛盾。
+   */
+  it('list 对已退款订单把营业额 / 利润 / 实付归零', async () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T10:10:00.000Z');
+    const refundedAt = new Date('2026-05-14T11:00:00.000Z');
+
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 13,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-003',
+        totalRevenue: new Prisma.Decimal('3700'),
+        totalProfit: new Prisma.Decimal('1040'),
+        totalQuantity: 2,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        note: null,
+        date: saleDate,
+        createdAt,
+        updatedAt: createdAt,
+        refund: { refundedAt },
+        items: [
+          {
+            id: 104,
+            orderId: 13,
+            storeId: 18,
+            productId: null,
+            productName: '已退柠檬茶',
+            categoryName: '饮品',
+            salePrice: new Prisma.Decimal('1850'),
+            profit: new Prisma.Decimal('520'),
+            quantity: 2,
+            image: null,
+            createdAt,
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.list(user, { storeId: 18, period: 'all' });
+
+    expect(result.items[0]).toMatchObject({
+      totalRevenue: 0,
+      totalProfit: 0,
+      payableAmount: 0,
+      refundedAt: refundedAt.getTime(),
+      // 已退款订单不再拆收款来源
+      paymentEvents: [],
+    });
+    // 件数保留真实销量：退款状态由 refundedAt 单独表达，不靠件数归零
+    expect(result.items[0].totalQuantity).toBe(2);
+  });
+
   it('list 对扫码点餐订单返回增强字段（balance 支付 + 规格 + 金额汇总）', async () => {
     const saleDate = new Date('2026-05-14T10:00:00.000Z');
     const createdAt = new Date('2026-05-14T10:10:00.000Z');

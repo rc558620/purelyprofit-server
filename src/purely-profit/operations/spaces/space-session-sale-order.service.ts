@@ -112,8 +112,7 @@ export class SpaceSessionSaleOrderService {
       skipInventoryValidationAndDeduction: true,
       // 结账权限已在 checkout service 层以 operation-entry:create 完成验证，无需再检查 sales:create。
       skipAccessCheck: true,
-      // 主账号/店长代客结账时，应优先归属到当前待交班班次员工，避免逾期未交班后账目落到下一班。
-      assignToCurrentShiftOperator: true,
+      // 操作员归属：始终记为实际操作账号（见 resolveOperatorStaffId），不再支持「归属待交班员工」。
       // 会话中的商品价格可能与当前目录价格不一致（如开台后调价），应使用会话记录的价格。
       preserveCallerPrices: true,
       transactionClient: params.transaction,

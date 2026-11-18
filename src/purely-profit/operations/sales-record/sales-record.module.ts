@@ -9,6 +9,7 @@ import {
   SalesRecordController,
 } from './sales-record.controller';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
+import { SalesRecordIdempotencyService } from './sales-record-idempotency.service';
 import { SalesRecordRefundService } from './sales-record-refund.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 import { SalesRecordListService } from './sales-record-list.service';
@@ -31,6 +32,7 @@ import { SalesRecordWriteService } from './sales-record-write.service';
   controllers: [SalesRecordController, SalesOrdersCompatController],
   providers: [
     SalesRecordItemPreparationService,
+    SalesRecordIdempotencyService,
     SalesRecordCreateFlowService,
     SalesRecordRefundService,
     SalesRecordPreviewService,

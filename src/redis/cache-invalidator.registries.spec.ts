@@ -7,7 +7,9 @@ import {
   buildMembersListPattern,
   buildMarketingOverviewCacheKey,
   buildProfitDashboardHomePattern,
+  buildSpaceQrImagePattern,
   buildSpacesDashboardPattern,
+  buildSpacesDashboardStatsCacheKey,
   buildSpacesListPattern,
 } from './cache-keys';
 import {
@@ -56,6 +58,7 @@ describe('cache invalidator registries', () => {
       'invalidateProfitDashboardHome',
       'invalidateProfitDetail',
       'invalidateSalesReadCaches',
+      'invalidateSpaceQrImageCache',
       'invalidateSpacesReadCaches',
     ]);
 
@@ -63,6 +66,7 @@ describe('cache invalidator registries', () => {
     await registry.invalidateBusinessAnalysis(18);
     await registry.invalidateMarketingOverview(18);
     await registry.invalidateSpacesReadCaches(18);
+    await registry.invalidateSpaceQrImageCache(7);
 
     expect(redisService.delByPatterns).toHaveBeenCalledWith(
       expect.arrayContaining([buildProfitDashboardHomePattern(18)]),
@@ -76,8 +80,16 @@ describe('cache invalidator registries', () => {
     expect(redisService.delByPattern).toHaveBeenCalledWith(
       buildSpacesListPattern(18),
     );
+    // 二维码图片产物按空间维度失效，不能退化成门店维度（会误删同店其他空间）
+    expect(redisService.delByPattern).toHaveBeenCalledWith(
+      buildSpaceQrImagePattern(7),
+    );
     expect(redisService.del).toHaveBeenCalledWith(
       buildMarketingOverviewCacheKey(18),
+    );
+    // 看板统计轻量缓存独立分键，写路径必须精确失效（不能只删主看板）
+    expect(redisService.del).toHaveBeenCalledWith(
+      buildSpacesDashboardStatsCacheKey(18),
     );
   });
 

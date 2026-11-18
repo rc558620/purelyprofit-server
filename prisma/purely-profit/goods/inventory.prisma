@@ -4,6 +4,10 @@ model InventoryAdjustmentLog {
   productId       Int                 @map("product_id")
   purchaseOrderId Int?                @map("purchase_order_id")
   saleOrderId     Int?                @map("sale_order_id")
+  /// 结账回填的稳定业务键：空间追加点单扣库存时销售单尚未创建，
+  /// 先落会话 ID，结账按本列等值回填 saleOrderId。
+  /// 历史上回填依赖 note 字符串拼接会话号，改文案会静默漏回填。
+  relatedSpaceSessionId Int?          @map("related_space_session_id")
   operatorStaffId Int?                @map("operator_staff_id")
   productName     String              @map("product_name")
   beforeStock     Int                 @map("before_stock")
@@ -27,6 +31,8 @@ model InventoryAdjustmentLog {
   @@index([purchaseOrderId, createdAt])
   @@index([saleOrderId, createdAt])
   @@index([operatorStaffId, createdAt])
+  // 结账回填只查「尚未回填」的流水，partial index 避免索引覆盖全表
+  @@index([relatedSpaceSessionId], where: raw("(sale_order_id IS NULL)"), map: "idx_inventory_adjustment_logs_pending_space_session")
   @@map("inventory_adjustment_logs")
 }
 

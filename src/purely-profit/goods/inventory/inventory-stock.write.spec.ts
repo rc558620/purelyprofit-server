@@ -247,9 +247,10 @@ describe('inventory-stock.write', () => {
    * 并把多条流水合并为一次 createMany。
    */
   it('recordInventoryRestock 会批量补货并一次性写入补货日志', async () => {
-    const { transaction, productFindMany, executeRaw, logCreateMany } =
+    const { transaction, queryRaw, executeRaw, logCreateMany } =
       createTransaction();
-    productFindMany.mockResolvedValue([
+    // 库存写路径先按 productId 升序加行锁再读库存（避免并发超卖）
+    queryRaw.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
       { id: 102, name: '雪碧', stock: 5 },
     ]);
@@ -264,8 +265,8 @@ describe('inventory-stock.write', () => {
       ],
     });
 
-    /* 无论商品几条，商品行与冻结量各只查一次 */
-    expect(productFindMany).toHaveBeenCalledTimes(1);
+    /* 无论商品几条，加锁读商品行与冻结量各只查一次 */
+    expect(queryRaw).toHaveBeenCalledTimes(1);
 
     /* D2 修复：restock 使用原子 increment 而非绝对赋值；多个商品合并为一条批量 UPDATE */
     expect(executeRaw).toHaveBeenCalledTimes(1);
@@ -288,6 +289,7 @@ describe('inventory-stock.write', () => {
           note: null,
           purchaseOrderId: 88,
           saleOrderId: null,
+          relatedSpaceSessionId: null,
         },
         {
           storeId: 18,
@@ -301,15 +303,16 @@ describe('inventory-stock.write', () => {
           note: null,
           purchaseOrderId: 88,
           saleOrderId: null,
+          relatedSpaceSessionId: null,
         },
       ],
     });
   });
 
   it('recordInventorySaleDeduction 会扣减库存并补充销售日志字段', async () => {
-    const { transaction, productFindMany, productUpdate, logCreateMany } =
+    const { transaction, queryRaw, productUpdate, logCreateMany } =
       createTransaction();
-    productFindMany.mockResolvedValue([
+    queryRaw.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
     ]);
 
@@ -339,6 +342,7 @@ describe('inventory-stock.write', () => {
           note: '销售扣减',
           purchaseOrderId: null,
           saleOrderId: 66,
+          relatedSpaceSessionId: null,
         },
       ],
     });
@@ -346,9 +350,9 @@ describe('inventory-stock.write', () => {
 
   /** 商品被软删 / 跨门店时，进货与销售主链路跳过而非整单失败 */
   it('recordInventorySaleDeduction 会跳过不存在的商品', async () => {
-    const { transaction, productFindMany, productUpdate, logCreateMany } =
+    const { transaction, queryRaw, productUpdate, logCreateMany } =
       createTransaction();
-    productFindMany.mockResolvedValue([
+    queryRaw.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
     ]);
 
@@ -409,18 +413,13 @@ describe('inventory-stock.write', () => {
   });
 
   it('revertInventoryPurchaseRestock 会反向扣减库存并删除入库日志', async () => {
-    const {
-      transaction,
-      productFindMany,
-      executeRaw,
-      logFindMany,
-      logDeleteMany,
-    } = createTransaction();
+    const { transaction, queryRaw, executeRaw, logFindMany, logDeleteMany } =
+      createTransaction();
     logFindMany.mockResolvedValue([
       { productId: 101, delta: 6 },
       { productId: 102, delta: 3 },
     ]);
-    productFindMany.mockResolvedValue([
+    queryRaw.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
       { id: 102, name: '雪碧', stock: 5 },
     ]);
@@ -449,13 +448,8 @@ describe('inventory-stock.write', () => {
   });
 
   it('revertInventoryPurchaseRestock 在无日志时不做任何库存变更（幂等）', async () => {
-    const {
-      transaction,
-      productFindMany,
-      productUpdate,
-      logFindMany,
-      logDeleteMany,
-    } = createTransaction();
+    const { transaction, queryRaw, productUpdate, logFindMany, logDeleteMany } =
+      createTransaction();
     logFindMany.mockResolvedValue([]);
 
     await revertInventoryPurchaseRestock(transaction, {
@@ -463,19 +457,17 @@ describe('inventory-stock.write', () => {
       purchaseOrderId: 77,
     });
 
-    expect(productFindMany).not.toHaveBeenCalled();
+    expect(queryRaw).not.toHaveBeenCalled();
     expect(productUpdate).not.toHaveBeenCalled();
     expect(logDeleteMany).not.toHaveBeenCalled();
   });
 
   it('revertInventoryPurchaseRestock 在库存不足时只回滚可用库存，不产生负库存', async () => {
-    const { transaction, productFindMany, productUpdate, logFindMany } =
+    const { transaction, queryRaw, productUpdate, logFindMany } =
       createTransaction();
     logFindMany.mockResolvedValue([{ productId: 101, delta: 6 }]);
     // 物理库存 4（其中 3 为客存冻结），可回滚量仅 1
-    productFindMany.mockResolvedValue([
-      { id: 101, name: '可口可乐 330ml', stock: 4 },
-    ]);
+    queryRaw.mockResolvedValue([{ id: 101, name: '可口可乐 330ml', stock: 4 }]);
     (
       transaction as unknown as { custodyOrder: { groupBy: jest.Mock } }
     ).custodyOrder.groupBy.mockResolvedValue([
@@ -491,5 +483,59 @@ describe('inventory-stock.write', () => {
       where: { id: 101 },
       data: { stock: { increment: -1 } },
     });
+  });
+
+  /*
+   * 回归用：并发卖最后一件库存时，第二个事务必须拿到业务层的「库存不足」，
+   * 而不是把 stock 扣成负数去撞 chk_products_stock_gte_0（数据库错误 → 500）。
+   * 加锁读是这条保证的前提：读到的是前一个事务提交后的最新库存。
+   */
+  it('加锁后读到的最新库存不足时抛业务异常，不写负库存', async () => {
+    const { transaction, queryRaw, productUpdate, logCreateMany } =
+      createTransaction();
+
+    // 订单 1：抢到最后一件
+    queryRaw.mockResolvedValue([{ id: 101, name: '可口可乐 330ml', stock: 1 }]);
+    await recordInventorySaleDeduction(transaction, {
+      storeId: 18,
+      saleOrderId: 66,
+      operatorStaffId: 8,
+      items: [{ productId: 101, quantity: 1 }],
+    });
+
+    // 订单 2：拿到锁后读到 stock = 0
+    queryRaw.mockResolvedValue([{ id: 101, name: '可口可乐 330ml', stock: 0 }]);
+    await expect(
+      recordInventorySaleDeduction(transaction, {
+        storeId: 18,
+        saleOrderId: 67,
+        operatorStaffId: 8,
+        items: [{ productId: 101, quantity: 1 }],
+      }),
+    ).rejects.toThrow(/库存不足/);
+
+    // 只有第一单真正扣减并写了流水
+    expect(productUpdate).toHaveBeenCalledTimes(1);
+    expect(logCreateMany).toHaveBeenCalledTimes(1);
+  });
+
+  /* 回归用：多商品扣减必须按 id 升序加锁，否则相反顺序的订单会互相等锁形成死锁 */
+  it('加锁读按 id 升序并带 FOR UPDATE', async () => {
+    const { transaction, queryRaw } = createTransaction();
+    queryRaw.mockResolvedValue([
+      { id: 101, name: '可口可乐 330ml', stock: 10 },
+    ]);
+
+    await recordInventorySaleDeduction(transaction, {
+      storeId: 18,
+      saleOrderId: 66,
+      operatorStaffId: 8,
+      items: [{ productId: 101, quantity: 1 }],
+    });
+
+    const [strings] = queryRaw.mock.calls[0] as [TemplateStringsArray];
+    const sqlText = strings.join('?');
+    expect(sqlText).toContain('ORDER BY');
+    expect(sqlText).toContain('FOR UPDATE');
   });
 });

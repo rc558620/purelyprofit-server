@@ -11,6 +11,7 @@ import {
   encryptSpaceQrToken,
   hashSpaceQrToken,
 } from '../../../shared/space-qr-token-codec.utils';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { SpaceQrCodeService } from './space-qr-code.service';
 
 jest.mock('qrcode', () => ({
@@ -45,6 +46,13 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
     },
   };
   const commerceAccessService = { ensureCanAccessStore: jest.fn() };
+  // 缓存 mock：默认透传 loadValue，模拟「未命中走真实渲染」
+  const refreshableCacheService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+  };
   const user = { id: 1 } as unknown as AuthenticatedUser;
 
   const buildService = async (
@@ -65,15 +73,23 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
                 : undefined),
           },
         },
+        {
+          provide: RefreshableCacheService,
+          useValue: refreshableCacheService,
+        },
       ],
     }).compile();
     return module.get<SpaceQrCodeService>(SpaceQrCodeService);
   };
 
   /** 库里只存摘要 + 密文：明文由密文还原（预览/下载走 findUnique 只读） */
-  const mockStoredQrCode = (token: string): void => {
+  const mockStoredQrCode = (
+    token: string,
+    tokenHash: string | null = hashSpaceQrToken(token),
+  ): void => {
     prisma.spaceQrCode.findUnique.mockResolvedValue({
       tokenCiphertext: encryptSpaceQrToken(token, KEY),
+      tokenHash,
     });
   };
 
@@ -84,6 +100,10 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
       name: 'A03',
       storeId: 1,
       store: { name: '示例门店' },
+    });
+    // 轮换只回读 tokenHash（图片缓存版本段），不再回读密文
+    prisma.spaceQrCode.upsert.mockResolvedValue({
+      tokenHash: hashSpaceQrToken(SPACE_TOKEN),
     });
     mockStoredQrCode(SPACE_TOKEN);
     toDataURL.mockResolvedValue('data:image/png;base64,stub');
@@ -144,6 +164,85 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
       expect(preview.content).toMatch(
         /^https:\/\/scan\.purelyprofit\.com\/p\/[0-9a-f-]{36}$/,
       );
+    });
+  });
+
+  describe('出图缓存（PNG 渲染产物）', () => {
+    const readCacheOptions = (
+      callIndex: number,
+    ): { cacheKey: string; ttlSeconds: number; refreshAfterMs: number } =>
+      refreshableCacheService.getOrLoadRefreshableJson.mock.calls[
+        callIndex
+      ][0] as unknown as {
+        cacheKey: string;
+        ttlSeconds: number;
+        refreshAfterMs: number;
+      };
+
+    it('预览图命中缓存时不再渲染 PNG', async () => {
+      refreshableCacheService.getOrLoadRefreshableJson.mockResolvedValueOnce(
+        'data:image/png;base64,cached',
+      );
+      const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
+
+      const preview = await service.getPreview(user, 7);
+
+      expect(preview.imageDataUrl).toBe('data:image/png;base64,cached');
+      expect(toDataURL).not.toHaveBeenCalled();
+    });
+
+    it('缓存键用 tokenHash 作版本段，且不含明文 token', async () => {
+      const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
+
+      await service.getPreview(user, 7);
+
+      const options = readCacheOptions(0);
+      expect(options.cacheKey).toContain(hashSpaceQrToken(SPACE_TOKEN));
+      expect(options.cacheKey).not.toContain(SPACE_TOKEN);
+      expect(options.cacheKey).toContain('space:7');
+      expect(options.ttlSeconds).toBe(1800);
+      expect(options.refreshAfterMs).toBe(600_000);
+    });
+
+    it('下载图缓存 base64 并还原为 PNG Buffer', async () => {
+      const png = Buffer.from('cached-png');
+      refreshableCacheService.getOrLoadRefreshableJson.mockResolvedValueOnce(
+        png.toString('base64'),
+      );
+      const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
+
+      const download = await service.download(user, 7);
+
+      expect(download.png.equals(png)).toBe(true);
+      expect(toBuffer).not.toHaveBeenCalled();
+    });
+
+    it('tokenHash 缺失（历史行）时不写缓存，直接渲染', async () => {
+      mockStoredQrCode(SPACE_TOKEN, null);
+      const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
+
+      await service.getPreview(user, 7);
+
+      expect(
+        refreshableCacheService.getOrLoadRefreshableJson,
+      ).not.toHaveBeenCalled();
+      expect(toDataURL).toHaveBeenCalledTimes(1);
+    });
+
+    it('轮换后缓存键随 tokenHash 变化，不会复用旧图', async () => {
+      const service = await buildService({ 'club.scanQrBaseUrl': BASE_URL });
+
+      await service.getPreview(user, 7);
+      const beforeKey = readCacheOptions(0).cacheKey;
+
+      prisma.spaceQrCode.upsert.mockResolvedValueOnce({
+        tokenHash: 'rotated-token-hash',
+      });
+      await service.rotate(user, 7);
+      const afterKey = readCacheOptions(1).cacheKey;
+
+      expect(afterKey).not.toBe(beforeKey);
+      expect(afterKey).toContain('rotated-token-hash');
     });
   });
 
@@ -253,7 +352,7 @@ describe('SpaceQrCodeService - 已印刷物料保护', () => {
         .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
 
-      // 测试环境 NODE_ENV=test → 走 warn 分支，无需改动 process.env
+      // 测试环境 NODE_ENV=test → 走 warn 分支，无需改动进程环境
       const service = await buildService({
         'space.qrTokenEncryptionKey': '',
         'jwt.secret': 'test-jwt-secret',

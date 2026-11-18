@@ -121,22 +121,20 @@ export class SpaceSessionTransferService {
 
     const result = await this.prisma.$transaction(
       async (transaction) => {
-        await transaction.$queryRaw`
-        SELECT id
+        // 一次查询同时完成「行锁」与「锁后复检」：
+        // FOR UPDATE 返回的就是锁定后的最新行（READ COMMITTED 下会按最新
+        // 已提交版本重检），因此无需要再发一条 findUnique 读同一行的标量。
+        // 原来的 findUnique 只取 id/storeId/spaceId，其中 storeId 未被使用。
+        const lockedRows = await transaction.$queryRaw<
+          Array<{ id: number; spaceId: number }>
+        >`
+        SELECT id, space_id AS "spaceId"
         FROM space_sessions
         WHERE id = ${session.id}
         FOR UPDATE
       `;
 
-        const lockedSession = await transaction.spaceSession.findUnique({
-          where: { id: session.id },
-          select: {
-            id: true,
-            storeId: true,
-            spaceId: true,
-          },
-        });
-
+        const lockedSession = lockedRows[0];
         if (!lockedSession) {
           throw new NotFoundException('空间会话不存在');
         }
@@ -206,12 +204,15 @@ export class SpaceSessionTransferService {
                 typeId: true,
                 enableDirtyRoom: true,
                 autoCheckout: true,
+                deletedAt: true,
               },
             }),
           ]);
 
-        if (!latestTargetSpace) {
-          throw new NotFoundException('目标空间不存在');
+        // 目标空间必须未删除：换房只锁了源空间行，删除目标空间的事务不会被阻塞，
+        // 不在锁内复检就会把会话迁进已删除空间。
+        if (!latestTargetSpace || latestTargetSpace.deletedAt) {
+          throw new NotFoundException('目标空间不存在或已删除');
         }
 
         ensureTransferTargetValid({
@@ -221,14 +222,6 @@ export class SpaceSessionTransferService {
           targetSpace: latestTargetSpace,
           hasTargetActiveSession: Boolean(latestTargetActiveSession),
         });
-
-        // 运行态推导源空间状态
-        const sourceSpaceStatus =
-          await this.reservationsStateService.resolveReservationBackStatus(
-            transaction,
-            latestSession.spaceId,
-            latestSession.space.enableDirtyRoom,
-          );
 
         const updatedSession = await transaction.spaceSession.update({
           where: { id: latestSession.id },
@@ -258,6 +251,15 @@ export class SpaceSessionTransferService {
             },
           },
         });
+
+        // 源空间运行态必须在会话迁出之后再推导：迁移前推导仍能查到这条 active
+        // 会话，源空间会被算成 occupied，接口返回的状态与实际房态相反。
+        const sourceSpaceStatus =
+          await this.reservationsStateService.resolveReservationBackStatus(
+            transaction,
+            latestSession.spaceId,
+            latestSession.space.enableDirtyRoom,
+          );
 
         // Space.status 已移除，不再更新空间状态字段
         // 目标空间状态会自动变为 occupied（因为有活跃会话）

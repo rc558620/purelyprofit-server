@@ -1,0 +1,197 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { RedisService } from '../../../redis/redis.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { SpaceZonesService } from './space-zones.service';
+
+/**
+ * 空间区域列表：与空间类型同源策略，覆盖缓存接入后的关键边界
+ * （读路径统一走可刷新缓存、TTL 语义不变、写路径仍然失效）。
+ */
+describe('SpaceZonesService 列表缓存', () => {
+  let service: SpaceZonesService;
+
+  const prismaService = {
+    spaceZone: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      findUnique: jest.fn(),
+    },
+  };
+
+  const commerceAccessService = {
+    resolveViewStoreId: jest.fn(),
+    resolveSingleStoreId: jest.fn(),
+    ensureCanAccessStore: jest.fn(),
+  };
+
+  const redisService = {
+    delByPattern: jest.fn(),
+  };
+
+  // 区域改名会改变空间列表/看板里的区域名快照，写路径需要同步失效空间读缓存
+  const cacheInvalidatorService = {
+    invalidateSpacesReadCaches: jest.fn(),
+  };
+
+  const refreshableCacheService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+  };
+
+  const user: AuthenticatedUser = {
+    id: 1,
+    email: 'boss@example.com',
+    phone: '13800138000',
+    name: '老板',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
+    currentMembership: {
+      staffId: 8,
+      storeId: 18,
+      role: 'owner',
+      permissions: ['*'],
+      isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
+    },
+  };
+
+  const makeZoneRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 201,
+    storeId: 18,
+    name: '一楼',
+    createdAt: new Date('2026-05-18T10:00:00.000Z'),
+    updatedAt: new Date('2026-05-18T10:10:00.000Z'),
+    ...overrides,
+  });
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SpaceZonesService,
+        { provide: PrismaService, useValue: prismaService },
+        { provide: CommerceAccessService, useValue: commerceAccessService },
+        { provide: RedisService, useValue: redisService },
+        {
+          provide: RefreshableCacheService,
+          useValue: refreshableCacheService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
+      ],
+    }).compile();
+
+    service = module.get<SpaceZonesService>(SpaceZonesService);
+  });
+
+  it('无权访问任何门店时返回空数组且不触达缓存/DB', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValueOnce(null);
+
+    const result = await service.listSpaceZones(user, {});
+
+    expect(result).toEqual([]);
+    expect(
+      refreshableCacheService.getOrLoadRefreshableJson,
+    ).not.toHaveBeenCalled();
+    expect(prismaService.spaceZone.findMany).not.toHaveBeenCalled();
+  });
+
+  it('未命中时回源 DB，并按 60s TTL / 20s 提前刷新接入可刷新缓存', async () => {
+    prismaService.spaceZone.findMany.mockResolvedValueOnce([makeZoneRow()]);
+
+    const result = await service.listSpaceZones(user, {});
+
+    expect(result).toEqual([
+      {
+        id: '201',
+        name: '一楼',
+        createdAt: Date.parse('2026-05-18T10:00:00.000Z'),
+        updatedAt: Date.parse('2026-05-18T10:10:00.000Z'),
+      },
+    ]);
+    expect(prismaService.spaceZone.findMany).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    expect(
+      refreshableCacheService.getOrLoadRefreshableJson,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'profit:space-zones:store:18',
+        taskKey: expect.stringContaining('profit:space-zones:store:18'),
+        ttlSeconds: 60,
+        refreshAfterMs: 20_000,
+      }),
+    );
+  });
+
+  it('命中缓存时不回源 DB', async () => {
+    const cachedZones = [
+      {
+        id: '201',
+        name: '一楼',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+    refreshableCacheService.getOrLoadRefreshableJson.mockResolvedValueOnce(
+      cachedZones,
+    );
+
+    const result = await service.listSpaceZones(user, {});
+
+    expect(result).toBe(cachedZones);
+    expect(prismaService.spaceZone.findMany).not.toHaveBeenCalled();
+  });
+
+  it('创建成功后按 pattern 失效门店空间区域缓存', async () => {
+    prismaService.spaceZone.findFirst.mockResolvedValueOnce(null);
+    prismaService.spaceZone.create.mockResolvedValueOnce(makeZoneRow());
+
+    await service.createSpaceZone(user, { name: '一楼' });
+
+    expect(redisService.delByPattern).toHaveBeenCalledWith(
+      'profit:space-zones:store:18',
+    );
+  });
+
+  it('更新成功后按 pattern 失效门店空间区域缓存', async () => {
+    prismaService.spaceZone.findUnique.mockResolvedValueOnce(makeZoneRow());
+    prismaService.spaceZone.update.mockResolvedValueOnce(
+      makeZoneRow({ name: '二楼' }),
+    );
+
+    await service.updateSpaceZone(user, 201, { name: '二楼' });
+
+    expect(redisService.delByPattern).toHaveBeenCalledWith(
+      'profit:space-zones:store:18',
+    );
+    // 空间列表/看板缓存内嵌 zone.name，改名后必须一并失效，否则看板陈旧
+    expect(
+      cacheInvalidatorService.invalidateSpacesReadCaches,
+    ).toHaveBeenCalledWith(18);
+  });
+});

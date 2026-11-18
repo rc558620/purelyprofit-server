@@ -29,6 +29,15 @@ export const SPACE_BILLING_MODE_VALUES = [
   'countdown',
 ] as const;
 
+/**
+ * 空间追加点单扣库存的流水备注（供交班页面人读）。
+ *
+ * ⚠️ 该文案**不再参与结账回填**：回填已改为按 `related_space_session_id` 等值定位。
+ * 历史流水靠一次性迁移把会话号从旧文案解析进新列，因此这里可以自由改文案。
+ */
+export const buildSpaceAddItemInventoryNote = (sessionId: number): string =>
+  `空间管理追加点单（会话#${sessionId}）`;
+
 export type SpaceStatusValue = (typeof SPACE_STATUS_VALUES)[number];
 export type SpaceReservationStatusValue =
   (typeof SPACE_RESERVATION_STATUS_VALUES)[number];

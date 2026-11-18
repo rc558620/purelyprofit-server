@@ -100,11 +100,14 @@ export class SpaceReservationsWriteService {
             id: true,
             storeId: true,
             capacity: true,
+            deletedAt: true,
           },
         });
 
-        if (!latestSpace) {
-          throw new NotFoundException('空间不存在');
+        // 行锁内复检软删：事务外的空间读取与「删除空间」事务之间存在 TOCTOU 窗口，
+        // 删除先提交时仍会把预约写进已删除空间（列表/看板随后会过滤掉它）。
+        if (!latestSpace || latestSpace.deletedAt) {
+          throw new NotFoundException('空间不存在或已删除');
         }
 
         ensureReservationGuestCount(

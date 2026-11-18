@@ -38,6 +38,7 @@ import {
   SpacesDashboardResponseDto,
   UpdateSpaceDto,
 } from './dto/space.dto';
+import { SpaceStatsResponseDto } from './dto/space.response.dto';
 import { UpdateSpaceManagementVoiceSettingsDto } from './dto/update-space-management-voice-settings.dto';
 import { SpaceManagementVoiceSettingsService } from './space-management-voice-settings.service';
 import { SpaceDashboardService } from './space-dashboard.service';
@@ -80,6 +81,17 @@ export class SpacesController {
       ctx.user,
       dto,
     );
+  }
+
+  @Get('dashboard/stats')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取空间看板统计汇总（轻量，不含空间明细）' })
+  @ApiOkResponse({ type: SpaceStatsResponseDto })
+  getDashboardStats(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Query() query: GetSpacesDashboardQueryDto,
+  ): Promise<SpaceStatsResponseDto> {
+    return this.spaceDashboardService.getSpacesDashboardStats(ctx.user, query);
   }
 
   @Get('dashboard')

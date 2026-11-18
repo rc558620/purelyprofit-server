@@ -37,6 +37,7 @@ import {
   resolveVoucherProductName,
 } from './space-care-record-snapshot.shared';
 import { recomputeAndSettleCommissions } from './space-session-settlement-commission.shared';
+import { backfillSpaceAddItemInventoryLogs } from './space-session-inventory-backfill.shared';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
 import type {
@@ -211,16 +212,15 @@ export class SpaceSessionSettlementService {
           });
 
           // 追加点单扣库存发生在加单时（早于销售单创建），流水当时无单号可挂；
-          // 结账时按「备注中的会话 ID」把本会话的销售扣减流水回填结账单号，
-          // 交班「当前库存」列据此回溯该笔销售后的库存
-          await transaction.inventoryAdjustmentLog.updateMany({
-            where: {
-              storeId: params.session.storeId,
-              adjustType: 'sale',
-              saleOrderId: null,
-              note: `空间管理追加点单（会话#${params.session.id}）`,
-            },
-            data: { saleOrderId: Number(createdOrder.id) },
+          // 结账按 relatedSpaceSessionId 等值回填结账单号 —— 命中
+          // idx_inventory_adjustment_logs_pending_space_session（partial，sale_order_id IS NULL），
+          // 扫描范围与该会话的流水条数相关，不再随全店库存流水增长线性恶化。
+          // 历史流水（该列为 NULL）由迁移一次性从旧备注解析回填，因此这里不需要
+          // note 兜底分支，也不会出现「钱已收、流水没挂单」的漏回填。
+          await backfillSpaceAddItemInventoryLogs(transaction, {
+            storeId: params.session.storeId,
+            sessionId: params.session.id,
+            saleOrderId: Number(createdOrder.id),
           });
 
           // F9: 空间结算联动营销中心——按手机号创建/关联会员并写入消费流水
@@ -337,20 +337,28 @@ export class SpaceSessionSettlementService {
       );
 
       // 三条失效链路互不依赖，并行执行省去两次串行往返
-      // （与 marketing-consumption-link 内部的并行口径保持一致）
-      await Promise.all([
-        this.cacheInvalidatorService.invalidateSalesDerived(
-          params.session.storeId,
-        ),
-        // 空间看板/列表缓存失效：结账会同时改变空间运行态与今日营业额
-        this.cacheInvalidatorService.invalidateSpacesReadCaches(
-          params.session.storeId,
-        ),
-        // F9: 空间结算可能新增/更新了营销会员，失效营销中心衍生缓存
-        this.marketingConsumptionLinkService.invalidateMarketingDerived(
-          params.session.storeId,
-        ),
-      ]);
+      // （与 marketing-consumption-link 内部的并行口径保持一致）。
+      // 结账主事务已提交：缓存失效失败只降级为告警，禁止把成功结账打成 500。
+      // 最坏结果是看板/销售额短时陈旧，由缓存 TTL 与下一次写操作兜底。
+      try {
+        await Promise.all([
+          this.cacheInvalidatorService.invalidateSalesDerived(
+            params.session.storeId,
+          ),
+          // 空间看板/列表缓存失效：结账会同时改变空间运行态与今日营业额
+          this.cacheInvalidatorService.invalidateSpacesReadCaches(
+            params.session.storeId,
+          ),
+          // F9: 空间结算可能新增/更新了营销会员，失效营销中心衍生缓存
+          this.marketingConsumptionLinkService.invalidateMarketingDerived(
+            params.session.storeId,
+          ),
+        ]);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[space-settlement] 结账后缓存失效失败 sessionId=${params.session.id} storeId=${params.session.storeId} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+      }
 
       // 会员护理档案建档：刻意放在结账主事务**提交之后**、独立短事务内。
       // PostgreSQL 中事务内任一语句失败会中止整个事务，此后 catch 也救不回来
@@ -360,11 +368,20 @@ export class SpaceSessionSettlementService {
       // 代价是存在「结账成功但建档失败」的窗口，需按 sessionId 幂等重放补偿。
       // purelyClub 团购券开台的会话：反查券对应商品名作为护理项目展示名，
       // 避免「台位费 X分钟」计费行污染护理档案。
-      const voucherProductName = await resolveVoucherProductName(
-        this.prisma,
-        params.session.storeId,
-        updated.session.prepaidVoucherCode,
-      );
+      // 反查是纯展示增强，失败时退化为 null（建档侧会走「场地结账」兜底），
+      // 绝不允许把已提交的结账结果打成接口失败。
+      let voucherProductName: string | null = null;
+      try {
+        voucherProductName = await resolveVoucherProductName(
+          this.prisma,
+          params.session.storeId,
+          updated.session.prepaidVoucherCode,
+        );
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[space-settlement] 反查团购券商品名失败 sessionId=${params.session.id} storeId=${params.session.storeId} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+      }
       await this.careRecordWriterService.writeAfterSettlement({
         storeId: params.session.storeId,
         sessionId: params.session.id,

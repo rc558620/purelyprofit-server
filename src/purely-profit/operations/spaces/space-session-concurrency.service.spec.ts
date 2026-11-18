@@ -286,9 +286,20 @@ describe('SpaceSession concurrency fixes', () => {
       $transaction: jest.fn(),
     };
 
-    /** 商品规格定价：本用例的商品 ID 为 prod_*（非数字行），不会走到定价服务 */
+    /**
+     * 商品规格定价：本用例的商品多为 prod_*（非数字行），不会走到定价服务；
+     * 数字行（如 '5'）由下面的桩统一返回「不可定价」，等价于原实现的
+     * 「price() 抛错 → 无规格行回退前端传值」。
+     */
     const specPricingService = {
-      price: jest.fn(),
+      priceManySettled: jest.fn((_storeId: number, items: unknown[]) =>
+        Promise.resolve(
+          items.map(() => ({
+            ok: false,
+            error: new Error('商品未配置规格定价'),
+          })),
+        ),
+      ),
     };
 
     const deps = {
@@ -625,20 +636,22 @@ describe('SpaceSession concurrency fixes', () => {
       );
 
       expect(deps.findOperatorStaffIdForStore).toHaveBeenCalledWith(user, 18);
-      expect(applyInventoryDeductionsInTransactionSpy).toHaveBeenCalledWith(
+      expect(applyInventoryDeductionsInTransactionSpy).toHaveBeenCalledWith({
         transaction,
-        [
+        items: [
           {
             productId: 5,
             quantity: 1,
             productName: '利润测试3',
           },
         ],
-        18,
-        8,
-        'sale',
-        `空间管理追加点单（会话#${10}）`,
-      );
+        storeId: 18,
+        operatorStaffId: 8,
+        adjustType: 'sale',
+        note: `空间管理追加点单（会话#${10}）`,
+        // 结账据此等值回填 saleOrderId，不再依赖 note 文案
+        relatedSpaceSessionId: 10,
+      });
     });
   });
 });

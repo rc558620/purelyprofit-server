@@ -161,7 +161,6 @@ export const createSettleSpaceSessionResult = (): SettleSpaceSessionResult => ({
 export const expectedSalesRecordCreateOptions = {
   skipInventoryValidationAndDeduction: true,
   skipAccessCheck: true,
-  assignToCurrentShiftOperator: true,
   preserveCallerPrices: true,
 } as const;
 
@@ -191,8 +190,8 @@ export const createSpaceTransactionClient = () => ({
     update: jest.fn(),
     updateMany: jest.fn(),
   },
-  /// 结账回填追加点单库存流水的销售单号
+  /// 结账回填追加点单库存流水的销售单号（默认命中 0 行，避免污染其他用例）
   inventoryAdjustmentLog: {
-    updateMany: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
 });

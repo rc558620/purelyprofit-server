@@ -1,6 +1,7 @@
 import type {
   InventoryAdjustmentLogCreateInput,
   InventoryAdjustmentRecord,
+  InventoryDeductionParams,
   InventoryManualAdjustmentCommand,
   InventoryRestockParams,
   InventoryRevertPurchaseParams,
@@ -138,9 +139,11 @@ async function recordInventoryStockChanges(
     note?: string;
     purchaseOrderId?: number;
     saleOrderId?: number;
+    /** 空间会话 ID：销售单尚未创建时先落，结账据此等值回填 saleOrderId */
+    relatedSpaceSessionId?: number;
     /**
      * 商品被软删 / 不属于本门店时的语义：
-     * 进货、销售等主链路跳过（不应因库存记录缺失导致整单失败）；
+     * 进货、销售等链路跳过（不应因库存记录缺失导致整单失败）；
      * 空间管理等复用路径要让操作失败。
      */
     onMissingProduct: 'skip' | 'throw';
@@ -155,10 +158,18 @@ async function recordInventoryStockChanges(
     return;
   }
 
+  /*
+   * 必须先加行锁（按 productId 升序）再读库存：
+   * 下面的 buildInventoryStockChangePlan 依赖读到的 stock 做「可用库存不足」校验。
+   * 无锁读时两个并发销售都基于同一份旧库存通过校验，后提交的 UPDATE 会把库存
+   * 压成负数并撞 chk_products_stock_gte_0，返回的是数据库约束错误而不是
+   * 前端能识别的「商品【xx】库存不足」。
+   */
   const context = await loadInventoryWriteContext(
     transaction,
     params.storeId,
     mergedItems.map((item) => item.productId),
+    { lockRows: true },
   );
 
   const logs: InventoryAdjustmentLogCreateInput[] = [];
@@ -186,6 +197,7 @@ async function recordInventoryStockChanges(
         note: params.note,
         purchaseOrderId: params.purchaseOrderId,
         saleOrderId: params.saleOrderId,
+        relatedSpaceSessionId: params.relatedSpaceSessionId,
       },
       frozenQty: context.frozenQty.get(item.productId) ?? 0,
     });
@@ -275,10 +287,13 @@ export async function revertInventoryPurchaseRestock(
 
   await deletePurchaseAdjustmentLogs(transaction, params);
 
+  // 回滚量由「当前库存 − 冻结量」推导，必须一致性读，否则并发下会把别人
+  // 刚扣掉的库存重复加回（读到的 stock 偏大 → revertQty 偏大）。
   const context = await loadInventoryWriteContext(
     transaction,
     params.storeId,
     logs.map((log) => log.productId),
+    { lockRows: true },
   );
 
   const purchaseRevertChanges: Array<{ productId: number; delta: number }> = [];
@@ -301,28 +316,21 @@ export async function revertInventoryPurchaseRestock(
 export { deductInventoryForSaleBestEffort } from './inventory-stock-best-effort.write';
 
 /**
- * 服务内库存扣减：支持在现有事务中批量扣减库存并写入日志（供空间管理等业务复用）
- * @param transaction 既有 Prisma 事务
- * @param items 待扣减的商品列表
- * @param storeId 门店 ID
- * @param operatorStaffId 操作者员工 ID
- * @param adjustType 调整类型
- * @param note 备注
+ * 服务内库存扣减：在调用方既有事务中批量扣减库存并写入流水（供空间管理等业务复用）。
+ *
+ * `relatedSpaceSessionId` 是结账回填的等值定位键：空间追加点单扣库存时销售单还没创建，
+ * 先落会话 ID，结账按本列回填 saleOrderId，不再依赖 note 字符串拼接。
  */
 export async function applyInventoryDeductionsInTransaction(
-  transaction: InventoryTransactionClient,
-  items: Array<{ productId: number; quantity: number; productName?: string }>,
-  storeId: number,
-  operatorStaffId: number | null,
-  adjustType: InventoryAdjustType,
-  note?: string,
+  params: InventoryDeductionParams,
 ): Promise<void> {
-  await recordInventoryStockChanges(transaction, {
-    storeId,
-    items,
-    operatorStaffId,
-    adjustType,
-    note,
+  await recordInventoryStockChanges(params.transaction, {
+    storeId: params.storeId,
+    items: params.items,
+    operatorStaffId: params.operatorStaffId,
+    adjustType: params.adjustType,
+    note: params.note,
+    relatedSpaceSessionId: params.relatedSpaceSessionId,
     onMissingProduct: 'throw',
   });
 }

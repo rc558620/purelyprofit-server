@@ -36,10 +36,15 @@ describe('MembershipDowngradeService', () => {
     $queryRaw: jest.fn(),
   };
 
+  /** 额度预占/归还走 Lua 脚本，需要底层 client */
+  const redisClient = {
+    eval: jest.fn(),
+  };
+
   const redisService = {
     getJson: jest.fn(),
     setJson: jest.fn(),
-    incr: jest.fn(),
+    getClient: jest.fn(() => redisClient),
   };
 
   /** 让 profile 查询返回指定会员档案（null 表示从未开通） */
@@ -67,7 +72,8 @@ describe('MembershipDowngradeService', () => {
     prismaService.spaceSession.count.mockResolvedValue(0);
     redisService.getJson.mockResolvedValue(null);
     redisService.setJson.mockResolvedValue(undefined);
-    redisService.incr.mockResolvedValue(1);
+    // 默认预占成功：[allowed, used] = [1, 1]
+    redisClient.eval.mockResolvedValue([1, 1]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -369,107 +375,69 @@ describe('MembershipDowngradeService', () => {
 
   // ─── B 端手动录单每日限额 ──────────────────────────────────────────
 
-  describe('assertManualEntryQuota', () => {
-    it('未过期时不读计数直接放行', async () => {
+  describe('consumeManualEntryQuota', () => {
+    const mockExpired = (): void => {
+      mockProfile({
+        currentPlanId: 'monthly',
+        startsAt: daysFromNow(-60),
+        expiresAt: daysFromNow(-1),
+      });
+    };
+
+    it('未过期时不占用额度', async () => {
       mockProfile({
         currentPlanId: 'yearly',
         startsAt: daysFromNow(-1),
         expiresAt: daysFromNow(30),
       });
 
-      await expect(service.assertManualEntryQuota(18)).resolves.toBe(0);
-      // 未过期不应读计数；getJson 也会用于读降级态缓存，故限定到计数 key
-      expect(redisService.getJson).not.toHaveBeenCalledWith(
-        expect.stringContaining('membership:manual-entry-quota'),
-      );
+      await expect(service.consumeManualEntryQuota(18)).resolves.toBe(false);
+      // 未过期连脚本都不该执行
+      expect(redisClient.eval).not.toHaveBeenCalled();
     });
 
-    it('已过期且未达上限时返回已用数量', async () => {
-      mockProfile({
-        currentPlanId: 'monthly',
-        startsAt: daysFromNow(-60),
-        expiresAt: daysFromNow(-1),
-      });
-      redisService.getJson.mockResolvedValue(2);
+    it('已过期且未达上限时原子预占并返回 true', async () => {
+      mockExpired();
+      redisClient.eval.mockResolvedValue([1, 3]);
 
-      await expect(service.assertManualEntryQuota(18)).resolves.toBe(2);
-    });
+      await expect(service.consumeManualEntryQuota(18)).resolves.toBe(true);
 
-    it('已过期且达到上限时拦截并带业务码', async () => {
-      mockProfile({
-        currentPlanId: 'monthly',
-        startsAt: daysFromNow(-60),
-        expiresAt: daysFromNow(-1),
-      });
-      redisService.getJson.mockResolvedValue(MANUAL_ENTRY_DAILY_LIMIT);
-
-      await expectMembershipExpired(
-        service.assertManualEntryQuota(18),
-        MANUAL_ENTRY_QUOTA_MESSAGE,
-      );
-    });
-
-    it('计数为脏数据时按 0 处理，不误判为超限', async () => {
-      mockProfile({
-        currentPlanId: 'monthly',
-        startsAt: daysFromNow(-60),
-        expiresAt: daysFromNow(-1),
-      });
-      redisService.getJson.mockResolvedValue('not-a-number');
-
-      await expect(service.assertManualEntryQuota(18)).resolves.toBe(0);
-    });
-  });
-
-  describe('incrementManualEntryCount', () => {
-    it('未过期时不写计数', async () => {
-      mockProfile({
-        currentPlanId: 'yearly',
-        startsAt: daysFromNow(-1),
-        expiresAt: daysFromNow(30),
-      });
-
-      await service.incrementManualEntryCount(18);
-
-      expect(redisService.incr).not.toHaveBeenCalled();
-    });
-
-    it('已过期时使用 Redis INCR 原子递增（而非 get-then-set）', async () => {
-      mockProfile({
-        currentPlanId: 'monthly',
-        startsAt: daysFromNow(-60),
-        expiresAt: daysFromNow(-1),
-      });
-
-      await service.incrementManualEntryCount(18);
-
-      // 必须用 INCR：并发下 get-then-set 会丢失更新，导致实际录单数 > 计数
-      expect(redisService.incr).toHaveBeenCalledWith(
-        expect.stringContaining('membership:manual-entry-quota:18'),
-        expect.any(Number),
-      );
-      // 计数必须走 INCR；若出现「写计数」的 setJson 就说明退化成了 get-then-set。
-      // 注意 setJson 也会用于写降级态缓存，因此断言需限定到计数 key。
-      expect(redisService.setJson).not.toHaveBeenCalledWith(
-        expect.stringContaining('membership:manual-entry-quota'),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('TTL 覆盖到次日，保证计数按自然日自动失效', async () => {
-      mockProfile({
-        currentPlanId: 'monthly',
-        startsAt: daysFromNow(-60),
-        expiresAt: daysFromNow(-1),
-      });
-
-      await service.incrementManualEntryCount(18);
-
-      const [, ttlSeconds] = redisService.incr.mock.calls[0];
+      // 判定与递增必须在同一段 Lua 内完成：key / 上限 / TTL 作为参数传入
+      const [, numKeys, key, limit, ttlSeconds] = redisClient.eval.mock
+        .calls[0] as [string, number, string, number, number];
+      expect(numKeys).toBe(1);
+      expect(key).toContain('membership:manual-entry-quota:18');
+      expect(limit).toBe(MANUAL_ENTRY_DAILY_LIMIT);
       expect(ttlSeconds).toBeGreaterThan(0);
       // 不应超过 24 小时（按上海时区自然日切分，最长也就到次日 0 点）
       expect(ttlSeconds).toBeLessThanOrEqual(24 * 60 * 60);
+    });
+
+    it('已过期且达到上限时拦截并带业务码', async () => {
+      mockExpired();
+      redisClient.eval.mockResolvedValue([0, MANUAL_ENTRY_DAILY_LIMIT]);
+
+      await expectMembershipExpired(
+        service.consumeManualEntryQuota(18),
+        MANUAL_ENTRY_QUOTA_MESSAGE,
+      );
+    });
+  });
+
+  describe('releaseManualEntryQuota', () => {
+    it('归还一次预占（DECR 而非删除 key，避免重复归还放大额度）', async () => {
+      redisClient.eval.mockResolvedValue(1);
+
+      await service.releaseManualEntryQuota(18);
+
+      const [script, numKeys, key] = redisClient.eval.mock.calls[0] as [
+        string,
+        number,
+        string,
+      ];
+      expect(numKeys).toBe(1);
+      expect(key).toContain('membership:manual-entry-quota:18');
+      expect(script).toContain('DECR');
     });
   });
 
@@ -592,7 +560,7 @@ describe('MembershipDowngradeService', () => {
   // 若误用 UTC 或服务器本地时区，商家会在北京时间早上 8 点前发现额度莫名其妙
   // 没重置（UTC 分片）或提前重置（服务器非 UTC 时）。
 
-  describe('手动录单计数的上海时区自然日分片', () => {
+  describe('手动录单额度的上海时区自然日分片', () => {
     const mockExpired = (): void => {
       mockProfile({
         currentPlanId: 'monthly',
@@ -601,21 +569,31 @@ describe('MembershipDowngradeService', () => {
       });
     };
 
-    const lastIncrCall = (): [string, number] =>
-      redisService.incr.mock.calls[redisService.incr.mock.calls.length - 1];
+    /** 取最后一次预占脚本调用的 key 与 TTL（eval(script, numKeys, key, limit, ttl)） */
+    const lastEvalCall = (): { key: string; ttl: number } => {
+      const calls = redisClient.eval.mock.calls;
+      const [, , key, , ttl] = calls[calls.length - 1] as [
+        string,
+        number,
+        string,
+        number,
+        number,
+      ];
+      return { key, ttl };
+    };
 
-    it('同一上海自然日内多次递增复用同一个 key', async () => {
+    it('同一上海自然日内多次预占复用同一个 key', async () => {
       mockExpired();
       // 上海 2026-09-13 10:00（UTC 02:00）
       jest.setSystemTime(Date.UTC(2026, 8, 13, 2, 0, 0));
 
-      await service.incrementManualEntryCount(18);
-      const [keyFirst] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { key: keyFirst } = lastEvalCall();
 
       // 同一天 22:00（UTC 14:00）
       jest.setSystemTime(Date.UTC(2026, 8, 13, 14, 0, 0));
-      await service.incrementManualEntryCount(18);
-      const [keySecond] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { key: keySecond } = lastEvalCall();
 
       expect(keySecond).toBe(keyFirst);
     });
@@ -624,13 +602,13 @@ describe('MembershipDowngradeService', () => {
       mockExpired();
       // 上海 2026-09-13 23:59:59（UTC 15:59:59）—— 当日最后一秒
       jest.setSystemTime(Date.UTC(2026, 8, 13, 15, 59, 59));
-      await service.incrementManualEntryCount(18);
-      const [keyBeforeMidnight] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { key: keyBeforeMidnight } = lastEvalCall();
 
       // 上海 2026-09-14 00:00:01（UTC 16:00:01）—— 次日第一秒
       jest.setSystemTime(Date.UTC(2026, 8, 13, 16, 0, 1));
-      await service.incrementManualEntryCount(18);
-      const [keyAfterMidnight] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { key: keyAfterMidnight } = lastEvalCall();
 
       expect(keyAfterMidnight).not.toBe(keyBeforeMidnight);
     });
@@ -640,8 +618,8 @@ describe('MembershipDowngradeService', () => {
       const now = Date.UTC(2026, 8, 13, 15, 59, 59);
       jest.setSystemTime(now);
 
-      await service.incrementManualEntryCount(18);
-      const [key] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { key } = lastEvalCall();
 
       // 上海 2026-09-13 的零点
       expect(key).toContain(String(getShanghaiDayStartMs(now)));
@@ -652,14 +630,14 @@ describe('MembershipDowngradeService', () => {
 
       // 上海 23:59:59 → 距次日零点 1 秒
       jest.setSystemTime(Date.UTC(2026, 8, 13, 15, 59, 59));
-      await service.incrementManualEntryCount(18);
-      const [, ttlNearMidnight] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { ttl: ttlNearMidnight } = lastEvalCall();
       expect(ttlNearMidnight).toBe(1);
 
       // 上海 00:00:01 → 距次日零点约 24 小时
       jest.setSystemTime(Date.UTC(2026, 8, 13, 16, 0, 1));
-      await service.incrementManualEntryCount(18);
-      const [, ttlAfterMidnight] = lastIncrCall();
+      await service.consumeManualEntryQuota(18);
+      const { ttl: ttlAfterMidnight } = lastEvalCall();
       expect(ttlAfterMidnight).toBeGreaterThan(23 * 60 * 60);
       expect(ttlAfterMidnight).toBeLessThanOrEqual(24 * 60 * 60);
     });
@@ -761,18 +739,16 @@ describe('MembershipDowngradeService', () => {
   // ─── 计数组件故障时的可用性（降级策略） ────────────────────────────────
 
   describe('Redis 不可用时的降级', () => {
-    it('读取计数失败时按未超限放行，不阻断商家录单', async () => {
+    it('额度预占脚本失败时按未超限放行，不阻断商家录单', async () => {
       mockProfile({
         currentPlanId: 'monthly',
         startsAt: daysFromNow(-60),
         expiresAt: daysFromNow(-1),
       });
-      redisService.getJson.mockRejectedValue(
-        new Error('Redis connection lost'),
-      );
+      redisClient.eval.mockRejectedValue(new Error('Redis connection lost'));
 
       // 计数组件故障不应让录单失败：每日限额是可追补的商业控制
-      await expect(service.assertManualEntryQuota(18)).resolves.toBe(0);
+      await expect(service.consumeManualEntryQuota(18)).resolves.toBe(true);
     });
 
     it('获取用量失败时返回 0，不影响页面展示', async () => {

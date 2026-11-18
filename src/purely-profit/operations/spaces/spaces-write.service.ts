@@ -144,12 +144,11 @@ export class SpacesWriteService {
       throw err;
     }
 
-    // 创建后推导运行态状态（新建空间通常无会话/预约，但与 updateSpace 保持一致的推导路径）
-    const derivedStatus = await this.spacesStatusService.deriveSpaceStatus(
-      created.id,
-    );
+    // 新建空间不可能有活跃会话 / 待处理预约 / 历史结账记录，
+    // 权威推导函数 deriveSpaceStatusFromCounts 在该输入下必然得到 idle
+    //（cleaning 分支要求存在最近结账时间），因此无需再回表跑 4 条 SQL。
     await this.cacheInvalidatorService.invalidateSpacesReadCaches(storeId);
-    return toSpaceResponse({ ...created, status: derivedStatus });
+    return toSpaceResponse({ ...created, status: 'idle' });
   }
 
   async updateSpace(
@@ -232,9 +231,17 @@ export class SpacesWriteService {
       { timeout: TX_TIMEOUT_SHORT },
     );
 
-    // 编辑空间配置后重新推导运行态状态
+    // 编辑空间配置后重新推导运行态状态。
+    // 性能：事务内已 FOR UPDATE 并校验过 activeSessions = 0，updated 又是整行
+    // 返回（带 enableDirtyRoom / cleanedAt），三项事实无需再次回表，
+    // 推导只剩「今日 pending 预约数」与「最近结账时间」两条查询。
     const derivedStatus = await this.spacesStatusService.deriveSpaceStatus(
       updated.id,
+      {
+        activeSessions: 0,
+        enableDirtyRoom: updated.enableDirtyRoom,
+        cleanedAt: updated.cleanedAt,
+      },
     );
     await this.cacheInvalidatorService.invalidateSpacesReadCaches(
       space.storeId,
@@ -309,6 +316,9 @@ export class SpacesWriteService {
     await this.cacheInvalidatorService.invalidateSpacesReadCaches(
       space.storeId,
     );
+    // 二维码图片产物按空间维度单独清理：软删除后 old key 不会再命中，
+    // 但 PNG base64 体积较大，是否清理由写路径主动承担，不能只等 TTL。
+    await this.cacheInvalidatorService.invalidateSpaceQrImageCache(space.id);
   }
 
   async markSpaceReady(

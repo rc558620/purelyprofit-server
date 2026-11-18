@@ -19,6 +19,11 @@ import {
   decryptSpaceQrToken,
   resolveSpaceQrTokenKeys,
 } from '../../../shared/space-qr-token-codec.utils';
+import {
+  buildCacheRefreshTaskKey,
+  buildSpaceQrImageCacheKey,
+} from '../../../redis/cache-keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { buildSpaceQrPayload } from '../scan-qr-payload.utils';
 import { readSpaceQrTokenKeyConfig } from './spaces.shared';
 
@@ -34,6 +39,27 @@ export interface SpaceQrCodeDownload {
   png: Buffer;
 }
 
+/** 二维码纠错等级：M 兼顾容错与图案密度，弹窗图与下载图保持一致 */
+const QR_ERROR_CORRECTION_LEVEL = 'M' as const;
+/** 弹窗预览图：512px、静区 0（海报白卡自带 40px 静区，避免叠加留白） */
+const QR_PREVIEW_WIDTH = 512;
+const QR_PREVIEW_MARGIN = 0;
+/** 下载图：1024px、静区 2（独立物料需要自带静区保证可扫） */
+const QR_DOWNLOAD_WIDTH = 1024;
+const QR_DOWNLOAD_MARGIN = 2;
+
+/**
+ * 二维码图片产物缓存 TTL（秒）。
+ *
+ * 产物由「token + 尺寸 + 静区」唯一确定，缓存键的版本段是 tokenHash，
+ * 轮换后键必然变化，因此 TTL 只承担「回收 Redis 内存」，不承担一致性责任。
+ * 取 30 分钟：覆盖一次「批量出海报 + 逐台预览」的操作窗口，同时避免
+ * 1024px PNG（base64 约 40~80KB）在 Redis 长期堆积。
+ */
+const SPACE_QR_IMAGE_CACHE_TTL_SECONDS = 1800;
+/** 提前刷新窗口：命中超过 10 分钟时后台重渲染，摊开失效时刻 */
+const SPACE_QR_IMAGE_CACHE_REFRESH_AFTER_MS = 600_000;
+
 @Injectable()
 export class SpaceQrCodeService implements OnModuleInit {
   private readonly logger = new Logger(SpaceQrCodeService.name);
@@ -42,6 +68,7 @@ export class SpaceQrCodeService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly configService: ConfigService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   /**
@@ -92,19 +119,15 @@ export class SpaceQrCodeService implements OnModuleInit {
   ): Promise<SpaceQrCodePreview> {
     const record = await this.getAccessibleQrCode(user, spaceId);
     const content = this.buildQrContent(record.token);
-    // 弹窗图用于海报合成：海报白卡自带 40px 静区，这里 margin:0 与桌码口径一致，
-    // 避免“图片静区 + 白卡留白”叠加导致二维码四周留白偏大；独立静区由下载接口保证。
-    const imageDataUrl = await QRCode.toDataURL(content, {
-      errorCorrectionLevel: 'M',
-      margin: 0,
-      width: 512,
-    });
 
     return {
       spaceId: record.space.id,
       spaceName: record.space.name,
       content,
-      imageDataUrl,
+      imageDataUrl: await this.loadPreviewImage(
+        { spaceId: record.space.id, tokenHash: record.tokenHash },
+        content,
+      ),
     };
   }
 
@@ -118,7 +141,9 @@ export class SpaceQrCodeService implements OnModuleInit {
       token,
       readSpaceQrTokenKeyConfig(this.configService),
     );
-    await this.prisma.spaceQrCode.upsert({
+    // 轮换后 tokenHash 必然变化 → 图片缓存键随之变化：
+    // 这里不需要显式失效，旧键已不可能再被读到，随 TTL 自然回收。
+    const rotated = await this.prisma.spaceQrCode.upsert({
       where: { spaceId: space.id },
       create: {
         spaceId: space.id,
@@ -131,21 +156,19 @@ export class SpaceQrCodeService implements OnModuleInit {
         revokedAt: null,
         rotatedAt: new Date(),
       },
+      select: { tokenHash: true },
     });
     // 明文只在本次轮换的内存里：出图直接用它，不再回读（库里没有明文列）
     const content = this.buildQrContent(token);
-    // 同 getPreview：海报合成图不带静区，避免与白卡留白叠加。
-    const imageDataUrl = await QRCode.toDataURL(content, {
-      errorCorrectionLevel: 'M',
-      margin: 0,
-      width: 512,
-    });
 
     return {
       spaceId: space.id,
       spaceName: space.name,
       content,
-      imageDataUrl,
+      imageDataUrl: await this.loadPreviewImage(
+        { spaceId: space.id, tokenHash: rotated.tokenHash },
+        content,
+      ),
     };
   }
 
@@ -154,17 +177,88 @@ export class SpaceQrCodeService implements OnModuleInit {
     spaceId: number,
   ): Promise<SpaceQrCodeDownload> {
     const record = await this.getAccessibleQrCode(user, spaceId);
-    const png = await QRCode.toBuffer(this.buildQrContent(record.token), {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 1024,
-      type: 'png',
-    });
 
     return {
       filename: `${this.sanitizeFilename(record.space.store.name)}-${this.sanitizeFilename(record.space.name)}-二维码.png`,
-      png,
+      png: await this.loadDownloadPng(
+        { spaceId: record.space.id, tokenHash: record.tokenHash },
+        this.buildQrContent(record.token),
+      ),
     };
+  }
+
+  /**
+   * 出图缓存统一入口（弹窗图与下载图共用）。
+   *
+   * 安全边界：
+   * - 缓存的**值与键都不含明文 token**：键的版本段是 tokenHash（sha256 摘要），
+   *   值是 base64 图片产物；
+   * - tokenHash 缺失（该字段上线前的历史行）时**不缓存**，直接渲染 ——
+   *   宁可多花一次 CPU，也不能用可能不变的键把图片缓存住导致轮换后出旧图；
+   * - 后台刷新闭包会持有本次请求的明文 token（渲染入参），只存活在进程内存的
+   *   定时任务里，不写 Redis、不写日志。
+   */
+  private async loadQrImage(
+    target: { spaceId: number; tokenHash: string | null },
+    variant: { width: number; margin: number },
+    render: () => Promise<string>,
+  ): Promise<string> {
+    if (!target.tokenHash) {
+      return render();
+    }
+
+    const cacheKey = buildSpaceQrImageCacheKey(target.spaceId, {
+      version: target.tokenHash,
+      width: variant.width,
+      margin: variant.margin,
+    });
+
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SPACE_QR_IMAGE_CACHE_TTL_SECONDS,
+      refreshAfterMs: SPACE_QR_IMAGE_CACHE_REFRESH_AFTER_MS,
+      loadValue: render,
+    });
+  }
+
+  /** 弹窗预览图：海报合成用，不带静区（静区由海报白卡提供） */
+  private async loadPreviewImage(
+    target: { spaceId: number; tokenHash: string | null },
+    content: string,
+  ): Promise<string> {
+    return this.loadQrImage(
+      target,
+      { width: QR_PREVIEW_WIDTH, margin: QR_PREVIEW_MARGIN },
+      () =>
+        QRCode.toDataURL(content, {
+          errorCorrectionLevel: QR_ERROR_CORRECTION_LEVEL,
+          margin: QR_PREVIEW_MARGIN,
+          width: QR_PREVIEW_WIDTH,
+        }),
+    );
+  }
+
+  /** 下载图：独立物料，自带静区；缓存 base64 而非 Buffer，避免 JSON 序列化膨胀 */
+  private async loadDownloadPng(
+    target: { spaceId: number; tokenHash: string | null },
+    content: string,
+  ): Promise<Buffer> {
+    const base64 = await this.loadQrImage(
+      target,
+      { width: QR_DOWNLOAD_WIDTH, margin: QR_DOWNLOAD_MARGIN },
+      async () =>
+        (
+          await QRCode.toBuffer(content, {
+            errorCorrectionLevel: QR_ERROR_CORRECTION_LEVEL,
+            margin: QR_DOWNLOAD_MARGIN,
+            width: QR_DOWNLOAD_WIDTH,
+            type: 'png',
+          })
+        ).toString('base64'),
+    );
+
+    return Buffer.from(base64, 'base64');
   }
 
   private async getAccessibleQrCode(
@@ -172,6 +266,8 @@ export class SpaceQrCodeService implements OnModuleInit {
     spaceId: number,
   ): Promise<{
     token: string;
+    /** 图片缓存版本段：tokenHash 变化即换键，保证轮换后不会复用旧图 */
+    tokenHash: string | null;
     space: { id: number; name: string; store: { name: string } };
   }> {
     const space = await this.getAccessibleSpace(user, spaceId);
@@ -181,7 +277,11 @@ export class SpaceQrCodeService implements OnModuleInit {
     // （还会推 updated_at），预览/下载这类高频读操作不应产生写放大。
     const qrCode = await this.findOrCreateQrCodeCiphertext(space);
 
-    return { token: this.restoreToken(qrCode), space };
+    return {
+      token: this.restoreToken(qrCode.tokenCiphertext),
+      tokenHash: qrCode.tokenHash,
+      space,
+    };
   }
 
   /**
@@ -193,19 +293,19 @@ export class SpaceQrCodeService implements OnModuleInit {
   private async findOrCreateQrCodeCiphertext(space: {
     id: number;
     storeId: number;
-  }): Promise<string | null> {
+  }): Promise<{ tokenCiphertext: string | null; tokenHash: string | null }> {
     const existing = await this.prisma.spaceQrCode.findUnique({
       where: { spaceId: space.id },
-      select: { tokenCiphertext: true },
+      select: { tokenCiphertext: true, tokenHash: true },
     });
 
     if (existing) {
-      return existing.tokenCiphertext;
+      return existing;
     }
 
     const token = randomUUID();
     try {
-      const created = await this.prisma.spaceQrCode.create({
+      return await this.prisma.spaceQrCode.create({
         data: {
           spaceId: space.id,
           storeId: space.storeId,
@@ -214,9 +314,8 @@ export class SpaceQrCodeService implements OnModuleInit {
             readSpaceQrTokenKeyConfig(this.configService),
           ),
         },
-        select: { tokenCiphertext: true },
+        select: { tokenCiphertext: true, tokenHash: true },
       });
-      return created.tokenCiphertext;
     } catch (error) {
       const isDuplicate =
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -227,9 +326,9 @@ export class SpaceQrCodeService implements OnModuleInit {
 
       const raced = await this.prisma.spaceQrCode.findUnique({
         where: { spaceId: space.id },
-        select: { tokenCiphertext: true },
+        select: { tokenCiphertext: true, tokenHash: true },
       });
-      return raced?.tokenCiphertext ?? null;
+      return raced ?? { tokenCiphertext: null, tokenHash: null };
     }
   }
 
