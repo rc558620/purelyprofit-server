@@ -139,6 +139,15 @@ export class ScanOrderingGateway
     return this.subscriptionService.subscribeSelfOrderingStore(client, payload);
   }
 
+  /** 空间管理门店房间订阅（结账完成实时刷新房态），权限与扫码点餐分开 */
+  @SubscribeMessage('subscribe.space-store')
+  subscribeSpaceStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<JoinStoreRoomResult> {
+    return this.subscriptionService.subscribeSpaceStore(client, payload);
+  }
+
   private async authenticateBeforeConnection(
     client: Socket,
     next: (error?: Error) => void,

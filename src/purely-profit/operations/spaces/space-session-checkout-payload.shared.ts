@@ -12,6 +12,8 @@ import type { SpaceSettlementChannelValue } from './dto/space-session.constants'
 import { normalizeCheckoutSettlements } from './space-session-checkout-settlement.shared';
 
 export const MONEY_PRECISION_PATTERN = /^\d+(\.\d{1,2})?$/;
+/** 可正可负的金额精度：负数表示应退（如开台已付 > 本次消费时的合计） */
+export const SIGNED_MONEY_PRECISION_PATTERN = /^-?\d+(\.\d{1,2})?$/;
 
 /**
  * G3 fix: 从团购平台枚举值自动推导结算渠道。
@@ -95,7 +97,7 @@ export const normalizeCheckoutPayload = (
   assertMoneyPrecision(dto.platformSettledAmount, '平台已结金额');
   assertMoneyPrecision(dto.platformFee, '平台手续费');
   assertMoneyPrecision(dto.voucherFaceAmount, '券面金额');
-  assertMoneyPrecision(dto.expectedPayable, '预期应付金额');
+  assertSignedMoneyPrecision(dto.expectedPayable, '预期应付金额');
 
   // be-06：多资产抵扣明细归一化（类型 ↔ 作用对象匹配、同类不重复、标识必填）
   const settlements = normalizeCheckoutSettlements(dto.settlements);
@@ -210,6 +212,22 @@ export const assertMoneyPrecision = (
     return;
   }
   if (!Number.isFinite(value) || !MONEY_PRECISION_PATTERN.test(String(value))) {
+    throw new BadRequestException(`${label}最多支持两位小数`);
+  }
+};
+
+/** 允许负数的金额精度校验：仅用于 expectedPayable 这类「可为应退」的比对值 */
+export const assertSignedMoneyPrecision = (
+  value: number | undefined,
+  label: string,
+): void => {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    !Number.isFinite(value) ||
+    !SIGNED_MONEY_PRECISION_PATTERN.test(String(value))
+  ) {
     throw new BadRequestException(`${label}最多支持两位小数`);
   }
 };

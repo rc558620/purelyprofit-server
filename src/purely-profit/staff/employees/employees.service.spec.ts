@@ -90,9 +90,12 @@ describe('EmployeesService', () => {
       findMany: jest.fn(),
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
     storeSubAccount: {
       findMany: jest.fn(),
@@ -595,6 +598,16 @@ describe('EmployeesService', () => {
 
   it('create 在会员员工额度不足时阻止新增', async () => {
     employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    prismaService.employeeDepartment.findFirst.mockResolvedValue({
+      id: 8,
+      storeId: 2,
+      name: '前厅',
+    });
+    prismaService.employeePosition.findFirst.mockResolvedValue({
+      id: 9,
+      storeId: 2,
+      name: '店长',
+    });
     platformMembershipAccessService.ensureEmployeeQuotaAvailable.mockRejectedValue(
       new ForbiddenException(
         '当前会员套餐最多可管理 0 名在职员工，请升级会员后继续添加',
@@ -616,9 +629,10 @@ describe('EmployeesService', () => {
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
+    // 额度校验必须与员工写入同事务，避免并发新增同时突破上限
     expect(
       platformMembershipAccessService.ensureEmployeeQuotaAvailable,
-    ).toHaveBeenCalledWith(2);
+    ).toHaveBeenCalledWith(2, prismaService);
     expect(prismaService.employee.create).not.toHaveBeenCalled();
   });
 
@@ -647,7 +661,7 @@ describe('EmployeesService', () => {
       createdAt,
       updatedAt,
     });
-    prismaService.employee.findFirst.mockResolvedValue({ empNo: 'EMP009' });
+    prismaService.employee.findMany.mockResolvedValue([{ empNo: 'EMP009' }]);
     const createdEmployee = {
       id: 10,
       storeId: 2,
@@ -1683,7 +1697,8 @@ describe('EmployeesService', () => {
         bonus: 300,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prismaService.employeePayroll.upsert).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.create).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
   });
 
   it('savePayroll 在实发工资为负数时抛出异常', async () => {
@@ -1704,7 +1719,8 @@ describe('EmployeesService', () => {
         bonus: 0,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prismaService.employeePayroll.upsert).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.create).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
   });
 
   it('savePayroll 会计算工资汇总并重置确认状态', async () => {
@@ -1718,7 +1734,7 @@ describe('EmployeesService', () => {
       linkedStaffId: 12,
     });
     prismaService.employeePayroll.findUnique.mockResolvedValue(null);
-    prismaService.employeePayroll.upsert.mockResolvedValue({
+    prismaService.employeePayroll.create.mockResolvedValue({
       id: 21,
       storeId: 2,
       employeeId: 5,
@@ -1756,14 +1772,8 @@ describe('EmployeesService', () => {
     expect(
       employeesAccessService.findManageableEmployeeOrThrow,
     ).toHaveBeenCalledWith(user, 5, 'finance:manage');
-    expect(prismaService.employeePayroll.upsert).toHaveBeenCalledWith({
-      where: {
-        employeeId_month: {
-          employeeId: 5,
-          month: new Date('2026-04-01T00:00:00.000Z'),
-        },
-      },
-      create: expect.objectContaining({
+    expect(prismaService.employeePayroll.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
         storeId: 2,
         employeeId: 5,
         employeeName: '王五',
@@ -1775,22 +1785,9 @@ describe('EmployeesService', () => {
         bonus: 30000,
         commission: 0,
         actualSalary: 510000,
+        // 未传的公积金按 0 落库，派生金额与落库金额口径一致
         socialInsurance: 40000,
-        housingFund: undefined,
-        totalLaborCost: 550000,
-        status: EmployeePayrollStatus.draft,
-        note: '含季度奖励',
-      }),
-      update: expect.objectContaining({
-        employeeName: '王五',
-        baseSalary: 500000,
-        leaveDeduction: 12000,
-        otherDeduction: 8000,
-        otherDeductionNote: '迟到罚款',
-        bonus: 30000,
-        commission: 0,
-        actualSalary: 510000,
-        socialInsurance: 40000,
+        housingFund: 0,
         totalLaborCost: 550000,
         status: EmployeePayrollStatus.draft,
         confirmedAt: null,
@@ -1833,7 +1830,8 @@ describe('EmployeesService', () => {
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
     );
-    prismaService.employeePayroll.update.mockResolvedValue({
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeePayroll.findUniqueOrThrow.mockResolvedValue({
       id: 21,
       storeId: 2,
       employeeId: 5,
@@ -1862,11 +1860,15 @@ describe('EmployeesService', () => {
       employeesAccessService.ensureCanManageEmployees,
     ).toHaveBeenCalledWith(user, 2, 'finance:manage');
     const payrollUpdateArgs =
-      prismaService.employeePayroll.update.mock.calls.at(0)?.[0] as {
-        where: { id: number };
+      prismaService.employeePayroll.updateMany.mock.calls.at(0)?.[0] as {
+        where: { id: number; status: EmployeePayrollStatus };
         data: { status: EmployeePayrollStatus; confirmedAt: Date };
       };
-    expect(payrollUpdateArgs.where).toEqual({ id: 21 });
+    // 状态条件是并发确认的唯一准入，缺少它会出现重复沉淀成本
+    expect(payrollUpdateArgs.where).toEqual({
+      id: 21,
+      status: EmployeePayrollStatus.draft,
+    });
     expect(payrollUpdateArgs.data.status).toBe(EmployeePayrollStatus.confirmed);
     expect(payrollUpdateArgs.data.confirmedAt).toBeInstanceOf(Date);
     expect(costsService.syncPayrollCosts).toHaveBeenCalledWith(
@@ -1899,7 +1901,25 @@ describe('EmployeesService', () => {
     await expect(service.confirmPayroll(user, 21)).rejects.toBeInstanceOf(
       ConflictException,
     );
-    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('confirmPayroll 在并发确认抢占失败时抛出异常且不重复同步成本', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 2,
+      status: EmployeePayrollStatus.draft,
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+    // 另一个请求已经先完成确认：条件更新命中 0 行
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.confirmPayroll(user, 21)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(costsService.syncPayrollCosts).not.toHaveBeenCalled();
   });
 
   it('confirmPayroll 在记录不存在时抛出异常', async () => {
@@ -1908,7 +1928,7 @@ describe('EmployeesService', () => {
     await expect(service.confirmPayroll(user, 999)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
   });
 
   it('updatePayroll 会按传入字段更新工资草稿并重新计算派生金额', async () => {
@@ -1940,7 +1960,8 @@ describe('EmployeesService', () => {
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
     );
-    prismaService.employeePayroll.update.mockResolvedValue({
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeePayroll.findUniqueOrThrow.mockResolvedValue({
       id: 1,
       storeId: 2,
       employeeId: 5,
@@ -1981,13 +2002,18 @@ describe('EmployeesService', () => {
       employeesAccessService.ensureCanManageEmployees,
     ).toHaveBeenCalledWith(user, 2, 'finance:manage');
 
-    const updateArgs = prismaService.employeePayroll.update.mock.calls.at(
+    const updateArgs = prismaService.employeePayroll.updateMany.mock.calls.at(
       0,
     )?.[0] as {
-      where: { id: number };
+      where: { id: number; status: EmployeePayrollStatus; updatedAt: Date };
       data: Record<string, number | string | null>;
     };
-    expect(updateArgs.where).toEqual({ id: 1 });
+    // 乐观锁：只有仍是草稿且版本未变时才允许写入
+    expect(updateArgs.where).toEqual({
+      id: 1,
+      status: EmployeePayrollStatus.draft,
+      updatedAt,
+    });
     // 服务端重新计算实发工资 = 3332 - 32 - 42 + 52 = 3310 元 → 331000 分
     expect(updateArgs.data.actualSalary).toBe(331000);
     // 人力总成本 = 3310 + 62 + 72 = 3444 元 → 344400 分
@@ -2016,7 +2042,44 @@ describe('EmployeesService', () => {
     await expect(
       service.updatePayroll(user, 1, { baseSalary: 5000 }),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('updatePayroll 在读取后被并发确认时拒绝写入', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 1,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      month: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: 400000,
+      leaveDeduction: 0,
+      otherDeduction: 0,
+      otherDeductionNote: null,
+      bonus: 0,
+      commission: 0,
+      actualSalary: 400000,
+      socialInsurance: 0,
+      housingFund: 0,
+      totalLaborCost: 400000,
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: null,
+      createdAt: new Date('2026-05-13T08:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+    // 事务内条件更新命中 0 行：说明该草稿已被并发确认
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.updatePayroll(user, 1, { baseSalary: 5600 }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(
+      prismaService.employeePayroll.findUniqueOrThrow,
+    ).not.toHaveBeenCalled();
   });
 
   it('updatePayroll 在记录不存在时抛出异常', async () => {
@@ -2025,7 +2088,127 @@ describe('EmployeesService', () => {
     await expect(
       service.updatePayroll(user, 999, { baseSalary: 5000 }),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+    expect(prismaService.employeePayroll.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('savePayroll 重存同月草稿时未传社保公积金仍按库内金额计算总成本', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T09:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      month: new Date('2026-04-01T00:00:00.000Z'),
+      baseSalary: 500000,
+      leaveDeduction: 0,
+      otherDeduction: 0,
+      otherDeductionNote: null,
+      bonus: 0,
+      commission: 0,
+      actualSalary: 500000,
+      socialInsurance: 50000,
+      housingFund: 20000,
+      totalLaborCost: 570000,
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: null,
+      createdAt,
+      updatedAt,
+    });
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeePayroll.findUniqueOrThrow.mockResolvedValue({
+      id: 21,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      month: new Date('2026-04-01T00:00:00.000Z'),
+      baseSalary: 510000,
+      leaveDeduction: 0,
+      otherDeduction: 0,
+      otherDeductionNote: null,
+      bonus: 0,
+      commission: 0,
+      actualSalary: 510000,
+      socialInsurance: 50000,
+      housingFund: 20000,
+      totalLaborCost: 580000,
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: null,
+      createdAt,
+      updatedAt,
+    });
+
+    const result = await service.savePayroll(user, {
+      employeeId: 5,
+      month: '2026-04',
+      baseSalary: 5100,
+      leaveDeduction: 0,
+      otherDeduction: 0,
+      bonus: 0,
+    });
+
+    const updateArgs = prismaService.employeePayroll.updateMany.mock.calls.at(
+      0,
+    )?.[0] as {
+      where: { id: number; status: EmployeePayrollStatus };
+      data: Record<string, number | null>;
+    };
+    // 草稿必须仍是 draft 才能覆盖
+    expect(updateArgs.where).toEqual({
+      id: 21,
+      status: EmployeePayrollStatus.draft,
+    });
+    // 未传社保公积金 = 保留库内金额，且总成本与落库金额一致（5100 + 500 + 200）
+    expect(updateArgs.data.socialInsurance).toBe(50000);
+    expect(updateArgs.data.housingFund).toBe(20000);
+    expect(updateArgs.data.totalLaborCost).toBe(580000);
+    expect(result.totalLaborCost).toBe(5800);
+  });
+
+  it('remove 使用 staff:delete 校验删除权限', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 7,
+      storeId: 2,
+      linkedStaffId: null,
+      name: '王五',
+    });
+    prismaService.storeSubAccount.updateMany.mockResolvedValue({ count: 0 });
+    prismaService.employee.update.mockResolvedValue({});
+
+    await service.remove(user, 7);
+
+    // 仅持 staff:update 的账号不能删除员工
+    expect(
+      employeesAccessService.findManageableEmployeeOrThrow,
+    ).toHaveBeenCalledWith(user, 7, 'staff:delete');
+    expect(prismaService.employee.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { deletedAt: expect.any(Date) },
+    });
+  });
+
+  it('removePayroll 在并发确认后拒绝删除草稿', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 2,
+      status: EmployeePayrollStatus.draft,
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+    prismaService.employeePayroll.deleteMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.removePayroll(user, 21)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
   it('getShiftReport 会按前端报表结构聚合排班数据', async () => {

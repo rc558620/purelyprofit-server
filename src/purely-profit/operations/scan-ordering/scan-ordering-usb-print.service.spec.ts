@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
+import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
 import { PrintAgentService } from './print-agent.service';
@@ -17,6 +18,7 @@ describe('ScanOrderingUsbPrintService', () => {
   const commerceAccessService = { resolveSingleStoreId: jest.fn() };
   const printSettingsService = { getByStoreId: jest.fn() };
   const printDataService = { loadOrder: jest.fn() };
+  const printDedupeService = { tryAcquireAutoDispatch: jest.fn() };
   const usbPrintService = { printRaw: jest.fn(), listDevices: jest.fn() };
   const agentService = {
     isAgentBound: jest.fn(),
@@ -37,6 +39,10 @@ describe('ScanOrderingUsbPrintService', () => {
           useValue: printSettingsService,
         },
         { provide: ScanOrderingPrintDataService, useValue: printDataService },
+        {
+          provide: ScanOrderingPrintDedupeService,
+          useValue: printDedupeService,
+        },
         { provide: UsbPrintService, useValue: usbPrintService },
         {
           provide: EscPosTicketBuilder,

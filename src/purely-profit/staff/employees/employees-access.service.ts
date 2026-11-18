@@ -14,6 +14,7 @@ export type EmployeesPermission = Extract<
   | 'staff:view'
   | 'staff:create'
   | 'staff:update'
+  | 'staff:delete'
   | 'report:view'
   | 'finance:view'
   | 'finance:manage'

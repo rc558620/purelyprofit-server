@@ -179,6 +179,22 @@ export class ScanOrderingSubscriptionService {
     return { room, storeId: payload.storeId };
   }
 
+  /** 空间管理门店房间订阅（结账完成广播，商家端空间管理页实时刷新房态） */
+  async subscribeSpaceStore(
+    client: Socket,
+    payload: JoinStorePayload,
+  ): Promise<JoinStoreRoomResult> {
+    await this.assertStoreSubscribable(client, {
+      event: 'subscribe.space-store',
+      storeId: payload.storeId,
+      permissions: ['space:view'],
+      forbiddenMessage: '无权订阅该门店空间状态',
+    });
+    const room = this.realtimeService.spaceStoreRoom(payload.storeId);
+    await this.joinRoom(client, 'subscribe.space-store', room);
+    return { room, storeId: payload.storeId };
+  }
+
   /** 门店维度订阅统一权限校验，失败时保留可定位的审计日志。 */
   private async assertStoreSubscribable(
     client: Socket,

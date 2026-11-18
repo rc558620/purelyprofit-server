@@ -6,6 +6,7 @@ import { aUuid } from '../../../spec-matchers';
 import { createSpaceSessionRecord } from './space-session.spec-helpers';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.shared';
 
 /**
@@ -22,6 +23,9 @@ describe('SpaceSessionAutoCheckoutService 会话认领锁', () => {
     clubVoucherOrder: { findMany: jest.fn() },
   };
   const settlementService = { settleSession: jest.fn() };
+  const realtimeService = {
+    publishSpaceSessionAutoCheckoutFailed: jest.fn(),
+  };
   const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const redisClient = { set: jest.fn(), eval: jest.fn() };
   const redisService = {
@@ -73,6 +77,10 @@ describe('SpaceSessionAutoCheckoutService 会话认领锁', () => {
         {
           provide: SpaceSessionSettlementService,
           useValue: settlementService,
+        },
+        {
+          provide: ScanOrderingRealtimeService,
+          useValue: realtimeService,
         },
         RedisLockService,
       ],

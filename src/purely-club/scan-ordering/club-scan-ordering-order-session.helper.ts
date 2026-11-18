@@ -6,6 +6,7 @@
  * 过滤条件导致订单落到用户已经离开的门店或桌台上。
  */
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   CLUB_SCAN_ORDERING_ERROR_CODE,
@@ -49,6 +50,37 @@ export const loadCreateSession = async (
       ),
     );
   return session;
+};
+
+/**
+ * 事务内复核会话可用性。
+ *
+ * 建单前的 {@link loadCreateSession} 在事务外执行：两个请求同时通过预检后，
+ * 先提交的一方可能已经清桌 / 会话过期，第二个请求若不再复核就会把订单落到
+ * 已失效的会话上。判定条件与 loadCreateSession 保持一致。
+ */
+export const assertSessionUsableInTransaction = async (
+  tx: Prisma.TransactionClient,
+  input: { sessionId: number; storeId: number },
+): Promise<void> => {
+  const session = await tx.scanOrderingSession.findFirst({
+    where: {
+      id: input.sessionId,
+      storeId: input.storeId,
+      status: 'active',
+      expiresAt: { gt: new Date() },
+      deletedAt: null,
+      tableId: { not: null },
+    },
+    select: { id: true },
+  });
+  if (!session)
+    throw new ForbiddenException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.AUTH_TABLE_SESSION_UNAVAILABLE,
+        '当前桌台会话不可用，请重新扫码',
+      ),
+    );
 };
 
 /**

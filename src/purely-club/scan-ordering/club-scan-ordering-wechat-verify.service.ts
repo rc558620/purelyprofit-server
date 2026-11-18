@@ -22,9 +22,15 @@ export class ClubScanOrderingWechatVerifyService {
   /**
    * 回微信侧核对扫码点餐订单，确认已支付则补落账。
    *
+   * @param options.force 跳过节流立即核对：改道余额支付前必须拿到微信侧真实结果，
+   *   否则「刚被前端轮询过」时会把未知当未支付，导致同一订单被收两次钱
    * @returns true 表示本次确实补了落账（调用方据此决定是否需要重查）
    */
-  async verifyAndSettle(userId: number, orderId: number): Promise<boolean> {
+  async verifyAndSettle(
+    userId: number,
+    orderId: number,
+    options?: { force?: boolean },
+  ): Promise<boolean> {
     const order = await this.prisma.scanOrders.findFirst({
       where: { id: orderId, clubUserId: userId, deletedAt: null },
       select: { id: true, storeId: true, paymentStatus: true },
@@ -51,6 +57,7 @@ export class ClubScanOrderingWechatVerifyService {
       storeId: order.storeId,
       outTradeNo: attempt.merchantPaymentNo,
       expectedAmountFen: attempt.amount,
+      force: options?.force,
     });
 
     if (!verified) {

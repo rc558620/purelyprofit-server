@@ -231,6 +231,90 @@ describe('ScanOrderingRealtimeService', () => {
     });
   });
 
+  // ──────────────────────────────────────────────────────────────
+  // 空间会话结账完成（商家端空间管理实时刷新）
+  // ──────────────────────────────────────────────────────────────
+
+  const spaceSessionSettledPayload = {
+    storeId: 11,
+    sessionId: 9,
+    spaceId: 7,
+    spaceName: 'A11',
+    totalAmount: -11,
+    source: 'auto' as const,
+    settledAt: '2026-11-18T04:53:30.000Z',
+  };
+
+  it('publishSpaceSessionSettled 发布 space_session.settled 到同一 Redis 频道', async () => {
+    service.publishSpaceSessionSettled(spaceSessionSettledPayload);
+    await flush();
+
+    expect(redisService.publish).toHaveBeenCalledWith(
+      'purelyprofit:scan-ordering:realtime:v1',
+      JSON.stringify({
+        event: 'space_session.settled',
+        payload: spaceSessionSettledPayload,
+      }),
+    );
+  });
+
+  it('space_session.settled 只分发给 space-store 房间（不落 store/session 房间）', async () => {
+    const handler = redisService.subscribe.mock.calls[0][1];
+    handler(
+      JSON.stringify({
+        event: 'space_session.settled',
+        payload: spaceSessionSettledPayload,
+      }),
+    );
+    await flush();
+
+    expect(namespace.to).toHaveBeenCalledWith('space-store:11');
+    // 空间会话与扫码点餐会话是两套 ID 序列：同号点餐会话不能收到该事件
+    expect(namespace.to).not.toHaveBeenCalledWith('session:9');
+    expect(namespace.to).not.toHaveBeenCalledWith('store:11');
+    expect(emit).toHaveBeenCalledWith(
+      'space_session.settled',
+      spaceSessionSettledPayload,
+    );
+  });
+
+  it('publishSpaceSessionAutoCheckoutFailed 发布失败事件并只分发 space-store 房间', async () => {
+    const failedPayload = {
+      storeId: 11,
+      sessionId: 9,
+      spaceId: 7,
+      spaceName: 'A11',
+      reason: '倒计时尚未到期，不能自动结账',
+      failedAt: '2026-11-18T04:53:30.000Z',
+    };
+    service.publishSpaceSessionAutoCheckoutFailed(failedPayload);
+    await flush();
+
+    expect(redisService.publish).toHaveBeenCalledWith(
+      'purelyprofit:scan-ordering:realtime:v1',
+      JSON.stringify({
+        event: 'space_session.auto_checkout_failed',
+        payload: failedPayload,
+      }),
+    );
+
+    const handler = redisService.subscribe.mock.calls[0][1];
+    handler(
+      JSON.stringify({
+        event: 'space_session.auto_checkout_failed',
+        payload: failedPayload,
+      }),
+    );
+    await flush();
+
+    expect(namespace.to).toHaveBeenCalledWith('space-store:11');
+    expect(namespace.to).not.toHaveBeenCalledWith('session:9');
+    expect(emit).toHaveBeenCalledWith(
+      'space_session.auto_checkout_failed',
+      failedPayload,
+    );
+  });
+
   it('退订后不再收到该订单事件', async () => {
     const listener = jest.fn();
     const unsubscribe = service.subscribeNativeOrder(100, listener);

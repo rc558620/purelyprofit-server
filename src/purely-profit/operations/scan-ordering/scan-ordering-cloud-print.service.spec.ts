@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
+import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { FeiePrintService } from './feie-print.service';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -24,6 +25,9 @@ describe('ScanOrderingCloudPrintService', () => {
   const printDataService = {
     loadOrder: jest.fn(),
   };
+  const printDedupeService = {
+    tryAcquireAutoDispatch: jest.fn(),
+  };
   const feiePrintService = {
     printMessage: jest.fn(),
   };
@@ -41,6 +45,10 @@ describe('ScanOrderingCloudPrintService', () => {
           useValue: printSettingsService,
         },
         { provide: ScanOrderingPrintDataService, useValue: printDataService },
+        {
+          provide: ScanOrderingPrintDedupeService,
+          useValue: printDedupeService,
+        },
         { provide: FeiePrintService, useValue: feiePrintService },
       ],
     }).compile();
@@ -146,5 +154,41 @@ describe('ScanOrderingCloudPrintService', () => {
       'CASHIER-SN',
       expect.stringContaining('测试打印'),
     );
+  });
+
+  // 回归：两个终端同时收到接单事件时，服务端只允许自动下发一次
+  it('source=auto 且已被其他终端下发过时不再重复打印', async () => {
+    printSettingsService.getByStoreId.mockResolvedValue({
+      cashierPrintChannel: 'cloud',
+      kitchenPrintChannel: 'cloud',
+      cashierCloudPrinterSn: 'CASHIER-SN',
+      kitchenCloudPrinterSn: 'KITCHEN-SN',
+    });
+    printDedupeService.tryAcquireAutoDispatch.mockResolvedValue(false);
+
+    const result = await service.printForMerchant(user, 'kitchen', 66, 'auto');
+
+    expect(printDedupeService.tryAcquireAutoDispatch).toHaveBeenCalledWith({
+      storeId: 11,
+      orderId: 66,
+      target: 'kitchen',
+    });
+    expect(result).toBe('66');
+    expect(feiePrintService.printMessage).not.toHaveBeenCalled();
+  });
+
+  it('人工补打（缺省 source=manual）不参与去重', async () => {
+    printSettingsService.getByStoreId.mockResolvedValue({
+      cashierPrintChannel: 'cloud',
+      kitchenPrintChannel: 'cloud',
+      cashierCloudPrinterSn: 'CASHIER-SN',
+      kitchenCloudPrinterSn: 'KITCHEN-SN',
+    });
+    feiePrintService.printMessage.mockResolvedValue('order-manual');
+
+    const result = await service.printForMerchant(user, 'kitchen', 66);
+
+    expect(printDedupeService.tryAcquireAutoDispatch).not.toHaveBeenCalled();
+    expect(result).toBe('order-manual');
   });
 });

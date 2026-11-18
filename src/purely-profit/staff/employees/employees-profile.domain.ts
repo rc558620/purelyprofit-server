@@ -50,10 +50,31 @@ export interface ResignEmployeeProfileInput {
   resignReason?: string;
 }
 
+/** 解析工号中的自增序号；非 EMP<数字> 形式的工号视为 0，不参与发号基准 */
+function parseEmployeeEmpNoSequence(empNo: string | null | undefined): number {
+  const matched = empNo?.match(/^EMP(\d+)$/)?.[1];
+  return matched ? Number(matched) : 0;
+}
+
 export function buildNextEmployeeEmpNo(latestEmpNo?: string | null): string {
-  const currentNumber = latestEmpNo?.match(/^EMP(\d+)$/)?.[1];
-  const nextValue = (currentNumber ? Number(currentNumber) : 0) + 1;
+  const nextValue = parseEmployeeEmpNoSequence(latestEmpNo) + 1;
   return `EMP${String(nextValue).padStart(3, '0')}`;
+}
+
+/**
+ * 按门店全部存量工号（含已软删除员工）取最大序号 +1 发号。
+ *
+ * 必须覆盖软删除行：工号唯一约束包含历史行，若只看未删除员工，
+ * 删除最大号员工后会生成一个仍被历史行占用的工号，创建时必然撞唯一约束。
+ */
+export function resolveNextEmployeeEmpNo(
+  existingEmpNos: readonly string[],
+): string {
+  const latestNumber = existingEmpNos.reduce(
+    (max, empNo) => Math.max(max, parseEmployeeEmpNoSequence(empNo)),
+    0,
+  );
+  return `EMP${String(latestNumber + 1).padStart(3, '0')}`;
 }
 
 export function buildCreateEmployeeProfileData(

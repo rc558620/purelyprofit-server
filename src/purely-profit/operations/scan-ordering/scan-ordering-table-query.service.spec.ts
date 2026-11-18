@@ -11,12 +11,55 @@ describe('ScanOrderingTableQueryService.listTables', () => {
 
   const prisma = {
     scanOrderingTable: { findMany: jest.fn() },
+    // left（离桌）会话按本轮 diningRoundId 单独查询，不再随桌台全量回传
+    scanOrderingSession: { findMany: jest.fn() },
     // 桌台口径会额外查询手工补录单（manualEntry），参与占用可见订单统计
     scanOrders: { findMany: jest.fn().mockResolvedValue([]) },
     // 老数据兜底：改造前落 SaleOrder 的手工补录单
     saleOrder: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const commerceAccess = { resolveSingleStoreId: jest.fn() };
+
+  /** 桌台 fixture：sessions 里可同时放 active 与 left，按服务端两条查询分流返回。 */
+  type TableFixture = {
+    id: number;
+    sessions: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+
+  /**
+   * 模拟服务端的两条查询：
+   * 1) 桌台只带 active 会话；2) left 会话按本轮 diningRoundId 单独查。
+   */
+  const mockTables = (tables: TableFixture[]): void => {
+    prisma.scanOrderingTable.findMany.mockImplementation(() =>
+      tables.map((table) => ({
+        ...table,
+        sessions: table.sessions.filter(
+          (session) => session.status === 'active',
+        ),
+      })),
+    );
+    prisma.scanOrderingSession.findMany.mockImplementation(
+      (args: {
+        where: { diningRoundId: { in: string[] }; tableId: { in: number[] } };
+      }) => {
+        const rounds = new Set(args.where.diningRoundId.in);
+        const tableIds = new Set(args.where.tableId.in);
+        return tables
+          .filter((table) => tableIds.has(table.id))
+          .flatMap((table) =>
+            table.sessions
+              .filter(
+                (session) =>
+                  session.status === 'left' &&
+                  rounds.has(session.diningRoundId as string),
+              )
+              .map((session) => ({ ...session, tableId: table.id })),
+          );
+      },
+    );
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -119,7 +162,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
             'served',
           ].includes(order.status),
         );
-      prisma.scanOrderingTable.findMany.mockResolvedValue([
+      mockTables([
         {
           id: 10,
           tableCode: 'A01',
@@ -174,7 +217,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
 
     it('聚合本轮 active 与 left 会话的履约订单，但人数只累计未过期 active 会话', async () => {
       const now = new Date();
-      prisma.scanOrderingTable.findMany.mockResolvedValue([
+      mockTables([
         {
           id: 10,
           tableCode: 'A01',
@@ -253,7 +296,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
 
     it('没有有效 active 会话时不让历史 left 会话重新占用空桌', async () => {
       const now = new Date();
-      prisma.scanOrderingTable.findMany.mockResolvedValue([
+      mockTables([
         {
           id: 10,
           tableCode: 'A01',
@@ -315,7 +358,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
 
     it('上一轮未清桌时，其 left 会话订单不混入新一轮的订单/人数/清桌校验', async () => {
       const now = new Date();
-      prisma.scanOrderingTable.findMany.mockResolvedValue([
+      mockTables([
         {
           id: 10,
           tableCode: 'A01',
@@ -374,7 +417,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
 
     it('同一轮次的 left 会话（顾客离桌后重扫）订单仍参与当前轮次汇总', async () => {
       const now = new Date();
-      prisma.scanOrderingTable.findMany.mockResolvedValue([
+      mockTables([
         {
           id: 10,
           tableCode: 'A01',
@@ -430,5 +473,54 @@ describe('ScanOrderingTableQueryService.listTables', () => {
         blockingOrderCount: 0,
       });
     });
+  });
+
+  // 回归：left 会话此前随桌台全量回传再在应用层过滤，历史轮次越多越慢
+  it('left 会话在库内按本轮 diningRoundId 过滤，不全量回拉历史轮次', async () => {
+    const now = new Date();
+    mockTables([
+      {
+        id: 10,
+        tableCode: 'A01',
+        name: 'A01',
+        status: 'empty',
+        areaId: null,
+        typeId: null,
+        area: null,
+        type: null,
+        sessions: [
+          {
+            id: 1,
+            createdAt: now,
+            expiresAt: new Date(now.getTime() + 60_000),
+            guestCount: 1,
+            status: 'active',
+            diningRoundId: 'round-current',
+            orders: [],
+          },
+          {
+            id: 2,
+            createdAt: now,
+            expiresAt: now,
+            guestCount: 1,
+            status: 'left',
+            diningRoundId: 'round-previous',
+            orders: [],
+          },
+        ],
+      },
+    ]);
+
+    await service.listTables(user);
+
+    expect(prisma.scanOrderingSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 1,
+          status: 'left',
+          diningRoundId: { in: ['round-current'] },
+        }),
+      }),
+    );
   });
 });

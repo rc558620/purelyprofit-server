@@ -26,6 +26,7 @@ import type { ClubScanOrderingInventoryReservationService } from './club-scan-or
 import type { CreateClubScanOrderDto } from './dto/club-scan-ordering.dto';
 import { hashScanOrderRequest } from './club-scan-ordering-order.utils';
 import {
+  assertSessionUsableInTransaction,
   assertStoreConsistency,
   loadCreateSession,
 } from './club-scan-ordering-order-session.helper';
@@ -40,9 +41,9 @@ import {
   IDEMPOTENCY_SCOPE,
   PAYMENT_TIMEOUT_MS,
   buildOrderCreatedPayload,
+  consumeCartItems,
   createOrderStatusHistoryRow,
   createScanOrderRow,
-  markCartItemsOrdered,
 } from './club-scan-ordering-order-create.helper';
 import type {
   CreateOrderPricing,
@@ -89,12 +90,15 @@ export const createClubScanOrder = async (
 ): Promise<unknown> => {
   const { user, dto } = input;
   const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+  // 请求指纹在流程入口算一次：重放比对与占位写入必须用同一份指纹
+  const requestHash = hashScanOrderRequest(dto);
   const replayed = await inspectIdempotency(
     deps.prisma,
     user.id,
     idempotencyKey,
   );
-  if (replayed) return resolveExistingIdempotencyResponse(replayed);
+  if (replayed)
+    return resolveExistingIdempotencyResponse(replayed, requestHash);
 
   const session = await loadCreateSession(deps.prisma, {
     clubUserId: user.id,
@@ -115,7 +119,7 @@ export const createClubScanOrder = async (
   const reservation = await reserveIdempotency(deps, {
     actorId: user.id,
     idempotencyKey,
-    dto,
+    requestHash,
     expiresAt,
   });
   if (reservation.kind === 'existing') return reservation.response;
@@ -143,7 +147,7 @@ export const createClubScanOrder = async (
       user.id,
       idempotencyKey,
     );
-    if (raced) return resolveExistingIdempotencyResponse(raced);
+    if (raced) return resolveExistingIdempotencyResponse(raced, requestHash);
     throw error;
   }
 
@@ -258,7 +262,7 @@ const reserveIdempotency = async (
   input: {
     actorId: number;
     idempotencyKey: string;
-    dto: CreateClubScanOrderDto;
+    requestHash: string;
     expiresAt: Date;
   },
 ): Promise<IdempotencyReservation> => {
@@ -267,7 +271,7 @@ const reserveIdempotency = async (
       scope: IDEMPOTENCY_SCOPE,
       actorId: input.actorId,
       idempotencyKey: input.idempotencyKey,
-      requestHash: hashScanOrderRequest(input.dto),
+      requestHash: input.requestHash,
       expiresAt: input.expiresAt,
     });
     return { kind: 'reserved', id };
@@ -280,7 +284,7 @@ const reserveIdempotency = async (
     if (raced) {
       return {
         kind: 'existing',
-        response: resolveExistingIdempotencyResponse(raced),
+        response: resolveExistingIdempotencyResponse(raced, input.requestHash),
       };
     }
     throw error;
@@ -302,6 +306,13 @@ const createOrderInTransaction = async (
   input: CommitOrderInput,
 ): Promise<CreatedScanOrderResponse> => {
   const { user, dto, session, pricing } = input;
+  // 会话与购物车都必须在事务内复核：版本预检发生在事务外，两个并发请求
+  // 可能同时通过预检，此时只有「原子消费购物车行数」能挡住第二笔订单
+  await assertSessionUsableInTransaction(tx, {
+    sessionId: session.id,
+    storeId: session.storeId,
+  });
+  await consumeCartOrThrow(tx, session.id, pricing.pricedItems);
   await deps.inventoryReservationService.reserveMenuProductStock(
     tx,
     pricing.pricedItems,
@@ -329,7 +340,6 @@ const createOrderInTransaction = async (
     ),
   });
   await createOrderStatusHistoryRow(tx, order.id, session, user.id);
-  await markCartItemsOrdered(tx, session.id);
   // 新客额度扣减与订单落库同事务提交：扣不到（并发抢走最后一个）就让整笔
   // 建单回滚，保证「服务的新客数」严格等于「扣掉的额度」。老客在此直接放行。
   await deps.quotaService.consumeWithinOrderTransaction(
@@ -339,4 +349,28 @@ const createOrderInTransaction = async (
     user.phone || null,
   );
   return order;
+};
+
+/**
+ * 原子消费本次定价命中的购物车行。
+ *
+ * 条件更新的行数必须与定价快照一致：为 0 说明购物车已被并发请求消费，
+ * 不足说明期间有行被删除 / 改动。两种情况都整笔回滚，避免同一份购物车
+ * 建出两笔订单（重复占库存、商家收到重复单）。
+ */
+const consumeCartOrThrow = async (
+  tx: Prisma.TransactionClient,
+  sessionId: number,
+  pricedItems: CreateOrderPricing['pricedItems'],
+): Promise<void> => {
+  const cartItemIds = pricedItems.map((item) => item.cartItemId);
+  const consumed = await consumeCartItems(tx, sessionId, cartItemIds);
+  if (consumed !== cartItemIds.length) {
+    throw new ConflictException(
+      clubScanOrderingError(
+        CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_CART_UPDATED,
+        '购物车已更新，请刷新后重新确认订单',
+      ),
+    );
+  }
 };

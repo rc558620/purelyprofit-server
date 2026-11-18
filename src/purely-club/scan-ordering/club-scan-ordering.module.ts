@@ -32,6 +32,7 @@ import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.s
 import { ClubScanOrderingBalanceCheckoutService } from './club-scan-ordering-balance-checkout.service';
 import { ClubScanOrderingDevelopmentCheckoutService } from './club-scan-ordering-development-checkout.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
+import { ClubScanOrderingPaymentAnomalyService } from './club-scan-ordering-payment-anomaly.service';
 // 支付落账锁仅依赖 RedisService，本地提供实例，避免引入整个 ClubPaymentsModule 造成循环依赖
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
@@ -93,6 +94,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubScanOrderingDevelopmentCheckoutService,
     // 支付回调落账与微信侧主动核对共用同一落账入口，provider 归属扫码点餐模块
     ClubScanOrderingPaymentService,
+    // 已关闭订单 / 重复收款的异常支付落账（只建退款任务，不改订单状态）
+    ClubScanOrderingPaymentAnomalyService,
     ClubPaymentLockService,
     ClubScanOrderingInventoryReservationService,
     ClubScanOrderingMarketingCustomerService,

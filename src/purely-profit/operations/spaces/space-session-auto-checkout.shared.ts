@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 /**
@@ -38,6 +39,42 @@ export const resolveAutoCheckoutAt = (
   // B1 fix: countdownMinutes 已是累计值（续费时由 space-session-renew.service
   // 直接累加），不应再叠加 renewRecords.addedMinutes，否则续费分钟被双重计算。
   return session.startTime.getTime() + session.countdownMinutes * 60 * 1000;
+};
+
+/**
+ * 自动结账的服务端到期守卫。
+ *
+ * 前端倒计时归零后会立即触发一次结账（体验优先），但到期判定必须由服务端兜住：
+ * 浏览器时钟偏快、本页快照未刷新（他端刚续费延长倒计时）都会让前端提前触发。
+ * 未到期直接 409，前端静默处理，等下一次后台扫描在真正到期时结账。
+ */
+export const assertAutoCheckoutDue = (params: {
+  startTime: Date;
+  countdownMinutes: number | null;
+  now: number;
+}): void => {
+  const { startTime, countdownMinutes, now } = params;
+  const dueAt = startTime.getTime() + (countdownMinutes ?? 0) * 60 * 1000;
+  if (countdownMinutes === null || countdownMinutes <= 0 || now < dueAt) {
+    throw new ConflictException('倒计时尚未到期，不能自动结账');
+  }
+};
+
+/**
+ * 自动结账失败原因（面向收银的短文案）。
+ *
+ * 广播到前端后只展示这一句：去掉换行/多余空白并截断，
+ * 避免把 Prisma 多行错误、SQL 片段整段推给收银端。
+ */
+export const resolveAutoCheckoutFailureReason = (error: unknown): string => {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+  const singleLine = raw.replace(/\s+/g, ' ').trim();
+  return singleLine ? singleLine.slice(0, 120) : '未知错误';
 };
 
 export const buildAutoCheckoutLogContext = (params: {

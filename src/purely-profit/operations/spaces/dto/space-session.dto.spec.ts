@@ -58,7 +58,23 @@ describe('Space Session DTO', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('CheckoutSpaceSessionDto 拒绝非法的抵扣资产类型与负数预期应付', async () => {
+  it('CheckoutSpaceSessionDto 接受负数预期应付（应退场景）', async () => {
+    const dto = plainToInstance(CheckoutSpaceSessionDto, {
+      paymentMethod: 'cash',
+      lockId: 'space_lock_xxx',
+      lockedAt: 1715695200000,
+      expectedPayable: -11,
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('CheckoutSpaceSessionDto 拒绝非法的抵扣资产类型', async () => {
     const dto = plainToInstance(CheckoutSpaceSessionDto, {
       paymentMethod: 'cash',
       lockId: 'space_lock_xxx',
@@ -73,8 +89,7 @@ describe('Space Session DTO', () => {
     });
 
     const errorProperties = errors.map((error) => error.property);
-    expect(errorProperties).toEqual(
-      expect.arrayContaining(['settlements', 'expectedPayable']),
-    );
+    expect(errorProperties).toEqual(expect.arrayContaining(['settlements']));
+    expect(errorProperties).not.toContain('expectedPayable');
   });
 });

@@ -4,6 +4,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
+import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import type { EscPosTicketVariant } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
@@ -11,6 +12,7 @@ import { PrintAgentService } from './print-agent.service';
 import type { PrintAgentPrinter } from './print-agent.service';
 import type { UsbPrinterInfo } from './usb-print.service';
 import type { CloudPrintTarget } from './scan-ordering-cloud-print.service';
+import type { ScanOrderingPrintSource } from './dto/scan-ordering-print-action.dto';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 /**
@@ -25,18 +27,34 @@ export class ScanOrderingUsbPrintService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly printDataService: ScanOrderingPrintDataService,
+    private readonly printDedupeService: ScanOrderingPrintDedupeService,
     private readonly usbPrintService: UsbPrintService,
     private readonly ticketBuilder: EscPosTicketBuilder,
     private readonly agentService: PrintAgentService,
   ) {}
 
-  /** 商家端下发 USB 打印任务（代理推送优先，本机回退）。 */
+  /**
+   * 商家端下发 USB 打印任务（代理推送优先，本机回退）。
+   *
+   * @param source auto 时按「门店 + 订单 + 目标」服务端去重：多终端只打一张；
+   *   manual（缺省）为人工补打，不去重。
+   */
   async printForMerchant(
     user: AuthenticatedUser,
     target: CloudPrintTarget,
     orderId: number,
+    source: ScanOrderingPrintSource = 'manual',
   ): Promise<string> {
     const storeId = await this.resolveMerchantStoreId(user);
+    if (source === 'auto') {
+      const acquired = await this.printDedupeService.tryAcquireAutoDispatch({
+        storeId,
+        orderId,
+        target,
+      });
+      // 已下发过：按成功返回同一订单号，前端无需区分「补打」与「已打过」
+      if (!acquired) return String(orderId);
+    }
     const settings = await this.printSettingsService.getByStoreId(storeId);
     const printer = this.resolvePrinter(settings, target);
     const order = await this.printDataService.loadOrder(storeId, orderId);

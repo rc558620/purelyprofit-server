@@ -245,7 +245,8 @@ export class CheckoutSpaceSessionDto {
   @ApiPropertyOptional({
     example: 20,
     description:
-      '抵扣后的前端预期应付（元）。后端按权威结果重算应收并与之比对，不一致直接拒绝，避免锁单过期期间金额漂移',
+      '抵扣后的前端预期应付（元）。后端按权威结果重算应收并与之比对，不一致直接拒绝，避免锁单过期期间金额漂移。' +
+      '允许负数：开台已付大于本次消费时合计为应退金额',
   })
   @IsOptional()
   @Type(() => Number)
@@ -253,7 +254,6 @@ export class CheckoutSpaceSessionDto {
     { maxDecimalPlaces: 2 },
     { message: '预期应付必须是数字且最多两位小数' },
   )
-  @Min(0, { message: '预期应付不能为负数' })
   expectedPayable?: number;
 
   @ApiProperty({

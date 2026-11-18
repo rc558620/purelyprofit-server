@@ -5,6 +5,11 @@ import type { CloudPrintTarget } from '../scan-ordering-cloud-print.service';
 /** 云打印目标可选值。 */
 const PRINT_TARGETS: CloudPrintTarget[] = ['cashier', 'kitchen'];
 
+/** 打印触发来源：auto=事件自动打印（服务端去重）/ manual=人工补打（不去重）。 */
+const PRINT_SOURCES = ['auto', 'manual'] as const;
+
+export type ScanOrderingPrintSource = (typeof PRINT_SOURCES)[number];
+
 /** 云打印下单请求：指定目标与订单。 */
 export class ScanOrderingPrintOrderDto {
   @ApiProperty({
@@ -17,6 +22,16 @@ export class ScanOrderingPrintOrderDto {
   @IsInt({ message: 'orderId 必须是整数' })
   @Min(1, { message: 'orderId 必须大于 0' })
   orderId: number;
+
+  @ApiPropertyOptional({
+    description:
+      '触发来源：auto=事件自动打印（同一门店/订单/目标只下发一次，多终端不重复），manual=人工补打（不去重，缺省值）',
+    enum: PRINT_SOURCES,
+    default: 'manual',
+  })
+  @IsOptional()
+  @IsIn(PRINT_SOURCES, { message: 'source 必须是 auto/manual 之一' })
+  source?: ScanOrderingPrintSource;
 }
 
 /** 云打印测试请求：指定目标。 */

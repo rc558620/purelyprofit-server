@@ -13,15 +13,18 @@
  *
  * 用法：
  *   node scripts/check-scan-qr-path-contract.mjs
- *       检查各组契约，不一致以退出码 1 失败
+ *       检查各组契约，不一致或前端文件缺失都以退出码 1 失败
  *   node scripts/check-scan-qr-path-contract.mjs --json
  *       输出机器可读结果，供 CI 解析
+ *   node scripts/check-scan-qr-path-contract.mjs --allow-missing
+ *       找不到前端仓库时只告警不失败（仅限「只有后端」的临时环境）
  *
  * 环境变量（前端仓库不在默认同级目录时使用）：
  *   PURELY_CLUB_ROOT=/path/to/purelyClub
  *
- * 找不到前端仓库时只告警不失败 —— 允许在只有后端的环境中跑通，
- * 避免把环境问题误报成契约问题。
+ * 默认「前端文件缺失 = 失败」：此前缺失只告警，独立 worktree 里脚本会跳过
+ * 全部前端断言并仍然打印「契约一致」，等于把这个契约检查空转成绿灯。
+ * 纯后端环境请显式传 --allow-missing，让跳过成为一次有意的决定。
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -30,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const hasJsonFlag = process.argv.includes('--json');
+const allowMissingFiles = process.argv.includes('--allow-missing');
 
 const serverRoot = resolve(__dirname, '..');
 const clubRoot =
@@ -227,9 +231,10 @@ for (const group of CONTRACT_GROUPS) {
   const notFoundCount = results.filter(
     (item) => item.status === 'not-found',
   ).length;
-  // 只有一侧找到文件时允许通过（例如纯后端环境），但两侧都在却不一致必须失败
   const inconsistent = values.length > 1;
-  if (inconsistent || notFoundCount > 0) {
+  // 两端都缺失时 values 只剩一侧，看起来「一致」——所以缺失必须单独判失败
+  const missingBlocksCheck = missingCount > 0 && !allowMissingFiles;
+  if (inconsistent || notFoundCount > 0 || missingBlocksCheck) {
     hasFailure = true;
   }
 
@@ -245,6 +250,9 @@ for (const group of CONTRACT_GROUPS) {
 }
 
 // ─── 输出 ────────────────────────────────────────────────────────────────
+
+/** 是否存在被跳过的文件：--allow-missing 时结论只能算「后端侧自洽」 */
+const missingFiles = groups.some((group) => group.missingCount > 0);
 
 if (hasJsonFlag) {
   console.log(
@@ -292,6 +300,11 @@ if (hasJsonFlag) {
         `  ❌ 有 ${group.notFoundCount} 处缺少常量声明。\n` +
           '     若是有意移除，请同步更新本脚本的 CONTRACT_GROUPS。\n',
       );
+    } else if (group.missingCount > 0 && !allowMissingFiles) {
+      console.log(
+        `  ❌ 有 ${group.missingCount} 处文件缺失，本组契约未真正校验。\n` +
+          `     请用 PURELY_CLUB_ROOT 指向前端仓库；纯后端环境请显式加 --allow-missing。\n`,
+      );
     } else {
       console.log(
         `  ✅ 一致（'${group.values[0] ?? ''}'）` +
@@ -305,8 +318,10 @@ if (hasJsonFlag) {
 
   console.log(
     hasFailure
-      ? '❌ 契约检查未通过：请先统一前后端取值再合入。\n'
-      : '✅ 前后端扫码路径契约一致。\n',
+      ? '❌ 契约检查未通过：请先统一前后端取值（或补齐前端仓库路径）再合入。\n'
+      : allowMissingFiles && missingFiles
+        ? '⚠️ 存在被跳过的文件（--allow-missing）：本次结果只覆盖后端侧常量。\n'
+        : '✅ 前后端扫码路径契约一致。\n',
   );
   process.exitCode = hasFailure ? 1 : 0;
 }

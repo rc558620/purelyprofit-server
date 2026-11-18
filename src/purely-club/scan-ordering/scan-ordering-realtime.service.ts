@@ -15,6 +15,8 @@ import type {
   SelfOrderStatusChangedPayload,
   ServiceCallCreatedPayload,
   ServiceCallUpdatedPayload,
+  SpaceSessionAutoCheckoutFailedPayload,
+  SpaceSessionSettledPayload,
   VoucherOrderConfirmedPayload,
   VoucherOrderCreatedPayload,
   VoucherOrderStatusChangedPayload,
@@ -121,6 +123,18 @@ export class ScanOrderingRealtimeService
     this.publish('service_call.updated', payload);
   }
 
+  /** 空间会话结账完成（手动 / 自动结账共用）：商家端据此立即回源刷新房态 */
+  publishSpaceSessionSettled(payload: SpaceSessionSettledPayload): void {
+    this.publish('space_session.settled', payload);
+  }
+
+  /** 倒计时自动结账失败：商家端据此提示收银手动结账，避免房态卡死无人知道 */
+  publishSpaceSessionAutoCheckoutFailed(
+    payload: SpaceSessionAutoCheckoutFailedPayload,
+  ): void {
+    this.publish('space_session.auto_checkout_failed', payload);
+  }
+
   subscribeNativeOrder(
     orderId: number,
     listener: (payload: unknown) => void,
@@ -163,6 +177,11 @@ export class ScanOrderingRealtimeService
   /** 自助下单门店房间（商家端订阅，校验 self-ordering 权限，与其他业务房间隔离） */
   selfOrderingStoreRoom(storeId: number): string {
     return `self-ordering-store:${storeId}`;
+  }
+
+  /** 空间管理门店房间（商家端订阅，校验 space:view，与扫码点餐房间隔离） */
+  spaceStoreRoom(storeId: number): string {
+    return `space-store:${storeId}`;
   }
 
   sessionRoom(sessionId: number): string {
@@ -226,6 +245,18 @@ export class ScanOrderingRealtimeService
         `分发 order.created: storeId=${String(storeId)}, orderId=${String(orderId)}, namespaceReady=${Boolean(this.namespace)}, pid=${process.pid}`,
       );
     }
+    // 空间会话结账完成：只发往空间管理门店房间。
+    // 空间会话 ID 与扫码点餐会话 ID 是两套序列，不能落到 session 房间，
+    // 否则同号的点餐会话会收到无关的结账事件。
+    if (this.isSpaceSessionEvent(event)) {
+      if (storeId) {
+        this.namespace
+          ?.to(this.spaceStoreRoom(storeId))
+          .local.emit(event, payload);
+      }
+      return;
+    }
+
     if (storeId)
       this.namespace?.to(this.storeRoom(storeId)).local.emit(event, payload);
     if (event === 'order.status_changed' && orderId) {
@@ -258,6 +289,13 @@ export class ScanOrderingRealtimeService
       event === 'voucher_order.created' ||
       event === 'voucher_order.confirmed' ||
       event === 'voucher_order.status_changed'
+    );
+  }
+
+  private isSpaceSessionEvent(event: RealtimeEvent): boolean {
+    return (
+      event === 'space_session.settled' ||
+      event === 'space_session.auto_checkout_failed'
     );
   }
 

@@ -1,10 +1,73 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ScanOrderingTableResponse } from './scan-ordering-table.types';
 import { loadManualEntryOrdersByTable } from './scan-ordering-table-manual-orders.query';
+
+/** 待履约订单状态：桌台占用判定与清桌阻塞共用同一口径 */
+const ROUND_ORDER_STATUSES = [
+  'pending_payment',
+  'pending_acceptance',
+  'preparing',
+  'served',
+] as const;
+
+/** 本轮会话白名单取列：active 与 left（同轮次）两条查询共用 */
+const SESSION_SELECT = {
+  id: true,
+  createdAt: true,
+  expiresAt: true,
+  guestCount: true,
+  status: true,
+  diningRoundId: true,
+  orders: {
+    where: { deletedAt: null, status: { in: [...ROUND_ORDER_STATUSES] } },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      orderNo: true,
+      status: true,
+      paymentStatus: true,
+      fulfillmentStatus: true,
+      guestCount: true,
+      payableAmount: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.ScanOrderingSessionSelect;
+
+/** 桌台本轮会话行（active + 同轮 left 合并后的结构） */
+type TableSessionRow = Prisma.ScanOrderingSessionGetPayload<{
+  select: typeof SESSION_SELECT;
+}>;
+
+/** left 会话查询需要带 tableId 才能归表 */
+const LEFT_SESSION_SELECT = { ...SESSION_SELECT, tableId: true } as const;
+
+/**
+ * 有效 active 会话的判定：未过期，或仍有未完成履约订单。
+ *
+ * 会话 TTL 仅限制 C 端继续点餐，不能让待接单/制作中订单变成「空桌」。
+ * 必须按调用时刻构造：写死在模块常量里会让「当前时间」冻结在进程启动那一刻。
+ */
+const buildActiveSessionWhere = () => ({
+  status: 'active' as const,
+  deletedAt: null,
+  OR: [
+    { expiresAt: { gt: new Date() } },
+    {
+      orders: {
+        some: {
+          deletedAt: null,
+          status: { in: [...ROUND_ORDER_STATUSES] },
+        },
+      },
+    },
+  ],
+});
 
 @Injectable()
 export class ScanOrderingTableQueryService {
@@ -30,73 +93,19 @@ export class ScanOrderingTableQueryService {
         area: { select: { name: true } },
         type: { select: { name: true } },
         sessions: {
-          // left 会话属于清桌前的同一轮用餐，即使软删除仍要保留其待履约订单。
-          // active 会话必须有效，过期会话不应继续占用桌台。
-          where: {
-            // 只要当前 active 会话还有未完成履约订单，就必须继续占用桌台。
-            // 会话 TTL 仅限制 C 端继续点餐，不能让待接单/制作中订单变成“空桌”。
-            OR: [
-              { status: 'left' },
-              {
-                status: 'active',
-                deletedAt: null,
-                OR: [
-                  { expiresAt: { gt: new Date() } },
-                  {
-                    orders: {
-                      some: {
-                        deletedAt: null,
-                        status: {
-                          in: [
-                            'pending_payment',
-                            'pending_acceptance',
-                            'preparing',
-                            'served',
-                          ],
-                        },
-                      },
-                    },
-                  },
-                ],
-              },
-            ],
-          },
+          // 只取有效 active 会话；同轮的 left 会话单独按 diningRoundId 查询后合并，
+          // 避免把每张桌历史上所有 left 会话都拉回内存再过滤。
+          where: buildActiveSessionWhere(),
           orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
-          select: {
-            id: true,
-            createdAt: true,
-            expiresAt: true,
-            guestCount: true,
-            status: true,
-            diningRoundId: true,
-            orders: {
-              where: {
-                deletedAt: null,
-                status: {
-                  in: [
-                    'pending_payment',
-                    'pending_acceptance',
-                    'preparing',
-                    'served',
-                  ],
-                },
-              },
-              orderBy: { createdAt: 'desc' },
-              select: {
-                id: true,
-                orderNo: true,
-                status: true,
-                paymentStatus: true,
-                fulfillmentStatus: true,
-                guestCount: true,
-                payableAmount: true,
-                createdAt: true,
-              },
-            },
-          },
+          select: SESSION_SELECT,
         },
       },
     });
+
+    const leftSessionsByTable = await this.loadRoundLeftSessions(
+      storeId,
+      tables,
+    );
 
     // 预解析各桌有效 active 会话起点；手工补录单查询覆盖全部桌台（含无扫码会话的空桌，
     // 空桌上的堂食录入单构成独立「录入轮次」），时间窗口取会话起点与当日上海营业日开始的较小值
@@ -105,7 +114,10 @@ export class ScanOrderingTableQueryService {
     const sessionStarts = tables
       .map((table) => ({
         tableId: table.id,
-        startAt: this.resolveActiveSessionStart(table.sessions, now),
+        startAt: this.resolveActiveSessionStart(
+          this.mergeRoundSessions(table, leftSessionsByTable),
+          now,
+        ),
       }))
       .filter(
         (item): item is { tableId: number; startAt: Date } =>
@@ -125,7 +137,8 @@ export class ScanOrderingTableQueryService {
     );
 
     return tables.map((table) => {
-      const activeSessions = table.sessions.filter(
+      const sessions = this.mergeRoundSessions(table, leftSessionsByTable);
+      const activeSessions = sessions.filter(
         (session) =>
           session.status === 'active' &&
           (session.expiresAt > now || session.orders.length > 0),
@@ -141,7 +154,7 @@ export class ScanOrderingTableQueryService {
       // left 会话不能单独恢复已清空桌台：它只有在存在有效 active 会话时，
       // 才作为同一轮次的一部分参与订单汇总与清桌校验。
       const currentRoundSessions = activeSession
-        ? table.sessions.filter(
+        ? sessions.filter(
             (session) =>
               session.status === 'active' ||
               roundIds.has(session.diningRoundId),
@@ -279,6 +292,52 @@ export class ScanOrderingTableQueryService {
         typeName: table.type?.name ?? null,
       };
     });
+  }
+
+  /**
+   * 按「本轮 diningRoundId」查询 left（离桌）会话。
+   *
+   * 桌台查询里此前直接把 `status='left'` 放进 OR 条件：每张桌历史上每一轮
+   * 离桌都会留下一条 left 记录，全量回传后再在应用层按轮次过滤，桌台数与
+   * 经营时长一起增长时查询行数会失控。这里改为只取与本轮 active 会话同
+   * diningRoundId 的 left 会话，"同轮离桌订单仍参与履约"的口径不变。
+   */
+  private async loadRoundLeftSessions(
+    storeId: number,
+    tables: Array<{ id: number; sessions: TableSessionRow[] }>,
+  ): Promise<Map<number, TableSessionRow[]>> {
+    const byTable = new Map<number, TableSessionRow[]>();
+    const roundIds = new Set<string>();
+    tables.forEach((table) =>
+      table.sessions.forEach((session) => roundIds.add(session.diningRoundId)),
+    );
+    if (roundIds.size === 0) return byTable;
+
+    const rows = await this.prisma.scanOrderingSession.findMany({
+      where: {
+        storeId,
+        status: 'left',
+        diningRoundId: { in: [...roundIds] },
+        tableId: { in: tables.map((table) => table.id) },
+      },
+      orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
+      select: LEFT_SESSION_SELECT,
+    });
+    rows.forEach(({ tableId, ...session }) => {
+      if (tableId === null) return;
+      const list = byTable.get(tableId) ?? [];
+      list.push(session);
+      byTable.set(tableId, list);
+    });
+    return byTable;
+  }
+
+  /** 合并本桌 active 会话与同轮 left 会话。 */
+  private mergeRoundSessions(
+    table: { id: number; sessions: TableSessionRow[] },
+    leftSessionsByTable: Map<number, TableSessionRow[]>,
+  ): TableSessionRow[] {
+    return [...table.sessions, ...(leftSessionsByTable.get(table.id) ?? [])];
   }
 
   /** 解析桌台有效 active 会话的开始时间（无有效会话为 null），与展示层判定同口径。 */

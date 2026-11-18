@@ -51,6 +51,11 @@ export interface SettleSpaceSessionParams {
    */
   requestId?: string;
   /**
+   * 结账触发来源：auto=倒计时到期自动结账，manual（缺省）=收银手动结账。
+   * 仅用于结账完成实时广播的展示文案，不影响结算金额与账务口径。
+   */
+  source?: 'auto' | 'manual';
+  /**
    * BUG-3 fix: 跳过将 voucherFaceAmount 写入 session.prepaidVoucherFaceAmount。
    * 当 voucherFaceAmount 来自续费团购回退（renewGrouponFallback）时设为 true，
    * 防止续费券面金额污染预付池字段，保持「两池独立」不变量。
@@ -65,6 +70,7 @@ export interface SettleSpaceSessionParams {
   /**
    * be-06：抵扣后的前端预期应付（元）。
    * 事务内与后端权威应收比对，不一致直接拒绝（锁单过期/并发改单导致的金额漂移）。
+   * 允许负数：开台已付大于本次消费时，合计为应退金额。
    * 缺省（自动结账等无前端场景）时跳过比对。
    */
   expectedPayable?: number;

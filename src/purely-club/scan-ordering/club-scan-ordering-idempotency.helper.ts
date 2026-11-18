@@ -30,6 +30,8 @@ export interface CreateIdempotencyPlaceholderInput {
 /** 幂等记录中建单路径关心的最小字段 */
 export interface IdempotencyRecordSnapshot {
   status: string;
+  /** 首次请求内容的指纹：同 key 但内容不同必须判冲突，不能静默回放旧单 */
+  requestHash: string;
   responseSnapshot: unknown;
 }
 
@@ -40,17 +42,31 @@ export const findIdempotencyRecord = (
 ): Promise<IdempotencyRecordSnapshot | null> =>
   prisma.idempotencyRecord.findUnique({
     where: { scope_actorId_idempotencyKey: input },
+    select: { status: true, requestHash: true, responseSnapshot: true },
   });
 
 /**
- * 已存在记录时的处理：成功快照原样回放（客户端拿到首次的订单 ID 与版本）；
- * 记录仍停在 processing 时提示「正在创建中」，让客户端按同一 key 重试，
- * 而不是再发起一笔新订单。
+ * 已存在记录时的处理。
+ *
+ * - 内容完全一致（同 requestHash）：成功快照原样回放，客户端拿到首次的订单
+ *   ID 与版本，弱网重试不会重复下单；
+ * - 同 key 但内容已变（改了备注 / 人数 / 购物车）：明确判冲突，不能把旧单
+ *   当成这次提交的结果返回，否则用户会为一个不是当前选择内容的订单付款；
+ * - 记录仍停在 processing：提示「正在创建中」，让客户端按同一 key 重试。
  */
 export const resolveExistingIdempotencyResponse = (
   record: IdempotencyRecordSnapshot,
+  requestHash: string,
 ): unknown => {
   if (record.status === 'succeeded' && record.responseSnapshot) {
+    if (record.requestHash !== requestHash) {
+      throw new ConflictException(
+        clubScanOrderingError(
+          CLUB_SCAN_ORDERING_ERROR_CODE.STATUS_IDEMPOTENCY_KEY_CONFLICT,
+          '该幂等键已用于内容不同的下单请求，请刷新订单列表确认是否已创建订单',
+        ),
+      );
+    }
     return record.responseSnapshot;
   }
   throw new ConflictException(

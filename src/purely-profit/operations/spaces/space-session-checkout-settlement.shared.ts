@@ -217,10 +217,26 @@ export const planCheckoutSettlements = (
 };
 
 /**
+ * 抵扣后的「带符号」应付（元）：正数=应收，负数=应退。
+ *
+ * plan.payableMoney 是收款口径，已把下限夹紧为 0，无法表达「开台已付 > 本次消费」的应退金额；
+ * 前端确认弹窗展示的合计是带符号值，因此漂移比对必须用本函数的返回值做基准。
+ */
+export const resolveSignedPayableMoney = (params: {
+  basePayableMoney: Money;
+  plan: CheckoutSettlementPlan;
+}): Money =>
+  params.basePayableMoney
+    .subtract(params.plan.cardDeductionMoney)
+    .subtract(params.plan.voucherDeductionMoney)
+    .subtract(params.plan.balanceDeductionMoney);
+
+/**
  * 与前端预期应付比对。
  *
  * 锁单可能过期、期间又追加了商品或改了台位费口径，前端算出的应付会失真；
  * 后端权威应收与之不一致时直接拒绝，让收银重新预览，避免「收错钱」。
+ * expectedPayable 与 payableMoney 均允许负数（应退场景）。
  */
 export const assertExpectedPayableMatches = (params: {
   expectedPayable?: number;

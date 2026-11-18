@@ -13,6 +13,7 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
+import { hashScanOrderRequest } from './club-scan-ordering-order.utils';
 import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
@@ -149,7 +150,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       update: jest.fn(),
       updateMany: jest.fn(),
     },
-    scanOrderingSession: { update: jest.fn() },
+    scanOrderingSession: { update: jest.fn(), findFirst: jest.fn() },
     scanOrders: { create: jest.fn() },
     scanOrderStatusHistory: { create: jest.fn() },
     scanOrderingCartItem: { updateMany: jest.fn() },
@@ -278,6 +279,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     tx.product.findMany.mockResolvedValue([{ id: 1, stock: 10 }]);
     tx.scanOrderingMenuProduct.update.mockResolvedValue({});
     tx.scanOrderingMenuProduct.updateMany.mockResolvedValue({ count: 1 });
+    // 事务内复核会话可用性（返回行即视为可用）
+    tx.scanOrderingSession.findFirst.mockResolvedValue({ id: 10 });
     tx.scanOrderingSession.update.mockResolvedValue({});
     tx.scanOrders.create.mockResolvedValue({
       id: 100,
@@ -287,7 +290,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       version: 1,
     });
     tx.scanOrderStatusHistory.create.mockResolvedValue({});
-    tx.scanOrderingCartItem.updateMany.mockResolvedValue({});
+    // 购物车行原子消费：行数必须与定价快照一致，默认 1 行
+    tx.scanOrderingCartItem.updateMany.mockResolvedValue({ count: 1 });
     tx.idempotencyRecord.update.mockResolvedValue({});
 
     const module: TestingModule = await Test.createTestingModule({
@@ -383,6 +387,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   it('相同幂等键重复提交返回首次响应快照（防重复支付）', async () => {
     prisma.idempotencyRecord.findUnique = jest.fn().mockResolvedValue({
       status: 'succeeded',
+      // 指纹必须与本次请求一致，否则按「同 key 不同内容」判冲突
+      requestHash: hashScanOrderRequest(dto),
       responseSnapshot: { id: 100, orderNo: 'SO100' },
     });
 
@@ -394,6 +400,20 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  // 回归：弱网重试复用同一个 key 但改了备注/人数/购物车，不能把旧单当结果返回
+  it('同一幂等键但请求内容变化时判冲突，不回放旧单', async () => {
+    prisma.idempotencyRecord.findUnique = jest.fn().mockResolvedValue({
+      status: 'succeeded',
+      requestHash: hashScanOrderRequest({ ...dto, guestCount: 9 }),
+      responseSnapshot: { id: 100, orderNo: 'SO100' },
+    });
+
+    await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
+      '该幂等键已用于内容不同的下单请求',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('并发下同一幂等键只创建一次订单', async () => {
     // 第一次：无既有记录 → 创建成功；第二次：命中已落库快照 → 直接返回
     prisma.idempotencyRecord.findUnique = jest
@@ -401,6 +421,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         status: 'succeeded',
+        requestHash: hashScanOrderRequest(dto),
         responseSnapshot: { id: 100, orderNo: 'SO100' },
       });
 
@@ -478,6 +499,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
       },
     ]);
     tx.product.findMany.mockResolvedValue([{ id: 1, stock: 10 }]);
+    // 两条购物车行都在本次定价快照里：原子消费必须命中 2 行
+    tx.scanOrderingCartItem.updateMany.mockResolvedValue({ count: 2 });
 
     const result = (await service.create(
       user,

@@ -67,7 +67,8 @@ model Employee {
   handoverTo       StoreHandoverRecord[] @relation("HandoverToEmployee")
   subAccounts      StoreSubAccount?      @relation("EmployeeSubAccounts")
 
-  @@index([storeId, empNo], where: raw("(deleted_at IS NULL)"))
+  // 工号唯一由数据库兜底（含软删除行）：发号按全量最大序号 +1，禁止复用历史工号
+  @@unique([storeId, empNo])
   @@index([storeId, status, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, department, updatedAt], where: raw("(deleted_at IS NULL)"))
   @@index([storeId, position, updatedAt], where: raw("(deleted_at IS NULL)"))

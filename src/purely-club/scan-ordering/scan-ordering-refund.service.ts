@@ -15,6 +15,11 @@ export interface CreateRefundTaskInput {
   operatorType?: string;
   operatorId?: number | null;
   failureReason?: string | null;
+  /**
+   * 已有活跃退款任务时把本次金额累加到该任务上（多次多收都要退全）。
+   * 缺省 false：商家拒单等场景保持「一单一条任务、金额不变」的既有语义。
+   */
+  accumulateAmount?: boolean;
 }
 
 /** 扫码点餐退款任务服务，仅由系统异常支付与商家拒单流程创建任务。 */
@@ -32,13 +37,26 @@ export class ScanOrderingRefundService {
     const create = async (
       client: Prisma.TransactionClient,
     ): Promise<string> => {
+      // 库内对 orderId 做了「唯一活跃退款任务」约束，同一订单只能有一条待处理任务
       const existing = await client.scanOrderRefundTask.findFirst({
         where: {
           orderId: input.orderId,
           status: { in: ['pending', 'refunding', 'manual_pending'] },
         },
+        select: { refundNo: true, refundAmount: true },
       });
-      if (existing) return existing.refundNo;
+      if (existing) {
+        if (input.accumulateAmount) {
+          await client.scanOrderRefundTask.update({
+            where: { refundNo: existing.refundNo },
+            data: {
+              refundAmount: existing.refundAmount + input.refundAmount,
+              failureReason: input.failureReason,
+            },
+          });
+        }
+        return existing.refundNo;
+      }
       const refundNo = this.refundNo();
       await client.scanOrderRefundTask.create({
         data: {

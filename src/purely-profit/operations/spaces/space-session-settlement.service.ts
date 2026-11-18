@@ -38,8 +38,10 @@ import {
 } from './space-care-record-snapshot.shared';
 import { recomputeAndSettleCommissions } from './space-session-settlement-commission.shared';
 import { backfillSpaceAddItemInventoryLogs } from './space-session-inventory-backfill.shared';
+import { assertAutoCheckoutDue } from './space-session-auto-checkout.shared';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import type {
   SettleSpaceSessionParams,
   SettleSpaceSessionResult,
@@ -60,6 +62,7 @@ export class SpaceSessionSettlementService {
     private readonly marketingConsumptionLinkService: MarketingConsumptionLinkService,
     private readonly commissionCoreService: CommissionCoreService,
     private readonly careRecordWriterService: SpaceCareRecordWriterService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
   async settleSession(
@@ -99,6 +102,8 @@ export class SpaceSessionSettlementService {
               guestName: true,
               guestPhone: true,
               startTime: true,
+              // 前端「到期即时触发」的服务端守卫需要它判定是否真的到期
+              countdownMinutes: true,
               spaceId: true,
               // be-06：多资产核销必须在事务内读最新会员/绑卡关系，避免用事务外快照扣错账户
               customerId: true,
@@ -119,6 +124,16 @@ export class SpaceSessionSettlementService {
             params.session.updatedAt.getTime()
           ) {
             throw new ConflictException('当前会话已变更，请刷新后重试');
+          }
+
+          // 前端「到期即时触发」的服务端守卫：只有真到期才允许 source=auto 落库。
+          // 手动结账（source 缺省）不受此限制：收银可以随时提前结账。
+          if (params.source === 'auto') {
+            assertAutoCheckoutDue({
+              startTime: latestSession.startTime,
+              countdownMinutes: latestSession.countdownMinutes,
+              now: Date.now(),
+            });
           }
 
           const latestSpace = await transaction.space.findUnique({
@@ -359,6 +374,20 @@ export class SpaceSessionSettlementService {
           `[space-settlement] 结账后缓存失效失败 sessionId=${params.session.id} storeId=${params.session.storeId} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
         );
       }
+
+      // 结账完成实时广播：商家端空间管理页据此立即回源刷新房态。
+      // 自动结账由后台定时任务触发，没有 HTTP 响应可以承载结果，
+      // 缺了这条广播页面只能等下一次轮询或手动刷新才能看到已结账。
+      // 广播内部已吞掉 Redis 异常，失败只影响实时性，不影响已提交的结账结果。
+      this.realtimeService.publishSpaceSessionSettled({
+        storeId: params.session.storeId,
+        sessionId: params.session.id,
+        spaceId: params.session.spaceId,
+        spaceName: updated.session.space?.name ?? '',
+        totalAmount: params.settlement.totalAmount,
+        source: params.source ?? 'manual',
+        settledAt: new Date(params.checkoutAt).toISOString(),
+      });
 
       // 会员护理档案建档：刻意放在结账主事务**提交之后**、独立短事务内。
       // PostgreSQL 中事务内任一语句失败会中止整个事务，此后 catch 也救不回来

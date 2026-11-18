@@ -6,6 +6,7 @@ import {
   assertExpectedPayableMatches,
   normalizeCheckoutSettlements,
   planCheckoutSettlements,
+  resolveSignedPayableMoney,
 } from './space-session-checkout-settlement.shared';
 import type { CheckoutSettlementInput } from './space-sessions.types';
 
@@ -159,12 +160,58 @@ describe('assertExpectedPayableMatches', () => {
     ).toThrow(BadRequestException);
   });
 
+  it('负应付（应退）与前端预期一致时通过', () => {
+    expect(() =>
+      assertExpectedPayableMatches({
+        expectedPayable: -11,
+        payableMoney: Money.fromInputYuan(-11),
+      }),
+    ).not.toThrow();
+  });
+
   it('未提供预期应付（自动结账）时跳过比对', () => {
     expect(() =>
       assertExpectedPayableMatches({
         payableMoney: Money.fromInputYuan(21),
       }),
     ).not.toThrow();
+  });
+});
+
+describe('resolveSignedPayableMoney', () => {
+  it('正应付时与 plan.payableMoney 一致（抵扣逐级扣减）', () => {
+    const basePayableMoney = Money.fromInputYuan(150);
+    const plan = planCheckoutSettlements({
+      basePayableMoney,
+      timeCostMoney: Money.fromInputYuan(100),
+      itemsCostMoney: Money.fromInputYuan(50),
+      settlements: [
+        { kind: 'member_card', target: 'time_fee', assetId: '8', amount: 100 },
+        { kind: 'voucher', target: 'items', assetId: 'VC-1', amount: 50 },
+        { kind: 'balance', target: 'total', assetId: '9', amount: 0 },
+      ],
+      customerBalanceCents: null,
+    });
+
+    expect(
+      resolveSignedPayableMoney({ basePayableMoney, plan }).toOutputYuan(),
+    ).toBe(plan.payableMoney.toOutputYuan());
+  });
+
+  it('开台已付大于本次消费时保留负值（plan.payableMoney 会被夹紧为 0）', () => {
+    const basePayableMoney = Money.fromInputYuan(-11);
+    const plan = planCheckoutSettlements({
+      basePayableMoney,
+      timeCostMoney: Money.fromInputYuan(55),
+      itemsCostMoney: Money.zero(),
+      settlements: [],
+      customerBalanceCents: null,
+    });
+
+    expect(plan.payableMoney.toOutputYuan()).toBe(0);
+    expect(
+      resolveSignedPayableMoney({ basePayableMoney, plan }).toOutputYuan(),
+    ).toBe(-11);
   });
 });
 

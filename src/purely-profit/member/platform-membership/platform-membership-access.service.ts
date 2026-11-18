@@ -55,6 +55,8 @@ type CountQuotaErrorMessageBuilder = (
 
 type EnsureCountQuotaAvailableParams = {
   storeId: number;
+  /** 读取会员规则与计数的执行器；传入事务客户端时与业务写入保持同一事务 */
+  executor?: PrismaExecutor;
   getLimit: MembershipRuleLimitResolver;
   getCurrentCount: () => Promise<number>;
   buildErrorMessage: CountQuotaErrorMessageBuilder;
@@ -100,12 +102,22 @@ export class PlatformMembershipAccessService {
     });
   }
 
-  async ensureEmployeeQuotaAvailable(storeId: number): Promise<void> {
+  /**
+   * 校验在职员工额度。
+   *
+   * `executor` 允许传入事务客户端，使「额度校验 + 员工写入」落在同一个事务与
+   * 同一把 advisory lock 内，避免并发新增同时通过额度检查后突破上限。
+   */
+  async ensureEmployeeQuotaAvailable(
+    storeId: number,
+    executor: PrismaExecutor = this.prisma,
+  ): Promise<void> {
     await this.ensureCountQuotaAvailable({
       storeId,
+      executor,
       getLimit: (snapshot) => snapshot.employeeLimit,
       getCurrentCount: () =>
-        this.prisma.employee.count({
+        executor.employee.count({
           where: {
             storeId,
             deletedAt: null,
@@ -331,7 +343,10 @@ export class PlatformMembershipAccessService {
   private async ensureCountQuotaAvailable(
     params: EnsureCountQuotaAvailableParams,
   ): Promise<void> {
-    const snapshot = await this.getStoreRuleSnapshot(params.storeId);
+    const snapshot = await this.getStoreRuleSnapshot(
+      params.storeId,
+      params.executor,
+    );
     const limit = params.getLimit(snapshot);
     if (limit === null) {
       return;
@@ -360,8 +375,9 @@ export class PlatformMembershipAccessService {
 
   private async getStoreRuleSnapshot(
     storeId: number,
+    executor: PrismaExecutor = this.prisma,
   ): Promise<MembershipRuleSnapshot> {
-    const profile = await this.loadStoreMembershipProfile(storeId);
+    const profile = await this.loadStoreMembershipProfile(storeId, executor);
     return buildMembershipRuleSnapshot(profile);
   }
 

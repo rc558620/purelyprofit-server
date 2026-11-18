@@ -1,13 +1,10 @@
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
+import { ClubScanOrderingPaymentAnomalyService } from './club-scan-ordering-payment-anomaly.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
@@ -113,6 +110,7 @@ describe('ClubScanOrderingPaymentService', () => {
           provide: ScanOrderingRealtimeService,
           useValue: realtimeService,
         },
+        ClubScanOrderingPaymentAnomalyService,
         { provide: ScanOrderingRefundService, useValue: refundService },
         {
           provide: ScanOrderingSaleOrderBridgeService,
@@ -136,7 +134,11 @@ describe('ClubScanOrderingPaymentService', () => {
     service = module.get<ClubScanOrderingPaymentService>(
       ClubScanOrderingPaymentService,
     );
-    loggerErrorSpy = jest.spyOn(service['logger'], 'error');
+    // 异常支付（已关闭订单 / 重复收款）的日志落在独立服务上，两个 logger 都要盯
+    const anomalyService = module.get<ClubScanOrderingPaymentAnomalyService>(
+      ClubScanOrderingPaymentAnomalyService,
+    );
+    loggerErrorSpy = jest.spyOn(anomalyService['logger'], 'error');
   });
 
   afterEach(() => {
@@ -770,33 +772,106 @@ describe('ClubScanOrderingPaymentService', () => {
         service.confirmOrderPaidByCallback('NOTEXIST-1234', baseSettlement),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
+  });
 
-    it('订单状态不允许确认支付（非 cancelled 但也不是 pending_payment）时抛出 ConflictException', async () => {
+  // ── 订单已由其他渠道收款（如先扣了储值余额，微信随后也扣款成功）───────
+  // 回归：此前会抛 ConflictException，微信只看到失败并持续重试，多收的钱无人退
+  describe('订单已由其他渠道收款', () => {
+    const paidOrder = {
+      id: 4001,
+      storeId: 11,
+      sessionId: 90,
+      orderNo: 'SO20260723150000LMNO',
+      status: 'preparing',
+      paymentStatus: 'paid',
+      fulfillmentStatus: 'preparing',
+      payableAmount: 5000,
+      paidAmount: 5000,
+      version: 3,
+      marketingSnapshot: null,
+      clubUserId: 9001,
+    };
+
+    beforeEach(() => {
       prismaService.scanOrderPaymentAttempt.findUnique.mockResolvedValue({
         id: 805,
         orderId: 4001,
         amount: 5000,
         status: 'paying',
       });
-      prismaService.scanOrders.findUnique.mockResolvedValue({
-        id: 4001,
-        storeId: 11,
-        sessionId: 90,
-        orderNo: 'SO20260723150000LMNO',
-        status: 'preparing',
-        paymentStatus: 'paid',
-        fulfillmentStatus: 'preparing',
-        payableAmount: 5000,
-        paidAmount: 5000,
-        version: 3,
-      });
+      prismaService.scanOrders.findUnique.mockResolvedValue(paidOrder);
+    });
 
+    it('不把订单改回待接单，也不改支付金额（原收款已生效）', async () => {
+      await service.confirmOrderPaidByCallback(
+        'SO20260723150000LMNO-ABCD3456',
+        baseSettlement,
+      );
+
+      expect(prismaService.scanOrders.update).not.toHaveBeenCalled();
+    });
+
+    it('把本次支付尝试标记成功并记录回调（可追溯多收的流水）', async () => {
+      await service.confirmOrderPaidByCallback(
+        'SO20260723150000LMNO-ABCD3456',
+        baseSettlement,
+      );
+
+      expect(prismaService.scanOrderPaymentAttempt.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 805 },
+          data: expect.objectContaining({
+            status: 'succeeded',
+            providerTransactionId: '4200001234202606101234567890',
+          }),
+        }),
+      );
+    });
+
+    it('按支付流水创建退款任务（金额累加，避免多次多收只退一笔）', async () => {
+      await service.confirmOrderPaidByCallback(
+        'SO20260723150000LMNO-ABCD3456',
+        baseSettlement,
+      );
+
+      expect(refundService.createRefundTaskInTransaction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          orderId: 4001,
+          triggerType: 'anomalous_payment',
+          refundAmount: 5000,
+          paymentAttemptId: 805,
+          accumulateAmount: true,
+        }),
+      );
+    });
+
+    it('写入状态历史，订单状态保持不变', async () => {
+      await service.confirmOrderPaidByCallback(
+        'SO20260723150000LMNO-ABCD3456',
+        baseSettlement,
+      );
+
+      expect(prismaService.scanOrderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderId: 4001,
+            fromStatus: 'preparing',
+            toStatus: 'preparing',
+          }),
+        }),
+      );
+    });
+
+    it('回调按成功返回，避免微信持续重试同一笔多收', async () => {
       await expect(
         service.confirmOrderPaidByCallback(
           'SO20260723150000LMNO-ABCD3456',
           baseSettlement,
         ),
-      ).rejects.toBeInstanceOf(ConflictException);
+      ).resolves.toEqual(
+        expect.objectContaining({ orderNo: 'SO20260723150000LMNO' }),
+      );
     });
   });
 });

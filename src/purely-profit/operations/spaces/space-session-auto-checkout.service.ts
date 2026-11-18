@@ -29,6 +29,7 @@ import {
   buildAutoCheckoutLogContext,
   createAutoCheckoutSystemUser,
   resolveAutoCheckoutAt,
+  resolveAutoCheckoutFailureReason,
 } from './space-session-auto-checkout.shared';
 import {
   AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS,
@@ -36,6 +37,7 @@ import {
   claimAutoCheckoutSession,
   releaseAutoCheckoutSessionClaim,
 } from './space-session-auto-checkout-claim.shared';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 
 // Re-export for external consumers (handover.service, settlement.service)
 export { createAutoCheckoutSystemUser } from './space-session-auto-checkout.shared';
@@ -54,6 +56,7 @@ export class SpaceSessionAutoCheckoutService {
     private readonly prisma: PrismaService,
     private readonly redisLockService: RedisLockService,
     private readonly settlementService: SpaceSessionSettlementService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
   /**
@@ -303,6 +306,8 @@ export class SpaceSessionAutoCheckoutService {
             checkoutAt,
             paymentMethod: resolvedPaymentMethod,
             note: '倒计时到期自动结账',
+            // 结账完成广播的来源标记：前端据此区分「已自动结账 / 已结账」文案
+            source: 'auto',
             settlement,
             renewRecords,
             voucherProductName,
@@ -351,6 +356,16 @@ export class SpaceSessionAutoCheckoutService {
             })}`,
             error instanceof Error ? error.stack : undefined,
           );
+          // 失败没有 HTTP 响应可以承载：广播给商家端，提示收银手动结账，
+          // 否则会话会一直卡在「到点但使用中」，只能靠人发现。
+          this.realtimeService.publishSpaceSessionAutoCheckoutFailed({
+            storeId,
+            sessionId: session.id,
+            spaceId: session.spaceId,
+            spaceName: session.space.name,
+            reason: resolveAutoCheckoutFailureReason(error),
+            failedAt: new Date().toISOString(),
+          });
           continue;
         } finally {
           // 认领必须立即释放（含 settleSession 抛异常路径），否则该会话在 TTL 内被整段跳过

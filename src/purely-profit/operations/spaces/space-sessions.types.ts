@@ -228,7 +228,7 @@ export interface NormalizedCheckoutPayload {
   countdownFeeMode?: SpaceCountdownFeeModeValue;
   /** 多资产抵扣明细（已归一化：类型与作用对象一一匹配、同类不重复） */
   settlements?: CheckoutSettlementInput[];
-  /** 抵扣后的前端预期应付（元）；仅用于与后端权威应收比对 */
+  /** 抵扣后的前端预期应付（元，可为负表示应退）；仅用于与后端权威应收比对 */
   expectedPayable?: number;
   lockId: string;
   lockedAt: number;

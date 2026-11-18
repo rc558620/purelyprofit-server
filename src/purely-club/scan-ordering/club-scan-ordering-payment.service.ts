@@ -27,7 +27,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
-import { ScanOrderingRefundService } from './scan-ordering-refund.service';
+import { ClubScanOrderingPaymentAnomalyService } from './club-scan-ordering-payment-anomaly.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
@@ -70,7 +70,7 @@ export class ClubScanOrderingPaymentService {
     private readonly prisma: PrismaService,
     private readonly paymentLockService: ClubPaymentLockService,
     private readonly realtimeService: ScanOrderingRealtimeService,
-    private readonly refundService: ScanOrderingRefundService,
+    private readonly paymentAnomalyService: ClubScanOrderingPaymentAnomalyService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
@@ -134,20 +134,40 @@ export class ClubScanOrderingPaymentService {
           // 订单已关闭（用户取消或支付超时）— 异常支付处理
           // 事务正常提交，不抛异常，退款任务和日志会持久化
           if (order.status === 'cancelled') {
-            await this.handleAnomalousPayment(tx, {
+            await this.paymentAnomalyService.recordClosedOrderPayment(tx, {
               orderId: order.id,
               storeId: order.storeId,
+              orderStatus: order.status,
               paymentAttemptId: paymentAttempt.id,
               merchantPaymentNo,
               providerTransactionId: params.transactionId,
               refundAmount: params.amountFen,
-              cancelReason: order.cancelReason ?? '未知',
+              cancelReason: order.cancelReason ?? null,
             });
             // 事务正常提交后返回异常支付结果
             return {
               kind: 'anomalous',
               orderId: order.id,
               // 事务内已持有订单，不必在事务外再查一次取 orderNo
+              orderNo: order.orderNo,
+            };
+          }
+          // 订单已由其他渠道收款（如同一单先扣了储值余额、随后微信也扣款成功）：
+          // 本次回调属多收，必须落退款任务，否则用户被收两次而无人退款
+          if (order.paymentStatus !== 'unpaid') {
+            await this.paymentAnomalyService.recordDuplicatePayment(tx, {
+              orderId: order.id,
+              storeId: order.storeId,
+              orderStatus: order.status,
+              paymentAttemptId: paymentAttempt.id,
+              merchantPaymentNo,
+              providerTransactionId: params.transactionId,
+              refundAmount: params.amountFen,
+              cancelReason: null,
+            });
+            return {
+              kind: 'anomalous',
+              orderId: order.id,
               orderNo: order.orderNo,
             };
           }
@@ -320,80 +340,5 @@ export class ClubScanOrderingPaymentService {
         ),
       );
     return snapshot;
-  }
-
-  /**
-   * 处理异常支付：已关闭订单收到支付成功回调。
-   *
-   * 策略：
-   * - 不恢复订单为已支付；
-   * - 不重新扣减库存；
-   * - 在支付尝试上记录回调数据；
-   * - 创建退款任务（manual_pending），进入人工退款待办；
-   * - 写入状态历史记录异常事件；
-   * - 事务正常提交，不抛异常，保证退款任务持久化。
-   */
-  private async handleAnomalousPayment(
-    tx: import('@prisma/client').Prisma.TransactionClient,
-    params: {
-      orderId: number;
-      storeId: number;
-      paymentAttemptId: number;
-      merchantPaymentNo: string;
-      providerTransactionId: string;
-      refundAmount: number;
-      cancelReason: string;
-    },
-  ): Promise<void> {
-    // 记录回调数据到支付尝试
-    await tx.scanOrderPaymentAttempt.update({
-      where: { id: params.paymentAttemptId },
-      data: {
-        status: ScanOrderPaymentAttemptStatus.succeeded,
-        providerTransactionId: params.providerTransactionId,
-        paidAt: new Date(),
-        callbackPayload: {
-          merchantPaymentNo: params.merchantPaymentNo,
-          transactionId: params.providerTransactionId,
-          amountFen: params.refundAmount,
-          receivedAt: new Date().toISOString(),
-          anomalous: true,
-          cancelReason: params.cancelReason,
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
-
-    // 创建退款任务
-    await this.refundService.createRefundTaskInTransaction(tx, {
-      orderId: params.orderId,
-      storeId: params.storeId,
-      paymentAttemptId: params.paymentAttemptId,
-      triggerType: 'anomalous_payment',
-      refundAmount: params.refundAmount,
-      merchantPaymentNo: params.merchantPaymentNo,
-      providerTransactionId: params.providerTransactionId,
-      operatorType: 'payment_callback',
-      failureReason: `订单已关闭(${params.cancelReason})，收到支付成功回调，需退款处理`,
-    });
-
-    // 写入异常支付状态历史
-    await tx.scanOrderStatusHistory.create({
-      data: {
-        orderId: params.orderId,
-        storeId: params.storeId,
-        fromStatus: 'cancelled',
-        toStatus: 'cancelled',
-        operatorType: 'payment_callback',
-        reason: `异常支付回调: transactionId=${params.providerTransactionId}, amount=${params.refundAmount}分, 已创建退款任务`,
-      },
-    });
-
-    this.logger.error(
-      `扫码点餐异常支付已记录退款任务: orderId=${params.orderId}, ` +
-        `merchantPaymentNo=${params.merchantPaymentNo}, ` +
-        `transactionId=${params.providerTransactionId}, ` +
-        `amount=${params.refundAmount}分, ` +
-        `cancelReason=${params.cancelReason}`,
-    );
   }
 }

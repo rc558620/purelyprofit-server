@@ -1,9 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
+import { EmployeePayrollStatus } from '@prisma/client';
 import type { EmployeePayroll, Prisma } from '@prisma/client';
 import { makeShanghaiMs } from '../../../shared/shanghai-time.utils';
 import { Money } from '../../../shared/money.utils';
 import { toNullableText } from './employees.utils';
-import type { UpdateEmployeePayrollDto } from './dto/employee-payroll.dto';
+import type {
+  SaveEmployeePayrollDto,
+  UpdateEmployeePayrollDto,
+} from './dto/employee-payroll.dto';
 
 export interface PayrollDraftInput {
   baseSalary: Money;
@@ -20,6 +24,26 @@ export interface PayrollDraftInput {
 export interface PayrollDerivedAmounts {
   actualSalary: Money;
   totalLaborCost: Money;
+}
+
+/** 工资草稿保存时实际写入数据库的字段（分） */
+export interface PayrollDraftWriteData {
+  employeeName: string;
+  baseSalary: number;
+  leaveDeduction: number;
+  otherDeduction: number;
+  /** undefined 表示本次请求未携带该字段，保持库里原值 */
+  otherDeductionNote?: string | null;
+  bonus: number;
+  commission: number;
+  actualSalary: number;
+  socialInsurance: number;
+  housingFund: number;
+  totalLaborCost: number;
+  status: EmployeePayrollStatus;
+  confirmedAt: Date | null;
+  /** undefined 表示本次请求未携带该字段，保持库里原值 */
+  note?: string | null;
 }
 
 export interface PayrollReportRowInput {
@@ -119,6 +143,67 @@ export function buildPayrollDerivedAmounts(
     totalLaborCost: actualSalary
       .add(input.socialInsurance ?? Money.zero())
       .add(input.housingFund ?? Money.zero()),
+  };
+}
+
+/**
+ * 构造工资草稿的落库字段。
+ *
+ * 未传的社保/公积金回退到库里已有金额（无草稿时按 0），并让派生金额与
+ * 最终落库金额使用同一份数据，避免「保留旧社保却按 0 算总成本」。
+ */
+export function buildPayrollSaveWriteData(params: {
+  dto: SaveEmployeePayrollDto;
+  employeeName: string;
+  existing: EmployeePayroll | null;
+}): PayrollDraftWriteData {
+  const { dto, employeeName, existing } = params;
+
+  const socialInsurance =
+    dto.socialInsurance !== undefined
+      ? Money.fromInputYuan(dto.socialInsurance)
+      : existing
+        ? Money.fromDbCents(existing.socialInsurance)
+        : Money.zero();
+  const housingFund =
+    dto.housingFund !== undefined
+      ? Money.fromInputYuan(dto.housingFund)
+      : existing
+        ? Money.fromDbCents(existing.housingFund)
+        : Money.zero();
+
+  const derivedAmounts = buildPayrollDerivedAmounts({
+    baseSalary: Money.fromInputYuan(dto.baseSalary),
+    leaveDeduction: Money.fromInputYuan(dto.leaveDeduction),
+    otherDeduction: Money.fromInputYuan(dto.otherDeduction),
+    otherDeductionNote: dto.otherDeductionNote,
+    bonus: Money.fromInputYuan(dto.bonus),
+    commission:
+      dto.commission !== undefined
+        ? Money.fromInputYuan(dto.commission)
+        : Money.zero(),
+    socialInsurance,
+    housingFund,
+  });
+
+  return {
+    employeeName,
+    baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents(),
+    leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents(),
+    otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
+    otherDeductionNote: toNullableText(dto.otherDeductionNote),
+    bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
+    commission:
+      dto.commission !== undefined
+        ? Money.fromInputYuan(dto.commission).toDbCents()
+        : 0,
+    actualSalary: derivedAmounts.actualSalary.toDbCents(),
+    socialInsurance: socialInsurance.toDbCents(),
+    housingFund: housingFund.toDbCents(),
+    totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
+    status: EmployeePayrollStatus.draft,
+    confirmedAt: null,
+    note: toNullableText(dto.note),
   };
 }
 

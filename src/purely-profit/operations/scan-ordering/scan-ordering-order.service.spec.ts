@@ -126,6 +126,22 @@ describe('ScanOrderingOrderService', () => {
   // ── listOrders ───────────────────────────────────────────
 
   describe('listOrders', () => {
+    /**
+     * 列表默认按「待商家处理 / 其余进行中」分两次查询。
+     * 这里按 where.status.in 从 fixture 里过滤，模拟数据库按状态分桶的结果。
+     */
+    const mockOrderRows = (
+      rows: Array<Record<string, unknown> & { status: string }>,
+    ): void => {
+      prismaService.scanOrders.findMany.mockImplementation(
+        (args: { where?: { status?: { in?: string[] } } }) => {
+          const statuses = args?.where?.status?.in;
+          if (!statuses) return rows;
+          return rows.filter((row) => statuses.includes(row.status));
+        },
+      );
+    };
+
     it('使用 scan-ordering:view 权限解析门店', async () => {
       prismaService.scanOrders.findMany.mockResolvedValue([]);
       await service.listOrders(mockUser, {} as never);
@@ -139,7 +155,7 @@ describe('ScanOrderingOrderService', () => {
 
     it('正确映射 itemSummary / items / version 和 tableName', async () => {
       const createdAt = new Date('2026-07-23T12:00:00.000Z');
-      prismaService.scanOrders.findMany.mockResolvedValue([
+      mockOrderRows([
         {
           id: 123,
           orderNo: 'SO20260723120000ABCD',
@@ -209,7 +225,7 @@ describe('ScanOrderingOrderService', () => {
     });
 
     it('商品为空时 itemSummary 为空字符串', async () => {
-      prismaService.scanOrders.findMany.mockResolvedValue([
+      mockOrderRows([
         {
           id: 456,
           orderNo: 'SO456',
@@ -273,7 +289,7 @@ describe('ScanOrderingOrderService', () => {
         serviceFeeAmount: 0,
         paidAmount: 0,
       }));
-      prismaService.scanOrders.findMany.mockResolvedValue(orders);
+      mockOrderRows(orders);
 
       const result = await service.listOrders(mockUser, { limit: 2 } as never);
 
@@ -282,7 +298,7 @@ describe('ScanOrderingOrderService', () => {
     });
 
     it('无下一页时 nextCursor 为 null', async () => {
-      prismaService.scanOrders.findMany.mockResolvedValue([
+      mockOrderRows([
         {
           id: 1,
           orderNo: 'SO1',
@@ -303,6 +319,35 @@ describe('ScanOrderingOrderService', () => {
 
       const result = await service.listOrders(mockUser, { limit: 20 } as never);
       expect(result.nextCursor).toBeNull();
+    });
+
+    // 回归：工作台只消费第一页，待处理单不能被源源不断的新单/已出餐历史挤掉
+    it('默认列表中待处理订单优先占用名额，剩余名额才补已出餐历史', async () => {
+      const base = {
+        createdAt: new Date(),
+        version: 1,
+        table: { name: 'T1' },
+        items: [],
+        itemOriginalAmount: 0,
+        specificationExtraAmount: 0,
+        productDiscountAmount: 0,
+        orderDiscountAmount: 0,
+        taxAmount: 0,
+        serviceFeeAmount: 0,
+        paidAmount: 0,
+      };
+      mockOrderRows([
+        { ...base, id: 10, orderNo: 'SO10', status: 'served' },
+        { ...base, id: 9, orderNo: 'SO9', status: 'served' },
+        { ...base, id: 8, orderNo: 'SO8', status: 'served' },
+        { ...base, id: 1, orderNo: 'SO1', status: 'pending_acceptance' },
+      ]);
+
+      const result = await service.listOrders(mockUser, { limit: 2 } as never);
+
+      // 待处理那一笔必须进第一页；展示顺序仍是 id 倒序
+      expect(result.items.map((item) => item.id)).toEqual([10, 1]);
+      expect(result.nextCursor).toBe(1);
     });
 
     it('sessionOrderSequence 消费数据库窗口函数结果，且不再全量回拉轮次历史', async () => {
@@ -366,7 +411,7 @@ describe('ScanOrderingOrderService', () => {
           paidAmount: 0,
         },
       ];
-      prismaService.scanOrders.findMany.mockResolvedValueOnce(orders);
+      mockOrderRows(orders);
       // 窗口函数只回传当前页订单的序号，不再把轮次历史订单拉回进程
       prismaService.$queryRaw.mockResolvedValueOnce([
         { id: 11, sequence: 1 },
@@ -376,8 +421,8 @@ describe('ScanOrderingOrderService', () => {
 
       const result = await service.listOrders(mockUser, { limit: 20 } as never);
 
-      // 序号查询收敛为一次 raw SQL，列表查询不再被第二次全量 findMany 放大
-      expect(prismaService.scanOrders.findMany).toHaveBeenCalledTimes(1);
+      // 列表查询最多两次（待处理 + 其余进行中），且不会为序号再全量回拉轮次历史
+      expect(prismaService.scanOrders.findMany).toHaveBeenCalledTimes(2);
       expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
       // 门店 ID 作为参数下推，避免跨门店扫描
       expect(prismaService.$queryRaw.mock.calls[0].slice(1)).toContain(11);

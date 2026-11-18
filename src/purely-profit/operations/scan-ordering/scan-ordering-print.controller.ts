@@ -85,11 +85,14 @@ export class ScanOrderingPrintController {
     @Body() dto: ScanOrderingPrintOrderDto,
   ): Promise<{ orderId: string }> {
     const channel = await this.resolveChannel(user, dto.target);
+    // source=auto 由事件触发，多终端会同时下发：去重在服务端按门店/订单/目标收口
+    const source = dto.source ?? 'manual';
     if (channel === 'usb') {
       const orderId = await this.usbPrintService.printForMerchant(
         user,
         dto.target,
         dto.orderId,
+        source,
       );
       return { orderId };
     }
@@ -98,6 +101,7 @@ export class ScanOrderingPrintController {
         user,
         dto.target,
         dto.orderId,
+        source,
       );
       return { orderId };
     }

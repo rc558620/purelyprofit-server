@@ -174,15 +174,30 @@ export const createOrderStatusHistoryRow = async (
   });
 };
 
-/** 购物车行转为 ordered：同一份购物车不允许再被第二笔订单消费。 */
-export const markCartItemsOrdered = async (
+/**
+ * 原子消费本次定价命中的购物车行：同一份购物车不允许再被第二笔订单消费。
+ *
+ * 条件更新（status=active）天然是并发闸门：调用方必须比对返回行数，
+ * 行数不足说明购物车已被并发请求消费或改动，整笔建单要回滚。
+ *
+ * @returns 实际被置为 ordered 的行数
+ */
+export const consumeCartItems = async (
   tx: Prisma.TransactionClient,
   sessionId: number,
-): Promise<void> => {
-  await tx.scanOrderingCartItem.updateMany({
-    where: { sessionId, status: 'active', deletedAt: null },
+  cartItemIds: number[],
+): Promise<number> => {
+  if (cartItemIds.length === 0) return 0;
+  const result = await tx.scanOrderingCartItem.updateMany({
+    where: {
+      id: { in: cartItemIds },
+      sessionId,
+      status: 'active',
+      deletedAt: null,
+    },
     data: { status: 'ordered', version: { increment: 1 } },
   });
+  return result.count;
 };
 
 /** 位置展示串：区域 · 类型 · 桌位（如「1楼 · 大厅 · A01」），缺失项自动省略。 */

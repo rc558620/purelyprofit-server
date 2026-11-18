@@ -40,8 +40,9 @@ const isPrismaConfigFile = normalizedFile.endsWith('prisma.config.ts');
 const isRedisServiceFile = normalizedFile.endsWith(
   'src/redis/redis.service.ts',
 );
-const isRuleScriptFile = normalizedFile.endsWith(
-  'scripts/check-f0rest-rules.mjs',
+/** scripts/ 下的开发校验脚本属于工具层，不受面向 src 业务代码的 Rule 6/7/8 约束。 */
+const isRuleScriptFile = normalizedFile.includes(
+  `${path.sep}scripts${path.sep}`,
 );
 
 // 1. 检查文件长度 (Rule 10)

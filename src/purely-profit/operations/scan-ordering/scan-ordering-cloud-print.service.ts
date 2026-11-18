@@ -3,8 +3,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
+import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { FeiePrintService } from './feie-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import type { ScanOrderingPrintSource } from './dto/scan-ordering-print-action.dto';
 
 /** 云打印目标：收银台顾客票 / 后厨制作单。 */
 export type CloudPrintTarget = 'cashier' | 'kitchen';
@@ -22,16 +24,32 @@ export class ScanOrderingCloudPrintService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly printDataService: ScanOrderingPrintDataService,
+    private readonly printDedupeService: ScanOrderingPrintDedupeService,
     private readonly feiePrintService: FeiePrintService,
   ) {}
 
-  /** 商家端下发云打印任务（按目标取对应打印机 SN）。 */
+  /**
+   * 商家端下发云打印任务（按目标取对应打印机 SN）。
+   *
+   * @param source auto 时按「门店 + 订单 + 目标」服务端去重：多终端同时收到同一
+   *   接单事件只会打一张；manual（缺省）为人工补打，不去重。
+   */
   async printForMerchant(
     user: AuthenticatedUser,
     target: CloudPrintTarget,
     orderId: number,
+    source: ScanOrderingPrintSource = 'manual',
   ): Promise<string> {
     const storeId = await this.resolveMerchantStoreId(user);
+    if (source === 'auto') {
+      const acquired = await this.printDedupeService.tryAcquireAutoDispatch({
+        storeId,
+        orderId,
+        target,
+      });
+      // 已下发过：按成功返回同一订单号，前端无需区分「补打」与「已打过」
+      if (!acquired) return String(orderId);
+    }
     const settings = await this.printSettingsService.getByStoreId(storeId);
     const sn =
       target === 'kitchen'

@@ -18,6 +18,7 @@ import { SpaceSessionSettlementService } from './space-session-settlement.servic
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { SpaceCareRecordWriterService } from './space-care-record-writer.service';
 
 describe('SpaceSessionSettlementService', () => {
@@ -73,6 +74,10 @@ describe('SpaceSessionSettlementService', () => {
       .fn()
       .mockResolvedValue({ status: 'created', customerId: 55, seq: 1 }),
   };
+  // 结账完成广播：本文件只断言广播入参，分发与房间匹配由实时服务独立测试覆盖
+  const realtimeService = {
+    publishSpaceSessionSettled: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -122,6 +127,10 @@ describe('SpaceSessionSettlementService', () => {
         {
           provide: SpaceCareRecordWriterService,
           useValue: careRecordWriterService,
+        },
+        {
+          provide: ScanOrderingRealtimeService,
+          useValue: realtimeService,
         },
       ],
     }).compile();
@@ -195,6 +204,16 @@ describe('SpaceSessionSettlementService', () => {
     expect(cacheInvalidatorService.invalidateSalesDerived).toHaveBeenCalledWith(
       18,
     );
+    // 结账完成广播：手动结账默认 source=manual，金额取权威结算合计
+    expect(realtimeService.publishSpaceSessionSettled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 18,
+        sessionId: 9,
+        spaceId: 7,
+        totalAmount: params.settlement.totalAmount,
+        source: 'manual',
+      }),
+    );
     // F9: 空间结算联动营销中心——调用营销消费联动（事务内）并失效营销缓存
     expect(
       marketingConsumptionLinkService.linkSpaceSettlementConsumption,
@@ -220,6 +239,31 @@ describe('SpaceSessionSettlementService', () => {
       salesOrder: createdOrder,
       cancelledReservationId: null,
     });
+  });
+
+  it('自动结账来源在倒计时未到期时被服务端守卫拒绝，且不创建销售单', async () => {
+    const user = createSpaceTestUser();
+    const params = {
+      ...createSettleSpaceSessionParams(),
+      source: 'auto' as const,
+    };
+
+    transactionClient.$queryRaw.mockResolvedValue(undefined);
+    transactionClient.spaceSession.findUnique.mockResolvedValue({
+      status: 'active',
+      updatedAt: params.session.updatedAt,
+      reservationId: params.session.reservationId,
+      guestName: params.session.guestName,
+      guestPhone: params.session.guestPhone,
+      startTime: new Date(),
+      countdownMinutes: 60,
+      spaceId: params.session.spaceId,
+    });
+
+    await expect(service.settleSession(user, params)).rejects.toThrow(
+      '倒计时尚未到期，不能自动结账',
+    );
+    expect(salesRecordService.create).not.toHaveBeenCalled();
   });
 
   it('settleSession 应基于事务内最新空间配置决定结账后状态', async () => {

@@ -20,17 +20,22 @@ import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import {
   buildCreateEmployeeProfileData,
-  buildNextEmployeeEmpNo,
   buildResignEmployeeProfileData,
   buildUpdateEmployeeProfileData,
+  resolveNextEmployeeEmpNo,
 } from './employees-profile.domain';
 import { buildUserCacheKey } from '../../auth/auth.utils';
 import { toEmployeeResponse } from './employees.mapper';
-import {
-  createEmployeeProfile,
-  queryLatestEmployeeProfileEmpNo,
-} from './employees-profile.query';
+import { createEmployeeProfile } from './employees-profile.query';
 import { EmployeesSnapshotSyncService } from './employees-snapshot-sync.service';
+
+/**
+ * 员工发号/额度校验的 advisory lock 命名空间。
+ *
+ * 与库内其它 advisory lock 通过第一个 int4 key 隔离，第二个 key 用 storeId，
+ * 保证「同门店串行、跨门店并行」。
+ */
+const EMPLOYEE_WRITE_LOCK_NAMESPACE = 1017;
 
 @Injectable()
 export class EmployeesProfileWriteService {
@@ -58,22 +63,22 @@ export class EmployeesProfileWriteService {
       'staff:create',
     );
 
-    await this.platformMembershipAccessService.ensureEmployeeQuotaAvailable(
-      storeId,
-    );
-    const [department, position, latestEmpNo] = await Promise.all([
+    const [department, position] = await Promise.all([
       this.employeesDictionaryService.ensureDepartment(storeId, dto.department),
       this.employeesDictionaryService.ensurePosition(storeId, dto.position),
-      queryLatestEmployeeProfileEmpNo(this.prisma, storeId),
     ]);
 
-    // #6 修复：使用事务避免编号冲突
+    // 发号与额度校验必须串行：事务级 advisory lock 让同门店的新增排队，
+    // 否则两个并发请求会读到同一个最大工号 / 同一个在职人数。
     const employee = await this.prisma.$transaction(async (transaction) => {
-      const empNo = await this.resolveNextEmpNo(
-        transaction,
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(${EMPLOYEE_WRITE_LOCK_NAMESPACE}, ${storeId})`;
+
+      await this.platformMembershipAccessService.ensureEmployeeQuotaAvailable(
         storeId,
-        latestEmpNo,
+        transaction,
       );
+
+      const empNo = await this.resolveNextEmpNo(transaction, storeId);
       return createEmployeeProfile(
         transaction,
         buildCreateEmployeeProfileData({
@@ -219,11 +224,13 @@ export class EmployeesProfileWriteService {
   }
 
   async remove(user: AuthenticatedUser, employeeId: number): Promise<void> {
+    // 删除会禁用关联登录并释放子账号槽位，属于独立高危操作，
+    // 与前端 staff:delete 控权口径保持一致，不能降级为 staff:update。
     const employee =
       await this.employeesAccessService.findManageableEmployeeOrThrow(
         user,
         employeeId,
-        'staff:update',
+        'staff:delete',
       );
 
     const storeId = employee.storeId;
@@ -268,21 +275,21 @@ export class EmployeesProfileWriteService {
   }
 
   /**
-   * #6 修复：在事务内重新查询最新编号，避免并发冲突
+   * 在已持有门店 advisory lock 的事务内发号。
+   *
+   * 取该门店全部存量工号（含已软删除员工）的最大序号 +1：
+   * - 含软删除行，避免复用被唯一约束占用的号；
+   * - 按序号最大值而非「最后一条记录」计算，避免历史脏数据导致撞号。
    */
   private async resolveNextEmpNo(
     transaction: Prisma.TransactionClient,
     storeId: number,
-    preFetchedLatestEmpNo: string | null,
   ): Promise<string> {
-    const latestInTransaction = await transaction.employee.findFirst({
-      where: { storeId, deletedAt: null },
-      orderBy: { id: 'desc' },
+    const existing = await transaction.employee.findMany({
+      where: { storeId },
       select: { empNo: true },
     });
-    // 取 preFetch 和事务内查询中的较大值
-    const latest = latestInTransaction?.empNo ?? preFetchedLatestEmpNo;
-    return buildNextEmployeeEmpNo(latest);
+    return resolveNextEmployeeEmpNo(existing.map((item) => item.empNo));
   }
 
   /**

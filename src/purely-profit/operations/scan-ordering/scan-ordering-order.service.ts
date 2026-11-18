@@ -10,6 +10,12 @@ import type {
   ScanOrderingOrderListItem,
 } from './scan-ordering.types';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
+import {
+  buildListWhere,
+  fetchPriorityPage,
+  resolveListStatuses,
+  resolveListTimeRange,
+} from './scan-ordering-order-query.helper';
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import {
   toOrderDetailPayload,
@@ -110,16 +116,20 @@ export class ScanOrderingOrderService {
     nextCursor: number | null;
   }> {
     const storeId = await this.resolveOrderStoreId(user);
-    const { startOfDay, endOfDay } = this.resolveListTimeRange(query);
-    const where = this.buildListWhere(storeId, query, startOfDay, endOfDay);
+    const { startOfDay, endOfDay } = resolveListTimeRange(query);
+    const where = buildListWhere(storeId, query, startOfDay, endOfDay);
     const limit = query.limit ?? 100;
-    const orders = await this.fetchOrderPage(where, limit);
-    const pageOrders = orders.slice(0, limit);
+    const { pageOrders, hasMore } = await fetchPriorityPage(
+      this.prisma,
+      where,
+      resolveListStatuses(query),
+      limit,
+    );
     // “首单/加餐”判定以 diningRoundId 维度计算：同一用餐轮次（diningRoundId 相同）
     // 内的累计下单序号，跨桌或清桌（diningRoundId 重新生成）会重新从 1 开始。
     // 昵称与序号都只依赖订单页、互不依赖，并行发起省一次往返。
     const [guestNameMap, sequences] = await Promise.all([
-      this.fetchGuestNameMap(orders),
+      this.fetchGuestNameMap(pageOrders),
       this.fetchDiningRoundSequences(pageOrders, storeId),
     ]);
     return {
@@ -132,8 +142,7 @@ export class ScanOrderingOrderService {
           formatPickupNumber: this.pickupNumberService.formatPickupNumber,
         }),
       ),
-      nextCursor:
-        orders.length > limit ? (pageOrders.at(-1)?.id ?? null) : null,
+      nextCursor: hasMore ? (pageOrders.at(-1)?.id ?? null) : null,
     };
   }
 
@@ -168,127 +177,6 @@ export class ScanOrderingOrderService {
       'scan-ordering:view',
       '无权查看扫码点餐订单',
     );
-  }
-
-  /**
-   * 解析列表时间范围：优先使用自定义时间范围；
-   * 未传时间时返回 null（不过滤创建时间），保证跨天进行中订单（如夜宵店
-   * 跨零点接单/制作中的订单）在列表中持续可见，避免“桌台可见、列表不可见”。
-   */
-  private resolveListTimeRange(query: ListScanOrderingOrdersDto): {
-    startOfDay: Date | null;
-    endOfDay: Date | null;
-  } {
-    if (query.startTime && query.endTime) {
-      return {
-        startOfDay: new Date(query.startTime),
-        endOfDay: new Date(query.endTime),
-      };
-    }
-    return { startOfDay: null, endOfDay: null };
-  }
-
-  /** 构建订单列表查询条件（门店、时间、状态、桌台、游标）。
-   * 时间范围仅在调用方显式传入 startTime/endTime 时生效，
-   * 默认返回所有进行中未完结订单（跨天可见）。 */
-  private buildListWhere(
-    storeId: number,
-    query: ListScanOrderingOrdersDto,
-    startOfDay: Date | null,
-    endOfDay: Date | null,
-  ): Record<string, unknown> {
-    const where: Record<string, unknown> = {
-      storeId,
-      // 软删订单不进入订单队列；同时让 scan_orders 上以 deleted_at IS NULL
-      // 为条件的 partial 索引（store_status_created / table_active）可被命中
-      deletedAt: null,
-      ...(startOfDay !== null && endOfDay !== null
-        ? {
-            createdAt: {
-              gte: startOfDay,
-              lt: endOfDay,
-            },
-          }
-        : {}),
-      ...(query.status
-        ? { status: query.status as unknown }
-        : {
-            status: {
-              in: [
-                'pending_payment',
-                'pending_acceptance',
-                'preparing',
-                'served',
-                'refunding',
-              ],
-            },
-          }),
-      ...(query.tableId ? { tableId: query.tableId } : {}),
-      ...(query.cursor ? { id: { lt: query.cursor } } : {}),
-    };
-    // 添加桌号模糊匹配
-    if (query.tableKeyword) {
-      where.table = {
-        name: {
-          contains: query.tableKeyword,
-          mode: 'insensitive',
-        },
-      };
-    }
-    return where;
-  }
-
-  /** 查询一页订单（多取一条用于判断是否有下一页）。 */
-  private fetchOrderPage(
-    where: Record<string, unknown>,
-    limit: number,
-  ): Promise<ScanOrderListItemSource[]> {
-    return this.prisma.scanOrders.findMany({
-      where,
-      orderBy: { id: 'desc' },
-      take: limit + 1,
-      select: {
-        id: true,
-        orderNo: true,
-        status: true,
-        createdAt: true,
-        version: true,
-        clubUserId: true,
-        sessionId: true,
-        diningRoundId: true,
-        remark: true,
-        table: { select: { name: true } },
-        manualEntry: true,
-        manualEntryMetadata: true,
-        items: {
-          select: {
-            productNameSnapshot: true,
-            productImageUrlSnapshot: true,
-            quantity: true,
-            unitPriceAmount: true,
-            lineTotalAmount: true,
-            payableLineAmount: true,
-            specs: {
-              select: { specOptionNameSnapshot: true },
-              orderBy: { id: 'asc' },
-            },
-          },
-          orderBy: { id: 'asc' },
-        },
-        itemOriginalAmount: true,
-        specificationExtraAmount: true,
-        productDiscountAmount: true,
-        orderDiscountAmount: true,
-        taxAmount: true,
-        serviceFeeAmount: true,
-        paidAmount: true,
-        payableAmount: true,
-        marketingSnapshot: true,
-        pickupNumber: true,
-        pickupNumberStatus: true,
-        pickupCalledAt: true,
-      },
-    });
   }
 
   /** 批量查询顾客昵称；缺失或查询失败时回退为“顾客”。 */

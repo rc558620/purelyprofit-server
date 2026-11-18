@@ -13,6 +13,7 @@ import { SpaceCareRecordWriterService } from './space-care-record-writer.service
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import {
   createSalesOrderResponse,
   createSpaceCheckoutAt,
@@ -134,6 +135,11 @@ describe('SpaceSessionCheckoutService', () => {
               .fn()
               .mockResolvedValue({ status: 'skipped', reason: 'no-phone' }),
           },
+        },
+        {
+          // 结账完成实时广播：本文件只验证结账编排，广播由实时服务与结算服务各自覆盖
+          provide: ScanOrderingRealtimeService,
+          useValue: { publishSpaceSessionSettled: jest.fn() },
         },
       ],
     }).compile();

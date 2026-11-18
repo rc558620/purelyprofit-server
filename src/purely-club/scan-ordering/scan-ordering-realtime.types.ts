@@ -12,7 +12,9 @@ export type RealtimeEvent =
   | 'voucher_order.confirmed'
   | 'voucher_order.status_changed'
   | 'self_order.created'
-  | 'self_order.status_changed';
+  | 'self_order.status_changed'
+  | 'space_session.settled'
+  | 'space_session.auto_checkout_failed';
 
 /** Redis 频道内传输的实时消息体（JSON 序列化后的形状）。 */
 export interface RealtimeMessage {
@@ -191,4 +193,48 @@ export interface SelfOrderStatusChangedPayload {
   status: string;
   paymentStatus: string;
   version: number;
+}
+
+/**
+ * 空间会话结账完成（手动结账 / 倒计时到期自动结账共用）。
+ *
+ * 商家端据此立即回源刷新房态：自动结账由后台定时任务触发，
+ * 没有前端请求可以承载响应，只能靠这条广播通知页面。
+ */
+export interface SpaceSessionSettledPayload {
+  /** 门店 ID */
+  storeId: number;
+  /** 空间会话 ID */
+  sessionId: number;
+  /** 空间 ID */
+  spaceId: number;
+  /** 空间名称（通知展示） */
+  spaceName: string;
+  /** 结算合计（元，负值表示应退） */
+  totalAmount: number;
+  /** 触发来源：auto=倒计时到期自动结账，manual=收银手动结账 */
+  source: 'auto' | 'manual';
+  /** 结账时间 ISO */
+  settledAt: string;
+}
+
+/**
+ * 倒计时自动结账失败（后台扫描重试用尽仍失败时广播）。
+ *
+ * 自动结账失败没有前端请求可以承载错误，只能靠这条广播让收银知道
+ * 「这个会话到点了但没结成功」，避免房态一直卡在「使用中」无人处理。
+ */
+export interface SpaceSessionAutoCheckoutFailedPayload {
+  /** 门店 ID */
+  storeId: number;
+  /** 空间会话 ID */
+  sessionId: number;
+  /** 空间 ID */
+  spaceId: number;
+  /** 空间名称（提示展示） */
+  spaceName: string;
+  /** 失败原因（已截断的面向收银文案，不含堆栈） */
+  reason: string;
+  /** 失败时间 ISO */
+  failedAt: string;
 }

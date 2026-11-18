@@ -9,6 +9,7 @@ import {
 } from './space-session.spec-helpers';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { loadVoucherFactsByCode } from './space-session-auto-checkout.query';
 import { aUuid } from '../../../spec-matchers';
 
@@ -27,6 +28,9 @@ describe('SpaceSessionAutoCheckoutService', () => {
   };
   const settlementService = {
     settleSession: jest.fn(),
+  };
+  const realtimeService = {
+    publishSpaceSessionAutoCheckoutFailed: jest.fn(),
   };
   const logger = {
     log: jest.fn(),
@@ -79,6 +83,11 @@ describe('SpaceSessionAutoCheckoutService', () => {
         {
           provide: SpaceSessionSettlementService,
           useValue: settlementService,
+        },
+        {
+          // 结账完成/失败广播：本文件只断言失败广播入参，分发由实时服务测试覆盖
+          provide: ScanOrderingRealtimeService,
+          useValue: realtimeService,
         },
         // 使用真实 RedisLockService，注入 mock redisService
         // 这样 acquireLock → redisService.setIfAbsent → redisClient.set
@@ -137,6 +146,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
         paymentMethod: 'cash',
         checkoutAt,
         note: '倒计时到期自动结账',
+        // 自动结账链路的广播来源标记：前端据此展示「已自动结账」
+        source: 'auto',
       }),
     );
     expect(redisClient.eval).toHaveBeenCalledWith(
@@ -248,6 +259,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
     prismaService.spaceSession.findMany.mockResolvedValueOnce([
       {
         ...session,
+        // 真实查询 include 了 space 关系（失败广播要带空间名）
+        space: { id: 7, name: 'A台', type: { name: '台球桌' } },
         billingMode: 'countdown',
         countdownMinutes: 60,
         autoCheckout: true,
@@ -285,6 +298,18 @@ describe('SpaceSessionAutoCheckoutService', () => {
       expect.stringContaining(
         '[space-auto-checkout] completed trigger=scheduler:auto-checkout storeId=18 requestId=req-1 count=0 failedCount=1',
       ),
+    );
+    // 失败必须广播给商家端：否则会话卡在「使用中」只能靠人发现
+    expect(
+      realtimeService.publishSpaceSessionAutoCheckoutFailed,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 18,
+        sessionId: session.id,
+        spaceId: session.spaceId,
+        spaceName: 'A台',
+        reason: 'shift lookup timeout',
+      }),
     );
   });
 

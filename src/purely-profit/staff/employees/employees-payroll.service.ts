@@ -20,6 +20,7 @@ import {
 import {
   assertPayrollMonthFormat,
   buildPayrollDerivedAmounts,
+  buildPayrollSaveWriteData,
   buildPayrollUpdateData,
   formatPayrollMonth,
   resolvePayrollMergedAmounts,
@@ -31,9 +32,17 @@ import {
   buildPaginationMeta,
   normalizeMonthValue,
   resolvePagination,
-  toNullableText,
 } from './employees.utils';
 import { CommissionCoreService } from '../../operations/commission/commission-core.service';
+
+/** Prisma 唯一约束冲突（同员工同月工资单唯一键） */
+function isPayrollUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'P2002'
+  );
+}
 
 @Injectable()
 export class EmployeesPayrollService {
@@ -126,28 +135,7 @@ export class EmployeesPayrollService {
     const rawMonth = dto.month.trim();
     assertPayrollMonthFormat(rawMonth);
     const month = normalizeMonthValue(rawMonth);
-    const derivedAmounts = buildPayrollDerivedAmounts({
-      baseSalary: Money.fromInputYuan(dto.baseSalary),
-      leaveDeduction: Money.fromInputYuan(dto.leaveDeduction),
-      otherDeduction: Money.fromInputYuan(dto.otherDeduction),
-      otherDeductionNote: dto.otherDeductionNote,
-      bonus: Money.fromInputYuan(dto.bonus),
-      commission:
-        dto.commission !== undefined
-          ? Money.fromInputYuan(dto.commission)
-          : Money.zero(),
-      socialInsurance:
-        dto.socialInsurance !== undefined
-          ? Money.fromInputYuan(dto.socialInsurance)
-          : undefined,
-      housingFund:
-        dto.housingFund !== undefined
-          ? Money.fromInputYuan(dto.housingFund)
-          : undefined,
-    });
-
     const payroll = await this.prisma.$transaction(async (transaction) => {
-      // 先查询是否已存在，避免 upsert 静默回退已确认工资单
       const existing = await transaction.employeePayroll.findUnique({
         where: {
           employeeId_month: {
@@ -155,81 +143,50 @@ export class EmployeesPayrollService {
             month,
           },
         },
-        // 此处只用于判断已确认状态，不拉整行字段
-        select: { status: true },
       });
 
       if (existing?.status === EmployeePayrollStatus.confirmed) {
         throw new ConflictException('该月份工资已确认结算，不能覆盖保存');
       }
 
-      return transaction.employeePayroll.upsert({
-        where: {
-          employeeId_month: {
-            employeeId: employee.id,
-            month,
-          },
-        },
-        create: {
-          storeId: employee.storeId,
-          employeeId: employee.id,
-          employeeName: employee.name,
-          month,
-          baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents(),
-          leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents(),
-          otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
-          otherDeductionNote: toNullableText(dto.otherDeductionNote),
-          bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
-          commission:
-            dto.commission !== undefined
-              ? Money.fromInputYuan(dto.commission).toDbCents()
-              : 0,
-          actualSalary: derivedAmounts.actualSalary.toDbCents(),
-          socialInsurance:
-            dto.socialInsurance !== undefined
-              ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
-              : undefined,
-          housingFund:
-            dto.housingFund !== undefined
-              ? Money.fromInputYuan(dto.housingFund).toDbCents()
-              : undefined,
-          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
-          status: EmployeePayrollStatus.draft,
-          note: toNullableText(dto.note),
-        },
-        update: {
-          employeeName: employee.name,
-          baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents(),
-          leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents(),
-          otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
-          otherDeductionNote: toNullableText(dto.otherDeductionNote),
-          bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
-          commission:
-            dto.commission !== undefined
-              ? Money.fromInputYuan(dto.commission).toDbCents()
-              : 0,
-          actualSalary: derivedAmounts.actualSalary.toDbCents(),
-          ...(dto.socialInsurance !== undefined
-            ? {
-                socialInsurance:
-                  dto.socialInsurance > 0
-                    ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
-                    : 0,
-              }
-            : {}),
-          ...(dto.housingFund !== undefined
-            ? {
-                housingFund:
-                  dto.housingFund > 0
-                    ? Money.fromInputYuan(dto.housingFund).toDbCents()
-                    : 0,
-              }
-            : {}),
-          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
-          status: EmployeePayrollStatus.draft,
-          confirmedAt: null,
-          note: toNullableText(dto.note),
-        },
+      const draftData = buildPayrollSaveWriteData({
+        dto,
+        employeeName: employee.name,
+        existing,
+      });
+
+      if (!existing) {
+        try {
+          return await transaction.employeePayroll.create({
+            data: {
+              storeId: employee.storeId,
+              employeeId: employee.id,
+              month,
+              ...draftData,
+            },
+          });
+        } catch (error: unknown) {
+          // 同员工同月存在唯一约束：并发首存时后到的一方转成可读的业务冲突
+          if (isPayrollUniqueViolation(error)) {
+            throw new ConflictException(
+              '该月份工资正在被其他操作保存，请刷新后重试',
+            );
+          }
+          throw error;
+        }
+      }
+
+      // 条件更新：读取后被并发确认时，本次草稿写入必须失败而不是覆盖已结算工资
+      const { count } = await transaction.employeePayroll.updateMany({
+        where: { id: existing.id, status: EmployeePayrollStatus.draft },
+        data: draftData,
+      });
+      if (count === 0) {
+        throw new ConflictException('该月份工资已确认结算，不能覆盖保存');
+      }
+
+      return transaction.employeePayroll.findUniqueOrThrow({
+        where: { id: existing.id },
       });
     });
 
@@ -260,12 +217,20 @@ export class EmployeesPayrollService {
       throw new ConflictException('该工资记录已确认，无需重复确认');
     }
     const confirmed = await this.prisma.$transaction(async (transaction) => {
-      const nextPayroll = await transaction.employeePayroll.update({
-        where: { id: payroll.id },
+      // 条件更新：并发确认只允许一次成功，否则成本记录会被重复同步
+      const { count } = await transaction.employeePayroll.updateMany({
+        where: { id: payroll.id, status: EmployeePayrollStatus.draft },
         data: {
           status: EmployeePayrollStatus.confirmed,
           confirmedAt: new Date(),
         },
+      });
+      if (count === 0) {
+        throw new ConflictException('该工资记录已确认，无需重复确认');
+      }
+
+      const nextPayroll = await transaction.employeePayroll.findUniqueOrThrow({
+        where: { id: payroll.id },
       });
       await this.costsService.syncPayrollCosts(transaction, {
         storeId: nextPayroll.storeId,
@@ -325,7 +290,14 @@ export class EmployeesPayrollService {
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('已确认结算的工资记录不支持删除');
     }
-    await this.prisma.employeePayroll.delete({ where: { id: payroll.id } });
+
+    // 条件删除 + 版本校验：读取后被并发确认或改写的记录不能被删除
+    const { count } = await this.prisma.employeePayroll.deleteMany({
+      where: { id: payroll.id, status: EmployeePayrollStatus.draft },
+    });
+    if (count === 0) {
+      throw new ConflictException('工资记录已被其他操作更新，请刷新后重试');
+    }
 
     // 首页动态依赖工资单数据（工资单待确认）
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(
@@ -353,14 +325,38 @@ export class EmployeesPayrollService {
       throw new ConflictException('已确认结算的工资记录不能编辑');
     }
 
-    // 合并 DTO 与现有金额，计算派生值
-    const merged = resolvePayrollMergedAmounts(dto, payroll);
-    const derivedAmounts = buildPayrollDerivedAmounts(merged);
-
     const updated = await this.prisma.$transaction(async (transaction) => {
-      return transaction.employeePayroll.update({
-        where: { id: payroll.id },
+      // 事务内重读：状态与金额基线都必须来自最新已提交数据
+      const current = await transaction.employeePayroll.findUnique({
+        where: { id: payrollId },
+      });
+      if (!current) {
+        throw new NotFoundException('工资记录不存在');
+      }
+      if (current.status === EmployeePayrollStatus.confirmed) {
+        throw new ConflictException('已确认结算的工资记录不能编辑');
+      }
+
+      // 合并 DTO 与当前金额，计算派生值
+      const merged = resolvePayrollMergedAmounts(dto, current);
+      const derivedAmounts = buildPayrollDerivedAmounts(merged);
+
+      // 条件更新 + updatedAt 乐观锁：读取后被确认或被他人改写时本次写入失败，
+      // 不再出现「结算已按旧金额同步成本，随后草稿写入把金额改掉」。
+      const { count } = await transaction.employeePayroll.updateMany({
+        where: {
+          id: payrollId,
+          status: EmployeePayrollStatus.draft,
+          updatedAt: current.updatedAt,
+        },
         data: buildPayrollUpdateData(dto, derivedAmounts),
+      });
+      if (count === 0) {
+        throw new ConflictException('工资记录已被其他操作更新，请刷新后重试');
+      }
+
+      return transaction.employeePayroll.findUniqueOrThrow({
+        where: { id: payrollId },
       });
     });
 

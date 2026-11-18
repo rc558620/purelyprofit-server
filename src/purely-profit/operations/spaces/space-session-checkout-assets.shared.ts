@@ -21,6 +21,7 @@ import {
   findCheckoutSettlementAssetId,
   findCheckoutSettlementMoney,
   planCheckoutSettlements,
+  resolveSignedPayableMoney,
   type CheckoutSettlementPlan,
 } from './space-session-checkout-settlement.shared';
 import {
@@ -117,8 +118,11 @@ export async function resolveCheckoutAssets(
       ? await loadCustomerBalanceCents(tx, session.storeId, membershipId)
       : null;
 
+  const basePayableMoney = Money.fromInputYuan(
+    params.baseSettlement.totalAmount,
+  );
   const plan = planCheckoutSettlements({
-    basePayableMoney: Money.fromInputYuan(params.baseSettlement.totalAmount),
+    basePayableMoney,
     timeCostMoney: Money.fromInputYuan(params.baseSettlement.timeCost),
     itemsCostMoney: Money.fromInputYuan(params.baseSettlement.itemsCost),
     settlements,
@@ -127,7 +131,8 @@ export async function resolveCheckoutAssets(
 
   assertExpectedPayableMatches({
     expectedPayable: params.expectedPayable,
-    payableMoney: plan.payableMoney,
+    // 比对基准用带符号应付：合计为负（应退）时 plan.payableMoney 已被夹紧为 0
+    payableMoney: resolveSignedPayableMoney({ basePayableMoney, plan }),
   });
 
   return {

@@ -126,7 +126,7 @@ export class EmployeesProfileController {
   }
 
   @Delete(':id')
-  @RequirePermissions('staff:update')
+  @RequirePermissions('staff:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除员工档案' })
   @ApiNoContentResponse()
