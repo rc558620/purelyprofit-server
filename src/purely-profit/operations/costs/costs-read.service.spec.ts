@@ -343,6 +343,7 @@ describe('CostsReadService', () => {
           note: '5 月房租',
         },
       ],
+      detailTruncated: false,
     });
     expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
@@ -429,6 +430,7 @@ describe('CostsReadService', () => {
           note: '待确认',
         },
       ],
+      detailTruncated: false,
     });
 
     // 验证 findMany 查询条件包含 category 过滤
@@ -447,6 +449,15 @@ describe('CostsReadService', () => {
         }),
       }),
     );
+
+    // 工资月按 Date.UTC(y, m, 1) 存储，比上海零点晚 8 小时：
+    // 上界必须是开区间，否则查询区间最后一个月的草稿会整体漏掉。
+    const payrollWhere =
+      prismaService.employeePayroll.findMany.mock.calls[0][0].where;
+    expect(payrollWhere.month).toEqual(
+      expect.objectContaining({ lt: expect.any(Date) }),
+    );
+    expect(payrollWhere.month.lte).toBeUndefined();
   });
 
   it('getReport 在 rent 分类下只统计租金分类数据', async () => {
@@ -512,6 +523,7 @@ describe('CostsReadService', () => {
           note: '5 月房租',
         },
       ],
+      detailTruncated: false,
     });
 
     // 验证 findMany 查询条件包含 category 过滤

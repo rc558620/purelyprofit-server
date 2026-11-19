@@ -274,6 +274,14 @@ export class CostReportResponseDto {
   @ValidateNested({ each: true })
   @Type(() => CostReportDetailRowDto)
   detailRows: CostReportDetailRowDto[];
+
+  @ApiProperty({
+    example: false,
+    description:
+      '明细是否因单次查询条数上限被截断（true 时 detailRows 不是全量，汇总仍准确）',
+  })
+  @IsBoolean({ message: '明细截断标记必须是布尔值' })
+  detailTruncated: boolean;
 }
 
 export class CostStatsResponseDto {

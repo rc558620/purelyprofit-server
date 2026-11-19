@@ -1,5 +1,10 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { CostsIdempotencyService } from './costs-idempotency.service';
 import { CostsWriteService } from './costs-write.service';
 import {
   createCostsCacheInvalidatorServiceMock,
@@ -11,6 +16,7 @@ import {
 
 describe('CostsWriteService', () => {
   let service: CostsWriteService;
+  let idempotencyService: CostsIdempotencyService;
 
   const prismaService = createCostsPrismaMock();
   const commerceAccessService = createCostsCommerceAccessServiceMock();
@@ -29,6 +35,9 @@ describe('CostsWriteService', () => {
     }).compile();
 
     service = module.get<CostsWriteService>(CostsWriteService);
+    idempotencyService = module.get<CostsIdempotencyService>(
+      CostsIdempotencyService,
+    );
   });
 
   it('createRecord 会校验金额并写入 manual 成本记录', async () => {
@@ -331,5 +340,189 @@ describe('CostsWriteService', () => {
     });
     expect(prismaService.costRecord.findFirst).not.toHaveBeenCalled();
     expect(prismaService.costRecord.update).not.toHaveBeenCalled();
+  });
+
+  describe('Idempotency-Key 防重复记账', () => {
+    const idempotencyKey = 'cost-create-key-0001';
+    const createDto = {
+      title: '房租',
+      type: 'fixed' as const,
+      category: 'rent' as const,
+      amount: 5000,
+      date: new Date('2026-05-01T00:00:00.000Z').getTime(),
+    };
+    const requestHash = () =>
+      idempotencyService.hashRequest({ storeId: 18, dto: createDto });
+
+    beforeEach(() => {
+      commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+      commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    });
+
+    it('命中已成功的记录时回放首次响应，不再落库', async () => {
+      const snapshot = {
+        id: '99',
+        title: '房租',
+        type: 'fixed',
+        category: 'rent',
+        amount: 5000,
+        date: createDto.date,
+        sourceType: 'manual',
+        deletable: true,
+        createdAt: createDto.date,
+      };
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'succeeded',
+        requestHash: requestHash(),
+        responseSnapshot: snapshot,
+      });
+
+      await expect(
+        service.createRecord(user, createDto, { idempotencyKey }),
+      ).resolves.toEqual(snapshot);
+
+      expect(prismaService.costRecord.create).not.toHaveBeenCalled();
+      expect(prismaService.idempotencyRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('首次请求仍在处理时返回 409，而不是再写一条', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'processing',
+        requestHash: requestHash(),
+        responseSnapshot: null,
+      });
+
+      await expect(
+        service.createRecord(user, createDto, { idempotencyKey }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(prismaService.costRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('同一 key 换了内容时拒绝，避免回放不相符的旧记录', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue({
+        status: 'succeeded',
+        requestHash: 'another-request-hash',
+        responseSnapshot: { id: '77' },
+      });
+
+      await expect(
+        service.createRecord(user, createDto, { idempotencyKey }),
+      ).rejects.toThrow('幂等键已用于另一笔内容不同的成本记录');
+
+      expect(prismaService.costRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('新 key 会占位、落库后回填响应快照', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue(null);
+      prismaService.idempotencyRecord.create.mockResolvedValue({ id: 7 });
+      prismaService.idempotencyRecord.update.mockResolvedValue({});
+      prismaService.costRecord.create.mockResolvedValue({
+        id: 2,
+        title: '房租',
+        type: 'fixed',
+        category: 'rent',
+        sourceType: 'manual',
+        amount: 500000,
+        note: null,
+        date: new Date('2026-05-01T00:00:00.000Z'),
+        createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.createRecord(user, createDto, { idempotencyKey }),
+      ).resolves.toEqual(expect.objectContaining({ id: '2' }));
+
+      expect(prismaService.idempotencyRecord.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            idempotencyKey,
+            status: 'processing',
+            requestHash: requestHash(),
+          }),
+        }),
+      );
+      expect(prismaService.idempotencyRecord.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: expect.objectContaining({
+          status: 'succeeded',
+          resourceId: 2,
+        }),
+      });
+    });
+
+    it('落库失败时清理占位，同一个 key 可以重试', async () => {
+      prismaService.idempotencyRecord.findUnique.mockResolvedValue(null);
+      prismaService.idempotencyRecord.create.mockResolvedValue({ id: 8 });
+      prismaService.idempotencyRecord.delete.mockResolvedValue({ id: 8 });
+      prismaService.costRecord.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.createRecord(user, createDto, { idempotencyKey }),
+      ).rejects.toThrow('db down');
+
+      expect(prismaService.idempotencyRecord.delete).toHaveBeenCalledWith({
+        where: { id: 8 },
+      });
+    });
+  });
+
+  describe('缓存失效降级', () => {
+    beforeEach(() => {
+      commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+      commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+      prismaService.costRecord.create.mockResolvedValue({
+        id: 2,
+        title: '营销物料',
+        type: 'variable',
+        category: 'marketing',
+        sourceType: 'manual',
+        amount: 8850,
+        note: null,
+        date: new Date('2026-05-14T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T10:00:00.000Z'),
+      });
+    });
+
+    it('新增成功后缓存失效抛错不回滚、也不把接口变成失败', async () => {
+      cacheInvalidatorService.invalidateBusinessAnalysis.mockRejectedValueOnce(
+        new Error('redis down'),
+      );
+      cacheInvalidatorService.invalidateProfitDashboardHome.mockRejectedValueOnce(
+        new Error('redis down'),
+      );
+
+      await expect(
+        service.createRecord(user, {
+          title: '营销物料',
+          type: 'variable',
+          category: 'marketing',
+          amount: 88.5,
+          date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+        }),
+      ).resolves.toEqual(expect.objectContaining({ id: '2' }));
+
+      expect(prismaService.costRecord.create).toHaveBeenCalledTimes(1);
+      // 一项失败不影响其余失效任务继续执行
+      expect(
+        cacheInvalidatorService.invalidateCostsCaches,
+      ).toHaveBeenCalledWith(18);
+    });
+
+    it('删除成功后缓存失效抛错也不把删除回显成失败', async () => {
+      prismaService.costRecord.findUnique.mockResolvedValue({
+        id: 9,
+        storeId: 18,
+        sourceType: 'manual',
+      });
+      commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+      prismaService.costRecord.delete.mockResolvedValue({ id: 9 });
+      cacheInvalidatorService.invalidateCostsCaches.mockRejectedValueOnce(
+        new Error('redis down'),
+      );
+
+      await expect(service.deleteRecord(user, 9)).resolves.toBeUndefined();
+      expect(prismaService.costRecord.delete).toHaveBeenCalledTimes(1);
+    });
   });
 });

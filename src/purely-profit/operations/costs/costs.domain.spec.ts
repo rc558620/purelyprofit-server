@@ -2,6 +2,8 @@ import { makeShanghaiMs } from '../../../shared/shanghai-time.utils';
 import {
   buildCostReportRange,
   buildPreviousCostReportRange,
+  getPayrollCostDate,
+  getPayrollCostDateExclusive,
 } from './costs.domain';
 import type { CostReportRange } from './costs.types';
 
@@ -144,5 +146,34 @@ describe('costs.domain 上期同期区间', () => {
       end: makeShanghaiMs(2026, 9, 8) - 1,
       period: 'custom_month',
     });
+  });
+});
+
+describe('costs.domain 工资月查询边界', () => {
+  it('开区间上界覆盖按 UTC 存储的当月工资记录', () => {
+    // EmployeePayroll.month 由 Date.UTC(y, m, 1) 生成
+    const stored = new Date(Date.UTC(2026, 10, 1));
+
+    expect(stored.getTime()).toBeGreaterThanOrEqual(
+      getPayrollCostDate('2026-11').getTime(),
+    );
+    expect(stored.getTime()).toBeLessThan(
+      getPayrollCostDateExclusive('2026-11').getTime(),
+    );
+  });
+
+  it('包含式上界会漏掉同月记录（回归防护）', () => {
+    const stored = new Date(Date.UTC(2026, 10, 1));
+
+    // 旧实现用 lte: getPayrollCostDate(month)，晚 8 小时存储的记录被判为超出上界
+    expect(stored.getTime()).toBeGreaterThan(
+      getPayrollCostDate('2026-11').getTime(),
+    );
+  });
+
+  it('12 月的开区间上界跨年到次年 1 月 1 日上海零点', () => {
+    expect(getPayrollCostDateExclusive('2026-12').getTime()).toBe(
+      makeShanghaiMs(2027, 0, 1),
+    );
   });
 });

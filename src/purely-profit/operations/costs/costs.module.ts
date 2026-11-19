@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { CostsController } from './costs.controller';
+import { CostsIdempotencyService } from './costs-idempotency.service';
 import { CostsReadService } from './costs-read.service';
 import { CostsReadRecordsService } from './costs-read-records.service';
 import { CostsReadStatsService } from './costs-read-stats.service';
@@ -14,6 +15,7 @@ import { CostsWriteService } from './costs-write.service';
   imports: [CommerceModule, PlatformMembershipModule],
   controllers: [CostsController],
   providers: [
+    CostsIdempotencyService,
     CostsReadService,
     CostsReadRecordsService,
     CostsReadStatsService,

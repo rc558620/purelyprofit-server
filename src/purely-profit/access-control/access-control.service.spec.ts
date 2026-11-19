@@ -197,8 +197,6 @@ describe('AccessControlService', () => {
       'purchase:view',
       'purchase:create',
       'cost:view',
-      'cost:create',
-      'cost:delete',
       'sales:view',
       'staff:view',
       'service-call:view',
@@ -212,6 +210,9 @@ describe('AccessControlService', () => {
     expect(permissions).toContain('supplier:update');
     expect(permissions).toContain('purchase:view');
     expect(permissions).toContain('purchase:create');
+    // 财务子账号成本只读：前端隐藏新增/删除入口，后端同步不授予写权限
+    expect(permissions).not.toContain('cost:create');
+    expect(permissions).not.toContain('cost:delete');
     expect(permissions).not.toContain('space:view');
     expect(permissions).not.toContain('handover:create');
     expect(permissions).not.toContain('handover:update');

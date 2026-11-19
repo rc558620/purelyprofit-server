@@ -13,6 +13,7 @@ import { CostsReadStatsService } from './costs-read-stats.service';
 import { CostsReadReportService } from './costs-read-report.service';
 import { CostsReadDashboardService } from './costs-read-dashboard.service';
 import { CostsService } from './costs.service';
+import { CostsIdempotencyService } from './costs-idempotency.service';
 import { CostsWriteService } from './costs-write.service';
 
 export function createCostsSpecUser(): AuthenticatedUser {
@@ -59,6 +60,12 @@ export function createCostsPrismaMock() {
     },
     employeePayroll: {
       findMany: jest.fn(),
+    },
+    idempotencyRecord: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
   };
 }
@@ -149,6 +156,7 @@ export function createCostsWriteProviders(
 ): Provider[] {
   return [
     CostsWriteService,
+    CostsIdempotencyService,
     { provide: PrismaService, useValue: prismaService },
     { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
     { provide: CommerceAccessService, useValue: commerceAccessService },

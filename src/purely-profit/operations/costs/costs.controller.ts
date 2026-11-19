@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,6 +17,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
@@ -103,12 +105,19 @@ export class CostsController {
   @Post(['records', ''])
   @RequirePermissions('cost:create')
   @ApiOperation({ summary: '新增成本记录' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      '幂等键：同一笔支出重试时复用同一个值，服务端回放首次结果而不会重复记账',
+  })
   @ApiCreatedResponse({ type: CostRecordResponseDto })
   createRecord(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateCostRecordDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<CostRecordResponseDto> {
-    return this.costsService.createRecord(user, dto);
+    return this.costsService.createRecord(user, dto, { idempotencyKey });
   }
 
   @Delete(['records/:id', ':id'])

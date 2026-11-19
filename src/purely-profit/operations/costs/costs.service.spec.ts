@@ -136,6 +136,7 @@ describe('CostsService', () => {
     expect(facadeMocks.costsWriteService.createRecord).toHaveBeenCalledWith(
       user,
       createDto,
+      {},
     );
     expect(facadeMocks.costsWriteService.deleteRecord).toHaveBeenCalledWith(
       user,

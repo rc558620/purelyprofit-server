@@ -174,8 +174,10 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).toContain('inventory:view');
     expect(permissions).toContain('inventory:update');
     expect(permissions).toContain('cost:view');
-    expect(permissions).toContain('cost:create');
-    expect(permissions).toContain('cost:delete');
+    // 财务子账号成本只读：前端隐藏新增/删除入口，后端同样不授予写权限，
+    // 避免直连接口绕过前端隐藏。
+    expect(permissions).not.toContain('cost:create');
+    expect(permissions).not.toContain('cost:delete');
     expect(permissions).toContain('supplier:view');
     expect(permissions).toContain('supplier:create');
     expect(permissions).toContain('supplier:update');

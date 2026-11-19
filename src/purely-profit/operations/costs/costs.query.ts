@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildCostRange,
   getPayrollCostDate,
+  getPayrollCostDateExclusive,
   toPayrollMonth,
 } from './costs.domain';
 import type {
@@ -55,6 +56,7 @@ export async function queryCostReportRows(
   fixedCents: number;
   variableCents: number;
   categoryCents: Map<CostReportCostRow['category'], number>;
+  detailTruncated: boolean;
 }> {
   const categoryWhere =
     categoryFilter !== 'all' ? { category: categoryFilter } : {};
@@ -130,9 +132,12 @@ export async function queryCostReportRows(
           where: {
             storeId,
             status: 'draft',
+            // 上界必须用「次月 1 号上海零点」的开区间：
+            // `month` 按 Date.UTC(y, m, 1) 存储，比「当月 1 号上海零点」晚 8 小时，
+            // 用包含式上界会把查询区间最后一个月的草稿整体漏掉。
             month: {
               gte: getPayrollCostDate(toPayrollMonth(currentRange.start)),
-              lte: getPayrollCostDate(toPayrollMonth(currentRange.end)),
+              lt: getPayrollCostDateExclusive(toPayrollMonth(currentRange.end)),
             },
           },
           select: {
@@ -184,6 +189,11 @@ export async function queryCostReportRows(
       typeRows.find((record) => record.type === 'variable')?._sum.amount ?? 0,
     ),
     categoryCents,
+    // 汇总走 aggregate 不受 take 限制，明细仍受 maxPageSize 截断：
+    // 两者不一致时说明明细被裁掉了，必须显式告诉调用方，不能静默丢行。
+    detailTruncated:
+      costRows.length < currentAggregate._count._all ||
+      payrollRows.length >= maxPageSize,
   };
 }
 

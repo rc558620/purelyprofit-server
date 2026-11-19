@@ -114,7 +114,26 @@ describe('CostsController', () => {
     expect(costsService.getStats).toHaveBeenCalledWith(user, {
       period: 'week',
     });
-    expect(costsService.createRecord).toHaveBeenCalledWith(user, createDto);
+    expect(costsService.createRecord).toHaveBeenCalledWith(user, createDto, {
+      idempotencyKey: undefined,
+    });
     expect(costsService.deleteRecord).toHaveBeenCalledWith(user, 2);
+  });
+
+  it('createRecord 会把 Idempotency-Key 请求头透传给 service', async () => {
+    const createDto = {
+      title: '房租',
+      type: 'fixed' as const,
+      category: 'rent' as const,
+      amount: 5000,
+      date: 1747180800000,
+    };
+    costsService.createRecord.mockResolvedValue({ id: '3' });
+
+    await controller.createRecord(user, createDto, 'cost-key-0001');
+
+    expect(costsService.createRecord).toHaveBeenCalledWith(user, createDto, {
+      idempotencyKey: 'cost-key-0001',
+    });
   });
 });

@@ -58,6 +58,7 @@ export function buildEmptyCostReportResponse(): CostReportResponseDto {
     summary: buildEmptyCostReportSummary(),
     categories: [],
     detailRows: [],
+    detailTruncated: false,
   };
 }
 
@@ -317,6 +318,19 @@ export function getPayrollCostDate(month: string): Date {
   const monthValue = Number(monthText);
   // 工资月归属按上海时区的当月 1 号零点入库
   return new Date(makeShanghaiMs(year, monthValue - 1, 1));
+}
+
+/**
+ * 工资月的开区间上界：次月 1 号上海零点。
+ *
+ * `getPayrollCostDate` 是「当月 1 号上海零点」，用它做 `lte` 会漏掉当月记录：
+ * `EmployeePayroll.month` 按 `Date.UTC(y, m, 1)` 存储（即上海当月 1 号 08:00），
+ * 比上海零点晚 8 小时，用 `lte` 边界会把整个月的工资草稿都排除掉。
+ */
+export function getPayrollCostDateExclusive(month: string): Date {
+  const [yearText, monthText] = month.split('-');
+  // 月份是 1-based，作为 makeShanghaiMs 的 0-based monthIndex 恰好表示「次月」
+  return new Date(makeShanghaiMs(Number(yearText), Number(monthText), 1));
 }
 
 /**

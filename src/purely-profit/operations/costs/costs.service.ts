@@ -16,7 +16,10 @@ import type {
   CostStatsResponseDto,
 } from './dto/costs-response.dto';
 import { CostsReadService } from './costs-read.service';
-import { CostsWriteService } from './costs-write.service';
+import {
+  CostsWriteService,
+  type CreateCostRecordOptions,
+} from './costs-write.service';
 import type {
   SyncPayrollCostInput,
   SyncPurchaseCostInput,
@@ -68,8 +71,9 @@ export class CostsService {
   createRecord(
     user: AuthenticatedUser,
     dto: CreateCostRecordDto,
+    options: CreateCostRecordOptions = {},
   ): Promise<CostRecordResponseDto> {
-    return this.costsWriteService.createRecord(user, dto);
+    return this.costsWriteService.createRecord(user, dto, options);
   }
 
   deleteRecord(user: AuthenticatedUser, recordId: number): Promise<void> {

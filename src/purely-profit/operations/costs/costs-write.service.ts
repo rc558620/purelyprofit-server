@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type CostRecord } from '@prisma/client';
@@ -11,6 +12,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { getPayrollCostDate, toCostDbCents } from './costs.domain';
+import { CostsIdempotencyService } from './costs-idempotency.service';
 import { buildCostRecordResponse } from './costs.mapper';
 import type {
   PayrollComponentCostUpsertInput,
@@ -21,17 +23,26 @@ import type {
 import type { CreateCostRecordDto } from './dto/costs-query.dto';
 import type { CostRecordResponseDto } from './dto/costs-response.dto';
 
+/** 新增成本的可选入参：`idempotencyKey` 来自 `Idempotency-Key` 请求头 */
+export interface CreateCostRecordOptions {
+  idempotencyKey?: string;
+}
+
 @Injectable()
 export class CostsWriteService {
+  private readonly logger = new Logger(CostsWriteService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly costsIdempotencyService: CostsIdempotencyService,
   ) {}
 
   async createRecord(
     user: AuthenticatedUser,
     dto: CreateCostRecordDto,
+    options: CreateCostRecordOptions = {},
   ): Promise<CostRecordResponseDto> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -61,23 +72,122 @@ export class CostsWriteService {
       throw new BadRequestException('成本发生日期不能晚于今天');
     }
 
-    const created = await this.prisma.costRecord.create({
-      data: {
-        storeId,
-        operatorStaffId,
-        sourceType: 'manual',
-        title,
-        type: dto.type,
-        category: dto.category,
-        amount: toCostDbCents(dto.amount),
-        note: toOptionalText(dto.note) ?? null,
-        date: recordDate,
-      },
-    });
+    const idempotencyKey = this.costsIdempotencyService.normalizeKey(
+      options.idempotencyKey,
+    );
+    const requestHash = idempotencyKey
+      ? this.costsIdempotencyService.hashRequest({ storeId, dto })
+      : null;
 
-    await this.invalidateDashboardCaches(storeId);
+    // 先查重：命中已成功的记录时直接回放，不再落库
+    if (idempotencyKey && requestHash) {
+      const replayed = await this.findIdempotentReplay(
+        user.id,
+        idempotencyKey,
+        requestHash,
+      );
+      if (replayed) {
+        return replayed;
+      }
+    }
 
-    return buildCostRecordResponse(created);
+    let placeholderId: number | null = null;
+    if (idempotencyKey && requestHash) {
+      const claimed = await this.claimIdempotentCreate(
+        user.id,
+        idempotencyKey,
+        requestHash,
+      );
+      if ('replay' in claimed) {
+        return claimed.replay;
+      }
+      placeholderId = claimed.placeholderId;
+    }
+
+    let created: CostRecord;
+    try {
+      created = await this.prisma.costRecord.create({
+        data: {
+          storeId,
+          operatorStaffId,
+          sourceType: 'manual',
+          title,
+          type: dto.type,
+          category: dto.category,
+          amount: toCostDbCents(dto.amount),
+          note: toOptionalText(dto.note) ?? null,
+          date: recordDate,
+        },
+      });
+    } catch (error) {
+      // 落库失败：清掉占位，同一个 key 才能重试成功
+      if (placeholderId !== null) {
+        await this.costsIdempotencyService.discard(placeholderId);
+      }
+      throw error;
+    }
+
+    const response = buildCostRecordResponse(created);
+
+    if (placeholderId !== null) {
+      await this.costsIdempotencyService.finalize(placeholderId, response);
+    }
+
+    // 缓存失效只是「让派生缓存尽快过期」，不是记账成功的前提。
+    // 失效失败必须降级为日志：此前它抛错会让已落库的支出被客户端判定为失败，
+    // 用户重试就会重复记账。
+    await this.invalidateDashboardCaches(storeId, '新增成本后');
+
+    return response;
+  }
+
+  /** 幂等键已存在 → 回放首次响应；null 表示这是一次新请求 */
+  private async findIdempotentReplay(
+    actorId: number,
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<CostRecordResponseDto | null> {
+    const existing = await this.costsIdempotencyService.find(
+      actorId,
+      idempotencyKey,
+    );
+    if (!existing) {
+      return null;
+    }
+    this.costsIdempotencyService.ensureSameRequest(existing, requestHash);
+    return this.costsIdempotencyService.resolveReplay(existing);
+  }
+
+  /**
+   * 抢占幂等键；并发双击撞唯一键时回读记录：
+   * 首个请求已成功 → 回放它的成本记录；仍在写入中 → resolveReplay 抛 409。
+   */
+  private async claimIdempotentCreate(
+    actorId: number,
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<{ placeholderId: number } | { replay: CostRecordResponseDto }> {
+    try {
+      const placeholderId = await this.costsIdempotencyService.claim(
+        actorId,
+        idempotencyKey,
+        requestHash,
+      );
+      return { placeholderId };
+    } catch (error) {
+      if (!this.costsIdempotencyService.isDuplicateKeyError(error)) {
+        throw error;
+      }
+      const raced = await this.costsIdempotencyService.find(
+        actorId,
+        idempotencyKey,
+      );
+      if (!raced) {
+        throw error;
+      }
+      this.costsIdempotencyService.ensureSameRequest(raced, requestHash);
+      return { replay: this.costsIdempotencyService.resolveReplay(raced) };
+    }
   }
 
   async deleteRecord(user: AuthenticatedUser, recordId: number): Promise<void> {
@@ -106,27 +216,70 @@ export class CostsWriteService {
     }
 
     await this.prisma.costRecord.delete({ where: { id: record.id } });
-    await this.invalidateDashboardCaches(record.storeId);
+    await this.invalidateDashboardCaches(record.storeId, '删除成本后');
   }
 
-  private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await Promise.all([
-      this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
-      this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
-      this.cacheInvalidatorService.invalidateCostsCaches(storeId),
+  /**
+   * 成本派生缓存失效。
+   *
+   * 逐项兜底：任何一个 keyspace 扫描失败都只记 warn，不再向上冒泡。
+   * 删除/新增本身已经成功，此时让接口报错会诱导用户重试（重复记账），
+   * 而残留缓存最长只影响一个 TTL，下一轮刷新即可自愈。
+   */
+  private async invalidateDashboardCaches(
+    storeId: number,
+    stage: string,
+  ): Promise<void> {
+    const tasks: Array<[string, () => Promise<unknown>]> = [
+      [
+        '利润看板首页',
+        () =>
+          this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
+      ],
+      [
+        '经营分析',
+        () =>
+          this.cacheInvalidatorService.invalidatePulseDashboardOverview(
+            storeId,
+          ),
+      ],
+      [
+        '成本缓存',
+        () => this.cacheInvalidatorService.invalidateCostsCaches(storeId),
+      ],
       // 经营分析（business-analysis）同样聚合 cost_records 计算总成本/净利润/
       // 成本结构与日趋势成本，成本写入后必须同步失效，否则最长要等一个 TTL
       // 才能在经营分析里看到新成本。
-      this.cacheInvalidatorService.invalidateBusinessAnalysis(storeId),
-    ]);
+      [
+        '经营分析成本',
+        () => this.cacheInvalidatorService.invalidateBusinessAnalysis(storeId),
+      ],
+    ];
+
+    await Promise.all(
+      tasks.map(async ([name, run]) => {
+        try {
+          await run();
+        } catch (error) {
+          this.logger.warn(
+            `${stage}失效${name}缓存失败 storeId=${storeId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }),
+    );
   }
 
   /**
    * 公开的成本缓存失效入口，供采购/工资等跨模块同步写入后调用，
    * 确保成本仪表盘/统计/报表/列表缓存与手动新增/删除保持一致的失效范围。
+   *
+   * 失败只记日志：跨模块的写入（采购单、工资确认）已经提交，
+   * 不能因为成本侧的缓存清理失败而把整个业务动作回显成失败。
    */
   async invalidateCostCaches(storeId: number): Promise<void> {
-    await this.invalidateDashboardCaches(storeId);
+    await this.invalidateDashboardCaches(storeId, '跨模块同步成本后');
   }
 
   async deletePurchaseCostRecord(

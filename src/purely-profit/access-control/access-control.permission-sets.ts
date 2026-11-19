@@ -156,9 +156,9 @@ export const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'supplier:update',
   'purchase:view',
   'purchase:create',
+  // 成本只读：前端财务子账号同样隐藏「新增/删除成本」入口，
+  // 后端若不收回写权限，前端被隐藏的入口仍可用直连接口绕过。
   'cost:view',
-  'cost:create',
-  'cost:delete',
   'sales:view',
   'staff:view',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
