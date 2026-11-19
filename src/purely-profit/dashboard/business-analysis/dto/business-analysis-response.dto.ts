@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import type { ProfitCompareType } from '../../../../shared/money.utils';
 
 export class BusinessAnalysisCompareDataDto {
   @ApiProperty({ example: 1280, description: '当前值' })
@@ -13,6 +14,14 @@ export class BusinessAnalysisCompareDataDto {
     description: '变化率百分比；上期为 0 时为 null',
   })
   changeRate: number | null;
+
+  @ApiPropertyOptional({
+    enum: ['normal', 'reduced_loss', 'worsened_loss', 'turned_profit'],
+    nullable: true,
+    description:
+      '环比语义，仅 netProfit 返回：normal 普通增长 / reduced_loss 减亏 / worsened_loss 增亏 / turned_profit 扭亏；其余指标为 null',
+  })
+  changeType?: ProfitCompareType | null;
 }
 
 export class BusinessAnalysisHeroSummaryDto {

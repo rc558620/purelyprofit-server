@@ -188,7 +188,7 @@ describe('purchases.domain', () => {
           {
             productId: 201,
             productName: '可口可乐 330ml 快照',
-            unit: '箱',
+            unit: '瓶',
             quantity: 6,
             unitPrice: 12, // 元
           },
@@ -199,12 +199,35 @@ describe('purchases.domain', () => {
       {
         productId: 201,
         productName: '可口可乐 330ml 快照',
-        unit: '箱',
+        unit: '瓶',
         quantity: 6,
         unitPrice: 1200, // 分
         amount: 7200, // 分
       },
     ]);
+  });
+
+  it('preparePurchaseItems 拒绝与商品库存单位不一致的单据单位', () => {
+    const productMap = createPurchaseProductMap(products.slice(0, 1), [201]);
+
+    // 入库只按 quantity 累加：允许「商品=瓶、单据=箱」会让 6 箱只入库 6 瓶
+    expect(() =>
+      preparePurchaseItems(
+        [{ productId: 201, unit: '箱', quantity: 6, unitPrice: 12 }],
+        productMap,
+      ),
+    ).toThrow('不一致');
+  });
+
+  it('preparePurchaseItems 的金额超过数据库 Int 上限时拒绝', () => {
+    const productMap = createPurchaseProductMap(products.slice(0, 1), [201]);
+
+    expect(() =>
+      preparePurchaseItems(
+        [{ productId: 201, quantity: 100, unitPrice: 21_474_837 }],
+        productMap,
+      ),
+    ).toThrow('超出系统上限');
   });
 
   it('preparePurchaseItems 在 unitPrice 为 0 时拒绝', () => {

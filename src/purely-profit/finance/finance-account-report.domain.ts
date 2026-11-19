@@ -33,10 +33,14 @@ import { withDerivedAccountFields } from './finance-account.domain';
 export function buildFinanceReportRows(rows: FinanceReportRowsData): {
   cashFlowRows: FinanceReportCashFlowRowDto[];
   accountRows: FinanceReportAccountRowDto[];
+  cashFlowTruncated: boolean;
+  accountTruncated: boolean;
 } {
   return {
     cashFlowRows: buildFinanceReportCashFlowRows(rows.currentCashFlowRecords),
     accountRows: buildFinanceReportAccountRows(rows.accountRecords),
+    cashFlowTruncated: rows.cashFlowTruncated,
+    accountTruncated: rows.accountTruncated,
   };
 }
 

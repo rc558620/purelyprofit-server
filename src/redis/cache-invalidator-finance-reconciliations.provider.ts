@@ -1,4 +1,7 @@
-import { buildFinanceReconciliationsPattern } from '../purely-profit/finance/finance.cache-keys';
+import {
+  buildFinanceReconciliationsPattern,
+  buildFinanceReconciliationsStatsCacheKey,
+} from '../purely-profit/finance/finance.cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
   FinanceCacheInvalidatorInput,
@@ -10,8 +13,12 @@ export const financeReconciliationsCacheInvalidatorProvider: CacheInvalidatorPro
   Pick<FinanceCacheInvalidatorRegistry, 'invalidateFinanceReconciliations'>
 > = (input: FinanceCacheInvalidatorInput) => ({
   invalidateFinanceReconciliations: async (storeId: number): Promise<void> => {
-    await input.redisService.delByPattern(
-      buildFinanceReconciliationsPattern(storeId),
-    );
+    // stats key 没有尾段，pattern 覆盖不到，必须精确删除
+    await Promise.all([
+      input.redisService.del(buildFinanceReconciliationsStatsCacheKey(storeId)),
+      input.redisService.delByPattern(
+        buildFinanceReconciliationsPattern(storeId),
+      ),
+    ]);
   },
 });

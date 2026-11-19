@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { createInventoryTransactionMock } from './inventory-stock.spec-helpers';
 import {
   executeInventoryManualAdjustment,
@@ -416,8 +417,8 @@ describe('inventory-stock.write', () => {
     const { transaction, queryRaw, executeRaw, logFindMany, logDeleteMany } =
       createTransaction();
     logFindMany.mockResolvedValue([
-      { productId: 101, delta: 6 },
-      { productId: 102, delta: 3 },
+      { productId: 101, productName: '可口可乐 330ml', delta: 6 },
+      { productId: 102, productName: '雪碧', delta: 3 },
     ]);
     queryRaw.mockResolvedValue([
       { id: 101, name: '可口可乐 330ml', stock: 10 },
@@ -462,10 +463,12 @@ describe('inventory-stock.write', () => {
     expect(logDeleteMany).not.toHaveBeenCalled();
   });
 
-  it('revertInventoryPurchaseRestock 在库存不足时只回滚可用库存，不产生负库存', async () => {
-    const { transaction, queryRaw, productUpdate, logFindMany } =
+  it('revertInventoryPurchaseRestock 在无法完整撤销时抛 409 且不写库', async () => {
+    const { transaction, queryRaw, productUpdate, logFindMany, logDeleteMany } =
       createTransaction();
-    logFindMany.mockResolvedValue([{ productId: 101, delta: 6 }]);
+    logFindMany.mockResolvedValue([
+      { productId: 101, productName: '可口可乐 330ml', delta: 6 },
+    ]);
     // 物理库存 4（其中 3 为客存冻结），可回滚量仅 1
     queryRaw.mockResolvedValue([{ id: 101, name: '可口可乐 330ml', stock: 4 }]);
     (
@@ -474,15 +477,36 @@ describe('inventory-stock.write', () => {
       { productId: 101, _sum: { remainingQty: 3 } },
     ]);
 
-    await revertInventoryPurchaseRestock(transaction, {
-      storeId: 18,
-      purchaseOrderId: 77,
-    });
+    // 部分撤销会让原流水被删、库存却少扣，账实无法回溯：必须整笔拒绝
+    await expect(
+      revertInventoryPurchaseRestock(transaction, {
+        storeId: 18,
+        purchaseOrderId: 77,
+      }),
+    ).rejects.toThrow(ConflictException);
 
-    expect(productUpdate).toHaveBeenCalledWith({
-      where: { id: 101 },
-      data: { stock: { increment: -1 } },
-    });
+    expect(productUpdate).not.toHaveBeenCalled();
+    expect(logDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('revertInventoryPurchaseRestock 在商品已删除时抛 409，避免静默跳过回滚', async () => {
+    const { transaction, queryRaw, productUpdate, logFindMany, logDeleteMany } =
+      createTransaction();
+    logFindMany.mockResolvedValue([
+      { productId: 101, productName: '可口可乐 330ml', delta: 6 },
+    ]);
+    // 软删商品不再出现在库存读结果中
+    queryRaw.mockResolvedValue([]);
+
+    await expect(
+      revertInventoryPurchaseRestock(transaction, {
+        storeId: 18,
+        purchaseOrderId: 77,
+      }),
+    ).rejects.toThrow(/已删除或不可用/);
+
+    expect(productUpdate).not.toHaveBeenCalled();
+    expect(logDeleteMany).not.toHaveBeenCalled();
   });
 
   /*

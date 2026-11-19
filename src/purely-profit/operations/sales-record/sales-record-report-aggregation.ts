@@ -5,6 +5,7 @@ import {
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
+  formatShanghaiDateKey,
   formatShanghaiDayLabel,
   getShanghaiDayStartMs,
 } from '../../../shared/shanghai-time.utils';
@@ -20,6 +21,8 @@ import type { SalesReportOrder } from './sales-record-report.query';
 export interface SalesReportAggregationRow {
   id: string;
   dateLabel: string;
+  /** 完整营业日期（上海时区 YYYY-MM-DD），用于跨年查询时避免前端猜年份 */
+  businessDate: string;
   productName: string;
   quantity: number;
   revenue: number;
@@ -134,6 +137,7 @@ export function aggregateReportRows(
       rows.set(rowId, {
         id: rowId,
         dateLabel,
+        businessDate: formatShanghaiDateKey(dayStart),
         productName,
         // 抵扣行 / 台位费行不是真实销量，需要展示但件数计 0
         quantity: isNonQuantitySalesRecordRow(

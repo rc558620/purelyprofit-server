@@ -318,6 +318,65 @@ export function calcPercentChange(
   );
 }
 
+/**
+ * 利润环比的业务口径。
+ *
+ * - `normal`：上期为非负，普通增长率（正 = 变好）；
+ * - `reduced_loss`：上期为亏、本期仍亏但亏得更少（减亏）；
+ * - `worsened_loss`：上期为亏、本期亏得更多（增亏）；
+ * - `turned_profit`：上期为亏、本期转盈（扭亏）。
+ */
+export type ProfitCompareType =
+  | 'normal'
+  | 'reduced_loss'
+  | 'worsened_loss'
+  | 'turned_profit';
+
+export interface ProfitCompareResult {
+  percent: number | null;
+  type: ProfitCompareType | null;
+}
+
+/**
+ * 净利润环比：上期为负（亏损）时不能直接用「当前 / 上期」的普通增长率。
+ *
+ * 普通公式在负基期下方向会反：上期亏 100、本期亏 50 会算出 −50%（显示为下降），
+ * 亏到 200 反而算出 +100%（显示为上升）。这里改为按「亏损额的绝对值」做分母，
+ * 让百分比符号始终表示「变好 / 变差」，并由 type 交给前端显示减亏 / 增亏 / 扭亏。
+ * 上期为 0 时依旧无法计算，返回 null。
+ */
+export function calcProfitCompare(
+  current: number,
+  previous: number,
+): ProfitCompareResult {
+  if (previous === 0) {
+    return { percent: null, type: null };
+  }
+
+  if (previous > 0) {
+    return { percent: calcPercentChange(current, previous), type: 'normal' };
+  }
+
+  const percent = roundDecimalToNumber(
+    new Decimal(current).minus(previous).div(Math.abs(previous)).mul(100),
+    2,
+  );
+
+  if (current >= 0) {
+    return { percent, type: 'turned_profit' };
+  }
+
+  if (current > previous) {
+    return { percent, type: 'reduced_loss' };
+  }
+
+  if (current < previous) {
+    return { percent, type: 'worsened_loss' };
+  }
+
+  return { percent, type: 'normal' };
+}
+
 export function calcPercentOfTotal(amount: number, total: number): number {
   if (total === 0) {
     return 0;

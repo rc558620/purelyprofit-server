@@ -54,7 +54,9 @@ import {
   findIdempotentWithdrawal,
   createWithdrawalApplication,
   refundRejectedWithdrawalOrThrow,
+  resolveMembershipOccupiedBeans,
 } from './withdrawals.utils';
+import { lockStorePartnerBeanBalance } from '../platform-membership/membership-pending-occupancy.shared';
 import {
   assertSameWithdrawalApplication,
   resolveWithdrawalIdempotencyKey,
@@ -131,8 +133,18 @@ export class WithdrawalsService {
       await this.withdrawalsSharedService.findApprovedPartnerForApplyOrThrow(
         storeId,
       );
-    if (partner.beanBalance < beanAmount) {
-      throw new ConflictException('纯利豆余额不足');
+    // 与下单共用同一份可用额度口径：待支付会员单占用的豆不允许提现
+    const occupiedBeans = await resolveMembershipOccupiedBeans(
+      this.prisma,
+      storeId,
+      partner.id,
+    );
+    if (partner.beanBalance - occupiedBeans < beanAmount) {
+      throw new ConflictException(
+        occupiedBeans > 0
+          ? `纯利豆余额不足：其中 ${occupiedBeans} 豆已被会员待支付订单占用`
+          : '纯利豆余额不足',
+      );
     }
 
     return calcWithdrawalAmounts(beanAmount);
@@ -154,9 +166,8 @@ export class WithdrawalsService {
         storeId,
         dto.partnerId,
       );
-    if (partner.beanBalance < dto.beanAmount) {
-      throw new ConflictException('纯利豆余额不足，无法发起提现申请');
-    }
+    // 余额判断下沉到事务内、幂等重放之后：先按余额拦截会让「已扣款但响应丢失」
+    // 的重试误报余额不足，永远拿不到首次申请的结果
 
     const account = this.withdrawalsSharedService.normalizeAccountInfo(
       dto.accountNo,
@@ -186,6 +197,16 @@ export class WithdrawalsService {
               );
             }
 
+            // 锁合伙人余额行：与会员下单共用同一把锁。
+            // 不加锁时「读余额-算可提现」与「读余额-算可用抵扣-建待支付单」
+            // 会交错，同一笔豆被提现和会员抵扣同时承诺。
+            await lockStorePartnerBeanBalance(tx, partner.id);
+            const reservedBeans = await resolveMembershipOccupiedBeans(
+              tx,
+              storeId,
+              partner.id,
+            );
+
             const createdRecord = await createWithdrawalApplication(tx, {
               storeId,
               partnerId: partner.id,
@@ -194,6 +215,7 @@ export class WithdrawalsService {
               dto,
               accountNo: account.accountNo,
               accountName: account.accountName,
+              reservedBeans,
             });
 
             return this.withdrawalsSharedService.buildOperationResponse(

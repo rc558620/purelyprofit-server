@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { CacheInvalidatorFinanceService } from './cache-invalidator-finance.service';
 import { CacheInvalidatorMembershipService } from './cache-invalidator-membership.service';
 import { CacheInvalidatorProfitReadService } from './cache-invalidator-profit-read.service';
@@ -6,6 +6,8 @@ import { CacheInvalidatorPulseService } from './cache-invalidator-pulse.service'
 
 @Injectable()
 export class CacheInvalidatorService {
+  private readonly logger = new Logger(CacheInvalidatorService.name);
+
   constructor(
     private readonly profitReadInvalidator: CacheInvalidatorProfitReadService,
     private readonly financeInvalidator: CacheInvalidatorFinanceService,
@@ -147,6 +149,26 @@ export class CacheInvalidatorService {
     ]);
   }
 
+  /**
+   * 写后失效（静默）：事务已提交后缓存清理失败，不应把接口变成 500。
+   *
+   * 否则调用方看到失败会原样重试，把同一笔账款收付 / 流水 / 对账再写一次，
+   * 造成账务重复入账。失败只记日志，缓存最多陈旧一个 TTL。
+   */
+  async invalidateFinanceDerivedQuietly(storeId: number): Promise<void> {
+    await this.runQuietly('财务派生缓存失效', () =>
+      this.invalidateFinanceDerived(storeId),
+    );
+  }
+
+  async invalidateDashboardAndPulseSessionQuietly(
+    storeId: number,
+  ): Promise<void> {
+    await this.runQuietly('首页与 Pulse 会话缓存失效', () =>
+      this.invalidateDashboardAndPulseSession(storeId),
+    );
+  }
+
   async invalidateCostsCaches(storeId: number): Promise<void> {
     await this.profitReadInvalidator.invalidateCostsCaches(storeId);
   }
@@ -155,7 +177,10 @@ export class CacheInvalidatorService {
     await Promise.all([
       this.profitReadInvalidator.invalidateProfitDashboardHome(storeId),
       this.profitReadInvalidator.invalidateBusinessAnalysis(storeId),
+      // 销售写入/退款会新增或删除现金流水，并改变财务报表口径
       this.financeInvalidator.invalidateFinanceOverview(storeId),
+      this.financeInvalidator.invalidateFinanceCashFlow(storeId),
+      this.financeInvalidator.invalidateFinanceReport(storeId),
       this.profitReadInvalidator.invalidateSalesReadCaches(storeId),
       this.profitReadInvalidator.invalidateProfitDetail(storeId),
       this.profitReadInvalidator.invalidateCostsCaches(storeId),
@@ -168,5 +193,19 @@ export class CacheInvalidatorService {
 
   async invalidateMembershipDerived(storeId: number): Promise<void> {
     await this.membershipInvalidator.invalidateMembershipDerived(storeId);
+  }
+
+  private async runQuietly(
+    label: string,
+    task: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await task();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `${label}失败（写入已提交，等待 TTL 自然过期）: ${reason}`,
+      );
+    }
   }
 }

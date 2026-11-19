@@ -59,24 +59,40 @@ function createCostAccumulator(): CostAccumulator {
   };
 }
 
+/** 销售聚合的明细容器开关：报表不需要日趋势，详情页才需要 */
+export interface SalesAggregationOptions {
+  /** 是否收集日趋势（日 / 月折线图） */
+  daily?: boolean;
+  /** 是否收集商品排行（报表中心需要，上一周期标量不需要） */
+  rank?: boolean;
+}
+
+/** 成本聚合的明细容器开关：报表只需要总额 */
+export interface CostAggregationOptions {
+  /** 是否收集日成本（趋势图） */
+  daily?: boolean;
+  /** 是否收集成本分类（饼图） */
+  category?: boolean;
+}
+
 /**
- * withDetails=false 时明细容器一律返回空 Map：上一周期只被消费标量
- * （收入 / 利润 / 商品成本 / 订单数），日趋势与商品排行下游从未读取。
+ * 明细容器按需返回空 Map：
+ * - 上一周期只被消费标量（收入 / 利润 / 商品成本 / 订单数），日趋势与商品排行都不需要；
+ * - 报表中心需要商品排行，但不返回日趋势，因此单独关闭 daily 而不是整体关闭。
  */
 function buildSalesAggregation(
   acc: SalesAccumulator,
   withDetails: boolean,
+  withDaily: boolean,
 ): SalesAggregationResult {
   return {
     revenue: acc.revenue,
     totalProfit: acc.totalProfit,
     goodsCost: acc.goodsCost,
     orderCount: acc.seenOrderIds.size,
-    dailyRevenueMap: withDetails
-      ? acc.dailyRevenueMap
-      : new Map<number, Money>(),
-    dailyProfitMap: withDetails ? acc.dailyProfitMap : new Map<number, Money>(),
-    dailyGoodsCostMap: withDetails
+    dailyRevenueMap: withDaily ? acc.dailyRevenueMap : new Map<number, Money>(),
+    dailyProfitMap: withDaily ? acc.dailyProfitMap : new Map<number, Money>(),
+    dailyGoodsCostMap: withDaily
       ? acc.dailyGoodsCostMap
       : new Map<number, Money>(),
     rankMap: withDetails
@@ -87,12 +103,13 @@ function buildSalesAggregation(
 
 function buildCostAggregation(
   acc: CostAccumulator,
-  withDetails: boolean,
+  withDaily: boolean,
+  withCategory: boolean,
 ): CostAggregationResult {
   return {
     totalCost: acc.totalCost,
-    dailyCostMap: withDetails ? acc.dailyCostMap : new Map<number, Money>(),
-    categoryCostMap: withDetails
+    dailyCostMap: withDaily ? acc.dailyCostMap : new Map<number, Money>(),
+    categoryCostMap: withCategory
       ? acc.categoryCostMap
       : new Map<CostRecordRow['category'], Money>(),
   };
@@ -115,7 +132,7 @@ function accumulateSaleRow(
   acc: SalesAccumulator,
   row: SaleOrderItemRow,
   timestamp: number,
-  withDetails: boolean,
+  options: SalesAggregationOptions,
 ): void {
   const price = Money.fromDbCents(row.salePrice);
   const profitPerUnit = Money.fromDbCents(row.profit);
@@ -129,23 +146,28 @@ function accumulateSaleRow(
   // orderCount 统计独立订单数（去重），与其他模块口径一致
   acc.seenOrderIds.add(row.order.id);
 
-  if (!withDetails) {
-    return;
+  const withDaily = options.daily !== false;
+  const withRank = options.rank !== false;
+
+  if (withDaily) {
+    const dayStart = getShanghaiDayStartMs(timestamp);
+    acc.dailyRevenueMap.set(
+      dayStart,
+      (acc.dailyRevenueMap.get(dayStart) ?? Money.zero()).add(itemRevenue),
+    );
+    acc.dailyProfitMap.set(
+      dayStart,
+      (acc.dailyProfitMap.get(dayStart) ?? Money.zero()).add(itemProfit),
+    );
+    acc.dailyGoodsCostMap.set(
+      dayStart,
+      (acc.dailyGoodsCostMap.get(dayStart) ?? Money.zero()).add(itemGoodsCost),
+    );
   }
 
-  const dayStart = getShanghaiDayStartMs(timestamp);
-  acc.dailyRevenueMap.set(
-    dayStart,
-    (acc.dailyRevenueMap.get(dayStart) ?? Money.zero()).add(itemRevenue),
-  );
-  acc.dailyProfitMap.set(
-    dayStart,
-    (acc.dailyProfitMap.get(dayStart) ?? Money.zero()).add(itemProfit),
-  );
-  acc.dailyGoodsCostMap.set(
-    dayStart,
-    (acc.dailyGoodsCostMap.get(dayStart) ?? Money.zero()).add(itemGoodsCost),
-  );
+  if (!withRank) {
+    return;
+  }
 
   // 券面消费行（「XX（团购券）」）是券面金额的记账载体，不是真实商品。
   // 与经营分析的 EXCLUDE_VOUCHER_ITEM_SQL 同口径（后缀 + 系统分类双条件）：
@@ -171,35 +193,48 @@ function accumulateCostRow(
   acc: CostAccumulator,
   row: CostRecordRow,
   timestamp: number,
-  withDetails: boolean,
+  options: CostAggregationOptions,
 ): void {
   const amount = Money.fromDbCents(row.amount);
   acc.totalCost = acc.totalCost.add(amount);
 
-  if (!withDetails) {
+  const withDaily = options.daily !== false;
+  const withCategory = options.category !== false;
+
+  if (!withDaily && !withCategory) {
     return;
   }
 
   const dayStart = getShanghaiDayStartMs(timestamp);
-  acc.dailyCostMap.set(
-    dayStart,
-    (acc.dailyCostMap.get(dayStart) ?? Money.zero()).add(amount),
-  );
-  acc.categoryCostMap.set(
-    row.category,
-    (acc.categoryCostMap.get(row.category) ?? Money.zero()).add(amount),
-  );
+  if (withDaily) {
+    acc.dailyCostMap.set(
+      dayStart,
+      (acc.dailyCostMap.get(dayStart) ?? Money.zero()).add(amount),
+    );
+  }
+  if (withCategory) {
+    acc.categoryCostMap.set(
+      row.category,
+      (acc.categoryCostMap.get(row.category) ?? Money.zero()).add(amount),
+    );
+  }
 }
 
 export function createEmptySalesAggregation(): SalesAggregationResult {
-  return buildSalesAggregation(createSalesAccumulator(), false);
+  return buildSalesAggregation(createSalesAccumulator(), false, false);
 }
 
-/** 单区间完整聚合：日趋势与商品排行需要完整明细容器。 */
+/**
+ * 单区间聚合。
+ *
+ * 默认构建全部明细容器；报表中心只消费标量与商品排行，可传 `{ daily: false }`
+ * 跳过日趋势，避免为不返回的字段做一次全量遍历与 Map 写入。
+ */
 export function aggregateSales(
   rows: SaleOrderItemRow[],
   start: number,
   end: number,
+  options: SalesAggregationOptions = {},
 ): SalesAggregationResult {
   const acc = createSalesAccumulator();
   const range: ProfitDateRange = { start, end };
@@ -211,9 +246,13 @@ export function aggregateSales(
     if (!isInRange(timestamp, range)) {
       continue;
     }
-    accumulateSaleRow(acc, row, timestamp, true);
+    accumulateSaleRow(acc, row, timestamp, options);
   }
-  return buildSalesAggregation(acc, true);
+  return buildSalesAggregation(
+    acc,
+    options.rank !== false,
+    options.daily !== false,
+  );
 }
 
 /** 单区间标量聚合；上一周期已下推 SQL，此函数保留为口径对账基准。 */
@@ -232,9 +271,9 @@ export function aggregateSalesTotals(
     if (!isInRange(timestamp, range)) {
       continue;
     }
-    accumulateSaleRow(acc, row, timestamp, false);
+    accumulateSaleRow(acc, row, timestamp, { daily: false, rank: false });
   }
-  return buildSalesAggregation(acc, false);
+  return buildSalesAggregation(acc, false, false);
 }
 
 /**
@@ -266,11 +305,17 @@ export function buildPreviousAggregations(
   };
 }
 
-/** 单区间完整成本聚合。 */
+/**
+ * 单区间成本聚合。
+ *
+ * 默认构建日趋势与分类结构；报表中心只用总额，可传
+ * `{ daily: false, category: false }` 跳过两个容器。
+ */
 export function aggregateCosts(
   rows: CostRecordRow[],
   start: number,
   end: number,
+  options: CostAggregationOptions = {},
 ): CostAggregationResult {
   const acc = createCostAccumulator();
   const range: ProfitDateRange = { start, end };
@@ -279,9 +324,13 @@ export function aggregateCosts(
     if (!isInRange(timestamp, range)) {
       continue;
     }
-    accumulateCostRow(acc, row, timestamp, true);
+    accumulateCostRow(acc, row, timestamp, options);
   }
-  return buildCostAggregation(acc, true);
+  return buildCostAggregation(
+    acc,
+    options.daily !== false,
+    options.category !== false,
+  );
 }
 
 /** 单区间成本标量聚合；上一周期已下推 SQL，此函数保留为口径对账基准。 */
@@ -297,9 +346,9 @@ export function aggregateCostsTotal(
     if (!isInRange(timestamp, range)) {
       continue;
     }
-    accumulateCostRow(acc, row, timestamp, false);
+    accumulateCostRow(acc, row, timestamp, { daily: false, category: false });
   }
-  return buildCostAggregation(acc, false);
+  return buildCostAggregation(acc, false, false);
 }
 
 /**

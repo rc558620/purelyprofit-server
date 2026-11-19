@@ -137,6 +137,7 @@ export class ProfitDetailService {
         storeId,
         query,
         callerIsSubAccount,
+        false,
       );
       return snapshot
         ? buildProfitReportResponse(snapshot)
@@ -150,13 +151,23 @@ export class ProfitDetailService {
       ttlSeconds: PROFIT_DETAIL_CACHE_TTL_SECONDS,
       refreshAfterMs: PROFIT_DETAIL_REFRESH_AFTER_MS,
       loadValue: async () => {
-        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        const snapshot = await this.buildProfitSnapshot(
+          storeId,
+          query,
+          false,
+          false,
+        );
         return snapshot
           ? buildProfitReportResponse(snapshot)
           : buildEmptyProfitReportResponse();
       },
       refreshValue: async () => {
-        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        const snapshot = await this.buildProfitSnapshot(
+          storeId,
+          query,
+          false,
+          false,
+        );
         return snapshot
           ? buildProfitReportResponse(snapshot)
           : buildEmptyProfitReportResponse();
@@ -213,7 +224,12 @@ export class ProfitDetailService {
   ): Promise<ProfitReportResponseDto> {
     const cacheKey = buildProfitReportCacheKey(storeId, query);
     const fullQuery = buildQueryInput(query as GetProfitDetailQueryDto);
-    const snapshot = await this.buildProfitSnapshot(storeId, fullQuery, false);
+    const snapshot = await this.buildProfitSnapshot(
+      storeId,
+      fullQuery,
+      false,
+      false,
+    );
     const data = snapshot
       ? buildProfitReportResponse(snapshot)
       : buildEmptyProfitReportResponse();
@@ -271,6 +287,8 @@ export class ProfitDetailService {
     storeId: number,
     query: ProfitDetailQueryInput,
     callerIsSubAccount = false,
+    // 报表中心不返回日趋势与成本结构，跳过这两类容器可省一次全量遍历与 Map 写入
+    withDailyDetails = true,
   ): Promise<ProfitMetricsSnapshot | null> {
     const currentRange = buildCurrentRange(query);
     const previousRange = buildPreviousRange(query, currentRange);
@@ -295,21 +313,25 @@ export class ProfitDetailService {
       clampedCurrentRange,
       clampedPreviousRange.empty ? null : clampedPreviousRange,
     );
-    // 当期明细在内存里做完整聚合；上一周期只由 SQL 提供 5 个标量，不再拉明细。
+    // 当期明细在内存里做聚合；上一周期只由 SQL 提供 5 个标量，不再拉明细。
     const currentSales = aggregateSales(
       saleRows,
       clampedCurrentRange.start,
       clampedCurrentRange.end,
+      { daily: withDailyDetails },
     );
     const currentCosts = aggregateCosts(
       costRows,
       clampedCurrentRange.start,
       clampedCurrentRange.end,
+      { daily: withDailyDetails, category: withDailyDetails },
     );
     const { sales: previousSales, costs: previousCosts } =
       buildPreviousAggregations(previousTotals);
-    // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 费用记录（成本管理），
-    // 修复此前仅用「收入 − 费用记录」导致商品成本未被扣除、利润虚高的问题
+    // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 经营费用记录。
+    // 商品成本已在销售行利润里扣过一次，因此成本侧必须排除系统进货生成的
+    // 采购成本记录（sourceType='purchase'，见 profit-detail.query），否则同一批
+    // 已售商品的成本会被扣两次；经营费用只保留手工/工资等费用记录。
     const netProfit = currentSales.totalProfit.subtract(currentCosts.totalCost);
     const previousNetProfit = previousSales.totalProfit.subtract(
       previousCosts.totalCost,

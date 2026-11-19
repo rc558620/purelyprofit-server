@@ -26,7 +26,7 @@ describe('FinanceReconciliationService', () => {
   >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
-    'invalidateFinanceDerived'
+    'invalidateFinanceDerivedQuietly'
   >;
 
   const user: AuthenticatedUser = createFinanceSpecUser();
@@ -276,7 +276,7 @@ describe('FinanceReconciliationService', () => {
       note: '节假日汇总',
     });
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).toHaveBeenCalledWith(18);
   });
 
@@ -412,7 +412,7 @@ describe('FinanceReconciliationService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).toHaveBeenCalledWith(18);
   });
 
@@ -428,7 +428,7 @@ describe('FinanceReconciliationService', () => {
       service.confirmReconciliation(user, 21, { adjustNote: '手续费差额' }),
     ).rejects.toThrow('对账单已被其他操作处理，请刷新后重试');
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).not.toHaveBeenCalled();
   });
 

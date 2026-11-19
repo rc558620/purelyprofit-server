@@ -97,4 +97,16 @@ export class FinanceReportResponseDto {
   @ValidateNested({ each: true })
   @Type(() => FinanceReportAccountRowDto)
   accountRows: FinanceReportAccountRowDto[];
+
+  @ApiProperty({
+    example: false,
+    description: '现金流水明细是否被上限截断（true 时明细仅为预览）',
+  })
+  cashFlowTruncated: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: '未结清账款明细是否被上限截断（true 时明细仅为预览）',
+  })
+  accountTruncated: boolean;
 }

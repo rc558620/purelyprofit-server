@@ -4,8 +4,8 @@ import {
   buildClubPromotionsCacheKey,
   buildClubPromotionListCacheKey,
   buildClubRechargePackagesCacheKey,
-  buildProfitDashboardHomeActivitiesLiveCacheKey,
-  buildProfitDashboardHomeActivitiesStableCacheKey,
+  buildProfitDashboardHomeActivitiesLivePattern,
+  buildProfitDashboardHomeActivitiesStablePattern,
   buildMarketingOverviewCacheKey,
   buildMembersListPattern,
   buildMembersMetaCacheKey,
@@ -42,9 +42,11 @@ import { salesReadCacheInvalidatorProvider } from './cache-invalidator-sales-rea
 import { withdrawalsCacheInvalidatorProvider } from './cache-invalidator-withdrawals.provider';
 import {
   buildFinanceAccountsPattern,
+  buildFinanceAccountsStatsCacheKey,
   buildFinanceCashFlowPattern,
   buildFinanceOverviewPattern,
   buildFinanceReconciliationsPattern,
+  buildFinanceReconciliationsStatsCacheKey,
 } from '../purely-profit/finance/finance.cache-keys';
 import {
   buildPulseDashboardHomePattern,
@@ -98,14 +100,13 @@ const providerCases: readonly ProviderCase[] = [
       profitDashboardHomeCacheInvalidatorProvider({
         redisService,
       }).invalidateProfitDashboardHome(18),
-    expectedDelCalls: [
-      buildProfitDashboardHomeActivitiesLiveCacheKey(18),
-      buildProfitDashboardHomeActivitiesStableCacheKey(18),
-    ],
+    // 动态块键里带业务日，无法用固定键精确删除，改为按前缀模式清理
     expectedDelByPatternsCalls: [
       [
         buildProfitDashboardHomePattern(18),
         buildProfitDashboardHomeChunkPattern(18),
+        buildProfitDashboardHomeActivitiesLivePattern(18),
+        buildProfitDashboardHomeActivitiesStablePattern(18),
       ],
     ],
   },
@@ -193,19 +194,21 @@ const providerCases: readonly ProviderCase[] = [
     expectedDelByPatternCalls: [buildFinanceCashFlowPattern(18)],
   },
   {
-    description: 'financeAccounts provider 会清理账户列表缓存',
+    description: 'financeAccounts provider 会清理账户列表与统计缓存',
     invoke: (redisService) =>
       financeAccountsCacheInvalidatorProvider({
         redisService,
       }).invalidateFinanceAccounts(18),
+    expectedDelCalls: [buildFinanceAccountsStatsCacheKey(18)],
     expectedDelByPatternCalls: [buildFinanceAccountsPattern(18)],
   },
   {
-    description: 'financeReconciliations provider 会清理对账缓存',
+    description: 'financeReconciliations provider 会清理对账列表与统计缓存',
     invoke: (redisService) =>
       financeReconciliationsCacheInvalidatorProvider({
         redisService,
       }).invalidateFinanceReconciliations(18),
+    expectedDelCalls: [buildFinanceReconciliationsStatsCacheKey(18)],
     expectedDelByPatternCalls: [buildFinanceReconciliationsPattern(18)],
   },
   {
@@ -321,4 +324,14 @@ describe('cache invalidator providers', () => {
       ).toEqual(expectedDelByPatternsCalls ?? []);
     },
   );
+
+  it('财务门店缓存 pattern 以 store:<id>: 收口，不会误清同前缀门店', () => {
+    // 早期写法 store:18* 会把 store:180 一起清掉
+    expect(buildFinanceAccountsPattern(18)).toBe(
+      'profit:finance:accounts:*:store:18:*',
+    );
+    expect(buildFinanceReconciliationsPattern(18)).toBe(
+      'profit:finance:reconciliations:*:store:18:*',
+    );
+  });
 });

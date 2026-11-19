@@ -18,10 +18,48 @@ import type {
   ProfitDetailQueryInput,
 } from './profit-detail.types';
 
+const DAY_MS = 86_400_000;
+/** 自定义区间最大跨度（10 年）：防止异常入参生成超大聚合窗口 */
+const MAX_RANGE_SPAN_MS = 10 * 366 * DAY_MS;
+const MIN_YEAR = 1970;
+const MAX_YEAR = 9999;
+
+/**
+ * 时间戳必须能被 Date 表示。
+ *
+ * DTO 已加 @Max 兜底，但 buildQueryInput 也被缓存预热等内部调用复用，
+ * 这里再做一次防御：超出 ±8.64e15 的入参会得到 Invalid Date，
+ * 一路传到 Prisma 就是 500，应该在进入查库前变成 400。
+ */
+function assertValidTimestamp(value: number | undefined, label: string): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (!Number.isFinite(value) || !Number.isFinite(new Date(value).getTime())) {
+    throw new BadRequestException(`${label}不合法`);
+  }
+}
+
+function assertQueryInput(query: ProfitDetailQueryInput): void {
+  if (
+    query.year !== undefined &&
+    (query.year < MIN_YEAR || query.year > MAX_YEAR)
+  ) {
+    throw new BadRequestException('年份不合法');
+  }
+
+  assertValidTimestamp(query.customDate, '自定义日期');
+  assertValidTimestamp(query.rangeStartDate, '区间开始时间');
+  assertValidTimestamp(query.rangeEndDate, '区间结束时间');
+  assertValidTimestamp(query.startTime, '开始时间');
+  assertValidTimestamp(query.endTime, '结束时间');
+}
+
 export function buildQueryInput(
   queryDto: GetProfitDetailQueryDto,
 ): ProfitDetailQueryInput {
-  return {
+  const query: ProfitDetailQueryInput = {
     storeId: queryDto.storeId,
     period: queryDto.period,
     year: queryDto.year,
@@ -31,6 +69,8 @@ export function buildQueryInput(
     startTime: queryDto.startTime,
     endTime: queryDto.endTime,
   };
+  assertQueryInput(query);
+  return query;
 }
 
 export function buildCurrentRange(
@@ -91,6 +131,9 @@ export function buildCurrentRange(
       }
       const startDate = Math.min(rangeStartDate, rangeEndDate);
       const endDate = Math.max(rangeStartDate, rangeEndDate);
+      if (endDate - startDate > MAX_RANGE_SPAN_MS) {
+        throw new BadRequestException('自定义区间跨度不能超过 10 年');
+      }
       return {
         start: getShanghaiDayStartMs(startDate),
         end: getShanghaiDayEndMs(endDate),

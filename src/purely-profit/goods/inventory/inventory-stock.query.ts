@@ -372,6 +372,7 @@ export async function queryPurchaseAdjustmentLogs(
     orderBy: [{ id: 'asc' }],
     select: {
       productId: true,
+      productName: true,
       delta: true,
     },
   });

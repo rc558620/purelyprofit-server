@@ -84,29 +84,46 @@ export function transformOptionalKeyword({
 
 export function transformOptionalBoolean({
   value,
+  obj,
+  key,
 }: TransformFnParams): boolean | undefined {
-  if (value === undefined || value === null || value === '') {
+  /**
+   * 必须优先读原始入参 obj[key]。
+   *
+   * 全局 ValidationPipe 开启了 enableImplicitConversion，class-transformer 在
+   * PLAIN_TO_CLASS 下会先按 design:type 把查询串隐式转成 boolean
+   * （Boolean('false') === true），再执行 @Transform；此时 value 已经是 true，
+   * 于是 `?export=false` 会被当成 true，出现「不传 200、显式传 false 反而 403」。
+   * 原始入参未被污染，用它才能拿到 'false' 并正确解析成 false。
+   */
+  const rawValue =
+    obj !== null && typeof obj === 'object' && key !== undefined
+      ? (obj as Record<string, unknown>)[key]
+      : undefined;
+  const sourceValue = rawValue === undefined ? value : rawValue;
+
+  if (sourceValue === undefined || sourceValue === null || sourceValue === '') {
     return undefined;
   }
 
-  if (typeof value === 'boolean') {
-    return value;
+  if (typeof sourceValue === 'boolean') {
+    return sourceValue;
   }
 
-  if (typeof value === 'number') {
-    if (value === 1) {
+  if (typeof sourceValue === 'number') {
+    if (sourceValue === 1) {
       return true;
     }
-    if (value === 0) {
+    if (sourceValue === 0) {
       return false;
     }
   }
 
-  if (typeof value === 'string') {
-    if (value === 'true' || value === '1') {
+  if (typeof sourceValue === 'string') {
+    if (sourceValue === 'true' || sourceValue === '1') {
       return true;
     }
-    if (value === 'false' || value === '0') {
+    if (sourceValue === 'false' || sourceValue === '0') {
       return false;
     }
   }

@@ -2,6 +2,7 @@ import {
   calcPercentChange,
   calcPercentOfTotal,
   calcPercentPointDiff,
+  calcProfitCompare,
   Money,
 } from '../../commerce/commerce.utils';
 import {
@@ -33,7 +34,12 @@ const MAX_TREND_DAYS = 366;
 export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
   return {
     heroSummary: {
-      netProfit: { current: 0, previous: 0, changeRate: null },
+      netProfit: {
+        current: 0,
+        previous: 0,
+        changeRate: null,
+        changeType: null,
+      },
       revenue: { current: 0, previous: 0, changeRate: null },
       totalCost: { current: 0, previous: 0, changeRate: null },
       profitRate: { current: 0, previous: 0, changeRate: 0 },
@@ -78,9 +84,22 @@ export function buildBusinessAnalysisResponse(
     snapshot.previousSales.revenue.toOutputYuan(),
   );
 
+  // 净利润存在负基期：普通增长率会把「亏损收窄」算成下降、把「亏损扩大」算成上涨，
+  // 因此改用 calcProfitCompare（按亏损额绝对值做分母），并回传语义给前端展示
+  // 减亏 / 增亏 / 扭亏。与 profit-detail 的 summary 口径保持一致。
+  const netProfitCompare = calcProfitCompare(
+    currentProfit.toOutputYuan(),
+    previousProfit.toOutputYuan(),
+  );
+
   return {
     heroSummary: {
-      netProfit: buildCompare(currentProfit, previousProfit),
+      netProfit: {
+        current: currentProfit.toOutputYuan(),
+        previous: previousProfit.toOutputYuan(),
+        changeRate: netProfitCompare.percent,
+        changeType: netProfitCompare.type,
+      },
       revenue: buildCompare(
         snapshot.currentSales.revenue,
         snapshot.previousSales.revenue,

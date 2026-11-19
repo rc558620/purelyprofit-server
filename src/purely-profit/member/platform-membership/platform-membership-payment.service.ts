@@ -82,6 +82,18 @@ export class PlatformMembershipPaymentService {
           }`,
         );
       }
+
+      // 「支付单 paid」不等于「权益已生效」：补生效仍然失败时必须按未完成返回，
+      // 否则前端会把 paid 当成功提示并自动返回，用户以为已开通、实际一分权益没有
+      const settled = await this.recoveryService.isMembershipOrderSettled(
+        params.orderNo,
+      );
+      if (!settled) {
+        this.logger.warn(
+          `[会员支付] ${params.orderNo} 已付款但权益尚未落地，按未完成返回`,
+        );
+        return { ...status, status: 'pending' };
+      }
     }
 
     return status;
@@ -96,7 +108,20 @@ export class PlatformMembershipPaymentService {
     orderNo: string;
     storeId: number;
   }): Promise<{ status: string; paidAt: Date | null }> {
-    return this.paymentOrderService.closeOrder(params.orderNo, params.storeId);
+    const result = await this.paymentOrderService.closeOrder(
+      params.orderNo,
+      params.storeId,
+    );
+
+    // 关单只改了支付单：会员单会一直停在 pending，订单列表继续显示「待支付」
+    // 并占着抵扣额度。确认关闭后同步置 failed（已 paid 的单绝不能被覆盖）
+    if (result.status === 'closed') {
+      await this.recoveryService.closePendingOrderByPaymentOrderNo(
+        params.orderNo,
+      );
+    }
+
+    return result;
   }
 
   /** 补偿：支付单已 paid 但会员权益尚未落地时补生效（前端轮询 / 启动扫描触发） */

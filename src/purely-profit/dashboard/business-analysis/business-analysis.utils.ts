@@ -33,6 +33,14 @@ export function formatShanghaiDayLabel(shanghaiDayStartMs: number): string {
   return `${month}/${day}`;
 }
 
+/**
+ * 稳定的文本升序比较，替代 localeCompare：后者受 ICU 区域规则影响，
+ * 与 PG 侧 ORDER BY 的排序结果可能不一致（同名/同额行的顺序会跳变）。
+ */
+export function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function resolveCurrentRange(
   query: BusinessAnalysisRangeQuery,
   now: number = Date.now(),

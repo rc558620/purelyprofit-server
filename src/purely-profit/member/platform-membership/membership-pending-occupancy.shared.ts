@@ -57,6 +57,29 @@ export async function sumPendingOccupiedDeductions(
   };
 }
 
+/**
+ * 锁定合伙人纯利豆余额行（SELECT ... FOR UPDATE）。
+ *
+ * 会员下单只「算占用、不扣豆」，提现申请则直接按 beanBalance 扣减；
+ * 两侧不加同一把锁时会交错成「同一批豆既承诺给会员抵扣、又被提走」，
+ * 等支付回调生效时才发现扣不动（钱已收、权益无法落地）。
+ *
+ * 锁顺序约定：partner 行 → profile / 占用统计。提现侧与下单侧必须一致。
+ */
+export async function lockStorePartnerBeanBalance(
+  tx: PrismaExecutor,
+  partnerId: number,
+): Promise<number> {
+  const rows = await tx.$queryRaw<Array<{ beanBalance: number | bigint }>>`
+    SELECT bean_balance AS "beanBalance"
+    FROM store_partners
+    WHERE id = ${partnerId}
+    FOR UPDATE
+  `;
+
+  return Number(rows[0]?.beanBalance ?? 0);
+}
+
 /** 可复用的待支付订单 */
 export interface ReusablePendingOrder {
   orderId: number;

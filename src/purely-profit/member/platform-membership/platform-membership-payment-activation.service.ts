@@ -182,6 +182,11 @@ export class PlatformMembershipPaymentActivationService {
       executor: tx,
     });
 
+    // 新客额度赠送必须与权益生效同事务：只告警的话，订单已 paid 后重复回调
+    // 不会再执行副作用，赠送失败就永久丢额度，补偿也只捞 pending / failed。
+    // 并入事务后失败会整笔回滚，由补偿路径按支付单号重试（幂等靠事务回滚）。
+    await this.quotaService.grantByPlan(order.storeId, order.planId, 1, tx);
+
     return {
       storeId: order.storeId,
       planId: order.planId,
@@ -190,7 +195,12 @@ export class PlatformMembershipPaymentActivationService {
     };
   }
 
-  /** 生效后的副作用：失效缓存 → 赠送新客额度 → 发放推广奖励（失败只告警） */
+  /**
+   * 生效后的副作用：失效缓存 → 发放推广奖励（失败只告警）。
+   *
+   * 新客额度赠送不在这里：它已并入 applyActivationInTx 的事务，
+   * 避免订单 paid 后副作用失败却无法自动补发。
+   */
   async afterMembershipActivated(
     summary: ActivatedMembershipSummary,
   ): Promise<void> {
@@ -199,17 +209,6 @@ export class PlatformMembershipPaymentActivationService {
     await this.cacheInvalidatorService.invalidateMembershipDerived(
       params.storeId,
     );
-
-    try {
-      await this.quotaService.grantByPlan(params.storeId, params.planId);
-    } catch (err: unknown) {
-      // 额度赠送失败不阻断已生效的订单：会员权益已落库，只告警
-      this.logger.warn(
-        `新用户额度赠送失败（不影响订单）: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
 
     if (params.operatorUserId === null) {
       this.logger.warn(

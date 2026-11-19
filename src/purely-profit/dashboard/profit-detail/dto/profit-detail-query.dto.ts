@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import {
   transformOptionalBoolean,
   transformOptionalInt,
@@ -9,6 +9,15 @@ import {
   PROFIT_DETAIL_PERIOD_VALUES,
   type ProfitDetailPeriodValue,
 } from '../profit-detail.types';
+
+/**
+ * 时间戳上界：JavaScript Date 可表示的最大毫秒（±8.64e15）。
+ * 超出后 new Date(ts) 得到 Invalid Date，会一路传到 Prisma 变成 500，
+ * 因此在 DTO 层直接拦成 400。
+ */
+const MAX_DATE_TIMESTAMP_MS = 8_640_000_000_000_000;
+/** 年份上界：与日期范围保持同一量级即可，避免 Date.UTC 溢出成 NaN */
+const MAX_YEAR = 9999;
 
 export class GetProfitDetailQueryDto {
   @ApiPropertyOptional({
@@ -37,6 +46,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '年份必须是整数' })
   @Min(1970, { message: '年份不合法' })
+  @Max(MAX_YEAR, { message: '年份不合法' })
   year?: number;
 
   @ApiPropertyOptional({
@@ -47,6 +57,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '自定义日期必须是整数时间戳' })
   @Min(0, { message: '自定义日期不合法' })
+  @Max(MAX_DATE_TIMESTAMP_MS, { message: '自定义日期不合法' })
   customDate?: number;
 
   @ApiPropertyOptional({
@@ -57,6 +68,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '区间开始时间必须是整数时间戳' })
   @Min(0, { message: '区间开始时间不合法' })
+  @Max(MAX_DATE_TIMESTAMP_MS, { message: '区间开始时间不合法' })
   rangeStartDate?: number;
 
   @ApiPropertyOptional({
@@ -67,6 +79,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '区间结束时间必须是整数时间戳' })
   @Min(0, { message: '区间结束时间不合法' })
+  @Max(MAX_DATE_TIMESTAMP_MS, { message: '区间结束时间不合法' })
   rangeEndDate?: number;
 
   @ApiPropertyOptional({
@@ -77,6 +90,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '开始时间必须是整数时间戳' })
   @Min(0, { message: '开始时间不合法' })
+  @Max(MAX_DATE_TIMESTAMP_MS, { message: '开始时间不合法' })
   startTime?: number;
 
   @ApiPropertyOptional({
@@ -87,6 +101,7 @@ export class GetProfitDetailQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '结束时间必须是整数时间戳' })
   @Min(0, { message: '结束时间不合法' })
+  @Max(MAX_DATE_TIMESTAMP_MS, { message: '结束时间不合法' })
   endTime?: number;
 
   @ApiPropertyOptional({

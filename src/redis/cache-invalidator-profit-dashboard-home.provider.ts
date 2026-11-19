@@ -1,6 +1,6 @@
 import {
-  buildProfitDashboardHomeActivitiesLiveCacheKey,
-  buildProfitDashboardHomeActivitiesStableCacheKey,
+  buildProfitDashboardHomeActivitiesLivePattern,
+  buildProfitDashboardHomeActivitiesStablePattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomePattern,
 } from './cache-keys';
@@ -16,17 +16,13 @@ export const profitDashboardHomeCacheInvalidatorProvider: CacheInvalidatorProvid
 > = (input: ProfitReadCacheInvalidatorInput) => ({
   invalidateProfitDashboardHome: async (storeId: number): Promise<void> => {
     await Promise.all([
+      // 动态块键里带业务日，chunk 的 `period` 通配匹配不到，按前缀模式一并清掉
       input.redisService.delByPatterns([
         buildProfitDashboardHomePattern(storeId),
         buildProfitDashboardHomeChunkPattern(storeId),
+        buildProfitDashboardHomeActivitiesLivePattern(storeId),
+        buildProfitDashboardHomeActivitiesStablePattern(storeId),
       ]),
-      // 动态缓存键不带 period，chunk 通配模式匹配不到，需精确删除实时块与状态块
-      input.redisService.del(
-        buildProfitDashboardHomeActivitiesLiveCacheKey(storeId),
-      ),
-      input.redisService.del(
-        buildProfitDashboardHomeActivitiesStableCacheKey(storeId),
-      ),
     ]);
   },
 });

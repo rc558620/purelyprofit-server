@@ -18,8 +18,14 @@ export class SalesDailyRowDto {
   @ApiProperty({ example: '1715644800000-12', description: '聚合行 ID' })
   id: string;
 
-  @ApiProperty({ example: '05/14', description: '日期标签' })
+  @ApiProperty({ example: '05/14', description: '日期标签（仅月/日）' })
   dateLabel: string;
+
+  @ApiProperty({
+    example: '2025-05-14',
+    description: '完整营业日期（上海时区 YYYY-MM-DD）；前端不得自行补年份',
+  })
+  businessDate: string;
 
   @ApiProperty({ example: '可口可乐 330ml', description: '商品名称' })
   productName: string;

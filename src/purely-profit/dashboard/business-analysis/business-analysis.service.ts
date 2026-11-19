@@ -18,6 +18,7 @@ import type {
 import { DEFAULT_BUSINESS_ANALYSIS_RANK_SORT } from './business-analysis.types';
 import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import {
+  applyRankSort,
   buildCostAggregation,
   buildSalesAggregation,
   createEmptyCostAggregation,
@@ -33,6 +34,7 @@ import {
 } from './business-analysis.query';
 import {
   getPreviousRange,
+  getShanghaiDayStartMs,
   resolveCurrentRange,
 } from './business-analysis.utils';
 
@@ -55,9 +57,12 @@ function clampRangeToMaxTrendDays(
   if (spanDays <= MAX_TREND_DAYS) {
     return range;
   }
+  // 起点必须对齐到上海本地日零点：直接取 end − 365 天会落在某一天的
+  // 23:59:59.999，首日只剩最后 1 毫秒的数据参与汇总，而趋势图仍按整日
+  // 展示，首日点会长期接近 0。
   return {
     ...range,
-    start: range.end - (MAX_TREND_DAYS - 1) * DAY_MS,
+    start: getShanghaiDayStartMs(range.end - (MAX_TREND_DAYS - 1) * DAY_MS),
   };
 }
 
@@ -181,14 +186,18 @@ export class BusinessAnalysisService {
       clampedPreviousRange,
       rankSort,
     );
-    const currentSales = buildSalesAggregation({
-      revenue: Number(metricsRows.salesSummaryRow.currentRevenue ?? 0),
-      profit: Number(metricsRows.salesSummaryRow.currentProfit ?? 0),
-      orderCount: metricsRows.salesSummaryRow.currentOrderCount,
-      dailyRows: metricsRows.salesDailyRows,
-      categoryRows: metricsRows.salesCategoryRows,
-      rankRows: metricsRows.salesRankRows,
-    });
+    // 排行必须「先按 productId 合并、再排序截断」：排序依赖合并后的合计值
+    const currentSales = applyRankSort(
+      buildSalesAggregation({
+        revenue: Number(metricsRows.salesSummaryRow.currentRevenue ?? 0),
+        profit: Number(metricsRows.salesSummaryRow.currentProfit ?? 0),
+        orderCount: metricsRows.salesSummaryRow.currentOrderCount,
+        dailyRows: metricsRows.salesDailyRows,
+        categoryRows: metricsRows.salesCategoryRows,
+        rankRows: metricsRows.salesRankRows,
+      }),
+      rankSort,
+    );
     const previousSales = clampedPreviousRange.empty
       ? createEmptySalesAggregation()
       : buildSalesAggregation({
@@ -296,14 +305,17 @@ export class BusinessAnalysisService {
     // 复用正式响应的排行格式化逻辑，保证与页面展示口径完全一致
     const response = buildBusinessAnalysisResponse({
       currentRange: effectiveCurrentRange,
-      currentSales: buildSalesAggregation({
-        revenue: 0,
-        profit: 0,
-        orderCount: 0,
-        dailyRows: [],
-        categoryRows: [],
-        rankRows,
-      }),
+      currentSales: applyRankSort(
+        buildSalesAggregation({
+          revenue: 0,
+          profit: 0,
+          orderCount: 0,
+          dailyRows: [],
+          categoryRows: [],
+          rankRows,
+        }),
+        rankSort,
+      ),
       previousSales: createEmptySalesAggregation(),
       currentCosts: createEmptyCostAggregation(),
       previousCosts: createEmptyCostAggregation(),

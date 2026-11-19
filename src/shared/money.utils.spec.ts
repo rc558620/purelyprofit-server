@@ -1,4 +1,9 @@
-import { Money, calcPercentPointDiff, calcMoneyRatio } from './money.utils';
+import {
+  Money,
+  calcPercentPointDiff,
+  calcMoneyRatio,
+  calcProfitCompare,
+} from './money.utils';
 
 describe('Money', () => {
   describe('static max', () => {
@@ -128,5 +133,49 @@ describe('calcMoneyRatio', () => {
     const income = Money.fromInputYuan(30);
     const expense = Money.fromInputYuan(100);
     expect(calcMoneyRatio(income, expense)).toBe(0.3);
+  });
+});
+
+describe('calcProfitCompare（净利润环比负基期）', () => {
+  it('上期为正时退回普通增长率', () => {
+    expect(calcProfitCompare(110, 100)).toEqual({
+      percent: 10,
+      type: 'normal',
+    });
+  });
+
+  it('上期为 0 时无法计算', () => {
+    expect(calcProfitCompare(100, 0)).toEqual({ percent: null, type: null });
+  });
+
+  it('亏损收窄应按改善处理，不能显示为下降', () => {
+    // 上期 −100、本期 −50：亏损减少 50%，方向为改善
+    expect(calcProfitCompare(-50, -100)).toEqual({
+      percent: 50,
+      type: 'reduced_loss',
+    });
+  });
+
+  it('亏损扩大应显示为变差', () => {
+    // 上期 −100、本期 −200：亏损增加 100%
+    expect(calcProfitCompare(-200, -100)).toEqual({
+      percent: -100,
+      type: 'worsened_loss',
+    });
+  });
+
+  it('由亏转盈应标记为扭亏', () => {
+    // 上期 −100、本期 +50：(50 −(−100)) / 100 = 150%
+    expect(calcProfitCompare(50, -100)).toEqual({
+      percent: 150,
+      type: 'turned_profit',
+    });
+  });
+
+  it('上期为本期同为亏损且亏损额持平返回 0%', () => {
+    expect(calcProfitCompare(-100, -100)).toEqual({
+      percent: 0,
+      type: 'normal',
+    });
   });
 });

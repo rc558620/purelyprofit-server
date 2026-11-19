@@ -8,6 +8,7 @@ import { InventoryService } from '../../goods/inventory/inventory.service';
 import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { PurchasesIdempotencyService } from './purchases-idempotency.service';
 import { PurchasesService } from './purchases.service';
 
 describe('PurchasesService', () => {
@@ -60,6 +61,18 @@ describe('PurchasesService', () => {
     invalidatePulseDashboardOverview: jest.fn().mockResolvedValue(undefined),
   };
 
+  const purchasesIdempotencyService = {
+    normalizeKey: jest.fn().mockReturnValue(null),
+    hashRequest: jest.fn().mockReturnValue('hash'),
+    find: jest.fn(),
+    ensureSameRequest: jest.fn(),
+    resolveReplay: jest.fn(),
+    claim: jest.fn(),
+    finalize: jest.fn().mockResolvedValue(undefined),
+    discard: jest.fn().mockResolvedValue(undefined),
+    isDuplicateKeyError: jest.fn().mockReturnValue(false),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -107,7 +120,7 @@ describe('PurchasesService', () => {
           storeId: 18,
           productId: 201,
           productName: '可口可乐 330ml 快照',
-          unit: '箱',
+          unit: '瓶',
           quantity: 6,
           unitPrice: new Prisma.Decimal('12'),
           amount: new Prisma.Decimal('72'),
@@ -146,6 +159,10 @@ describe('PurchasesService', () => {
         { provide: CostsService, useValue: costsService },
         { provide: InventoryService, useValue: inventoryService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: PurchasesIdempotencyService,
+          useValue: purchasesIdempotencyService,
+        },
       ],
     }).compile();
 
@@ -315,7 +332,7 @@ describe('PurchasesService', () => {
         {
           productId: 201,
           productName: '可口可乐 330ml 快照',
-          unit: '箱',
+          unit: '瓶',
           quantity: 6,
           unitPrice: 12,
         },
@@ -374,7 +391,7 @@ describe('PurchasesService', () => {
         {
           productId: 201,
           productName: '可口可乐 330ml 快照',
-          unit: '箱',
+          unit: '瓶',
           quantity: 6,
           unitPrice: 12,
         },
@@ -393,6 +410,144 @@ describe('PurchasesService', () => {
         items: [{ productId: 201, quantity: 6 }],
       },
     );
+  });
+
+  it('create 拒绝与商品库存单位不一致的单据单位，且不写库', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue({
+      id: 6,
+      name: '可口可乐供应商',
+    });
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
+    ]);
+
+    await expect(
+      service.create(user, {
+        storeId: 18,
+        supplierId: 6,
+        items: [
+          {
+            productId: 201,
+            unit: '箱',
+            quantity: 6,
+            unitPrice: 12,
+          },
+        ],
+        date: new Date('2026-05-14T10:00:00.000Z').getTime(),
+      }),
+    ).rejects.toThrow('不一致');
+
+    // 单位不一致必须在进入事务前拦截：否则「6 箱」只会入库 6 瓶
+    expect(prismaService.purchaseOrder.create).not.toHaveBeenCalled();
+    expect(inventoryService.recordPurchaseRestock).not.toHaveBeenCalled();
+    expect(costsService.syncPurchaseCost).not.toHaveBeenCalled();
+  });
+
+  it('create 在派生缓存失效失败时仍返回成功（缓存只是加速层）', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue({
+      id: 6,
+      name: '可口可乐供应商',
+    });
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
+    ]);
+    prismaService.purchaseOrder.create.mockResolvedValue(createPurchaseOrder());
+    cacheInvalidatorService.invalidateProfitDashboardHome.mockRejectedValueOnce(
+      new Error('redis down'),
+    );
+
+    await expect(
+      service.create(user, {
+        storeId: 18,
+        supplierId: 6,
+        items: [
+          { productId: 201, unit: '瓶', quantity: 6, unitPrice: 12 },
+        ],
+        date: new Date('2026-05-14T10:00:00.000Z').getTime(),
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: '11' }));
+
+    // 缓存失效失败不能让客户端以为建单失败并重试（重复入库/重复记账）
+    expect(costsService.invalidateCostCaches).toHaveBeenCalledWith(18);
+  });
+
+  it('create 命中幂等快照时直接回放首次响应，不重复写库', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue({
+      id: 6,
+      name: '可口可乐供应商',
+    });
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
+    ]);
+    purchasesIdempotencyService.normalizeKey.mockReturnValueOnce('idem-key-0001');
+    purchasesIdempotencyService.find.mockResolvedValueOnce({
+      status: 'succeeded',
+      requestHash: 'hash',
+      responseSnapshot: { id: '99' },
+    });
+    purchasesIdempotencyService.resolveReplay.mockReturnValueOnce({
+      id: '99',
+    } as never);
+
+    await expect(
+      service.create(
+        user,
+        {
+          storeId: 18,
+          supplierId: 6,
+          items: [
+            { productId: 201, unit: '瓶', quantity: 6, unitPrice: 12 },
+          ],
+          date: new Date('2026-05-14T10:00:00.000Z').getTime(),
+        },
+        { idempotencyKey: 'idem-key-0001' },
+      ),
+    ).resolves.toEqual({ id: '99' });
+
+    // 回放命中后不得再次入库/记账，否则一次提交会变成两张单
+    expect(prismaService.purchaseOrder.create).not.toHaveBeenCalled();
+    expect(inventoryService.recordPurchaseRestock).not.toHaveBeenCalled();
+    expect(costsService.syncPurchaseCost).not.toHaveBeenCalled();
+  });
+
+  it('create 并发撞幂等键且首次仍在处理时返回 409，不写库', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue({
+      id: 6,
+      name: '可口可乐供应商',
+    });
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
+    ]);
+    purchasesIdempotencyService.normalizeKey.mockReturnValueOnce('idem-key-0002');
+    purchasesIdempotencyService.find.mockResolvedValueOnce(null);
+    purchasesIdempotencyService.claim.mockRejectedValueOnce(new Error('P2002'));
+    purchasesIdempotencyService.isDuplicateKeyError.mockReturnValueOnce(true);
+
+    await expect(
+      service.create(
+        user,
+        {
+          storeId: 18,
+          supplierId: 6,
+          items: [
+            { productId: 201, unit: '瓶', quantity: 6, unitPrice: 12 },
+          ],
+          date: new Date('2026-05-14T10:00:00.000Z').getTime(),
+        },
+        { idempotencyKey: 'idem-key-0002' },
+      ),
+    ).rejects.toThrow('正在创建中');
+
+    expect(prismaService.purchaseOrder.create).not.toHaveBeenCalled();
+    expect(inventoryService.recordPurchaseRestock).not.toHaveBeenCalled();
   });
 
   it('remove 会在同一事务内先回滚入库库存再删除进货单', async () => {

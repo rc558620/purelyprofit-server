@@ -118,8 +118,14 @@ export function buildFinanceAccountsStatsCacheKey(storeId: number): string {
   return `profit:finance:accounts:stats:store:${storeId}`;
 }
 
+/**
+ * 门店边界必须以 `store:<id>:` 收口。
+ *
+ * 早期写法 `store:<id>*` 会把 `store:180` 也纳入门店 18 的失效范围。
+ * stats key 没有尾段（`...:accounts:stats:store:<id>`），由失效 provider 精确删除。
+ */
 export function buildFinanceAccountsPattern(storeId: number): string {
-  return `profit:finance:accounts:*:store:${storeId}*`;
+  return `profit:finance:accounts:*:store:${storeId}:*`;
 }
 
 export function buildFinanceReconciliationsListCacheKey(
@@ -143,8 +149,12 @@ export function buildFinanceReconciliationsStatsCacheKey(
   return `profit:finance:reconciliations:stats:store:${storeId}`;
 }
 
+/**
+ * 同 accounts：门店边界用 `store:<id>:` 收口，避免误清 `store:180`；
+ * stats key 由失效 provider 精确删除。
+ */
 export function buildFinanceReconciliationsPattern(storeId: number): string {
-  return `profit:finance:reconciliations:*:store:${storeId}*`;
+  return `profit:finance:reconciliations:*:store:${storeId}:*`;
 }
 
 /**

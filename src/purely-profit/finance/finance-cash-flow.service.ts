@@ -37,7 +37,10 @@ import {
   queryCashFlowRecordPage,
   queryCashFlowStatsRows,
 } from './finance-cash-flow.query';
-import type { FinanceCashFlowStatsAggregate } from './finance-cash-flow.query';
+import type {
+  FinanceCashFlowRecordOwnership,
+  FinanceCashFlowStatsAggregate,
+} from './finance-cash-flow.query';
 import {
   encodeFinanceCashFlowCursor,
   resolveFinanceCashFlowPaging,
@@ -170,6 +173,10 @@ export class FinanceCashFlowService {
       throw new ConflictException('销售收入流水需通过删除销售记录回滚');
     }
 
+    if (record.saleOrderRefundId !== null) {
+      throw new ConflictException('退款支出流水需通过删除销售退款记录回滚');
+    }
+
     await deleteCashFlowRecordEntity(this.prisma, storeId, recordId);
     await this.invalidateDerivedCaches(storeId);
   }
@@ -277,14 +284,15 @@ export class FinanceCashFlowService {
     };
   }
 
+  /** 写后失效：记录已落库，缓存清理失败不能把接口变成 500（否则重试会重复入账） */
   private async invalidateDerivedCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+    await this.cacheInvalidatorService.invalidateFinanceDerivedQuietly(storeId);
   }
 
   private async ensureCashFlowRecordExists(
     storeId: number,
     recordId: number,
-  ): Promise<{ id: number; saleOrderId: number | null }> {
+  ): Promise<FinanceCashFlowRecordOwnership> {
     const record = await findCashFlowRecordOwnership(this.prisma, {
       storeId,
       recordId,

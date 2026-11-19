@@ -163,9 +163,10 @@ export interface InventoryRevertPurchaseParams {
   purchaseOrderId: number;
 }
 
-/** 回滚日志查询结构：仅需要商品与当时的 delta（销售/采购回滚共用） */
+/** 进货回滚日志查询结构：商品快照名称用于失败提示，delta 为当时的入库增量 */
 export interface InventoryRevertLogRecord {
   productId: number;
+  productName: string;
   delta: number;
 }
 

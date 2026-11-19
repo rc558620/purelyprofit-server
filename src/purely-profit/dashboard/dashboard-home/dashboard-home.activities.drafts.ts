@@ -126,7 +126,8 @@ export function appendUpcomingAccountDraft(
     id: 'finance-upcoming-due',
     type: 'warning',
     icon: 'finance',
-    title: `有${params.upcomingAccounts.length}笔账款即将到期`,
+    // 只取最近 5 笔，避免把「前 5 笔」写成全量
+    title: `近期${params.upcomingAccounts.length}笔账款即将到期`,
     time: `${formatRelativeTime(toTimestamp(earliest.updatedAt), now)} · 财务管理`,
     tag: `¥${formatMoneyText(totalRemaining)}`,
     bizType: 'finance_account_upcoming',
@@ -155,7 +156,8 @@ export function appendDraftPayrollDraft(
     id: 'employee-payroll-draft',
     type: 'warning',
     icon: 'employee',
-    title: `有${params.draftPayrolls.length}份工资单待确认`,
+    // 只取最近 5 份，避免把「前 5 份」写成全量
+    title: `近期${params.draftPayrolls.length}份工资单待确认`,
     time: `${formatRelativeTime(toTimestamp(latestDraft.updatedAt), now)} · 员工管理`,
     tag: `¥${formatMoneyText(totalSalary)}`,
     bizType: 'employee_payroll',

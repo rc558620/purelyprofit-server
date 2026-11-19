@@ -13,6 +13,8 @@ export {
   buildProfitDashboardHomeTrendCacheKey,
   buildProfitDashboardHomeActivitiesLiveCacheKey,
   buildProfitDashboardHomeActivitiesStableCacheKey,
+  buildProfitDashboardHomeActivitiesLivePattern,
+  buildProfitDashboardHomeActivitiesStablePattern,
   buildProfitDashboardHomePattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomeAllPattern,

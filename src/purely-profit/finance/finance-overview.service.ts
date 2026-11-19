@@ -183,6 +183,8 @@ export class FinanceOverviewService {
       summary,
       cashFlowRows: rows.cashFlowRows,
       accountRows: rows.accountRows,
+      cashFlowTruncated: rows.cashFlowTruncated,
+      accountTruncated: rows.accountTruncated,
     };
   }
 
@@ -227,6 +229,8 @@ export class FinanceOverviewService {
       summary,
       cashFlowRows: rows.cashFlowRows,
       accountRows: rows.accountRows,
+      cashFlowTruncated: rows.cashFlowTruncated,
+      accountTruncated: rows.accountTruncated,
     };
   }
 

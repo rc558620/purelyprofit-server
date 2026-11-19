@@ -39,6 +39,13 @@ const EMPTY_PROFIT_PREVIOUS_TOTALS: ProfitPreviousTotals = {
   totalCostCents: 0,
 };
 
+/**
+ * 有效销售单口径：已退款订单不计入利润。
+ *
+ * 退款只写 sale_order_refunds、不改 sale_order_items（见 sales-record-refund.service），
+ * 因此不额外过滤 refund 关系时，退款单的收入 / 利润 / 订单数 / 商品排行会全部照算，
+ * 与销售记录页（已归零并排除笔数）对不上。这里与销售记录共用同一「有效单」定义。
+ */
 export function buildSaleOrderItemQuery(
   storeId: number,
   range: ProfitDateRange,
@@ -51,12 +58,22 @@ export function buildSaleOrderItemQuery(
           gte: new Date(range.start),
           lte: new Date(range.end),
         },
+        refund: { is: null },
       },
     },
     orderBy: [{ order: { date: 'asc' } }, { id: 'asc' }],
   };
 }
 
+/**
+ * 利润口径只统计经营费用，排除系统进货生成的采购成本记录。
+ *
+ * purchases 落单时会把采购金额同步成 sourceType='purchase' 的 cost_records；
+ * 而销售行的 profit 已是「售价 − 成本价」，已售商品的成本在毛利里扣过一次。
+ * 若再把采购记录整体当费用扣减，会同时把「已售商品成本」扣两遍、并把
+ * 「未售库存」提前计入当期损益。库存性采购支出与已售商品成本的区分由
+ * 商品成本（goodsCost）承担，手工录入的成本记录（含手工记的进货）仍按经营费用处理。
+ */
 export function buildCostRecordQuery(
   storeId: number,
   range: ProfitDateRange,
@@ -64,6 +81,7 @@ export function buildCostRecordQuery(
   return {
     where: {
       storeId,
+      sourceType: { not: 'purchase' },
       date: {
         gte: new Date(range.start),
         lte: new Date(range.end),
@@ -80,7 +98,9 @@ export function buildCostRecordQuery(
  * - 抵扣行排除列表与 isDeductionItem 的 productName 回退分支一致（4 个名称）；
  * - goodsCost = Σ(售价 − 利润) × 数量，对应逐行 itemRevenue.subtract(itemProfit) 累加；
  * - orderCount 为区间内独立订单数，对应 seenOrderIds.size；
- * - 券面消费行不排除（金额侧计入），与 aggregateSales 一致。
+ * - 券面消费行不排除（金额侧计入），与 aggregateSales 一致；
+ * - 已退款订单（存在 sale_order_refunds 行）整体排除，与 buildSaleOrderItemQuery 一致；
+ * - 成本只统计经营费用，排除 sourceType='purchase' 的采购成本，与 buildCostRecordQuery 一致。
  */
 async function fetchProfitPreviousTotals(
   prisma: PrismaService,
@@ -108,15 +128,18 @@ async function fetchProfitPreviousTotals(
         COUNT(DISTINCT so.id) AS order_count
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
+      LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${start}
         AND so.date <= ${end}
+        AND sor.id IS NULL
         AND soi.product_name NOT IN ('预付款', '预付抵扣', '续费抵扣', '自助下单抵扣')
     ) sales
     CROSS JOIN (
       SELECT COALESCE(SUM(cr.amount), 0) AS total_cost
       FROM cost_records cr
       WHERE cr.store_id = ${storeId}
+        AND cr.source_type <> 'purchase'
         AND cr.date >= ${start}
         AND cr.date <= ${end}
     ) costs

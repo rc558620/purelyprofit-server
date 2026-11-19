@@ -25,7 +25,11 @@ function createRefreshableCacheServiceMock() {
 function createCacheInvalidatorServiceMock() {
   return {
     invalidateDashboardAndPulseSession: jest.fn().mockResolvedValue(undefined),
+    invalidateDashboardAndPulseSessionQuietly: jest
+      .fn()
+      .mockResolvedValue(undefined),
     invalidateFinanceDerived: jest.fn().mockResolvedValue(undefined),
+    invalidateFinanceDerivedQuietly: jest.fn().mockResolvedValue(undefined),
   };
 }
 

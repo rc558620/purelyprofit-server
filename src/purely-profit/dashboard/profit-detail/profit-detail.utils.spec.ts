@@ -173,6 +173,8 @@ describe('profit-detail.utils', () => {
             gte: new Date(currentRange.start),
             lte: new Date(currentRange.end),
           },
+          // 已退款订单不计入利润，与销售记录的有效单口径一致
+          refund: { is: null },
         },
       },
       orderBy: [{ order: { date: 'asc' } }, { id: 'asc' }],
@@ -180,6 +182,8 @@ describe('profit-detail.utils', () => {
     expect(buildCostRecordQuery(18, currentRange)).toEqual({
       where: {
         storeId: 18,
+        // 采购成本已随销售行利润扣过，不能作为经营费用再扣一次
+        sourceType: { not: 'purchase' },
         date: {
           gte: new Date(currentRange.start),
           lte: new Date(currentRange.end),
@@ -280,6 +284,58 @@ describe('profit-detail.utils', () => {
     });
   });
 
+  it('上一周期 SQL 与当期同口径：排除退款单与采购成本记录', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([
+      {
+        revenue: 0,
+        profit: 0,
+        goods_cost: 0,
+        order_count: BigInt(0),
+        total_cost: 0,
+      },
+    ]);
+    const prisma = {
+      $queryRaw: queryRaw,
+      saleOrderItem: { findMany: jest.fn().mockResolvedValue([]) },
+      costRecord: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const currentRange: ProfitAccessibleRange = {
+      start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+      clamped: false,
+      empty: false,
+    };
+    const previousRange: ProfitAccessibleRange = {
+      start: new Date(2026, 4, 10, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 11, 23, 59, 59, 999).getTime(),
+      clamped: false,
+      empty: false,
+    };
+
+    await fetchProfitRows(prisma, 18, currentRange, previousRange);
+
+    // $queryRaw 是标签模板调用：首参是 SQL 片段数组（部分实现包装成 { sql }）
+    const toSqlText = (arg: unknown): string => {
+      if (Array.isArray(arg)) {
+        return arg.join('');
+      }
+      if (typeof arg === 'string') {
+        return arg;
+      }
+      if (arg && typeof arg === 'object' && 'sql' in arg) {
+        return String((arg as { sql: unknown }).sql);
+      }
+      return '';
+    };
+    const sqlText = queryRaw.mock.calls[0].map(toSqlText).join(' ');
+
+    // 跨期退款：上一周期也必须按「有效单」口径，不能把退款单算进环比基数
+    expect(sqlText).toContain('LEFT JOIN sale_order_refunds');
+    expect(sqlText).toContain('sor.id IS NULL');
+    // 采购成本不计入经营费用，避免同一批已售商品成本被扣两次
+    expect(sqlText).toContain("cr.source_type <> 'purchase'");
+  });
+
   it('fetchProfitRows 在满页时按游标翻页，不再用 skip 深分页', async () => {
     const saleFindMany = jest
       .fn()
@@ -345,6 +401,7 @@ describe('profit-detail.utils', () => {
       profitRate: 0,
       revenueCompareLastPeriod: null,
       profitCompareLastPeriod: null,
+      profitCompareType: null,
       costCompareLastPeriod: null,
       orderCount: 0,
     });
@@ -352,6 +409,8 @@ describe('profit-detail.utils', () => {
       summary: buildEmptySummary(),
       dailyProfits: [],
       productRanking: [],
+      productRankingByRevenue: [],
+      productRankingByQuantity: [],
       costBreakdown: [],
     });
     expect(buildEmptyProfitReportResponse()).toEqual({
@@ -602,6 +661,7 @@ describe('profit-detail.utils', () => {
       profitRate: 50,
       revenueCompareLastPeriod: -8.33,
       profitCompareLastPeriod: -21.43,
+      profitCompareType: 'normal',
       costCompareLastPeriod: 10,
       orderCount: 3,
     });
@@ -885,7 +945,9 @@ describe('profit-detail.utils', () => {
         netProfit: -6,
         profitRate: -27.27,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -0,
+        // 上期同为亏损且亏损额持平：0%，类型按普通处理
+        profitCompareLastPeriod: 0,
+        profitCompareType: 'normal',
         costCompareLastPeriod: 10,
         orderCount: 3,
       },
@@ -896,6 +958,35 @@ describe('profit-detail.utils', () => {
         { dateLabel: '05/13', revenue: 9, cost: 3, profit: -3 },
       ],
       productRanking: [
+        {
+          id: '1',
+          name: '可口可乐 330ml',
+          category: '饮品',
+          price: 6.5,
+          profitPerUnit: 2.5,
+          quantity: 2,
+          totalProfit: 5,
+          totalRevenue: 13,
+          profitRate: 38.46,
+          image: 'https://example.com/coke.png',
+        },
+      ],
+      // 只有一个商品时，三个维度榜单内容一致
+      productRankingByRevenue: [
+        {
+          id: '1',
+          name: '可口可乐 330ml',
+          category: '饮品',
+          price: 6.5,
+          profitPerUnit: 2.5,
+          quantity: 2,
+          totalProfit: 5,
+          totalRevenue: 13,
+          profitRate: 38.46,
+          image: 'https://example.com/coke.png',
+        },
+      ],
+      productRankingByQuantity: [
         {
           id: '1',
           name: '可口可乐 330ml',
@@ -921,7 +1012,8 @@ describe('profit-detail.utils', () => {
         netProfit: -6,
         profitRate: -27.27,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -0,
+        profitCompareLastPeriod: 0,
+        profitCompareType: 'normal',
         costCompareLastPeriod: 10,
         orderCount: 3,
       },

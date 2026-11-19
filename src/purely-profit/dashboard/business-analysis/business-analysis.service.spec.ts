@@ -197,7 +197,7 @@ describe('BusinessAnalysisService', () => {
         },
         {
           bucketAt: null,
-          category: 'purchase',
+          category: 'salary',
           amount: new Prisma.Decimal('800'),
         },
         {
@@ -215,10 +215,17 @@ describe('BusinessAnalysisService', () => {
       }),
     ).resolves.toEqual({
       heroSummary: {
-        // 净利润 = 商品利润 8 − 费用记录 11 = −3；上期 2 − 4 = −2
-        netProfit: { current: -3, previous: -2, changeRate: 50 },
+        // 净利润 = 商品利润 8 − 经营费用 11 = −3；上期 2 − 4 = −2。
+        // 负基期环比按亏损额绝对值计算：亏损从 −2 扩大到 −3 = −50%（变差），
+        // 并标记为 worsened_loss（增亏），避免算出「+50% 上涨」的误导结果。
+        netProfit: {
+          current: -3,
+          previous: -2,
+          changeRate: -50,
+          changeType: 'worsened_loss',
+        },
         revenue: { current: 22, previous: 8, changeRate: 175 },
-        // 总成本仅统计费用记录：当前 11、上期 4
+        // 总成本仅统计经营费用（采购成本记录已排除）：当前 11、上期 4
         totalCost: { current: 11, previous: 4, changeRate: 175 },
         profitRate: { current: -13.64, previous: -25, changeRate: 11.36 },
         costRate: { current: 50, previous: 50, changeRate: 0 },
@@ -248,8 +255,10 @@ describe('BusinessAnalysisService', () => {
           revenueShare: 40.91,
         },
       ],
+      // 采购成本记录（source_type='purchase'）不再进入经营费用口径，
+      // 因此成本结构不会出现「进货成本」项
       costRateItems: [
-        { label: '进货成本', amount: 8, percentage: 72.73, color: '#f97316' },
+        { label: '人力成本', amount: 8, percentage: 72.73, color: '#3b82f6' },
         { label: '水电费', amount: 3, percentage: 27.27, color: '#06b6d4' },
       ],
       rankProducts: [
@@ -555,7 +564,7 @@ describe('BusinessAnalysisService', () => {
         },
         {
           bucketAt: null,
-          category: 'purchase',
+          category: 'rent',
           amount: new Prisma.Decimal('2000'),
         },
       ]);
@@ -641,7 +650,7 @@ describe('BusinessAnalysisService', () => {
         },
         {
           bucketAt: null,
-          category: 'purchase',
+          category: 'utilities',
           amount: new Prisma.Decimal('50000'),
         },
       ]);
@@ -658,7 +667,7 @@ describe('BusinessAnalysisService', () => {
       { dateLabel: '05/27', revenue: 28293.34, cost: 500, profit: 27793.34 },
     ]);
     expect(response.costRateItems).toEqual([
-      { label: '进货成本', amount: 500, percentage: 100, color: '#f97316' },
+      { label: '水电费', amount: 500, percentage: 100, color: '#06b6d4' },
     ]);
   });
 
@@ -687,5 +696,50 @@ describe('BusinessAnalysisService', () => {
         endTime: 1,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('取数 SQL 统一排除已退款订单与采购成本记录', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('0'),
+          currentOrderCount: 0,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+          currentProfit: new Prisma.Decimal('0'),
+          previousProfit: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('0'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await service.getAnalysis(user, { period: 'today' });
+
+    // $queryRaw 是标签模板调用：首参是 SQL 片段数组，插值在后续参数里
+    const toSqlText = (call: unknown[]): string => {
+      const strings = call[0];
+      return Array.isArray(strings) ? strings.join(' ? ') : '';
+    };
+
+    const salesSummarySql = toSqlText(prismaService.$queryRaw.mock.calls[0]);
+    const salesGroupedSql = toSqlText(prismaService.$queryRaw.mock.calls[1]);
+    const costSummarySql = toSqlText(prismaService.$queryRaw.mock.calls[2]);
+    const costGroupedSql = toSqlText(prismaService.$queryRaw.mock.calls[3]);
+
+    // 退款只写 sale_order_refunds、不改明细行，不显式排除会把退款单照算
+    expect(salesSummarySql).toContain('sale_order_refunds');
+    expect(salesSummarySql).toContain('sor.id IS NULL');
+    expect(salesGroupedSql).toContain('sale_order_refunds');
+    expect(salesGroupedSql).toContain('sor.id IS NULL');
+    // 采购成本已随销售行利润扣过，不能再按经营费用扣一次
+    expect(costSummarySql).toContain("cr.source_type <> 'purchase'");
+    expect(costGroupedSql).toContain("cr.source_type <> 'purchase'");
   });
 });

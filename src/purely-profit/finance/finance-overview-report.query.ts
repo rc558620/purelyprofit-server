@@ -90,6 +90,16 @@ export interface FinanceReportSummaryData {
 export interface FinanceReportRowsData {
   currentCashFlowRecords: FinanceReportCashFlowRow[];
   accountRecords: FinanceReportAccountRow[];
+  /** 流水明细是否因上限被截断，供前端明确标注「仅预览」 */
+  cashFlowTruncated: boolean;
+  /** 账款明细是否因上限被截断，供前端明确标注「仅预览」 */
+  accountTruncated: boolean;
+}
+
+/** 带上限的明细查询结果：多取一行用于精确探测截断，不额外发 COUNT */
+export interface FinanceReportLimitedRows<T> {
+  rows: T[];
+  truncated: boolean;
 }
 
 /**
@@ -149,17 +159,23 @@ export async function queryFinanceReportCashFlowRows(
     range: { start: number; end: number; empty: boolean };
   },
   maxPageSize = 5000,
-): Promise<FinanceReportCashFlowRow[]> {
+): Promise<FinanceReportLimitedRows<FinanceReportCashFlowRow>> {
   if (params.range.empty) {
-    return [];
+    return { rows: [], truncated: false };
   }
 
-  return prisma.financeCashFlowRecord.findMany({
+  const records = await prisma.financeCashFlowRecord.findMany({
     where: buildFinanceReportCashFlowWhere(params),
     select: financeReportCashFlowSelect,
     orderBy: FINANCE_REPORT_ROW_ORDER_BY,
-    take: maxPageSize,
+    // 多取一行只用于判断「是否还有下一页」，响应里裁掉
+    take: maxPageSize + 1,
   });
+
+  return {
+    rows: records.slice(0, maxPageSize),
+    truncated: records.length > maxPageSize,
+  };
 }
 
 const FINANCE_REPORT_ROW_ORDER_BY = [
@@ -305,13 +321,19 @@ async function queryOpenAccountTotals(
 async function queryReportAccountRows(
   prisma: PrismaService,
   storeId: number,
-): Promise<FinanceReportAccountRow[]> {
-  return prisma.financeAccountRecord.findMany({
+): Promise<FinanceReportLimitedRows<FinanceReportAccountRow>> {
+  const records = await prisma.financeAccountRecord.findMany({
     where: buildDerivedOpenAccountWhere({ storeId }),
     select: financeReportAccountSelect,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: FINANCE_REPORT_ACCOUNT_ROW_LIMIT,
+    // 多取一行只用于判断截断，不额外发 COUNT
+    take: FINANCE_REPORT_ACCOUNT_ROW_LIMIT + 1,
   });
+
+  return {
+    rows: records.slice(0, FINANCE_REPORT_ACCOUNT_ROW_LIMIT),
+    truncated: records.length > FINANCE_REPORT_ACCOUNT_ROW_LIMIT,
+  };
 }
 
 /**
@@ -377,7 +399,7 @@ export async function queryFinanceReportRows(
   },
   maxPageSize = 5000,
 ): Promise<FinanceReportRowsData> {
-  const [currentCashFlowRecords, accountRecords] = await Promise.all([
+  const [cashFlowResult, accountResult] = await Promise.all([
     queryFinanceReportCashFlowRows(
       prisma,
       { storeId: params.storeId, range: params.currentRange },
@@ -386,5 +408,10 @@ export async function queryFinanceReportRows(
     queryReportAccountRows(prisma, params.storeId),
   ]);
 
-  return { currentCashFlowRecords, accountRecords };
+  return {
+    currentCashFlowRecords: cashFlowResult.rows,
+    accountRecords: accountResult.rows,
+    cashFlowTruncated: cashFlowResult.truncated,
+    accountTruncated: accountResult.truncated,
+  };
 }

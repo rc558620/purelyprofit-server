@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import {
   buildCacheRefreshTaskKey,
   buildProfitDashboardHomeActivitiesLiveCacheKey,
@@ -30,8 +31,8 @@ const STABLE_CACHE_TTL_SECONDS = 300;
 const STABLE_REFRESH_AFTER_MS = 120_000;
 
 interface ActivitiesChunkSpec<T> {
-  /** 缓存键构造：两块用不同后缀，互不覆盖 */
-  buildCacheKey: (storeId: number) => string;
+  /** 缓存键构造：两块用不同后缀，互不覆盖；必须带业务日，跨零点换键重算 */
+  buildCacheKey: (storeId: number, businessDayStart: number) => string;
   ttlSeconds: number;
   refreshAfterMs: number;
   loadValue: (
@@ -70,7 +71,9 @@ async function resolveActivitiesChunk<T>(
   params: LoadDashboardHomeActivitiesCachedParams,
 ): Promise<T> {
   const { cache, prisma, storeId, now, refresh } = params;
-  const cacheKey = spec.buildCacheKey(storeId);
+  // 业务日参与缓存键：零点后自然换键，旧块不再被读到，也不会被后台任务续命
+  const businessDayStart = getShanghaiDayStartMs(now);
+  const cacheKey = spec.buildCacheKey(storeId, businessDayStart);
   const chunkParams: LoadDashboardHomeActivitiesDataParams = { storeId, now };
 
   if (refresh) {

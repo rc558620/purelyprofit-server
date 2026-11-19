@@ -88,7 +88,8 @@ export function appendCoreFinanceMarketingDrafts(
       id: 'finance-overdue',
       type: 'warning',
       icon: 'finance',
-      title: `有${params.overdueAccounts.length}笔账款已逾期`,
+      // 查询只取最近 5 条，文案不能写成「总共 N 笔」，否则超过 5 笔时会少报
+      title: `近期${params.overdueAccounts.length}笔账款已逾期`,
       time: `${formatRelativeTime(toTimestamp(latestOverdue.updatedAt), now)} · 财务管理`,
       tag: `¥${formatMoneyText(totalRemaining)}`,
       bizType: 'finance_account',
@@ -131,7 +132,8 @@ export function appendCoreMemberEmployeeDrafts(
       id: 'withdrawal-pending',
       type: 'info',
       icon: 'withdrawal',
-      title: `有${params.pendingWithdrawals.length}笔提现待处理`,
+      // 同上：只统计最近 5 笔（含豆数合计），不能宣称全量
+      title: `近期${params.pendingWithdrawals.length}笔提现待处理`,
       time: `${formatRelativeTime(toTimestamp(latestWithdrawal.appliedAt), now)} · 会员中心`,
       tag: `待审${totalBeans}豆`,
       bizType: 'withdrawal',

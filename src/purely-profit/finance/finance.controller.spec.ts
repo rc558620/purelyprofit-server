@@ -104,6 +104,8 @@ describe('FinanceController', () => {
       },
       cashFlowRows: [],
       accountRows: [],
+      cashFlowTruncated: false,
+      accountTruncated: false,
     };
     const query = {
       period: 'year' as const,

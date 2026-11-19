@@ -31,6 +31,7 @@ import type { PurchaseMembershipResult } from './platform-membership-order.servi
 import type { PurchasePlatformMembershipOrderDto } from './dto/platform-membership-query.dto';
 import {
   closeExpiredPendingOrders,
+  lockStorePartnerBeanBalance,
   resolvePendingOrderForReuse,
   sumPendingOccupiedDeductions,
 } from './membership-pending-occupancy.shared';
@@ -80,9 +81,42 @@ export class PlatformMembershipPaymentPurchaseService {
         const profile = await ensureMembershipProfile(tx, storeId);
         const partner = await findCurrentStorePartner(tx, storeId);
 
+        // 与提现申请抢同一把合伙人余额行锁：下单只算占用不扣豆，
+        // 不加锁时提现会把「已被待支付订单承诺出去」的豆提走，
+        // 回调生效时才发现扣不动（钱已收、权益无法落地）
+        if (partner) {
+          await lockStorePartnerBeanBalance(tx, partner.id);
+        }
+
         // 超时未支付的订单必须先关掉：订单本身没有过期字段，
         // 而额度占用按「未过期待支付单」计算，残留一笔就会永久占住额度
         await closeExpiredPendingOrders(tx, profile.id);
+
+        // 幂等复用必须先于算价：原单已把额度占满时，按「扣除占用后的可用额度」
+        // 算价会得到 0，重试不但拿不回原二维码，还会误报「无可抵扣」。
+        const lookup = await resolvePendingOrderForReuse(tx, profile.id);
+        if (lookup.kind === 'paid_awaiting_settlement') {
+          // 钱已经收到了，只是权益还没落地：此时再开一张新单等于让用户付第二次
+          throw new ConflictException(
+            '上一笔会员订单已支付成功，权益正在生效中，请刷新订单状态后再操作',
+          );
+        }
+        if (
+          lookup.kind === 'reusable' &&
+          this.matchesRequest(lookup.order, plan.id, dto)
+        ) {
+          const reusable = lookup.order;
+          if (!reusable.codeUrl) {
+            throw new ConflictException('订单正在生成支付二维码，请稍后重试');
+          }
+          return {
+            orderId: reusable.orderId,
+            orderNo: reusable.orderNo,
+            amountFen: reusable.amountFen,
+            expiresAt: reusable.expiresAt,
+            reusableCodeUrl: reusable.codeUrl,
+          };
+        }
 
         // 待支付订单已经占用了这部分额度，算价时不能再算成可用，
         // 否则同一批积分 / 纯利豆可以连开多笔待支付订单，
@@ -121,32 +155,12 @@ export class PlatformMembershipPaymentPurchaseService {
 
         this.assertDeductionUsable(payment, dto, usableBeans);
 
-        // 幂等：同一份抵扣组合已有未过期的待支付单时直接复用，
-        // 避免连点 / 网络重试生成多笔真实支付单（两笔都付款就会重复开通、重复扣减）
-        const lookup = await resolvePendingOrderForReuse(tx, profile.id);
-        if (lookup.kind === 'paid_awaiting_settlement') {
-          // 钱已经收到了，只是权益还没落地：此时再开一张新单等于让用户付第二次
-          throw new ConflictException(
-            '上一笔会员订单已支付成功，权益正在生效中，请刷新订单状态后再操作',
-          );
-        }
         if (lookup.kind === 'reusable') {
-          const reusable = lookup.order;
-          if (!this.isSameComposition(reusable, plan.id, payment)) {
-            throw new ConflictException(
-              '存在未完成的会员订单，请先完成支付或等待超时后再试',
-            );
-          }
-          if (!reusable.codeUrl) {
-            throw new ConflictException('订单正在生成支付二维码，请稍后重试');
-          }
-          return {
-            orderId: reusable.orderId,
-            orderNo: reusable.orderNo,
-            amountFen: reusable.amountFen,
-            expiresAt: reusable.expiresAt,
-            reusableCodeUrl: reusable.codeUrl,
-          };
+          // 同一张待支付单存在但抵扣组合与本次请求不同：不能另开新单，
+          // 也不能把旧单改成新组合（微信侧金额已经下过单）
+          throw new ConflictException(
+            '存在未完成的会员订单，请先完成支付或等待超时后再试',
+          );
         }
 
         // 先拿支付单号再建订单：paymentOrderId 是唯一键，回调要靠它反查订单
@@ -199,17 +213,21 @@ export class PlatformMembershipPaymentPurchaseService {
     return this.attachNativeCodeUrl(draft, dto.planId);
   }
 
-  /** 待支付订单与本次算价是否为同一份抵扣组合（幂等复用的前提） */
-  private isSameComposition(
+  /**
+   * 待支付订单是否就是本次请求的同一份抵扣组合（幂等复用的前提）。
+   *
+   * 必须用「请求值」而不是「重新算价的结果」比较：原单已经把额度占满后，
+   * 可用余额会被算成 0，用算价结果比较永远不会相等，重试就拿不回原二维码。
+   */
+  private matchesRequest(
     reusable: ReusablePendingOrder,
     planId: string,
-    payment: ReturnType<typeof calcMemberPlanPayment>,
+    dto: PurchasePlatformMembershipOrderDto,
   ): boolean {
     return (
       reusable.planId === planId &&
-      reusable.pointsUsed === payment.actualPointsUsed &&
-      reusable.beansUsed === payment.actualBeansUsed &&
-      reusable.amountFen === payment.finalAmount
+      reusable.pointsUsed === (dto.usePoints ?? 0) &&
+      reusable.beansUsed === (dto.useBeans ?? 0)
     );
   }
 

@@ -179,7 +179,7 @@ export class FinanceReconciliationService {
       },
     });
 
-    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+    await this.invalidateDerivedCaches(storeId);
 
     return mapReconciliationRecord(createdRecord);
   }
@@ -236,7 +236,7 @@ export class FinanceReconciliationService {
       throw new ConflictException('对账单已被其他操作处理，请刷新后重试');
     }
 
-    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+    await this.invalidateDerivedCaches(storeId);
 
     return mapReconciliationRecord(updatedRecord);
   }
@@ -263,7 +263,12 @@ export class FinanceReconciliationService {
       throw new ConflictException('已确认或已调整的对账单不能删除');
     }
 
-    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+    await this.invalidateDerivedCaches(storeId);
+  }
+
+  /** 写后失效：记录已落库，缓存清理失败不能把接口变成 500（否则重试会重复建单） */
+  private async invalidateDerivedCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateFinanceDerivedQuietly(storeId);
   }
 
   private async buildReconciliationsList(

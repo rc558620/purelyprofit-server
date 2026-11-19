@@ -49,6 +49,10 @@ describe('WithdrawalsService apply', () => {
     context.prismaService.storePartner.findFirst.mockResolvedValue(
       createApplyPartner({ beanBalance: 300 }),
     );
+    // 余额判断已下沉到事务内的条件扣减：扣不动时返回 count = 0
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 0,
+    });
 
     await expect(
       context.service.apply(context.user, {
@@ -91,6 +95,70 @@ describe('WithdrawalsService apply', () => {
     expect(
       context.prismaService.partnerWithdrawal.create,
     ).not.toHaveBeenCalled();
+  });
+
+  it('首次申请已扣光余额时，幂等重放仍返回原记录而不是误报余额不足', async () => {
+    // 首次申请已把豆扣光，响应丢失后用户重试：余额校验不能挡在幂等查询前面
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner({ beanBalance: 0 }),
+    );
+    context.prismaService.partnerWithdrawal.findFirst.mockResolvedValue(
+      createWithdrawalRecord({
+        id: 100,
+        beanAmount: 500,
+        status: PartnerWithdrawalStatus.pending,
+        appliedAt: new Date(),
+      }),
+    );
+
+    const result = await context.service.apply(
+      context.user,
+      {
+        beanAmount: 500,
+        accountType: 'alipay',
+        accountNo: '13800138000',
+        accountName: '张三',
+      },
+      'same-key',
+    );
+
+    expect(result.record.id).toBe('100');
+    expect(
+      context.prismaService.storePartner.updateMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('会员待支付订单占用的纯利豆不允许被提现拿走', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner({ beanBalance: 700 }),
+    );
+    context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      id: 5,
+    });
+    context.prismaService.storeMembershipOrder.aggregate.mockResolvedValue({
+      _sum: { pointsUsed: 0, beansUsed: 300 },
+    });
+    context.prismaService.storePartner.updateMany.mockResolvedValue({
+      count: 0,
+    });
+
+    await expect(
+      context.service.apply(context.user, {
+        beanAmount: 500,
+        accountType: 'wechat',
+        accountNo: 'wxid_abc123',
+        accountName: '张三',
+      }),
+    ).rejects.toThrow('已被会员待支付订单占用');
+
+    // 可扣上限 = 提现额 + 占用额，回调生效时这 300 豆仍留在账户里
+    expect(
+      context.prismaService.storePartner.updateMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ beanBalance: { gte: 800 } }),
+      }),
+    );
   });
 
   it('不同幂等键的同额二次申请不再被时间窗口误拒', async () => {

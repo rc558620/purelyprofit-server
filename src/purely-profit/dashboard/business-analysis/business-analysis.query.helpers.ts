@@ -6,8 +6,10 @@ import type {
   BusinessAnalysisRankRow,
   BusinessAnalysisRankSort,
 } from './business-analysis.types';
-import { BUSINESS_ANALYSIS_RANK_LIMIT } from './business-analysis.types';
-import { resolveAnalysisQueryRange } from './business-analysis.utils';
+import {
+  compareText,
+  resolveAnalysisQueryRange,
+} from './business-analysis.utils';
 
 /**
  * 经营分析查询的 SQL 片段与排行辅助。
@@ -30,7 +32,7 @@ export function buildSalesPreviousRevenueSql(
         CASE
           WHEN so.date >= ${new Date(previousRange.start)}
             AND so.date <= ${new Date(previousRange.end)}
-            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣', '自助下单抵扣')
           THEN soi.sale_price * soi.quantity
           ELSE 0
         END
@@ -54,7 +56,7 @@ export function buildSalesPreviousProfitSql(
         CASE
           WHEN so.date >= ${new Date(previousRange.start)}
             AND so.date <= ${new Date(previousRange.end)}
-            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣', '自助下单抵扣')
           THEN soi.profit * soi.quantity
           ELSE 0
         END
@@ -113,21 +115,20 @@ export function buildQueryRange(
 }
 
 /**
- * 商品排行 / 品类分布需额外剔除的「券面消费行」条件。
+ * 商品排行 / 品类分布需剔除的「券面消费行」判定。
  *
  * 纯消费模式开台团购券会落一条「XX（团购券）」正向行：它是券面金额的记账载体，
  * 不是真实商品，进商品利润排行 / 品类分布会凭空多出一个「商品」。
- * ⚠️ 营业额汇总（sales-record.query / 统计卡 / 报表）**不**排除该行——
- * 券面是门店真实营收，排除会让营业额漏掉这笔收入。
+ * ⚠️ 营业额与日趋势（heroSummary / dailyTrend）**不**排除该行——券面是门店
+ * 真实营收，排除会让总额与趋势合计对不上。因此该条件不再写成 SQL WHERE，
+ * 而是按维度在应用层排除（见 business-analysis.query / domain）：
+ * 同一份扫描结果在日趋势维度保留券面，在排行/品类维度剔除。
  */
-// 双条件（后缀 + 系统分类）排除券面行：商家自建商品若恰好以「（团购券）」结尾
-// 仍能正常进入排行榜，只有系统写入的券面行（分类固定为「团购券」）被排除。
-export const EXCLUDE_VOUCHER_ITEM_SQL = Prisma.sql`
-        AND NOT (soi.product_name LIKE '%（团购券）' AND soi.category_name = '团购券')`;
 
 /**
- * 排行排序子句：由前端透传的排序维度决定，服务端排序后再截断，
- * 避免「按利润截断后前端再按收入/销量排序」导致的排名错误。
+ * 排行排序子句：决定「同一商品多段名称快照」时哪一组名称被沿用
+ * （先出现的分组利润最高），真正的截断发生在按 productId 合并之后
+ * （见 domain.sortAndLimitRankMap），两者不能颠倒。
  * 末级统一用商品名兜底，保证同值行的顺序稳定。
  */
 export function buildRankOrderSql(
@@ -144,16 +145,8 @@ export function buildRankOrderSql(
 }
 
 /**
- * 稳定的文本升序比较，替代 localeCompare：后者受 ICU 区域规则影响，
- * 与 PG 侧 ORDER BY 的排序结果可能不一致（同名/同额行的顺序会跳变）。
- */
-export function compareText(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/**
- * 与 buildRankOrderSql 的三种排序维度严格一致，用于把排行截断从 SQL 侧
- * 移到应用层后仍保持「先按维度排序、再截断」的原有语义。
+ * 与 buildRankOrderSql 的三种排序维度严格一致，用于应用层排序：
+ * 先按维度排序（决定合并时沿用哪一组的名称），合并后再按同一口径重排并截断。
  */
 export function compareRankRows(
   a: BusinessAnalysisRankRow,
@@ -184,6 +177,10 @@ export function compareRankRows(
 
 /**
  * 商品利润排行查询。抽成独立函数，供完整分析与 CSV 导出（只需排行）两条路径共用。
+ *
+ * 不做 LIMIT：SQL 按 (product_id, product_name, category_name) 分组，同一商品
+ * 改名后会返回多行，必须在应用层按 productId 合并后才能排序截断，否则
+ * 「合并前截断」会把本应进榜的商品整段丢掉（见 domain.sortAndLimitRankMap）。
  */
 export async function executeRankQuery(
   prisma: PrismaService,
@@ -202,14 +199,14 @@ export async function executeRankQuery(
       MAX(NULLIF(soi.image, '')) AS image
     FROM sale_order_items soi
     INNER JOIN sale_orders so ON so.id = soi.order_id
+    LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
     WHERE soi.store_id = ${storeId}
       AND so.date >= ${new Date(currentRange.start)}
       AND so.date <= ${new Date(currentRange.end)}
-      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
-      ${EXCLUDE_VOUCHER_ITEM_SQL}
+      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣', '自助下单抵扣')
+      AND sor.id IS NULL
     GROUP BY soi.product_id, soi.product_name, soi.category_name
     ORDER BY ${rankOrderSql}
-    LIMIT ${BUSINESS_ANALYSIS_RANK_LIMIT}
   `;
 
   return rows.map((r) => ({

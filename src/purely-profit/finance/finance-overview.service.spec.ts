@@ -569,6 +569,8 @@ describe('FinanceOverviewService', () => {
           dateLabel: '2025-05-10 18:10',
         },
       ],
+      cashFlowTruncated: false,
+      accountTruncated: false,
     });
 
     expect(
@@ -604,8 +606,8 @@ describe('FinanceOverviewService', () => {
           storeId: 18,
           remaining: { gt: 0 },
         },
-        // 明细行上限收敛，避免整包写进 Redis
-        take: FINANCE_REPORT_ACCOUNT_ROW_LIMIT,
+        // 明细行上限收敛，避免整包写进 Redis；多取一行用于探测截断
+        take: FINANCE_REPORT_ACCOUNT_ROW_LIMIT + 1,
       }),
     );
     // 合计口径与明细口径同源（remaining > 0），保证「已结清不计入」不被破坏
@@ -685,6 +687,8 @@ describe('FinanceOverviewService', () => {
       summary: expect.objectContaining({ recordCount: 0 }),
       cashFlowRows: [],
       accountRows: [],
+      cashFlowTruncated: false,
+      accountTruncated: false,
     });
     expect(refreshableCache.getOrLoadRefreshableJson).not.toHaveBeenCalled();
   });

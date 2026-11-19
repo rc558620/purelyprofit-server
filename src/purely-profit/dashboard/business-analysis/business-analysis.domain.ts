@@ -1,6 +1,10 @@
 import { Logger } from '@nestjs/common';
-import { toOptionalMediaText } from '../../commerce/commerce.utils';
+import {
+  isGrouponVoucherItemName,
+  toOptionalMediaText,
+} from '../../commerce/commerce.utils';
 import { Money, type MoneyDbCentsInput } from '../../../shared/money.utils';
+import { BUSINESS_ANALYSIS_RANK_LIMIT } from './business-analysis.types';
 import type {
   AggregatedCategory,
   AggregatedRankProduct,
@@ -9,11 +13,12 @@ import type {
   BusinessAnalysisDailyCostRow,
   BusinessAnalysisDailyRevenueRow,
   BusinessAnalysisRankRow,
+  BusinessAnalysisRankSort,
   CostAggregationResult,
   CostBucketKey,
   SalesAggregationResult,
 } from './business-analysis.types';
-import { getShanghaiDayStartMs } from './business-analysis.utils';
+import { compareText, getShanghaiDayStartMs } from './business-analysis.utils';
 
 const logger = new Logger('BusinessAnalysisDomain');
 
@@ -82,6 +87,12 @@ export function buildSalesAggregation(input: {
   }
 
   for (const row of input.rankRows ?? []) {
+    // 券面消费行是券面金额的记账载体，不是真实商品：进榜会凭空多出一个「商品」。
+    // 金额侧（营业额 / 利润 / 日趋势）不在这里处理，SQL 已保留该行。
+    if (isGrouponVoucherItemName(row.productName, row.categoryName)) {
+      continue;
+    }
+
     const rankKey =
       row.productId !== null
         ? String(row.productId)
@@ -90,7 +101,7 @@ export function buildSalesAggregation(input: {
     // SQL 按 (product_id, product_name, category_name) 分组，同一商品改名后会
     // 产生多行同 productId 的结果。早期实现直接用 set 覆盖，导致改名商品的
     // 收入/利润/销量被静默丢弃，这里改为按 key 累加聚合。
-    // SQL 已按 totalProfit DESC 排序，先出现的分组利润最高，名称/分类沿用之。
+    // 调用方已按 rankSort 预排序，先出现的分组排序最靠前，名称/分类沿用之。
     const existingRank = result.rankMap.get(rankKey);
     if (existingRank) {
       existingRank.totalRevenue = existingRank.totalRevenue.add(
@@ -117,6 +128,62 @@ export function buildSalesAggregation(input: {
     });
   }
 
+  return result;
+}
+
+/** 排行排序口径：与 query.helpers.compareRankRows 的三种维度严格一致（金额按分比较）。 */
+function compareRankProducts(
+  a: AggregatedRankProduct,
+  b: AggregatedRankProduct,
+  rankSort: BusinessAnalysisRankSort,
+): number {
+  const aProfit = a.totalProfit.toDbCents();
+  const bProfit = b.totalProfit.toDbCents();
+  const aRevenue = a.totalRevenue.toDbCents();
+  const bRevenue = b.totalRevenue.toDbCents();
+
+  switch (rankSort) {
+    case 'revenue':
+      return (
+        bRevenue - aRevenue || bProfit - aProfit || compareText(a.name, b.name)
+      );
+    case 'quantity':
+      return (
+        b.quantity - a.quantity ||
+        bProfit - aProfit ||
+        compareText(a.name, b.name)
+      );
+    default:
+      return (
+        bProfit - aProfit || bRevenue - aRevenue || compareText(a.name, b.name)
+      );
+  }
+}
+
+/**
+ * 按 productId 合并**之后**再排序、截断。
+ *
+ * 早期实现在 SQL 分组阶段就 LIMIT：同一商品改名/改分类会拆成多行，各自的
+ * 利润都低于截断线时会被整段切掉（合并后本应进榜甚至第一），或合并后的名次
+ * 与展示顺序错位。这里统一改为「先合并、再排序、后截断」。
+ */
+export function sortAndLimitRankMap(
+  rankMap: Map<string, AggregatedRankProduct>,
+  rankSort: BusinessAnalysisRankSort,
+): Map<string, AggregatedRankProduct> {
+  const sorted = Array.from(rankMap.values()).sort((a, b) =>
+    compareRankProducts(a, b, rankSort),
+  );
+  const limited = sorted.slice(0, BUSINESS_ANALYSIS_RANK_LIMIT);
+  return new Map(limited.map((item) => [item.id, item]));
+}
+
+/** 原地替换聚合结果中的排行 Map，保证 mapper 按最终顺序读取。 */
+export function applyRankSort(
+  result: SalesAggregationResult,
+  rankSort: BusinessAnalysisRankSort,
+): SalesAggregationResult {
+  result.rankMap = sortAndLimitRankMap(result.rankMap, rankSort);
   return result;
 }
 

@@ -268,10 +268,18 @@ export class FinanceAccountService {
     return buildAccountsStatsFromAggregate(aggregate);
   }
 
+  /**
+   * 写后失效：走静默版本。
+   *
+   * 账款收付/新增在事务里已经落库，这里再抛异常只会让前端误判失败并重试，
+   * 导致同一笔金额被重复计入。
+   */
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
     await Promise.all([
-      this.cacheInvalidatorService.invalidateDashboardAndPulseSession(storeId),
-      this.cacheInvalidatorService.invalidateFinanceDerived(storeId),
+      this.cacheInvalidatorService.invalidateDashboardAndPulseSessionQuietly(
+        storeId,
+      ),
+      this.cacheInvalidatorService.invalidateFinanceDerivedQuietly(storeId),
     ]);
   }
 }

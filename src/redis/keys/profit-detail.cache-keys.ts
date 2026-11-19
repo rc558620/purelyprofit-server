@@ -13,21 +13,61 @@ export type ProfitDetailCacheQuery = {
 
 // ── Profit Detail 缓存键 ──
 
+/**
+ * 按周期归一化缓存入参：只保留该周期真正参与区间计算的字段。
+ *
+ * 不归一化时，`{period:'year'}` 与 `{period:'year', startTime, endTime}` 会生成
+ * 两个不同的 key（year 周期根本不读 startTime/endTime），首页预热写进的 key
+ * 与详情页真实请求的 key 必然不同，缓存永远不命中。
+ * custom_month / custom_range 的 startTime、endTime 与 customDate、rangeStart/rangeEnd
+ * 是同一语义的两种入参，这里也收敛成唯一形式。
+ */
+export function normalizeProfitCacheQuery(
+  query: ProfitDetailCacheQuery,
+): ProfitDetailCacheQuery {
+  const period = query.period ?? 'month';
+  const scope = query.scope;
+
+  if (period === 'custom_range') {
+    return {
+      period,
+      scope,
+      startTime: query.rangeStartDate ?? query.startTime ?? null,
+      endTime: query.rangeEndDate ?? query.endTime ?? null,
+    };
+  }
+
+  if (period === 'custom_month') {
+    return {
+      period,
+      scope,
+      customDate: query.customDate ?? query.startTime ?? null,
+    };
+  }
+
+  if (period === 'year') {
+    return { period, scope, year: query.year ?? null };
+  }
+
+  return { period, scope };
+}
+
 export function buildProfitDetailCacheKey(
   storeId: number,
   query: ProfitDetailCacheQuery,
 ): string {
+  const normalized = normalizeProfitCacheQuery(query);
   return [
     'profit:profit-detail',
     `store:${storeId}`,
-    `scope:${query.scope ?? 'owner'}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-    `startTime:${toCacheSegment(query.startTime)}`,
-    `endTime:${toCacheSegment(query.endTime)}`,
+    `scope:${normalized.scope ?? 'owner'}`,
+    `period:${toCacheSegment(normalized.period)}`,
+    `year:${toCacheSegment(normalized.year)}`,
+    `customDate:${toCacheSegment(normalized.customDate)}`,
+    `rangeStart:${toCacheSegment(normalized.rangeStartDate)}`,
+    `rangeEnd:${toCacheSegment(normalized.rangeEndDate)}`,
+    `startTime:${toCacheSegment(normalized.startTime)}`,
+    `endTime:${toCacheSegment(normalized.endTime)}`,
   ].join(':');
 }
 
@@ -45,17 +85,18 @@ export function buildProfitReportCacheKey(
   storeId: number,
   query: ProfitDetailCacheQuery,
 ): string {
+  const normalized = normalizeProfitCacheQuery(query);
   return [
     'profit:profit-report',
     `store:${storeId}`,
-    `scope:${query.scope ?? 'owner'}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-    `startTime:${toCacheSegment(query.startTime)}`,
-    `endTime:${toCacheSegment(query.endTime)}`,
+    `scope:${normalized.scope ?? 'owner'}`,
+    `period:${toCacheSegment(normalized.period)}`,
+    `year:${toCacheSegment(normalized.year)}`,
+    `customDate:${toCacheSegment(normalized.customDate)}`,
+    `rangeStart:${toCacheSegment(normalized.rangeStartDate)}`,
+    `rangeEnd:${toCacheSegment(normalized.rangeEndDate)}`,
+    `startTime:${toCacheSegment(normalized.startTime)}`,
+    `endTime:${toCacheSegment(normalized.endTime)}`,
   ].join(':');
 }
 

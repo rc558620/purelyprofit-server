@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { NewCustomerQuotaService } from '../../member/new-customer-quota/new-customer-quota.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -39,6 +40,8 @@ import type {
   TimeRange,
 } from './dashboard-home.types';
 import { DashboardHomeCapabilityService } from './dashboard-home.capability.service';
+import { applyCapabilityToOverview } from './dashboard-home.response.utils';
+import { assertPeriodReadableByMembership } from './dashboard-home.entitlement';
 
 const PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
 const PROFIT_DASHBOARD_HOME_STATS_REFRESH_AFTER_MS = 10_000;
@@ -50,6 +53,8 @@ interface DashboardHomeOverviewComposeInput {
   storeId: number;
   period: DashboardHomePeriodValue;
   refresh: boolean;
+  /** 请求级时间基准，必须与其他子块同源，见 buildCurrentRange 注释 */
+  now: number;
 }
 
 @Injectable()
@@ -61,6 +66,7 @@ export class DashboardHomeService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly capabilityService: DashboardHomeCapabilityService,
     private readonly quotaService: NewCustomerQuotaService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async getOverview(
@@ -69,6 +75,9 @@ export class DashboardHomeService {
   ): Promise<DashboardHomeOverviewResponseDto> {
     const query = buildDashboardHomeQueryInput(queryDto);
     const period = query.period ?? 'today';
+    // 统一时间基准：周期区间、动态流时间窗口、meta.generatedAt 必须同源，
+    // 否则跨零点请求会返回「统计属于昨天、动态属于今天」的混合快照
+    const now = Date.now();
     const preliminaryStoreId =
       user.currentMembership?.storeId ?? query.storeId ?? 0;
 
@@ -96,21 +105,34 @@ export class DashboardHomeService {
       '无权查看该门店首页概览',
     );
 
+    /*
+     * 会员套餐历史窗口校验必须发生在读缓存之前：套餐降级后，超出新窗口的
+     * 周期缓存仍在 TTL 内，只靠前端隐藏「本月/今年」按钮拦不住直接构造的请求。
+     * 校验拒绝而不是裁剪，是为了避免返回「区间被截断、标签仍写今年」的误导数据。
+     */
+    await assertPeriodReadableByMembership(this.platformMembershipAccessService, {
+      storeId,
+      period,
+      now,
+      callerIsSubAccount: user.currentMembership?.subjectType === 'sub_account',
+    });
+
     // 预估门店与真实门店一致（绝大多数请求）：直接用并行取到的缓存。
     if (storeId === preliminaryStoreId) {
       if (preliminaryCachedOverview) {
-        return {
-          ...preliminaryCachedOverview,
-          capability: preliminaryCapability,
-        };
+        return applyCapabilityToOverview(
+          preliminaryCachedOverview,
+          preliminaryCapability,
+        );
       }
 
       const overview = await this.composeAndCacheOverview({
         storeId,
         period,
         refresh: false,
+        now,
       });
-      return { ...overview, capability: preliminaryCapability };
+      return applyCapabilityToOverview(overview, preliminaryCapability);
     }
 
     // 权限裁决落到其它门店：按真实门店重算能力快照，再走常规缓存路径。
@@ -124,31 +146,36 @@ export class DashboardHomeService {
         buildProfitDashboardHomeCacheKey(storeId, period),
       );
     if (cachedOverview) {
-      return { ...cachedOverview, capability: capabilitySnapshot };
+      return applyCapabilityToOverview(cachedOverview, capabilitySnapshot);
     }
 
     const overview = await this.composeAndCacheOverview({
       storeId,
       period,
       refresh: false,
+      now,
     });
-    return { ...overview, capability: capabilitySnapshot };
+    return applyCapabilityToOverview(overview, capabilitySnapshot);
   }
 
   async warmOverviewCache(
     storeId: number,
     period: NonNullable<GetDashboardHomeOverviewQueryDto['period']> | 'today',
   ): Promise<DashboardHomeOverviewWithoutCapability> {
-    return this.composeAndCacheOverview({ storeId, period, refresh: true });
+    return this.composeAndCacheOverview({
+      storeId,
+      period,
+      refresh: true,
+      now: Date.now(),
+    });
   }
 
   private async composeAndCacheOverview(
     input: DashboardHomeOverviewComposeInput,
   ): Promise<DashboardHomeOverviewWithoutCapability> {
-    const { storeId, period, refresh } = input;
-    const currentRange = buildCurrentRange(period);
+    const { storeId, period, refresh, now } = input;
+    const currentRange = buildCurrentRange(period, now);
     const compareRange = buildCompareRange(period, currentRange);
-    const now = Date.now();
     const [statsData, salesTrend, activitiesData, quotaOverview] =
       await Promise.all([
         refresh

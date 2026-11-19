@@ -1,5 +1,10 @@
 import { ConflictException } from '@nestjs/common';
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
+import { findCurrentStorePartner } from '../platform-membership/platform-membership-partner.query';
+import {
+  lockStorePartnerBeanBalance,
+  sumPendingOccupiedDeductions,
+} from '../platform-membership/membership-pending-occupancy.shared';
 import type { ApplyWithdrawalDto } from './dto/apply-withdrawal.dto';
 import {
   type WithdrawalRecordSnapshot,
@@ -20,6 +25,14 @@ export type ApplyWithdrawalTransactionInput = {
   dto: ApplyWithdrawalDto;
   accountNo: string;
   accountName: string;
+  /**
+   * 会员待支付订单已占用的纯利豆：这部分不能被提现拿走。
+   *
+   * 会员下单不预扣豆，只在下单时把占用从可用额度里扣掉；提现若仍按
+   * 原始 beanBalance 扣减，同一笔豆会同时被「待支付会员单」和「提现」承诺，
+   * 回调生效时才发现扣不动。
+   */
+  reservedBeans: number;
 };
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -54,6 +67,32 @@ export async function findIdempotentWithdrawal(
   });
 }
 
+/**
+ * 该合伙人名下「未过期会员待支付订单」占用的纯利豆。
+ *
+ * 会员下单不预扣豆（只在下单时把占用从可用额度里扣掉），提现必须采用
+ * 同一份口径，否则同一笔豆会被待支付会员单与提现同时承诺出去。
+ * 单合伙人逻辑下占用只属于当前合伙人；门店存在多个 approved 合伙人时，
+ * 非当前合伙人的余额不受会员抵扣影响。
+ */
+export async function resolveMembershipOccupiedBeans(
+  tx: PrismaTransactionExecutor,
+  storeId: number,
+  partnerId: number,
+): Promise<number> {
+  const profile = await tx.storeMembershipProfile.findUnique({
+    where: { storeId },
+    select: { id: true },
+  });
+  if (!profile) return 0;
+
+  const currentPartner = await findCurrentStorePartner(tx, storeId);
+  if (!currentPartner || currentPartner.id !== partnerId) return 0;
+
+  const occupied = await sumPendingOccupiedDeductions(tx, profile.id);
+  return occupied.beans;
+}
+
 export async function createWithdrawalApplication(
   tx: PrismaTransactionExecutor,
   input: ApplyWithdrawalTransactionInput,
@@ -66,12 +105,15 @@ export async function createWithdrawalApplication(
     dto,
     accountNo,
     accountName,
+    reservedBeans,
   } = input;
   const partnerUpdateResult = await tx.storePartner.updateMany({
     where: {
       id: partnerId,
       status: 'approved',
-      beanBalance: { gte: dto.beanAmount },
+      // 余额必须覆盖「提现额 + 会员待支付占用」，否则提现会把已被
+      // 会员抵扣承诺出去的豆拿走，导致支付回调永久生效失败
+      beanBalance: { gte: dto.beanAmount + reservedBeans },
     },
     data: {
       beanBalance: { decrement: dto.beanAmount },
@@ -83,7 +125,11 @@ export async function createWithdrawalApplication(
   });
 
   if (partnerUpdateResult.count !== 1) {
-    throw new ConflictException('纯利豆余额不足，无法发起提现申请');
+    throw new ConflictException(
+      reservedBeans > 0
+        ? `纯利豆余额不足：其中 ${reservedBeans} 豆已被会员待支付订单占用`
+        : '纯利豆余额不足，无法发起提现申请',
+    );
   }
 
   const createdRecord = await tx.partnerWithdrawal.create({

@@ -14,8 +14,17 @@ import {
   getShanghaiYearStartMsForYear,
 } from '../../../shared/shanghai-time.utils';
 
-export function buildCurrentRange(period: DashboardHomePeriodValue): TimeRange {
-  const now = Date.now();
+/**
+ * 按上海时区解析周期的当前区间。
+ *
+ * `now` 必须由调用方传入并与其他子块（meta.generatedAt、动态流时间窗口）同源：
+ * 若这里各自取 Date.now()，跨零点请求会出现「统计区间属于前一天、动态流属于新一天」
+ * 的混合快照。
+ */
+export function buildCurrentRange(
+  period: DashboardHomePeriodValue,
+  now: number = Date.now(),
+): TimeRange {
   const shanghaiYear = getShanghaiFullYear(now);
 
   switch (period) {

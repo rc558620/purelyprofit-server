@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { isGrouponVoucherItemName } from '../../commerce/commerce.utils';
 import type {
   BusinessAnalysisAccessibleRange,
   BusinessAnalysisCategoryRow,
@@ -12,10 +13,8 @@ import type {
   BusinessAnalysisSalesSummaryRow,
   BusinessAnalysisRankSort,
 } from './business-analysis.types';
-import {
-  BUSINESS_ANALYSIS_RANK_LIMIT,
-  DEFAULT_BUSINESS_ANALYSIS_RANK_SORT,
-} from './business-analysis.types';
+import { compareText } from './business-analysis.utils';
+import { DEFAULT_BUSINESS_ANALYSIS_RANK_SORT } from './business-analysis.types';
 import {
   buildCostPreviousTotalSql,
   buildQueryRange,
@@ -24,9 +23,7 @@ import {
   buildSalesPreviousProfitSql,
   buildSalesPreviousRevenueSql,
   compareRankRows,
-  compareText,
   executeRankQuery,
-  EXCLUDE_VOUCHER_ITEM_SQL,
 } from './business-analysis.query.helpers';
 
 export interface BusinessAnalysisMetricsRows {
@@ -57,6 +54,15 @@ export async function fetchBusinessAnalysisRank(
   );
 }
 
+/**
+ * 经营分析取数：汇总 / 日趋势 / 品类 / 排行 / 成本共用同一份「有效销售单」基集。
+ *
+ * 有效销售单与 profit-detail、sales-record 对齐：
+ * - 存在 sale_order_refunds 行的订单整体排除（退款只写退款表，不改明细行，
+ *   不排除会让退款单的收入、利润、单数、排行全部照算）；
+ * - 预付款 / 预付抵扣 / 续费抵扣 / 自助下单抵扣行不计入金额（避免与对应商品行重复）；
+ * - 券面消费行（「XX（团购券）」）**计入金额与日趋势**，仅在排行 / 品类维度剔除。
+ */
 export async function fetchBusinessAnalysisMetrics(
   prisma: PrismaService,
   storeId: number,
@@ -105,14 +111,17 @@ export async function fetchBusinessAnalysisMetrics(
         ${salesPreviousProfitSql} AS "previousProfit"
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
+      LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(queryRange.start)}
         AND so.date <= ${new Date(queryRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣', '自助下单抵扣')
+        AND sor.id IS NULL
     `,
-      // 日趋势 / 品类分布 / 商品排行共享一次 sale_order_items 扫描：
-      // GROUPING SETS 一次产出三种粒度，替代原先两条 WHERE 高度重叠的查询
-      // 外加独立的排行查询。三种粒度的 ORDER BY 不同，统一在应用层分流后排序。
+      // 日趋势 / 品类分布 / 商品排行共享一次 sale_order_items 扫描。
+      // 只产出「日」与「商品」两种粒度：品类由商品行在应用层汇总——
+      // 券面消费行只允许从排行 / 品类剔除、必须留在日趋势里，SQL WHERE 无法
+      // 按粒度区分，放到应用层才能同时满足两种口径。
       prisma.$queryRaw<BusinessAnalysisSalesGroupedRow[]>`
       SELECT
         date_trunc('day', so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
@@ -125,14 +134,14 @@ export async function fetchBusinessAnalysisMetrics(
         MAX(NULLIF(soi.image, '')) AS image
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
+      LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
-        ${EXCLUDE_VOUCHER_ITEM_SQL}
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣', '自助下单抵扣')
+        AND sor.id IS NULL
       GROUP BY GROUPING SETS (
         (date_trunc('day', so.date + interval '8 hours') - interval '8 hours'),
-        (soi.category_name),
         (soi.product_id, soi.product_name, soi.category_name)
       )
     `,
@@ -152,6 +161,11 @@ export async function fetchBusinessAnalysisMetrics(
         ${costPreviousTotalSql} AS "previousTotalCost"
       FROM cost_records cr
       WHERE cr.store_id = ${storeId}
+        -- 采购成本记录（source_type='purchase'）不再作为经营费用扣减：
+        -- 销售行 profit 已按「售价 − 成本价」扣过商品成本，再扣一次会把同一批
+        -- 已售商品成本重复计入，并把未售库存提前计入当期损益。
+        -- 手工录入的成本记录（含手工记的进货）仍按经营费用处理。
+        AND cr.source_type <> 'purchase'
         AND cr.date >= ${new Date(queryRange.start)}
         AND cr.date <= ${new Date(queryRange.end)}
     `,
@@ -163,6 +177,7 @@ export async function fetchBusinessAnalysisMetrics(
         COALESCE(SUM(cr.amount), 0) AS amount
       FROM cost_records cr
       WHERE cr.store_id = ${storeId}
+        AND cr.source_type <> 'purchase'
         AND cr.date >= ${new Date(currentRange.start)}
         AND cr.date <= ${new Date(currentRange.end)}
       GROUP BY GROUPING SETS (
@@ -172,12 +187,17 @@ export async function fetchBusinessAnalysisMetrics(
     `,
     ]);
 
-  // 三种粒度分流：product_name 为 NOT NULL，只有商品排行分组带 productName。
+  // 两种粒度分流：商品分组带 productName；日分组只有 bucketAt（categoryName 为 NULL）。
   const salesDailyRows: BusinessAnalysisDailyRevenueRow[] = [];
-  const salesCategoryRows: BusinessAnalysisCategoryRow[] = [];
   const salesRankRows: BusinessAnalysisRankRow[] = [];
   for (const row of salesGroupedRows) {
     if (typeof row.productName === 'string') {
+      // 券面消费行不是真实商品：不进排行 / 品类；金额仍留在日趋势（SQL 不再排除）
+      if (
+        isGrouponVoucherItemName(row.productName, row.categoryName ?? undefined)
+      ) {
+        continue;
+      }
       salesRankRows.push({
         productId: row.productId,
         productName: row.productName,
@@ -195,26 +215,18 @@ export async function fetchBusinessAnalysisMetrics(
         revenue: Number(row.revenue ?? 0),
         profit: Number(row.profit ?? 0),
       });
-      continue;
-    }
-    if (row.categoryName !== null) {
-      salesCategoryRows.push({
-        categoryName: row.categoryName,
-        revenue: Number(row.revenue ?? 0),
-        profit: Number(row.profit ?? 0),
-        quantity: row.quantity,
-      });
     }
   }
-  // 还原被合并掉的各条 SQL 的排序：先按 rankSort 排序再截断，与原先
-  // ORDER BY + LIMIT 语义一致；日趋势按时间升序、品类按收入降序。
-  salesRankRows.sort((a, b) => compareRankRows(a, b, rankSort));
-  const rankedProducts = salesRankRows.slice(0, BUSINESS_ANALYSIS_RANK_LIMIT);
+
+  // 品类由商品分组在应用层汇总：与排行共用同一份扫描与同一套券面排除规则，
+  // 不再需要独立的 category GROUPING SET。日趋势按时间升序、品类按收入降序。
+  const salesCategoryRows = buildCategoryRows(salesRankRows);
   salesDailyRows.sort((a, b) => a.bucketAt.getTime() - b.bucketAt.getTime());
-  salesCategoryRows.sort(
-    (a, b) =>
-      b.revenue - a.revenue || compareText(a.categoryName, b.categoryName),
-  );
+
+  // 先按 rankSort 排序（决定同一商品多段名称时沿用哪一组名称），
+  // 但**不在这里截断**：截断必须发生在按 productId 合并之后
+  // （见 domain.sortAndLimitRankMap），否则改名商品会在合并前被切掉。
+  salesRankRows.sort((a, b) => compareRankRows(a, b, rankSort));
 
   const costDailyRows: BusinessAnalysisDailyCostRow[] = [];
   const costBucketRows: BusinessAnalysisCostBucketRow[] = [];
@@ -249,7 +261,7 @@ export async function fetchBusinessAnalysisMetrics(
     },
     salesDailyRows,
     salesCategoryRows,
-    salesRankRows: rankedProducts,
+    salesRankRows,
     costSummaryRow: {
       currentTotalCost: Number(costSummaryRows[0]?.currentTotalCost ?? 0),
       previousTotalCost: Number(costSummaryRows[0]?.previousTotalCost ?? 0),
@@ -257,4 +269,39 @@ export async function fetchBusinessAnalysisMetrics(
     costDailyRows,
     costBucketRows,
   };
+}
+
+/**
+ * 由商品分组汇总品类分布。
+ *
+ * 入参已按券面消费行过滤，且同商品多段名称的快照行在这里会被自然合并
+ * （按 categoryName 累加）。无分类名的行不计入品类，避免出现空分类项。
+ */
+function buildCategoryRows(
+  rankRows: BusinessAnalysisRankRow[],
+): BusinessAnalysisCategoryRow[] {
+  const categoryMap = new Map<string, BusinessAnalysisCategoryRow>();
+  for (const row of rankRows) {
+    if (!row.categoryName) {
+      continue;
+    }
+    const existing = categoryMap.get(row.categoryName);
+    if (existing) {
+      existing.revenue += row.totalRevenue;
+      existing.profit += row.totalProfit;
+      existing.quantity += row.quantity;
+      continue;
+    }
+    categoryMap.set(row.categoryName, {
+      categoryName: row.categoryName,
+      revenue: row.totalRevenue,
+      profit: row.totalProfit,
+      quantity: row.quantity,
+    });
+  }
+
+  return Array.from(categoryMap.values()).sort(
+    (a, b) =>
+      b.revenue - a.revenue || compareText(a.categoryName, b.categoryName),
+  );
 }

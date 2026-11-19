@@ -65,10 +65,16 @@ describe('NewCustomerQuotaService', () => {
   });
 
   it('门店无会员档案时概览全部归零，预警阈值取默认 100', async () => {
-    delegates.storeMembershipProfile.findUnique.mockResolvedValue(null);
-    delegates.storeNewCustomerQuotaLog.aggregate.mockResolvedValue({
-      _sum: { changeAmount: null },
-    });
+    // 概览已改成单条 $queryRaw（档案余额 + 流水汇总一次查完），
+    // 不再走 findUnique / aggregate 三个查询
+    queryRaw.mockResolvedValue([
+      {
+        remaining: 0,
+        totalConsumed: 0,
+        totalRecharged: 0n,
+        totalGranted: 0n,
+      },
+    ]);
 
     await expect(service.getOverview(42)).resolves.toEqual({
       storeId: 42,
@@ -81,13 +87,14 @@ describe('NewCustomerQuotaService', () => {
   });
 
   it('有余额时汇总充值/赠送/已服务新客', async () => {
-    delegates.storeMembershipProfile.findUnique.mockResolvedValue({
-      newCustomerQuota: 86,
-      newCustomerQuotaConsumed: 547,
-    });
-    delegates.storeNewCustomerQuotaLog.aggregate
-      .mockResolvedValueOnce({ _sum: { changeAmount: 333 } })
-      .mockResolvedValueOnce({ _sum: { changeAmount: 300 } });
+    queryRaw.mockResolvedValue([
+      {
+        remaining: 86,
+        totalConsumed: 547,
+        totalRecharged: 333n,
+        totalGranted: 300n,
+      },
+    ]);
 
     await expect(service.getOverview(42)).resolves.toEqual({
       storeId: 42,

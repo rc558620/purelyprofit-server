@@ -27,7 +27,7 @@ describe('FinanceAccountService', () => {
   >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
-    'invalidateFinanceDerived'
+    'invalidateFinanceDerivedQuietly'
   >;
 
   const user: AuthenticatedUser = createFinanceSpecUser();
@@ -601,7 +601,7 @@ describe('FinanceAccountService', () => {
     });
 
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).toHaveBeenCalledWith(18);
   });
 
@@ -653,7 +653,7 @@ describe('FinanceAccountService', () => {
     });
     expect(prismaService.$transaction).toHaveBeenCalled();
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).toHaveBeenCalledWith(18);
   });
 
@@ -791,7 +791,7 @@ describe('FinanceAccountService', () => {
       ConflictException,
     );
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).not.toHaveBeenCalled();
   });
 

@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -78,13 +79,16 @@ export class PurchasesController {
 
   @Post()
   @RequirePermissions('purchase:create')
-  @ApiOperation({ summary: '创建进货单' })
+  @ApiOperation({
+    summary: '创建进货单（支持 Idempotency-Key，重复提交不会重复入库）',
+  })
   @ApiCreatedResponse({ type: PurchaseResponseDto })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePurchaseDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<PurchaseResponseDto> {
-    return this.purchasesService.create(user, dto);
+    return this.purchasesService.create(user, dto, { idempotencyKey });
   }
 
   @Delete(':id')

@@ -27,6 +27,14 @@ export interface WithdrawalsPrismaServiceMock {
     count: jest.Mock;
     aggregate: jest.Mock;
   };
+  storeMembershipProfile: {
+    findUnique: jest.Mock;
+  };
+  storeMembershipOrder: {
+    aggregate: jest.Mock;
+  };
+  /** 提现与会员下单共用的余额行锁（SELECT ... FOR UPDATE） */
+  $queryRaw: jest.Mock;
   $transaction: jest.Mock;
 }
 
@@ -99,6 +107,17 @@ function createPrismaServiceMock(): WithdrawalsPrismaServiceMock {
       count: jest.fn(),
       aggregate: jest.fn().mockResolvedValue({ _sum: { beanAmount: 0 } }),
     },
+    storeMembershipProfile: {
+      // 默认无会员档案：提现不扣任何「会员待支付占用」
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    storeMembershipOrder: {
+      // 默认没有待支付会员单占用纯利豆
+      aggregate: jest
+        .fn()
+        .mockResolvedValue({ _sum: { pointsUsed: 0, beansUsed: 0 } }),
+    },
+    $queryRaw: jest.fn().mockResolvedValue([{ beanBalance: 1200 }]),
     $transaction: jest.fn(),
   };
 }

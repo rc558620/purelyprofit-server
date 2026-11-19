@@ -74,6 +74,30 @@ export class PlatformMembershipPaymentRecoveryService {
     return true;
   }
 
+  /** 支付单对应的会员单是否已完成权益落地（paid） */
+  async isMembershipOrderSettled(paymentOrderNo: string): Promise<boolean> {
+    const order = await this.prisma.storeMembershipOrder.findFirst({
+      where: { paymentOrderId: paymentOrderNo },
+      select: { status: true },
+    });
+    return order?.status === 'paid';
+  }
+
+  /**
+   * 用户主动关单：把仍停在 pending 的会员单同步置 failed，释放额度占用。
+   *
+   * 只允许在支付单确认 closed 时调用：支付单已 paid 时置 failed 会把
+   * 「已付款、权益待落地」的单永久丢弃，补偿路径再也捞不回来。
+   */
+  async closePendingOrderByPaymentOrderNo(
+    paymentOrderNo: string,
+  ): Promise<void> {
+    await this.prisma.storeMembershipOrder.updateMany({
+      where: { paymentOrderId: paymentOrderNo, status: 'pending' },
+      data: { status: 'failed' },
+    });
+  }
+
   /** 启动补偿：扫描近期「已付款但权益未落地」的会员订单并补生效 */
   async backfillPendingPaidOrders(): Promise<void> {
     const since = new Date(Date.now() - BACKFILL_WINDOW_DAYS * DAY_MS);

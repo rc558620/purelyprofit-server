@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -71,7 +72,11 @@ export class PurchaseItemInputDto {
   @MaxLength(100, { message: '商品名称最长 100 个字符' })
   productName?: string;
 
-  @ApiPropertyOptional({ example: '箱', description: '单位快照' })
+  @ApiPropertyOptional({
+    example: '箱',
+    description:
+      '单位快照；已关联商品时必须与商品库存单位一致（入库按该单位累加，不做换算）',
+  })
   @IsOptional()
   @IsString({ message: '单位必须是字符串' })
   @MaxLength(20, { message: '单位最长 20 个字符' })
@@ -81,12 +86,14 @@ export class PurchaseItemInputDto {
   @Type(() => Number)
   @IsInt({ message: '进货数量必须是整数' })
   @Min(1, { message: '进货数量必须大于 0' })
+  @Max(1_000_000, { message: '进货数量不能超过 1000000' })
   quantity: number;
 
   @ApiProperty({ example: 60, description: '进货单价（元），必须大于 0' })
   @Type(() => Number)
   @IsNumber({}, { message: '进货单价必须是数字' })
   @Min(0.01, { message: '进货单价必须大于 0' })
+  @Max(10_000_000, { message: '进货单价不能超过 10000000 元' })
   unitPrice: number;
 }
 

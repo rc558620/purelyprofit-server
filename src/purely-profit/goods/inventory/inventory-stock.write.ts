@@ -4,18 +4,20 @@ import type {
   InventoryDeductionParams,
   InventoryManualAdjustmentCommand,
   InventoryRestockParams,
+  InventoryRevertLogRecord,
   InventoryRevertPurchaseParams,
   InventoryRevertSaleParams,
   InventorySaleDeductionParams,
   InventoryTransactionClient,
 } from './inventory.types';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { InventoryAdjustType } from '@prisma/client';
 import {
   buildInventoryManualAdjustmentPlan,
   buildInventoryRevertStockPlan,
   buildInventoryStockChangePlan,
 } from './inventory-stock.domain';
+import type { InventoryWriteContext } from './inventory-stock.query';
 import {
   createInventoryAdjustmentLog,
   createInventoryAdjustmentLogs,
@@ -268,12 +270,14 @@ export async function revertInventorySaleDeduction(
 /**
  * 进货单删除时的入库回滚：按该进货单产生的 restock 日志反向扣减库存。
  *
- * 与 revertInventorySaleDeduction 同序（先删日志、再回滚库存）：
- * 先删日志可保证幂等——重复调用第二次查不到日志，不会重复回滚；
- * 若回滚途中失败，事务整体回滚、日志也不会丢，下次重试仍能正确扣减。
+ * 一致性语义（all-or-nothing）：必须能**完整**撤销才允许删除。
+ * 此前实现按可用库存钳制回滚量（库存不足就少扣、商品已删就跳过），
+ * 但删单事务仍会删掉原流水与成本记录，结果是一次「部分撤销」既无法对账
+ * 也无法反查——库存虚增、成本凭空消失。
+ * 现在只要任一商品无法完整回滚，直接抛 409 让整笔删除失败，单据与流水保持原样。
  *
- * 库存语义：只回滚「可用库存」（物理库存 − 客存冻结量）并钳制到 0，
- * 避免出现负库存或把客户寄存的商品回滚掉。
+ * 顺序：先校验（一致性读 + 行锁）→ 删日志 → 批量回滚库存。
+ * 校验阶段不写库，事务失败时日志与库存均不变，重复调用仍可安全重试。
  */
 export async function revertInventoryPurchaseRestock(
   transaction: InventoryTransactionClient,
@@ -285,8 +289,6 @@ export async function revertInventoryPurchaseRestock(
     return;
   }
 
-  await deletePurchaseAdjustmentLogs(transaction, params);
-
   // 回滚量由「当前库存 − 冻结量」推导，必须一致性读，否则并发下会把别人
   // 刚扣掉的库存重复加回（读到的 stock 偏大 → revertQty 偏大）。
   const context = await loadInventoryWriteContext(
@@ -295,22 +297,50 @@ export async function revertInventoryPurchaseRestock(
     logs.map((log) => log.productId),
     { lockRows: true },
   );
+  const purchaseRevertChanges = buildPurchaseRevertChanges(logs, context);
 
-  const purchaseRevertChanges: Array<{ productId: number; delta: number }> = [];
+  await deletePurchaseAdjustmentLogs(transaction, params);
+  await updateInventoryProductStocks(transaction, purchaseRevertChanges);
+}
+
+/**
+ * 生成进货回滚的库存增量；无法完整撤销时抛 409。
+ *
+ * 两种不可撤销场景：
+ * 1. 商品已被删除（软删后不再参与库存读）——回滚目标不存在；
+ * 2. 可用库存（物理库存 − 客存冻结量）小于应回滚量——部分已售出或已冻结。
+ */
+function buildPurchaseRevertChanges(
+  logs: InventoryRevertLogRecord[],
+  context: InventoryWriteContext,
+): Array<{ productId: number; delta: number }> {
+  const changes: Array<{ productId: number; delta: number }> = [];
 
   for (const log of logs) {
+    if (log.delta <= 0) {
+      continue;
+    }
+
     const product = context.products.get(log.productId);
-    if (!product) continue;
+    if (!product) {
+      throw new ConflictException(
+        `商品【${log.productName}】已删除或不可用，无法回滚库存，不能删除该进货单`,
+      );
+    }
 
     const frozenQty = context.frozenQty.get(log.productId) ?? 0;
     const availableStock = Math.max(0, product.stock - frozenQty);
-    const revertQty = Math.min(Math.max(0, log.delta), availableStock);
-    if (revertQty <= 0) continue;
 
-    purchaseRevertChanges.push({ productId: product.id, delta: -revertQty });
+    if (availableStock < log.delta) {
+      throw new ConflictException(
+        `商品【${product.name}】可用库存 ${availableStock} 小于应回滚数量 ${log.delta}（部分已售出或已冻结），无法完整撤销该进货单`,
+      );
+    }
+
+    changes.push({ productId: product.id, delta: -log.delta });
   }
 
-  await updateInventoryProductStocks(transaction, purchaseRevertChanges);
+  return changes;
 }
 
 export { deductInventoryForSaleBestEffort } from './inventory-stock-best-effort.write';

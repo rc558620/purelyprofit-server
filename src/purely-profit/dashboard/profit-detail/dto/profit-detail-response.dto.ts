@@ -2,12 +2,17 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
   ValidateNested,
 } from 'class-validator';
+import {
+  PROFIT_COMPARE_TYPE_VALUES,
+  type ProfitCompareTypeValue,
+} from '../profit-detail.types';
 
 export class ProfitSummaryDto {
   @ApiProperty({ example: 1280, description: '总收入（元）' })
@@ -36,11 +41,21 @@ export class ProfitSummaryDto {
 
   @ApiPropertyOptional({
     example: -5.2,
-    description: '净利润较上期变化百分比；无上期数据时为 null',
+    description:
+      '净利润较上期变化百分比；上期为亏损时按亏损额绝对值计算，符号表示变好/变差；无上期数据时为 null',
   })
   @IsOptional()
   @IsNumber({}, { message: '净利润较上期变化必须是数字' })
   profitCompareLastPeriod: number | null;
+
+  @ApiPropertyOptional({
+    enum: PROFIT_COMPARE_TYPE_VALUES,
+    description:
+      '净利润环比类型：normal 普通增长 / reduced_loss 减亏 / worsened_loss 增亏 / turned_profit 扭亏；无上期数据时为 null',
+  })
+  @IsOptional()
+  @IsIn(PROFIT_COMPARE_TYPE_VALUES, { message: '净利润环比类型不合法' })
+  profitCompareType: ProfitCompareTypeValue | null;
 
   @ApiPropertyOptional({
     example: 12.3,
@@ -209,12 +224,30 @@ export class ProfitDetailResponseDto {
 
   @ApiProperty({
     type: [ProductRankItemDto],
-    description: '商品利润排行',
+    description: '商品利润排行（按总利润 Top 5）',
   })
   @IsArray({ message: '商品利润排行必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => ProductRankItemDto)
   productRanking: ProductRankItemDto[];
+
+  @ApiProperty({
+    type: [ProductRankItemDto],
+    description: '商品收入排行（按总收入 Top 5，与利润榜各自独立计算）',
+  })
+  @IsArray({ message: '商品收入排行必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => ProductRankItemDto)
+  productRankingByRevenue: ProductRankItemDto[];
+
+  @ApiProperty({
+    type: [ProductRankItemDto],
+    description: '商品销量排行（按销售数量 Top 5，与利润榜各自独立计算）',
+  })
+  @IsArray({ message: '商品销量排行必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => ProductRankItemDto)
+  productRankingByQuantity: ProductRankItemDto[];
 
   @ApiProperty({
     type: [CostBreakdownItemDto],

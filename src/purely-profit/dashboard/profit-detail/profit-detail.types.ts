@@ -14,6 +14,20 @@ export const PROFIT_DETAIL_PERIOD_VALUES = [
 export type ProfitDetailPeriodValue =
   (typeof PROFIT_DETAIL_PERIOD_VALUES)[number];
 
+/**
+ * 净利润环比类型。负基期不能用普通增长率解释，由该字段交给前端显示
+ * 减亏 / 增亏 / 扭亏，避免「亏得少了反而显示下降」。
+ */
+export const PROFIT_COMPARE_TYPE_VALUES = [
+  'normal',
+  'reduced_loss',
+  'worsened_loss',
+  'turned_profit',
+] as const;
+
+export type ProfitCompareTypeValue =
+  (typeof PROFIT_COMPARE_TYPE_VALUES)[number];
+
 export const PROFIT_DETAIL_COST_META: Record<
   CostCategory,
   { label: string; color: string }

@@ -1,5 +1,5 @@
 import { calcPercentChange } from '../../commerce/commerce.utils';
-import { Money } from '../../../shared/money.utils';
+import { calcProfitCompare, Money } from '../../../shared/money.utils';
 import type { DashboardHomeStatsDto } from './dto/dashboard-home-response.dto';
 import { PERIOD_META } from './dashboard-home.constants';
 import type {
@@ -28,7 +28,13 @@ export function buildDashboardHomeStats(
   return {
     profitLabel: meta.profitLabel,
     profit: currentProfit,
-    profitChange: calcPercentChange(currentProfit, compareProfit),
+    /*
+     * 净利润可正可负，不能直接拿上期值当分母：上期亏损 ¥100、这期亏损 ¥50 时
+     * (current - previous) / previous 会得到 -50%，看起来像「下跌」，实际是减亏。
+     * 统一走上期绝对值为分母的口径（减亏为正、增亏为负），与利润详情页一致；
+     * 上期为 0 仍返回 null，由前端显示「暂无对比数据」。订单数非负，保持原算法。
+     */
+    profitChange: calcProfitCompare(currentProfit, compareProfit).percent,
     profitCompareLabel: meta.compareLabel,
     orderLabel: meta.orderLabel,
     orderCount: currentSales.orderCount,

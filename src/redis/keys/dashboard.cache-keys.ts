@@ -33,18 +33,37 @@ export function buildProfitDashboardHomeTrendCacheKey(
 /**
  * 动态数据「实时块」缓存键：只按门店聚合（与周期无关），缓存键不带 period。
  * 与状态块分开，避免分钟级不变的数据被 45s 一起重算。
+ *
+ * 必须带上业务日（上海零点时间戳）：动态内容里的「今日新增会员 / 今日充值 /
+ * 今日订单」都是按天切窗口的，若键里没有日期，跨零点后的 TTL 窗口内会继续
+ * 返回前一天的数据，后台刷新也会沿用旧时间窗口。
  */
 export function buildProfitDashboardHomeActivitiesLiveCacheKey(
   storeId: number,
+  businessDayStart: number,
 ): string {
-  return `profit:dashboard:home-chunk:activities-live:store:${storeId}`;
+  return `profit:dashboard:home-chunk:activities-live:store:${storeId}:day:${businessDayStart}`;
 }
 
-/** 动态数据「状态块」缓存键：只按门店聚合（与周期无关），缓存键不带 period */
+/** 动态数据「状态块」缓存键：只按门店聚合（与周期无关），理由同实时块 */
 export function buildProfitDashboardHomeActivitiesStableCacheKey(
   storeId: number,
+  businessDayStart: number,
 ): string {
-  return `profit:dashboard:home-chunk:activities-stable:store:${storeId}`;
+  return `profit:dashboard:home-chunk:activities-stable:store:${storeId}:day:${businessDayStart}`;
+}
+
+/** 动态块失效模式：键里带业务日，精确删除需要先知道日期，统一按前缀通刷 */
+export function buildProfitDashboardHomeActivitiesLivePattern(
+  storeId: number,
+): string {
+  return `profit:dashboard:home-chunk:activities-live:store:${storeId}:*`;
+}
+
+export function buildProfitDashboardHomeActivitiesStablePattern(
+  storeId: number,
+): string {
+  return `profit:dashboard:home-chunk:activities-stable:store:${storeId}:*`;
 }
 
 /**

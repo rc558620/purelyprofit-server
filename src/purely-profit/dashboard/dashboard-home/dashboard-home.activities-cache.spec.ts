@@ -4,10 +4,12 @@ import {
 } from '../../../redis/keys';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { loadDashboardHomeActivitiesChunks } from './dashboard-home.activities-cache';
 import type { DashboardHomeActivitiesData } from './dashboard-home.types';
 
 const NOW = new Date(2026, 4, 14, 15, 0, 0, 0).getTime();
+const BUSINESS_DAY_START = getShanghaiDayStartMs(NOW);
 
 /** 动态流完整结构包含的全部字段，用于守住「分块合并不丢字段」 */
 const ACTIVITIES_FIELDS: Array<keyof DashboardHomeActivitiesData> = [
@@ -83,13 +85,13 @@ describe('loadDashboardHomeActivitiesChunks', () => {
 
     // 状态块排在实时块之前：两块都 miss 时保证 SQL 发起顺序与分块前一致
     expect(stableOptions.cacheKey).toBe(
-      buildProfitDashboardHomeActivitiesStableCacheKey(18),
+      buildProfitDashboardHomeActivitiesStableCacheKey(18, BUSINESS_DAY_START),
     );
     expect(stableOptions.ttlSeconds).toBe(300);
     expect(stableOptions.refreshAfterMs).toBe(120_000);
 
     expect(liveOptions.cacheKey).toBe(
-      buildProfitDashboardHomeActivitiesLiveCacheKey(18),
+      buildProfitDashboardHomeActivitiesLiveCacheKey(18, BUSINESS_DAY_START),
     );
     expect(liveOptions.ttlSeconds).toBe(45);
     expect(liveOptions.refreshAfterMs).toBe(15_000);
@@ -131,10 +133,50 @@ describe('loadDashboardHomeActivitiesChunks', () => {
       writeCalls.map(([cacheKey, , ttlSeconds]) => [cacheKey, ttlSeconds]),
     );
     expect(
-      ttlByKey.get(buildProfitDashboardHomeActivitiesStableCacheKey(18)),
+      ttlByKey.get(
+        buildProfitDashboardHomeActivitiesStableCacheKey(18, BUSINESS_DAY_START),
+      ),
     ).toBe(300);
     expect(
-      ttlByKey.get(buildProfitDashboardHomeActivitiesLiveCacheKey(18)),
+      ttlByKey.get(
+        buildProfitDashboardHomeActivitiesLiveCacheKey(18, BUSINESS_DAY_START),
+      ),
     ).toBe(45);
+  });
+
+  it('跨业务日会切换到新的缓存键，避免沿用上一天的今日数据', async () => {
+    const cache = createCacheMock();
+    const nextDayNow = new Date(2026, 4, 15, 0, 5, 0, 0).getTime();
+
+    await loadDashboardHomeActivitiesChunks({
+      cache,
+      prisma: createPrismaMock(),
+      storeId: 18,
+      now: NOW,
+      refresh: false,
+    });
+    await loadDashboardHomeActivitiesChunks({
+      cache,
+      prisma: createPrismaMock(),
+      storeId: 18,
+      now: nextDayNow,
+      refresh: false,
+    });
+
+    const calls = cache.getOrLoadRefreshableJson.mock.calls as unknown as Array<
+      [CacheMockOptions]
+    >;
+    const liveKeys = calls
+      .map(([options]) => options.cacheKey)
+      .filter((cacheKey) => cacheKey.includes('activities-live'));
+
+    expect(liveKeys).toHaveLength(2);
+    expect(liveKeys[0]).not.toBe(liveKeys[1]);
+    expect(liveKeys[1]).toBe(
+      buildProfitDashboardHomeActivitiesLiveCacheKey(
+        18,
+        getShanghaiDayStartMs(nextDayNow),
+      ),
+    );
   });
 });

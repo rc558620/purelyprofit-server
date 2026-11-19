@@ -18,6 +18,9 @@ export {
   calcPercentChange,
   calcPercentOfTotal,
   calcPercentPointDiff,
+  calcProfitCompare,
+  type ProfitCompareResult,
+  type ProfitCompareType,
 } from '../../shared/money.utils';
 
 export {

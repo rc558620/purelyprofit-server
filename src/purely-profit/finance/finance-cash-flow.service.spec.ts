@@ -27,7 +27,7 @@ describe('FinanceCashFlowService', () => {
   >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
-    'invalidateFinanceDerived'
+    'invalidateFinanceDerivedQuietly'
   >;
 
   const user: AuthenticatedUser = createFinanceSpecUser();
@@ -232,6 +232,7 @@ describe('FinanceCashFlowService', () => {
     prismaService.financeCashFlowRecord.findFirst.mockResolvedValue({
       id: 7,
       saleOrderId: 11,
+      saleOrderRefundId: null,
     });
 
     await expect(service.deleteCashFlowRecord(user, 7)).rejects.toBeInstanceOf(
@@ -239,10 +240,26 @@ describe('FinanceCashFlowService', () => {
     );
   });
 
+  it('deleteCashFlowRecord 禁止直接删除销售退款生成的流水', async () => {
+    prismaService.financeCashFlowRecord.findFirst.mockResolvedValue({
+      id: 9,
+      saleOrderId: null,
+      saleOrderRefundId: 31,
+    });
+
+    await expect(service.deleteCashFlowRecord(user, 9)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(
+      prismaService.financeCashFlowRecord.deleteMany,
+    ).not.toHaveBeenCalled();
+  });
+
   it('deleteCashFlowRecord 允许删除手动流水', async () => {
     prismaService.financeCashFlowRecord.findFirst.mockResolvedValue({
       id: 8,
       saleOrderId: null,
+      saleOrderRefundId: null,
     });
 
     await expect(
@@ -254,7 +271,7 @@ describe('FinanceCashFlowService', () => {
       },
     );
     expect(
-      cacheInvalidatorService.invalidateFinanceDerived,
+      cacheInvalidatorService.invalidateFinanceDerivedQuietly,
     ).toHaveBeenCalledWith(18);
   });
 });

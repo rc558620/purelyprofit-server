@@ -1,6 +1,7 @@
 import {
   calcPercentChange,
   calcPercentOfTotal,
+  calcProfitCompare,
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
@@ -13,12 +14,16 @@ import {
 import type {
   CostBreakdownItemDto,
   DailyProfitDto,
-  ProductRankItemDto,
   ProfitDetailResponseDto,
   ProfitReportProductRowDto,
   ProfitReportResponseDto,
   ProfitSummaryDto,
 } from './dto/profit-detail-response.dto';
+import {
+  buildProductRanking,
+  buildProductRankingByQuantity,
+  buildProductRankingByRevenue,
+} from './profit-detail.ranking';
 import {
   PROFIT_DETAIL_COST_META,
   type AggregatedRankProduct,
@@ -29,7 +34,13 @@ import {
 
 const DAY_MS = 86_400_000;
 const CHART_DAY_LIMIT = 365;
-const PRODUCT_RANKING_LIMIT = 5;
+
+// 商品排行已拆到 profit-detail.ranking.ts，这里保留再导出以兼容既有调用点
+export {
+  buildProductRanking,
+  buildProductRankingByQuantity,
+  buildProductRankingByRevenue,
+} from './profit-detail.ranking';
 
 export function buildEmptySummary(): ProfitSummaryDto {
   return {
@@ -39,6 +50,7 @@ export function buildEmptySummary(): ProfitSummaryDto {
     profitRate: 0,
     revenueCompareLastPeriod: null,
     profitCompareLastPeriod: null,
+    profitCompareType: null,
     costCompareLastPeriod: null,
     orderCount: 0,
   };
@@ -49,6 +61,8 @@ export function buildEmptyProfitDetailResponse(): ProfitDetailResponseDto {
     summary: buildEmptySummary(),
     dailyProfits: [],
     productRanking: [],
+    productRankingByRevenue: [],
+    productRankingByQuantity: [],
     costBreakdown: [],
   };
 }
@@ -69,13 +83,17 @@ export function buildSummary(
   previousNetProfit: number,
   orderCount: number,
 ): ProfitSummaryDto {
+  // 净利润存在负基期：不能复用普通增长率，否则亏损收窄会被算成「下降」。
+  const profitCompare = calcProfitCompare(netProfit, previousNetProfit);
+
   return {
     revenue,
     totalCost,
     netProfit,
     profitRate: calcPercentOfTotal(netProfit, revenue),
     revenueCompareLastPeriod: calcPercentChange(revenue, previousRevenue),
-    profitCompareLastPeriod: calcPercentChange(netProfit, previousNetProfit),
+    profitCompareLastPeriod: profitCompare.percent,
+    profitCompareType: profitCompare.type,
     costCompareLastPeriod: calcPercentChange(totalCost, previousTotalCost),
     orderCount,
   };
@@ -262,29 +280,6 @@ export function buildReportProducts(
     .sort((left, right) => right.totalProfit - left.totalProfit);
 }
 
-export function buildProductRanking(
-  rankMap: Map<string, AggregatedRankProduct>,
-): ProductRankItemDto[] {
-  return Array.from(rankMap.values())
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      price: item.price.toOutputYuan(),
-      profitPerUnit: item.profitPerUnit.toOutputYuan(),
-      quantity: item.quantity,
-      totalProfit: item.totalProfit.toOutputYuan(),
-      totalRevenue: item.totalRevenue.toOutputYuan(),
-      profitRate: calcPercentOfTotal(
-        item.totalProfit.toOutputYuan(),
-        item.totalRevenue.toOutputYuan(),
-      ),
-      ...(item.image ? { image: item.image } : {}),
-    }))
-    .sort((left, right) => right.totalProfit - left.totalProfit)
-    .slice(0, PRODUCT_RANKING_LIMIT);
-}
-
 export function buildCostBreakdown(
   categoryCostMap: CostAggregationResult['categoryCostMap'],
   totalCost: import('../../../shared/money.utils').Money,
@@ -306,7 +301,9 @@ export function buildProfitDetailResponse(
 ): ProfitDetailResponseDto {
   const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
   const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
-  // 总成本仅统计费用记录（成本管理），商品成本已内含于销售行利润快照
+  // 总成本只统计经营费用（成本管理中的手工费用 + 工资等），
+  // 已售商品成本已内含于销售行利润快照，系统进货生成的采购成本记录不计入，
+  // 否则同一批已售商品的成本会被扣两次（见 profit-detail.query 的 buildCostRecordQuery）。
   const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
   const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
   const netProfitYuan = snapshot.netProfit.toOutputYuan();
@@ -350,6 +347,12 @@ export function buildProfitDetailResponse(
     ),
     dailyProfits: trendProfits,
     productRanking: buildProductRanking(snapshot.currentSales.rankMap),
+    productRankingByRevenue: buildProductRankingByRevenue(
+      snapshot.currentSales.rankMap,
+    ),
+    productRankingByQuantity: buildProductRankingByQuantity(
+      snapshot.currentSales.rankMap,
+    ),
     costBreakdown: buildCostBreakdown(
       snapshot.currentCosts.categoryCostMap,
       snapshot.currentCosts.totalCost,
@@ -362,7 +365,7 @@ export function buildProfitReportResponse(
 ): ProfitReportResponseDto {
   const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
   const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
-  // 总成本仅统计费用记录（成本管理），商品成本已内含于销售行利润快照
+  // 与详情页同口径：仅经营费用，采购成本不计入（商品成本已在销售行利润里扣过）
   const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
   const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
   const netProfitYuan = snapshot.netProfit.toOutputYuan();

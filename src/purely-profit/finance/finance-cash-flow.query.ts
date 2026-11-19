@@ -115,10 +115,20 @@ export async function createCashFlowRecordEntity(
   return prisma.financeCashFlowRecord.create({ data });
 }
 
+/**
+ * 流水的业务归属：销售流水与销售退款流水都必须随来源单据回滚，
+ * 不能通过现金流水删除接口单独抹掉。
+ */
+export interface FinanceCashFlowRecordOwnership {
+  id: number;
+  saleOrderId: number | null;
+  saleOrderRefundId: number | null;
+}
+
 export async function findCashFlowRecordOwnership(
   prisma: PrismaService,
   params: { storeId: number; recordId: number },
-): Promise<{ id: number; saleOrderId: number | null } | null> {
+): Promise<FinanceCashFlowRecordOwnership | null> {
   return prisma.financeCashFlowRecord.findFirst({
     where: {
       id: params.recordId,
@@ -127,6 +137,7 @@ export async function findCashFlowRecordOwnership(
     select: {
       id: true,
       saleOrderId: true,
+      saleOrderRefundId: true,
     },
   });
 }

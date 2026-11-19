@@ -1,8 +1,10 @@
+import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { NewCustomerQuotaService } from '../../member/new-customer-quota/new-customer-quota.service';
 import { createNewCustomerQuotaServiceMock } from '../../member/new-customer-quota/new-customer-quota.spec-helpers';
@@ -67,6 +69,11 @@ describe('DashboardHomeService', () => {
   const redisService = {
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
+  };
+
+  /** 默认视为不限历史（null）；需要验证套餐限制时按用例改写返回值 */
+  const platformMembershipAccessService = {
+    getHistoryWindowStart: jest.fn().mockResolvedValue(null),
   };
 
   const refreshableCache = {
@@ -174,6 +181,10 @@ describe('DashboardHomeService', () => {
         { provide: RefreshableCacheService, useValue: refreshableCache },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
+        {
           provide: SubjectCapabilityService,
           useValue: subjectCapabilityService,
         },
@@ -190,6 +201,21 @@ describe('DashboardHomeService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('会员历史窗口不足时拒绝更早周期，且使用主账号口径', async () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.getHistoryWindowStart.mockResolvedValueOnce(
+      Date.now() - 7 * dayMs,
+    );
+
+    await expect(
+      service.getOverview(user, { period: 'month' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      platformMembershipAccessService.getHistoryWindowStart,
+    ).toHaveBeenCalledWith(18, false);
   });
 
   it('getOverview 返回首页概览所需字段', async () => {
@@ -430,7 +456,8 @@ describe('DashboardHomeService', () => {
       roleSummary: [],
       slots: [],
     });
-    subjectCapabilityService.buildSnapshot.mockReturnValue({
+    // 用 Once：该用例只有一次能力装配，避免收银员快照泄漏到后续用例
+    subjectCapabilityService.buildSnapshot.mockReturnValueOnce({
       identityType: 'sub_account',
       subAccountRole: 'cashier',
       subAccountQuota: 3,
@@ -568,8 +595,10 @@ describe('DashboardHomeService', () => {
     const upcomingActivity = result.activities.find(
       (item) => item.id === 'finance-upcoming-due',
     );
+
+
     expect(upcomingActivity).toBeDefined();
-    expect(upcomingActivity!.title).toBe('有1笔账款即将到期');
+    expect(upcomingActivity!.title).toBe('近期1笔账款即将到期');
     expect(upcomingActivity!.tag).toBe('¥1500');
     expect(upcomingActivity!.bizType).toBe('finance_account_upcoming');
   });
@@ -620,7 +649,7 @@ describe('DashboardHomeService', () => {
       (item) => item.id === 'employee-payroll-draft',
     );
     expect(payrollActivity).toBeDefined();
-    expect(payrollActivity!.title).toBe('有1份工资单待确认');
+    expect(payrollActivity!.title).toBe('近期1份工资单待确认');
     expect(payrollActivity!.tag).toBe('¥6000');
     expect(payrollActivity!.icon).toBe('employee');
   });
