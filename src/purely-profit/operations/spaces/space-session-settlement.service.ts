@@ -184,6 +184,7 @@ export class SpaceSessionSettlementService {
               storeId: params.session.storeId,
               customerId: latestSession.customerId,
               activeCardId: latestSession.activeCardId,
+              startTime: params.session.startTime,
             },
           });
           // 第二遍：把会员卡抵扣行计入明细（负向行，汇总时按卡口径加回营业额）

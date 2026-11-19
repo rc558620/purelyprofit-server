@@ -1,8 +1,9 @@
 // 手动增减次数入参：delta 非 0 才是一次真实调整，remark 必填以便对账追溯
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsInt,
+  IsOptional,
   IsString,
   Max,
   MaxLength,
@@ -47,4 +48,15 @@ export class AdjustMemberCardTimesDto {
     message: `调整原因最长 ${MEMBER_CARD_REMARK_MAX_LENGTH} 个字符`,
   })
   remark: string;
+
+  @ApiPropertyOptional({
+    example: 'b2f1c0de-8a4e-4a1e-9f5c-3d2a1b0c9e8f',
+    description:
+      '调次幂等键（客户端生成）：写成功但响应丢失时，重试必须复用同一个键，服务端按幂等返回',
+  })
+  @IsOptional()
+  @IsString({ message: '幂等键必须是字符串' })
+  @Transform(trimString)
+  @MaxLength(64, { message: '幂等键最长 64 个字符' })
+  requestId?: string;
 }

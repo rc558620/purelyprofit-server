@@ -39,6 +39,7 @@ import {
   UpdateSpaceDto,
 } from './dto/space.dto';
 import { SpaceStatsResponseDto } from './dto/space.response.dto';
+import { SpaceManagementVoiceSettingsResponseDto } from './dto/space-management-voice-settings.response.dto';
 import { UpdateSpaceManagementVoiceSettingsDto } from './dto/update-space-management-voice-settings.dto';
 import { SpaceManagementVoiceSettingsService } from './space-management-voice-settings.service';
 import { SpaceDashboardService } from './space-dashboard.service';
@@ -64,19 +65,21 @@ export class SpacesController {
   @Get('voice-settings')
   @RequirePermissions('space:view')
   @ApiOperation({ summary: '获取门店空间管理语音播报开关' })
-  @ApiOkResponse({ type: Object, description: '返回空间管理语音播报开关状态' })
-  getVoiceSettings(@UserWithRequestId() ctx: UserWithRequestIdValue) {
+  @ApiOkResponse({ type: SpaceManagementVoiceSettingsResponseDto })
+  getVoiceSettings(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+  ): Promise<SpaceManagementVoiceSettingsResponseDto> {
     return this.spaceManagementVoiceSettingsService.getForMerchant(ctx.user);
   }
 
   @Patch('voice-settings')
   @RequirePermissions('space:view')
   @ApiOperation({ summary: '更新门店空间管理语音播报开关（支持部分更新）' })
-  @ApiOkResponse({ type: Object, description: '更新成功，返回最新开关状态' })
+  @ApiOkResponse({ type: SpaceManagementVoiceSettingsResponseDto })
   updateVoiceSettings(
     @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Body() dto: UpdateSpaceManagementVoiceSettingsDto,
-  ) {
+  ): Promise<SpaceManagementVoiceSettingsResponseDto> {
     return this.spaceManagementVoiceSettingsService.updateForMerchant(
       ctx.user,
       dto,

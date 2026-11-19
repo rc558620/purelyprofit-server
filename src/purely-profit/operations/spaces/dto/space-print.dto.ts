@@ -6,6 +6,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import type { SpacePrintChannel } from '../space-print-settings.service';
 
@@ -23,7 +24,9 @@ export class UpdateSpacePrintSettingsDto {
     description: '空间消费小票打印通道（browser/cloud/usb/off）',
     example: 'cloud',
   })
-  @IsOptional()
+  // 不能用 @IsOptional：它会连 null 一起跳过，导致 null 一路传到 Prisma 非空列
+  // 变成 500。这里只放过 undefined，显式传 null 仍然返回 400。
+  @ValidateIf((_object, value) => value !== undefined)
   @IsIn(SPACE_PRINT_CHANNELS, {
     message: 'spacePrintChannel 必须是 browser/cloud/usb/off 之一',
   })

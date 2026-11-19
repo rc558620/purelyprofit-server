@@ -74,12 +74,49 @@ export class SpacePrintSettingsService {
     if (Object.keys(updates).length === 0) {
       throw new BadRequestException('没有需要更新的打印配置字段');
     }
+    const normalized = this.normalize(updates);
+    // 部分更新必须按「合并后的最终配置」校验：只切通道而不带 SN 会让门店
+    // 存下 cloud + 空 SN 的组合，直到结账出票时才在收银台报错。
+    const current = await this.getByStoreId(storeId);
+    this.assertConsistent({ ...current, ...normalized });
     await this.prisma.store.update({
       where: { id: storeId },
-      data: updates,
+      data: normalized,
     });
-    this.logUpdate(storeId, updates);
+    this.logUpdate(storeId, normalized);
     return this.getByStoreId(storeId);
+  }
+
+  /** 空字符串统一成 null，避免把 "  " 当成有效 SN 存库。 */
+  private normalize(
+    updates: SpacePrintSettingsUpdate,
+  ): SpacePrintSettingsUpdate {
+    return {
+      ...updates,
+      ...(updates.spaceCloudPrinterSn !== undefined
+        ? { spaceCloudPrinterSn: this.blankToNull(updates.spaceCloudPrinterSn) }
+        : {}),
+      ...(updates.spaceUsbPrinter !== undefined
+        ? { spaceUsbPrinter: this.blankToNull(updates.spaceUsbPrinter) }
+        : {}),
+    };
+  }
+
+  private blankToNull(value: string | null): string | null {
+    const trimmed = value?.trim() ?? '';
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  /** 校验合并后的配置是否可实际出票（云通道必须有 SN）。 */
+  private assertConsistent(settings: SpacePrintSettings): void {
+    if (
+      settings.spacePrintChannel === 'cloud' &&
+      !this.blankToNull(settings.spaceCloudPrinterSn)
+    ) {
+      throw new BadRequestException(
+        '选择云打印通道时必须同时配置云打印机 SN，请填写 SN 后一起保存',
+      );
+    }
   }
 
   private async resolveMerchantStoreId(

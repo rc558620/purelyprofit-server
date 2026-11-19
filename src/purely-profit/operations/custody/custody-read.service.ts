@@ -26,6 +26,7 @@ import { CustodySummaryService } from './custody-summary.service';
 import type {
   CustodyOrderDetailResponseDto,
   CustodyOrderListResponseDto,
+  CustodyOrderStatusDto,
   CustodySettingsDto,
 } from './dto/custody-response.dto';
 import type { CustodyListParams } from './custody.types';
@@ -47,10 +48,24 @@ export class CustodyReadService {
     const storeId = await this.resolveViewStoreId(user);
     const now = new Date();
     const query = buildListQuery({ ...params, storeId }, now);
+    /*
+     * 翻页请求只需要列表与游标：total 要全量 count、summary 要聚合 + 缓存往返，
+     * 两者在「加载更多」时都是纯浪费。仅首页返回，翻页给零值占位。
+     */
+    const isFirstPage = !params.cursor;
     const [records, total, summary] = await Promise.all([
       this.prisma.custodyOrder.findMany(query),
-      this.resolveTotal(storeId, params, now),
-      this.custodySummaryService.getSummary(storeId, now),
+      isFirstPage
+        ? this.resolveTotal(storeId, params, now)
+        : Promise.resolve(0),
+      isFirstPage
+        ? this.custodySummaryService.getSummary(storeId, now)
+        : Promise.resolve({
+            storedCount: 0,
+            storedQty: 0,
+            expiringCount: 0,
+            monthPickupCount: 0,
+          }),
     ]);
 
     const roleById = await this.resolveOperatorRoles(
@@ -78,23 +93,36 @@ export class CustodyReadService {
   /**
    * 列表总条数：优先读缓存，未命中才落库 count。
    *
-   * 总条数只随写操作变化、不随时间漂移，而任何客存写操作都会整键失效，
-   * 因此可以安全缓存——列表是最热的读路径，省掉它等于每请求少一次全量 count。
+   * 只有「不随时间漂移」的筛选口径可以缓存：all / draft / finished / void
+   * 的条数只随写操作变化，而任何客存写操作都会整键失效。
+   * stored / expired / 临期预警的条数会随 expireAt 越过当前时刻而变化，
+   * 不能只靠写操作失效，否则缓存 TTL 内会出现「总数说在存 10、列表只剩 9」。
    */
   private async resolveTotal(
     storeId: number,
     params: Omit<CustodyListParams, 'storeId'>,
     now: Date,
   ): Promise<number> {
+    const timeSensitive =
+      params.expiring ||
+      params.status === 'stored' ||
+      params.status === 'expired';
     const filterKey = buildCustodyFilterKey(params);
-    const cached = await this.custodyCodeService.readTotal(storeId, filterKey);
-    if (cached !== null) {
-      return cached;
+    if (!timeSensitive) {
+      const cached = await this.custodyCodeService.readTotal(
+        storeId,
+        filterKey,
+      );
+      if (cached !== null) {
+        return cached;
+      }
     }
     const total = await this.prisma.custodyOrder.count({
       where: buildCountWhere({ ...params, storeId }, now),
     });
-    await this.custodyCodeService.writeTotal(storeId, filterKey, total);
+    if (!timeSensitive) {
+      await this.custodyCodeService.writeTotal(storeId, filterKey, total);
+    }
     return total;
   }
 
@@ -135,6 +163,32 @@ export class CustodyReadService {
           this.pickRole(roleById, record.operatorStaffId),
         ),
       ),
+    };
+  }
+
+  /**
+   * 存单终态轻量查询：给「等待会员确认」弹窗做断线对账用。
+   *
+   * 详情接口对软删（会员拒绝）返回 404，无法区分「请求失败」与「已拒绝」；
+   * 这里保留软删行并显式返回 deleted，同时不返回明细，轮询开销更小。
+   */
+  async getOrderStatus(
+    user: AuthenticatedUser,
+    orderId: number,
+  ): Promise<CustodyOrderStatusDto> {
+    const storeId = await this.resolveViewStoreId(user);
+    const order = await this.prisma.custodyOrder.findFirst({
+      where: { id: orderId, storeId },
+      select: { status: true, remainingQty: true, deletedAt: true },
+    });
+    if (!order) {
+      throw new NotFoundException(CUSTODY_ORDER_NOT_FOUND_MESSAGE);
+    }
+    return {
+      status: order.deletedAt
+        ? 'deleted'
+        : (order.status as CustodyOrderStatusDto['status']),
+      remainingQty: order.remainingQty,
     };
   }
 

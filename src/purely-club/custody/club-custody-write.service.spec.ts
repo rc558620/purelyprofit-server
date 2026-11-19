@@ -35,6 +35,11 @@ const buildService = (
     updatedCount?: number;
     /** 冻结校验读到的商品行；undefined 表示商品不存在 */
     product?: { name: string; stock: number } | null;
+    /**
+     * 状态流转后聚合到的在存冻结量（含本单）：确认前本单仍是草稿不计入，
+     * 确认后聚合才有值，台账据此回算可用库存。
+     */
+    frozenQtyAfter?: number;
   } = {},
 ) => {
   const draftOrder =
@@ -55,7 +60,7 @@ const buildService = (
         .fn()
         .mockResolvedValue({ count: overrides.updatedCount ?? 1 }),
       findFirstOrThrow: jest.fn().mockResolvedValue(draftOrder),
-      groupBy: jest.fn().mockResolvedValue([]),
+      groupBy: jest.fn(),
     },
     product: {
       findFirst: jest
@@ -70,6 +75,23 @@ const buildService = (
     // 单测里不透出真实事务语义，直接把自身当事务客户端传回，保持既有断言成立
     $transaction: jest.fn((fn: (tx: PrismaMock) => unknown) => fn(prisma)),
   };
+  /*
+   * 冻结量聚合在确认前后各读一次：流转前本单还是草稿不计入（返回空），
+   * 流转后本单已是在存单，聚合结果包含本单剩余量。
+   */
+  const frozenProductId =
+    (draftOrder?.productId as number | null | undefined) ?? null;
+  const frozenQtyAfter = overrides.frozenQtyAfter ?? 0;
+  prisma.custodyOrder.groupBy.mockResolvedValueOnce([]).mockResolvedValue(
+    frozenProductId === null || frozenQtyAfter === 0
+      ? []
+      : [
+          {
+            productId: frozenProductId,
+            _sum: { remainingQty: frozenQtyAfter },
+          },
+        ],
+  );
   const clubCustodyReadService = {
     findMemberId: jest.fn().mockResolvedValue(MEMBER_ID),
   };
@@ -183,6 +205,8 @@ describe('ClubCustodyWriteService 确认 / 拒绝授权', () => {
         remainingQty: 2,
       },
       product: { name: '茅台', stock: 10 },
+      // 确认后本单进入在存冻结量：可用库存 10 → 8
+      frozenQtyAfter: 2,
     });
 
     await service.confirmStore(buildContext(), ORDER_ID);

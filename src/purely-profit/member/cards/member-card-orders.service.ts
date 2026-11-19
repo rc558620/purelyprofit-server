@@ -41,6 +41,7 @@ export class MemberCardOrdersService {
       await this.marketingSharedService.resolveMembershipManagedStoreId(
         user,
         query.storeId,
+        'member-card:view',
       );
 
     if (storeId === null) {

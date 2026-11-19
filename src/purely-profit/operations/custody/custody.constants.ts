@@ -56,6 +56,17 @@ export const CUSTODY_VOID_REASON_REQUIRED_MESSAGE = '作废原因不能为空';
 export const CUSTODY_PRODUCT_NOT_FOUND_MESSAGE =
   '当前门店下找不到该商品，请确认商品是否已上架';
 
+/** 冻结库存口径必须关联商品（否则会变成不占库存的假冻结） */
+export const CUSTODY_FROZEN_PRODUCT_REQUIRED_MESSAGE =
+  '冻结库存口径必须选择关联商品，自由录入物品请改用不占库存口径';
+
+/** 到期时间必须晚于当前时间 */
+export const CUSTODY_EXPIRE_AT_INVALID_MESSAGE = '到期时间必须晚于当前时间';
+
+/** 已过期的待确认存单不允许再确认存入 */
+export const CUSTODY_EXPIRED_CONFIRM_MESSAGE =
+  '存单已超过有效期，无法确认存入，请作废后重新发起';
+
 /** 列表默认每页条数 */
 export const CUSTODY_DEFAULT_LIMIT = 10;
 

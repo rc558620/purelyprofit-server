@@ -202,7 +202,16 @@ export class EscPosTicketBuilder {
       );
     }
 
-    // 抵扣区：续费抵扣 + 预付抵扣 + 自助下单 (已支付)
+    // 券面消费行：券已在 purelyClub 付过，与「预付抵扣」等额成对出现，
+    // 缺任一侧都会让票面明细加总与合计对不上。
+    if ((ticket.voucherConsumption ?? 0) > 0) {
+      this.line(
+        out,
+        `券面消费 (团购券)：￥${ticket.voucherConsumption!.toFixed(2)}`,
+      );
+    }
+
+    // 抵扣区：续费抵扣 + 预付抵扣 + 自助下单 (已支付) + 会员卡抵扣
     if (ticket.renewDeduction > 0) {
       this.line(out, `续费抵扣：-￥${ticket.renewDeduction.toFixed(2)}`);
     }
@@ -214,6 +223,9 @@ export class EscPosTicketBuilder {
         out,
         `自助下单 (已支付)：-￥${ticket.selfOrderDeduction!.toFixed(2)}`,
       );
+    }
+    if ((ticket.cardDeduction ?? 0) > 0) {
+      this.line(out, `会员卡抵扣：-￥${ticket.cardDeduction!.toFixed(2)}`);
     }
     this.line(out, DIVIDER);
 

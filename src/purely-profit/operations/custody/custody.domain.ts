@@ -188,13 +188,21 @@ export function isExpiringSoon(
 /**
  * 计算到期时间。
  *
- * 优先级：表单显式到期时间 > 门店默认有效期天数 > 长期有效（null）。
+ * 三种入参必须区分开：
+ * - 显式 `null`：长期有效（前端把表单留空时显式传 null）；
+ * - 具体时间串：按该时间；
+ * - 省略（undefined）：按门店默认有效期天数；门店也未配置则长期有效。
+ *
+ * 此前省略与 null 都回落门店默认值，导致「留空表示长期有效」的表单语义失效。
  */
 export function resolveExpireAt(
-  rawExpireAt: string | undefined,
+  rawExpireAt: string | null | undefined,
   defaultExpireDays: number | null,
   storedAt: Date,
 ): Date | null {
+  if (rawExpireAt === null) {
+    return null;
+  }
   if (rawExpireAt) {
     return parseIsoDate(rawExpireAt, 'expireAt');
   }

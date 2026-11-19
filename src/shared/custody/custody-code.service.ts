@@ -176,6 +176,13 @@ export class CustodyCodeService {
     );
   }
 
+  /** 读取核销预留令牌载荷（不消费）：先校验后四位/数量，避免输错就烧掉一次性令牌 */
+  peekVerifyToken(token: string): Promise<CustodyVerifyTokenPayload | null> {
+    return this.redisService.getJson<CustodyVerifyTokenPayload>(
+      `${CUSTODY_VERIFY_TOKEN_KEY_PREFIX}${token}`,
+    );
+  }
+
   /** 消费核销预留令牌：原子读取并删除，重复提交只可能成功一次 */
   consumeVerifyToken(token: string): Promise<CustodyVerifyTokenPayload | null> {
     return this.redisService.getJsonAndDelete<CustodyVerifyTokenPayload>(

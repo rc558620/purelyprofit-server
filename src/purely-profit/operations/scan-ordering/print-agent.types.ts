@@ -43,6 +43,11 @@ export interface PrintAgentTask {
   taskId: string;
   /** 打印目标：cashier=收银台顾客票 / kitchen=后厨制作单 / space=空间消费小票。 */
   target: 'cashier' | 'kitchen' | 'space';
+  /**
+   * 门店选中的打印机设备 ID（来自代理上报的 printers 列表）。
+   * 旧版代理会忽略该字段并回退到按 target 解析；新版代理按此精确选择。
+   */
+  deviceId?: string;
   /** 完整 ESC/POS 字节流的 Base64 编码。 */
   dataBase64: string;
 }

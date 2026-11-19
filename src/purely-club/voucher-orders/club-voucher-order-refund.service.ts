@@ -1,29 +1,42 @@
 // 团购券订单退款服务：pending / used-未开台 可退；按支付渠道原路退回（微信/储值余额）+ 积分退回 + 库存回补（幂等）
 //
-// 职责边界：本文件只裁决「能不能退」与「退款发起 + 状态回写」；
-// 账目回补（积分 / 库存 / 余额 / 等级）在 club-voucher-order-refund-restore.helper.ts，
-// 两条退款链路共用同一份回补逻辑。
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+// 职责边界：本文件只裁决「能不能退」与「退款编排（占位 → 出款 → 终态）」；
+// 事务落库在 club-voucher-order-refund-settlement.helper.ts，
+// 账目回补（积分 / 库存 / 余额 / 等级）在 club-voucher-order-refund-restore.helper.ts。
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import {
   CLUB_VOUCHER_ERROR_CODE,
   clubVoucherError,
   type ClubVoucherErrorPayload,
 } from './club-voucher-orders.errors';
 import type { ClubVoucherOrder } from '@prisma/client';
-import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { isBalancePaymentChannel } from '../payments/club-payment-channels.constants';
 import { formatShanghaiDateTime } from '../../shared/shanghai-time.utils';
-import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
+import {
+  ClubWechatRefundService,
+  type WechatRefundResult,
+} from '../payments/club-wechat-refund.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
-  restorePointsAndStock,
-  restoreVoucherBalance,
-} from './club-voucher-order-refund-restore.helper';
+  claimRefundSlot,
+  releaseRefundSlot,
+  settleRefundTerminal,
+  type RefundOperator,
+} from './club-voucher-order-refund-settlement.helper';
 import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
   CLUB_VOUCHER_REFUND_EXPIRED_MESSAGE,
+  CLUB_VOUCHER_REFUND_FAILED_MESSAGE,
   CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
+  CLUB_VOUCHER_REFUND_PROCESSING_MESSAGE,
+  CLUB_VOUCHER_REFUND_UNKNOWN_MESSAGE,
   CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
 } from './club-voucher-orders.constants';
 
@@ -43,24 +56,33 @@ export interface ClubVoucherMerchantRejectResult {
   status: 'refunded';
   refundAt: string;
   refundAmountFen: number;
-  rejectedAt: string;
+  /** 以数据库为准的拒绝时间；顾客自行退款（无拒单记录）时为 null */
+  rejectedAt: string | null;
+  /** 以数据库为准的拒单经办人；顾客自行退款时为 null，不伪造成当前操作人 */
+  rejectedByStaffName: string | null;
 }
 
-/** 退款落库共用参数：只有文案与拒绝信息在两条链路之间不同 */
+/** 落库结果快照：所有对外字段一律从数据库回读，不做本地拼装 */
+interface SettledOrderSnapshot {
+  orderNo: string;
+  voucherCode: string | null;
+  paidAmountFen: number;
+  refundAt: Date | null;
+  refundAmountFen: number | null;
+  rejectedAt: Date | null;
+  rejectedByStaffName: string | null;
+}
+
+/** 退款编排共用参数：只有文案与拒绝信息在两条链路之间不同 */
 interface RefundSettlementOptions {
   /** 微信退款单备注 */
   reason: string;
   /** 成功日志前缀 */
   logLabel: string;
-  /** 落库失败日志前缀（此时微信侧可能已出款，必须留痕） */
-  failureLabel: string;
   /** 并发抢占失败时抛给前端的业务异常载荷（文案 + 稳定业务码） */
   conflict: ClubVoucherErrorPayload;
   /** 商家拒绝接单时写入的经办人信息 */
-  rejectBy?: {
-    name: string | null;
-    role: 'owner' | 'manager' | 'staff' | null;
-  };
+  rejectBy?: RefundOperator;
 }
 
 @Injectable()
@@ -90,41 +112,30 @@ export class ClubVoucherOrderRefundService {
       );
     }
 
-    // 幂等：已退款直接返回
+    // 幂等：已退款直接返回数据库中的退款结果
     if (order.status === 'refunded') {
-      return {
-        orderNo: order.orderNo,
-        status: 'refunded',
-        refundAt: this.formatDateTime(order.refundAt ?? new Date()),
-        refundAmountFen: order.refundAmountFen ?? order.paidAmountFen,
-      };
+      return this.toRefundResult(this.toSnapshot(order));
     }
-    this.assertRefundable(order);
 
-    await this.settleRefund(order, {
+    await this.runRefund(order, {
       reason: '用户主动退款',
       logLabel: '团购券退款成功',
-      failureLabel: '团购券退款落库失败，微信侧可能已出款，请人工核对',
       conflict: clubVoucherError(
         CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_USED_SESSION,
         CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
       ),
     });
 
-    // 事务提交成功后才广播退款事件：store 房间（商家端查看订单页实时刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情页）
+    const latest = await this.reloadOrder(order.id);
+    // 事务提交成功后才广播退款事件：store 房间（商家端订单页实时刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情页）
     this.realtimeService.publishVoucherOrderStatusChanged({
       storeId: order.storeId,
-      orderNo: order.orderNo,
-      voucherCode: order.voucherCode ?? '',
+      orderNo: latest.orderNo,
+      voucherCode: latest.voucherCode ?? '',
       status: 'refunded',
-      refundAt: new Date().toISOString(),
+      refundAt: (latest.refundAt ?? new Date()).toISOString(),
     });
-    return {
-      orderNo: order.orderNo,
-      status: 'refunded',
-      refundAt: this.formatDateTime(new Date()),
-      refundAmountFen: order.paidAmountFen,
-    };
+    return this.toRefundResult(latest);
   }
 
   /**
@@ -149,23 +160,14 @@ export class ClubVoucherOrderRefundService {
       );
     }
 
-    // 幂等：已退款直接返回
+    // 幂等：已退款直接返回数据库中的拒单/退款信息，不再用当前操作人补归因
     if (order.status === 'refunded') {
-      return {
-        orderNo: order.orderNo,
-        voucherCode: order.voucherCode ?? '',
-        status: 'refunded',
-        refundAt: this.formatDateTime(order.refundAt ?? new Date()),
-        refundAmountFen: order.refundAmountFen ?? order.paidAmountFen,
-        rejectedAt: this.formatDateTime(order.rejectedAt ?? new Date()),
-      };
+      return this.toRejectResult(this.toSnapshot(order));
     }
-    this.assertRefundable(order);
 
-    await this.settleRefund(order, {
+    await this.runRefund(order, {
       reason: '商家拒绝接单',
       logLabel: '商家拒绝团购券订单成功',
-      failureLabel: '商家拒绝接单落库失败，微信侧可能已出款，请人工核对',
       conflict: clubVoucherError(
         CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_NOT_ALLOWED,
         CLUB_VOUCHER_REFUND_NOT_ALLOWED_MESSAGE,
@@ -176,17 +178,196 @@ export class ClubVoucherOrderRefundService {
       },
     });
 
-    return {
-      orderNo: order.orderNo,
-      voucherCode: order.voucherCode ?? '',
-      status: 'refunded',
-      refundAt: this.formatDateTime(new Date()),
-      refundAmountFen: order.paidAmountFen,
-      rejectedAt: this.formatDateTime(new Date()),
-    };
+    return this.toRejectResult(await this.reloadOrder(order.id));
   }
 
-  // ─── 共用的可退校验与落库 ─────────────────────────────────────────────────
+  // ─── 退款编排：占位 → 出款 → 终态 ─────────────────────────────────────────
+
+  /**
+   * 退款编排入口。
+   *
+   * 顺序固定为「先占位、再出款、最后落终态」：
+   * 反过来的话，微信已出款而本地占位失败时，券仍可开台/核销，钱券两失。
+   */
+  private async runRefund(
+    order: ClubVoucherOrder,
+    options: RefundSettlementOptions,
+  ): Promise<void> {
+    const refundNo = this.buildRefundNo(order.orderNo);
+
+    // 上次退款中断（占位已写入但未落终态）：先按渠道终态补齐。
+    // 这里刻意不看有效期——钱可能已经出款，拒绝补齐会让订单永远停在「退款中」。
+    if (order.refundNo !== null) {
+      await this.resumeRefund(order, refundNo, options);
+      return;
+    }
+
+    this.assertRefundable(order);
+
+    // 余额支付没有远程出款，占位与终态可以合并在一个事务里，失败即整体回滚
+    if (isBalancePaymentChannel(order.paymentChannel)) {
+      await settleRefundTerminal(this.prisma, order, {
+        orderId: order.id,
+        orderNo: order.orderNo,
+        paidAmountFen: order.paidAmountFen,
+        channel: 'balance',
+        refundNo,
+        rejectBy: options.rejectBy,
+        slotClaimed: false,
+        conflict: options.conflict,
+      });
+      this.logger.log(
+        `${options.logLabel}: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 渠道=balance`,
+      );
+      return;
+    }
+
+    await this.startWechatRefund(order, refundNo, options);
+  }
+
+  /**
+   * 微信渠道：占位成功后才发起退款。
+   *
+   * - SUCCESS：落终态
+   * - PROCESSING：保持占位，不落终态，等待重试时查单补齐
+   * - ABNORMAL / CLOSED / UNKNOWN：确认未出款，释放占位后允许重试
+   * - 请求异常：结果未知，保持占位（宁可券不可用，也不能钱券两失）
+   */
+  private async startWechatRefund(
+    order: ClubVoucherOrder,
+    refundNo: string,
+    options: RefundSettlementOptions,
+  ): Promise<void> {
+    const claimed = await claimRefundSlot(this.prisma, order.id, refundNo);
+    if (!claimed) {
+      throw new BadRequestException(options.conflict);
+    }
+
+    let result: WechatRefundResult;
+    try {
+      result = await this.clubWechatRefundService.requestRefund({
+        storeId: order.storeId,
+        orderNo: order.orderNo,
+        refundNo,
+        totalFen: order.paidAmountFen,
+        refundFen: order.paidAmountFen,
+        reason: options.reason,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `团购券退款请求结果未知，保留退款占位等待核对: orderNo=${order.orderNo}, refundNo=${refundNo}, ${detail}`,
+      );
+      throw new InternalServerErrorException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.STATUS_ORDER_PROCESSING,
+          CLUB_VOUCHER_REFUND_UNKNOWN_MESSAGE,
+        ),
+      );
+    }
+
+    if (result.status === 'SUCCESS') {
+      await settleRefundTerminal(this.prisma, order, {
+        orderId: order.id,
+        orderNo: order.orderNo,
+        paidAmountFen: order.paidAmountFen,
+        channel: 'wechat',
+        refundNo,
+        rejectBy: options.rejectBy,
+        slotClaimed: true,
+        conflict: options.conflict,
+      });
+      this.logger.log(
+        `${options.logLabel}: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 渠道=wechat, 微信退款单=${result.refundId}`,
+      );
+      return;
+    }
+
+    if (result.status === 'PROCESSING') {
+      this.logger.warn(
+        `团购券退款受理未完成，保持占位等待查单: orderNo=${order.orderNo}, refundNo=${refundNo}, 微信退款单=${result.refundId}`,
+      );
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.STATUS_ORDER_PROCESSING,
+          CLUB_VOUCHER_REFUND_PROCESSING_MESSAGE,
+        ),
+      );
+    }
+
+    await releaseRefundSlot(this.prisma, order.id, refundNo);
+    this.logger.error(
+      `团购券退款未成功，已释放占位: orderNo=${order.orderNo}, refundNo=${refundNo}, 渠道状态=${result.status}`,
+    );
+    throw new BadRequestException(
+      clubVoucherError(
+        CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_NOT_ALLOWED,
+        CLUB_VOUCHER_REFUND_FAILED_MESSAGE,
+      ),
+    );
+  }
+
+  /** 中断恢复：占位已存在时，先查单确认终态，只有 SUCCESS 才落「已退款」 */
+  private async resumeRefund(
+    order: ClubVoucherOrder,
+    refundNo: string,
+    options: RefundSettlementOptions,
+  ): Promise<void> {
+    // 余额渠道无外部出款，占位残留只会来自历史数据，直接补齐终态即可
+    const channel = isBalancePaymentChannel(order.paymentChannel)
+      ? 'balance'
+      : 'wechat';
+
+    if (channel === 'wechat') {
+      const current = await this.clubWechatRefundService.queryRefund({
+        storeId: order.storeId,
+        orderNo: order.orderNo,
+        refundNo,
+      });
+
+      if (
+        current.status === 'ABNORMAL' ||
+        current.status === 'CLOSED' ||
+        current.status === 'NOT_FOUND'
+      ) {
+        await releaseRefundSlot(this.prisma, order.id, refundNo);
+        this.logger.error(
+          `中断退款确认未成功，已释放占位: orderNo=${order.orderNo}, refundNo=${refundNo}, 渠道状态=${current.status}`,
+        );
+        throw new BadRequestException(
+          clubVoucherError(
+            CLUB_VOUCHER_ERROR_CODE.STATUS_REFUND_NOT_ALLOWED,
+            CLUB_VOUCHER_REFUND_FAILED_MESSAGE,
+          ),
+        );
+      }
+
+      if (current.status !== 'SUCCESS') {
+        throw new BadRequestException(
+          clubVoucherError(
+            CLUB_VOUCHER_ERROR_CODE.STATUS_ORDER_PROCESSING,
+            CLUB_VOUCHER_REFUND_PROCESSING_MESSAGE,
+          ),
+        );
+      }
+    }
+
+    await settleRefundTerminal(this.prisma, order, {
+      orderId: order.id,
+      orderNo: order.orderNo,
+      paidAmountFen: order.paidAmountFen,
+      channel,
+      refundNo,
+      rejectBy: options.rejectBy,
+      slotClaimed: true,
+      conflict: options.conflict,
+    });
+    this.logger.log(
+      `${options.logLabel}（中断补齐）: orderNo=${order.orderNo}, refundNo=${refundNo}, 渠道=${channel}`,
+    );
+  }
+
+  // ─── 可退校验 ─────────────────────────────────────────────────────────────
 
   /**
    * 可退状态校验。
@@ -222,97 +403,74 @@ export class ClubVoucherOrderRefundService {
     }
   }
 
-  /**
-   * 退款/拒单共用链路：发起原路退款 → 状态回写 + 账目回补（同一事务）→ 留痕。
-   *
-   * ⚠️ 微信退款刻意放在事务之前：事务里做远程调用会拉长持锁时间；代价是
-   * 出现「钱已退、订单未变更」的窗口，因此落库失败必须按 refundNo 留痕。
-   * 用户重试会命中同一 refundNo，微信侧幂等不再重复出款，可直接把状态补齐。
-   */
-  private async settleRefund(
-    order: ClubVoucherOrder,
-    options: RefundSettlementOptions,
-  ): Promise<void> {
-    // 退款单号由订单号确定性派生（微信 out_refund_no 即幂等键）：并发两笔或失败重试
-    // 都复用同一 refundNo，微信侧认定为同一笔退款，不会重复出款。
-    const refundNo = this.buildRefundNo(order.orderNo);
-    // 原路退回：余额支付退回储值余额，微信支付走微信退款
-    const refundByBalance = isBalancePaymentChannel(order.paymentChannel);
-    const refundId = refundByBalance
-      ? null
-      : await this.requestWechatRefund(order, refundNo, options.reason);
+  // ─── 结果回读与工具 ───────────────────────────────────────────────────────
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.clubVoucherOrder.updateMany({
-          where: {
-            id: order.id,
-            status: { in: ['pending', 'used'] },
-            usedSessionId: null,
-          },
-          data: {
-            status: 'refunded',
-            refundAt: new Date(),
-            refundAmountFen: order.paidAmountFen,
-            refundChannel: refundByBalance ? 'balance' : 'wechat',
-            refundNo,
-            ...(options.rejectBy
-              ? {
-                  rejectedAt: new Date(),
-                  rejectedByStaffName: options.rejectBy.name,
-                  rejectedByStaffRole: options.rejectBy.role,
-                }
-              : {}),
-          },
-        });
-        if (updated.count !== 1) {
-          // 走到这里时微信退款已被发起（占位在落库之前），必须留痕：出现「钱已退、
-          // 订单未变更」时按 refundNo 到微信商户平台核对。
-          if (!refundByBalance) {
-            this.logger.error(
-              `${options.failureLabel}: orderNo=${order.orderNo}, refundNo=${refundNo}`,
-            );
-          }
-          throw new BadRequestException(options.conflict);
-        }
-
-        // 积分退回 + 库存回补，余额支付再回补储值余额与累计消费
-        await restorePointsAndStock(tx, order);
-        if (refundByBalance) {
-          await restoreVoucherBalance(tx, order);
-        }
+  /** 从数据库回读落库结果：对外字段一律以持久化值为准，不做本地推测 */
+  private async reloadOrder(orderId: number): Promise<SettledOrderSnapshot> {
+    const latest = await this.prisma.clubVoucherOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        orderNo: true,
+        voucherCode: true,
+        paidAmountFen: true,
+        refundAt: true,
+        refundAmountFen: true,
+        rejectedAt: true,
+        rejectedByStaffName: true,
       },
-      { timeout: TX_TIMEOUT_MEDIUM },
-    );
-
-    this.logger.log(
-      `${options.logLabel}: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 渠道=${refundByBalance ? 'balance' : 'wechat'}${refundId ? `, 微信退款单=${refundId}` : ''}`,
-    );
-  }
-
-  /**
-   * 发起微信原路退款，返回微信退款单号。
-   *
-   * 金额口径固定为「全额退回实付」：团购券不支持部分退款，
-   * 拆成可配置项只会让「退了但券还能用」这类账实偏差有机会出现。
-   */
-  private async requestWechatRefund(
-    order: ClubVoucherOrder,
-    refundNo: string,
-    reason: string,
-  ): Promise<string> {
-    const { refundId } = await this.clubWechatRefundService.requestRefund({
-      storeId: order.storeId,
-      orderNo: order.orderNo,
-      refundNo,
-      totalFen: order.paidAmountFen,
-      refundFen: order.paidAmountFen,
-      reason,
     });
-    return refundId;
+    if (!latest) {
+      throw new BadRequestException(
+        clubVoucherError(
+          CLUB_VOUCHER_ERROR_CODE.RESOURCE_ORDER_NOT_FOUND,
+          CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
+        ),
+      );
+    }
+    return latest;
   }
 
-  // ─── 工具 ─────────────────────────────────────────────────────────────────
+  /** 已有订单行转快照（幂等分支复用，避免为一次返回再查库） */
+  private toSnapshot(order: ClubVoucherOrder): SettledOrderSnapshot {
+    return {
+      orderNo: order.orderNo,
+      voucherCode: order.voucherCode,
+      paidAmountFen: order.paidAmountFen,
+      refundAt: order.refundAt,
+      refundAmountFen: order.refundAmountFen,
+      rejectedAt: order.rejectedAt,
+      rejectedByStaffName: order.rejectedByStaffName,
+    };
+  }
+
+  private toRefundResult(
+    snapshot: SettledOrderSnapshot,
+  ): ClubVoucherRefundResult {
+    return {
+      orderNo: snapshot.orderNo,
+      status: 'refunded',
+      refundAt: this.formatDateTime(snapshot.refundAt ?? new Date()),
+      refundAmountFen: snapshot.refundAmountFen ?? snapshot.paidAmountFen,
+    };
+  }
+
+  private toRejectResult(
+    snapshot: SettledOrderSnapshot,
+  ): ClubVoucherMerchantRejectResult {
+    return {
+      orderNo: snapshot.orderNo,
+      voucherCode: snapshot.voucherCode ?? '',
+      status: 'refunded',
+      refundAt: this.formatDateTime(snapshot.refundAt ?? new Date()),
+      refundAmountFen: snapshot.refundAmountFen ?? snapshot.paidAmountFen,
+      // 以数据库为准：没有拒单记录（顾客自行退款）就返回 null，
+      // 否则前端会把退款时间当成「商家拒单」渲染成当前员工的操作
+      rejectedAt: snapshot.rejectedAt
+        ? this.formatDateTime(snapshot.rejectedAt)
+        : null,
+      rejectedByStaffName: snapshot.rejectedByStaffName,
+    };
+  }
 
   /**
    * 生成退款单号：RF + 订单号（微信 out_refund_no，同一订单恒定不变）。

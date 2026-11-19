@@ -188,6 +188,26 @@ export class CustodyStatsDto {
   monthPickupCount!: number;
 }
 
+/**
+ * 存单终态（轻量轮询用）。
+ *
+ * 商家端「等待会员确认」弹窗在断线 / 漏收实时事件后需要主动对账：
+ * - 会员拒绝会软删草稿，详情接口返回 404，这里显式给出 deleted；
+ * - 会员确认 / 商家作废分别给出 stored / void。
+ */
+export class CustodyOrderStatusDto {
+  @ApiProperty({
+    description: '存单状态；deleted 表示已被会员拒绝（软删）',
+    enum: ['draft', 'stored', 'finished', 'void', 'deleted'],
+  })
+  @IsString({ message: '存单状态必须是字符串' })
+  status!: 'draft' | 'stored' | 'finished' | 'void' | 'deleted';
+
+  @ApiProperty({ description: '剩余数量' })
+  @IsInt({ message: '剩余数量必须是整数' })
+  remainingQty!: number;
+}
+
 /** 客存列表响应 */
 export class CustodyOrderListResponseDto {
   /** 当前页存单 */

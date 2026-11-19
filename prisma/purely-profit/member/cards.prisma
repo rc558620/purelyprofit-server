@@ -152,6 +152,8 @@ model MemberCardTransaction {
   /// 操作人姓名快照（C 端自助时为空）
   operatorName             String?                     @map("operator_name") @db.VarChar(100)
   remark                   String?
+  /// 调次幂等键（客户端生成）：并发/重试命中唯一约束时按幂等返回，不重复加减次数
+  requestId                String?                     @map("request_id") @db.VarChar(64)
   createdAt                DateTime                    @default(now()) @map("created_at")
   card                     MemberCard                  @relation(fields: [cardId], references: [id], onDelete: Cascade)
   relatedOrder             MemberCardOrder?            @relation(fields: [relatedOrderId], references: [id])
@@ -163,6 +165,8 @@ model MemberCardTransaction {
   /// 开台 / 结账按场次回查预扣流水（确认或释放）
   @@index([relatedSessionId, changeType, status], map: "idx_member_card_txn_session_change_status")
   @@index([relatedOrderId])
+  /// 调次幂等：同一张卡的同一 requestId 只允许一条流水（NULL 不受限）
+  @@unique([cardId, requestId], map: "uq_member_card_transactions_card_request")
   @@map("member_card_transactions")
 }
 

@@ -17,6 +17,8 @@ export interface AdjustTimesWriteContext {
   remark: string;
   operatorStaffId: number | null;
   operatorName: string | null;
+  /** 客户端幂等键：同一张卡的同一键只落一条流水 */
+  requestId: string | null;
 }
 
 /**
@@ -96,6 +98,7 @@ export async function applyTimesAdjustment(
       operatorStaffId: context.operatorStaffId,
       operatorName: context.operatorName,
       remark: context.remark,
+      requestId: context.requestId,
     },
   });
 

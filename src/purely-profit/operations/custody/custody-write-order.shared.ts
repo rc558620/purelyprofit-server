@@ -96,59 +96,81 @@ export interface VoidCustodyOrderInTransactionParams {
   staffId: number | null;
   reason: string;
   now: Date;
+}
+
+/** 作废事务结果：状态已落库的存单行 + 作废前的真实状态 */
+export interface VoidCustodyOrderResult {
   order: Prisma.CustodyOrderGetPayload<Record<string, never>>;
+  previousStatus: 'draft' | 'stored';
 }
 
 /**
  * 作废事务体：条件更新与解冻台账必须在同一事务。
  *
- * 并发下只有真正把状态改成 void 的那一次才释放冻结额度，
- * 各自判断会出现「状态没改成但台账已释放」。
+ * 作废前的状态必须以事务内的实际状态为准，不能用事务外读到的快照：
+ * 草稿在被读到的瞬间可能已被会员确认（draft → stored），此时作废同样成功，
+ * 但按旧快照判断会漏记解冻台账。
  */
 export const voidCustodyOrderInTransaction = async (
   params: VoidCustodyOrderInTransactionParams,
-): Promise<void> => {
-  const { tx, orderId, storeId, staffId, reason, now, order } = params;
+): Promise<VoidCustodyOrderResult> => {
+  const { tx, orderId, storeId, staffId, reason, now } = params;
 
-  // 条件更新：并发下只允许一个请求把状态从 draft/stored 改为 void
-  const updated = await tx.custodyOrder.updateMany({
-    where: {
-      id: orderId,
-      storeId,
-      deletedAt: null,
-      status: { in: ['draft', 'stored'] },
-    },
-    data: {
-      status: 'void',
-      voidedByStaffId: staffId,
-      voidedAt: now,
-      voidReason: reason,
-    },
+  /*
+   * 先尝试按 stored 条件更新：命中说明这张单确实占用过冻结额度（含惰性过期单）。
+   * 拆成两次条件更新而不是一次 in-list，是为了在并发下拿到「作废前到底处于哪个状态」。
+   */
+  const data = {
+    status: 'void' as const,
+    voidedByStaffId: staffId,
+    voidedAt: now,
+    voidReason: reason,
+  };
+  let previousStatus: 'draft' | 'stored' | null = null;
+  const voidStored = await tx.custodyOrder.updateMany({
+    where: { id: orderId, storeId, deletedAt: null, status: 'stored' },
+    data,
   });
-  if (updated.count === 0) {
+  if (voidStored.count > 0) {
+    previousStatus = 'stored';
+  } else {
+    const voidDraft = await tx.custodyOrder.updateMany({
+      where: { id: orderId, storeId, deletedAt: null, status: 'draft' },
+      data,
+    });
+    if (voidDraft.count > 0) {
+      previousStatus = 'draft';
+    }
+  }
+  if (previousStatus === null) {
     throw new ConflictException('存单状态已变更，请刷新列表后重试');
   }
+
+  // 状态变更后回读：余量可能已被并发取出改小，台账必须按实际余量释放
+  const voided = await tx.custodyOrder.findUniqueOrThrow({
+    where: { id: orderId },
+  });
 
   /*
    * 作废即释放剩余占用，可用库存回升，必须留痕。
    * draft 单从未占用过额度（冻结只算 stored），不能产生台账，否则两边抵消不平。
    */
   if (
-    order.stockMode === 'frozen' &&
-    order.productId !== null &&
-    order.status === 'stored' &&
-    order.remainingQty > 0
+    previousStatus === 'stored' &&
+    voided.stockMode === 'frozen' &&
+    voided.productId !== null &&
+    voided.remainingQty > 0
   ) {
     await writeCustodyVoidReleaseLog(tx, {
       storeId,
-      productId: order.productId,
-      productName: order.productName,
-      qty: order.remainingQty,
-      beforeRemainingQty: order.remainingQty,
-      afterRemainingQty: 0,
+      productId: voided.productId,
+      productName: voided.productName,
+      qty: voided.remainingQty,
       operatorStaffId: staffId,
-      orderNo: order.orderNo,
-      note: `客存作废解冻 ${order.remainingQty}${order.unit}（存单 ${order.orderNo}，物理库存未变动）`,
+      orderNo: voided.orderNo,
+      note: `客存作废解冻 ${voided.remainingQty}${voided.unit}（存单 ${voided.orderNo}，物理库存未变动）`,
     });
   }
+
+  return { order: voided, previousStatus };
 };

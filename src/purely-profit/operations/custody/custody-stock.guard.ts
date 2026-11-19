@@ -2,7 +2,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { resolveCustodyAvailableStock } from '../../../shared/custody/custody-frozen-stock';
-import { CUSTODY_PRODUCT_NOT_FOUND_MESSAGE } from './custody.constants';
+import {
+  CUSTODY_FROZEN_PRODUCT_REQUIRED_MESSAGE,
+  CUSTODY_PRODUCT_NOT_FOUND_MESSAGE,
+} from './custody.constants';
 
 /** 冻结校验所需的最小客户端：事务客户端与非事务客户端均满足 */
 export type CustodyStockGuardClient = Pick<
@@ -60,7 +63,15 @@ export async function ensureCustodyFrozenStockAvailable(
   client: CustodyStockGuardClient,
   input: CustodyFrozenStockScope,
 ): Promise<CustodyFrozenStockContext | null> {
+  /*
+   * 冻结口径必须关联商品：没有 productId 就没有可占用的库存对象，
+   * 存单会变成「标记为冻结、实际不占库存」的假冻结。
+   * sold 口径（自由录入物品）不占库存，允许不关联商品。
+   */
   if (input.productId === null) {
+    if (input.stockMode === 'frozen') {
+      throw new BadRequestException(CUSTODY_FROZEN_PRODUCT_REQUIRED_MESSAGE);
+    }
     return null;
   }
   const productId = input.productId;

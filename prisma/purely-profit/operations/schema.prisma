@@ -892,3 +892,35 @@ enum SelfOrderPaymentStatus {
   refunding
   refunded
 }
+
+/// 打印代理任务台账：记录每次出票/补打的提交、转发与回执状态。
+/// 用于把「已提交连接」「代理已接收并打印」「打印失败」区分开，
+/// 并支撑按销售订单补打的去重（同一订单短时间内的重复任务不再重复下发）。
+model PrintAgentTaskLog {
+  id          Int             @id @default(autoincrement())
+  storeId     Int             @map("store_id")
+  taskId      String          @unique @map("task_id") @db.VarChar(64)
+  /// 关联销售订单（空间/扫码点餐出票时有值），补打按此去重
+  saleOrderId Int?            @map("sale_order_id")
+  /// 打印目标：cashier / kitchen / space
+  target      String          @map("target") @db.VarChar(16)
+  /// 代理上报的打印机设备 ID（旧版代理不传时为空）
+  deviceId    String?         @map("device_id") @db.VarChar(128)
+  /// submitted=已提交给连接 / printed=代理回执成功 / failed=下发或代理执行失败
+  status      PrintTaskStatus @default(submitted)
+  /// 是否经 Redis 跨 worker 转发（cluster 排障用）
+  forwarded   Boolean         @default(false)
+  error       String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  finishedAt  DateTime?       @map("finished_at")
+
+  @@index([storeId, createdAt(sort: Desc)])
+  @@index([saleOrderId, createdAt(sort: Desc)])
+  @@map("print_agent_tasks")
+}
+
+enum PrintTaskStatus {
+  submitted
+  printed
+  failed
+}

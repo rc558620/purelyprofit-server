@@ -40,7 +40,11 @@ export interface VoucherOrderRejectResult {
   orderNo: string;
   status: 'refunded';
   refundAt: string;
-  rejectedAt: string;
+  /**
+   * 拒绝时间 ISO。以数据库为准：顾客自行退款的订单没有拒单记录，此时为 null，
+   * 不能补当前时间伪造成「本次操作人拒单」。
+   */
+  rejectedAt: string | null;
   rejectedByStaffName: string | null;
   /** 拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员） */
   rejectedByStaffRole: 'owner' | 'manager' | 'staff' | null;

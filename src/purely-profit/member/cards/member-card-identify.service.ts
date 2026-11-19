@@ -60,6 +60,7 @@ export class MemberCardIdentifyService {
       await this.marketingSharedService.resolveMembershipManagedStoreId(
         user,
         query.storeId,
+        'member-card:view',
       );
     // 归一化在前、查库在后：带 +86 / 空格的写法也要能命中同一位顾客
     const phone = this.marketingSharedService.validatePhoneOrThrow(query.phone);
@@ -120,17 +121,21 @@ export class MemberCardIdentifyService {
   }
 
   /**
-   * 可用持卡：状态生效 + 未到期 + 次数卡仍有剩余次数。
+   * 可用持卡：状态生效 + 未到期 + 次数卡仍有足够次数。
    *
    * 到期巡检任务尚未落地，status 可能滞后停留在 active，因此这里必须再按
    * expiresAt 兜一层，避免把已过期的卡列进开台下拉。
+   *
+   * 次数维度还要按「单次扣减」预判：remainTimes > 0 但不足一次扣减的卡，
+   * 提交开台必然失败，不应出现在下拉里。星期 / 人数 / 空间类型依赖开台
+   * 上下文，识别接口拿不到，留给开台校验。
    */
-  private findUsableCards(
+  private async findUsableCards(
     storeId: number,
     customerId: number,
     nowMs: number,
   ): Promise<MemberCard[]> {
-    return this.prisma.memberCard.findMany({
+    const candidates = await this.prisma.memberCard.findMany({
       where: {
         storeId,
         customerId,
@@ -140,9 +145,24 @@ export class MemberCardIdentifyService {
           { OR: [{ remainTimes: null }, { remainTimes: { gt: 0 } }] },
         ],
       },
+      include: { plan: { select: { perUseTimes: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: MEMBER_CARD_IDENTIFY_CARDS_LIMIT,
+      // 过滤在内存中完成，多取一些避免过滤后不足一页
+      take: MEMBER_CARD_IDENTIFY_CARDS_LIMIT * 3,
     });
+
+    return candidates
+      .filter((card) => {
+        if (card.kind !== 'times') {
+          return true;
+        }
+        const perUseTimes =
+          card.plan.perUseTimes !== null && card.plan.perUseTimes > 0
+            ? card.plan.perUseTimes
+            : 1;
+        return (card.remainTimes ?? 0) >= perUseTimes;
+      })
+      .slice(0, MEMBER_CARD_IDENTIFY_CARDS_LIMIT);
   }
 
   /**

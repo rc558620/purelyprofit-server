@@ -97,6 +97,10 @@ export interface SpaceEscPosTicket {
   prepaidDeduction: number;
   /** 自助下单已支付商品抵扣合计（元）。 */
   selfOrderDeduction?: number;
+  /** 会员卡权益抵扣金额（元）：付款方式变更，单列冲减。 */
+  cardDeduction?: number;
+  /** 团购券券面消费金额（元）：与「预付抵扣」等额成对展示。 */
+  voucherConsumption?: number;
   /** 应付总额（元，可能为负数表示应退）。 */
   totalAmount: number;
   /** 支付方式中文标签。 */

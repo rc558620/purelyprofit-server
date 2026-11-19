@@ -235,7 +235,7 @@ export class ScanOrderingPrintController {
       printers,
       agentVersion,
       latestVersion:
-        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.0',
+        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.1',
     };
   }
 

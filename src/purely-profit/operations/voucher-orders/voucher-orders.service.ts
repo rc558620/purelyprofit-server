@@ -210,17 +210,19 @@ export class VoucherOrdersService {
     });
 
     this.logger.log(
-      `商家拒绝团购券订单完成: orderNo=${orderNo}, rejectedBy=${rejectedByStaffName}`,
+      `商家拒绝团购券订单完成: orderNo=${orderNo}, rejectedBy=${result.rejectedByStaffName ?? rejectedByStaffName}`,
     );
-    // 广播退款事件：store 房间（商家端列表刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情自动变已退款）
+    // 广播退款事件：store 房间（商家端列表刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情自动变已退款）。
+    // 归因一律用数据库落库值：顾客已自行退款的单走到这里时，本次操作人并没有拒绝过该单。
     this.realtimeService.publishVoucherOrderStatusChanged({
       storeId,
       orderNo: result.orderNo,
       voucherCode: result.voucherCode,
       status: 'refunded',
       refundAt: result.refundAt,
-      rejectedAt: result.rejectedAt,
-      rejectedByStaffName,
+      // 无拒单记录时不带 rejectedAt 字段，前端据此展示「用户已退款」而不是「商家拒单」
+      ...(result.rejectedAt ? { rejectedAt: result.rejectedAt } : {}),
+      rejectedByStaffName: result.rejectedByStaffName,
     });
 
     return {
@@ -228,8 +230,10 @@ export class VoucherOrdersService {
       status: 'refunded',
       refundAt: result.refundAt,
       rejectedAt: result.rejectedAt,
-      rejectedByStaffName,
-      rejectedByStaffRole: operatorSnapshot.role,
+      rejectedByStaffName: result.rejectedByStaffName,
+      // 无拒单记录（顾客自行退款）时不带角色，避免把当前操作人拼成经办人
+      rejectedByStaffRole:
+        result.rejectedByStaffName === null ? null : operatorSnapshot.role,
     };
   }
 

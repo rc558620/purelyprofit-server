@@ -25,9 +25,35 @@ export interface WechatRefundRequest {
   reason?: string;
 }
 
-/** 微信退款响应（成功态） */
+/**
+ * 微信退款单状态。
+ * - SUCCESS：退款成功（唯一可以落「已退款」的终态）
+ * - PROCESSING：已受理但未完成，必须继续查单，不能落终态
+ * - ABNORMAL：退款异常（需人工处理），不能落终态
+ * - CLOSED：退款关闭（未出款）
+ * - NOT_FOUND：微信侧无此退款单（上次请求未到达）
+ * - UNKNOWN：微信返回了未识别状态，按「未确认」处理
+ */
+export type WechatRefundStatus =
+  | 'SUCCESS'
+  | 'PROCESSING'
+  | 'ABNORMAL'
+  | 'CLOSED'
+  | 'NOT_FOUND'
+  | 'UNKNOWN';
+
+/** 发起/查询退款的统一结果 */
+export interface WechatRefundResult {
+  /** 微信退款单号（NOT_FOUND 时为空串） */
+  refundId: string;
+  status: WechatRefundStatus;
+}
+
+/** 微信退款响应（发起与查单返回同一结构） */
 interface WechatRefundResponse {
   refund_id?: string;
+  status?: string;
+  success_time?: string;
   message?: string;
   code?: string;
 }
@@ -63,21 +89,15 @@ export class ClubWechatRefundService {
    */
   async requestRefund(
     params: WechatRefundRequest,
-  ): Promise<{ refundId: string }> {
-    const target = await this.resolveRefundTarget(params);
+  ): Promise<WechatRefundResult> {
+    const target = await this.resolveRefundTarget(
+      params.storeId,
+      params.orderNo,
+    );
     if (!target) {
-      return this.degradeToDevRefund(params, '门店未配置收款商户号');
+      return this.degradeToDevRefund(params.refundNo, '门店未配置收款商户号');
     }
-
-    const privateKeyPem = await this.httpService.loadPrivateKeyPem(target.mode);
-    if (!privateKeyPem && this.httpService.isProduction()) {
-      this.logger.error(
-        `退款签名私钥未配置，退款单 ${params.refundNo} 未真实发起（mode=${target.mode}）`,
-      );
-      throw new InternalServerErrorException(
-        '微信支付签名凭据未配置，退款未发起，请联系平台管理员',
-      );
-    }
+    await this.ensureSignable(target, params.refundNo);
 
     const result = await this.httpService.request<WechatRefundResponse>({
       method: 'POST',
@@ -92,7 +112,11 @@ export class ClubWechatRefundService {
       if (!refundId) {
         throw new InternalServerErrorException('微信退款返回数据异常');
       }
-      return { refundId };
+      // 受理成功不等于退款成功：PROCESSING 必须留给上层继续查单，不能当成「已退款」
+      return {
+        refundId,
+        status: normalizeRefundStatus(result.data?.status),
+      };
     }
 
     this.logger.error(
@@ -102,6 +126,54 @@ export class ClubWechatRefundService {
     );
     throw new InternalServerErrorException(
       `微信退款失败：${result.message || '请联系客服'}`,
+    );
+  }
+
+  /**
+   * 查询微信退款单当前状态（GET /v3/refund/domestic/refunds/{out_refund_no}）。
+   *
+   * 用于「退款受理成功但状态不是 SUCCESS」后的补齐：只有查到 SUCCESS 才允许把本地订单
+   * 落成已退款；PROCESSING 继续等待；ABNORMAL / CLOSED 说明钱没退成功，必须释放占位。
+   */
+  async queryRefund(params: {
+    storeId: number;
+    orderNo: string;
+    refundNo: string;
+  }): Promise<WechatRefundResult> {
+    const target = await this.resolveRefundTarget(
+      params.storeId,
+      params.orderNo,
+    );
+    if (!target) {
+      return this.degradeToDevRefund(params.refundNo, '门店未配置收款商户号');
+    }
+    await this.ensureSignable(target, params.refundNo);
+
+    const result = await this.httpService.request<WechatRefundResponse>({
+      method: 'GET',
+      urlPath: `${REFUND_PATH}/${encodeURIComponent(params.refundNo)}`,
+      mchId: target.signMchId,
+      credential: target.mode,
+    });
+
+    if (result.ok) {
+      return {
+        refundId: result.data?.refund_id ?? '',
+        status: normalizeRefundStatus(result.data?.status),
+      };
+    }
+
+    // 微信明确「无此退款单」：上次请求没有到达微信，可按未发起处理
+    if (result.code === 'RESOURCE_NOT_EXISTS') {
+      return { refundId: '', status: 'NOT_FOUND' };
+    }
+
+    this.logger.error(
+      `微信退款查单失败 orderNo=${params.orderNo} refundNo=${params.refundNo} mode=${target.mode} ` +
+        `httpStatus=${result.status} wechatCode=${result.code ?? 'UNKNOWN'} message=${result.message ?? ''}`,
+    );
+    throw new InternalServerErrorException(
+      '微信退款查单失败，退款状态未确认，请稍后重试',
     );
   }
 
@@ -115,14 +187,15 @@ export class ClubWechatRefundService {
    * 商家一旦换绑子商户，回落路径会把钱退到错误主体，是最难排查的一类资金事故。
    */
   private async resolveRefundTarget(
-    params: WechatRefundRequest,
+    storeId: number,
+    orderNo: string,
   ): Promise<RefundTarget | null> {
-    const current = await this.identityService.resolveTarget(params.storeId);
+    const current = await this.identityService.resolveTarget(storeId);
     if (!current) {
       return null;
     }
 
-    const record = await this.orderRecordService.findByOrderNo(params.orderNo);
+    const record = await this.orderRecordService.findByOrderNo(orderNo);
 
     /*
      * 越权闸门：订单记录必须属于本次请求的门店。
@@ -132,10 +205,10 @@ export class ClubWechatRefundService {
      * 一旦漏掉归属校验，拿着别家的订单号就能把别家商户的钱退掉（IDOR）。
      * 服务商模式下签名主体是同一个 sp_mchid，签名这一层拦不住，只能在这里拦。
      */
-    if (record && record.storeId !== params.storeId) {
+    if (record && record.storeId !== storeId) {
       this.logger.error(
-        `退款归属校验失败：订单 ${params.orderNo} 属于门店 ${record.storeId}，` +
-          `与本次请求的门店 ${params.storeId} 不一致，拒绝退款`,
+        `退款归属校验失败：订单 ${orderNo} 属于门店 ${record.storeId}，` +
+          `与本次请求的门店 ${storeId} 不一致，拒绝退款`,
       );
       throw new ForbiddenException(
         clubPayError(
@@ -148,7 +221,7 @@ export class ClubWechatRefundService {
     const recorded = record?.subMchId ?? null;
     if (!recorded) {
       this.logger.warn(
-        `订单 ${params.orderNo} 未记录原收款子商户号，本次退款回落到门店 ${params.storeId} 当前配置 ` +
+        `订单 ${orderNo} 未记录原收款子商户号，本次退款回落到门店 ${storeId} 当前配置 ` +
           `settleMchId=${current.settleMchId}（历史单据或改造前落库，请核对商户号是否已变更）`,
       );
       return {
@@ -161,7 +234,7 @@ export class ClubWechatRefundService {
 
     if (recorded !== current.settleMchId) {
       this.logger.warn(
-        `订单 ${params.orderNo} 的原收款商户号 ${recorded} 与门店当前配置 ${current.settleMchId} 不一致，` +
+        `订单 ${orderNo} 的原收款商户号 ${recorded} 与门店当前配置 ${current.settleMchId} 不一致，` +
           '按原收款主体退款（门店可能已换绑子商户号）',
       );
     }
@@ -183,22 +256,52 @@ export class ClubWechatRefundService {
    * 因此这里保留降级但强制生产环境拦截，并留下可检索日志。
    */
   private degradeToDevRefund(
-    params: WechatRefundRequest,
+    refundNo: string,
     reason: string,
-  ): { refundId: string } {
+  ): WechatRefundResult {
     if (this.httpService.isProduction()) {
       this.logger.error(
-        `退款单 ${params.refundNo} 未真实发起退款（${reason}），生产环境禁止降级为已退款`,
+        `退款单 ${refundNo} 未真实发起退款（${reason}），生产环境禁止降级为已退款`,
       );
       throw new InternalServerErrorException(
         '微信退款配置不完整，退款未发起，请联系客服处理',
       );
     }
     this.logger.warn(
-      `非生产环境降级：退款单 ${params.refundNo} 未真实调用微信退款接口（${reason}）`,
+      `非生产环境降级：退款单 ${refundNo} 未真实调用微信退款接口（${reason}）`,
     );
-    return { refundId: `DEV_REFUND_${params.refundNo}` };
+    return { refundId: `DEV_REFUND_${refundNo}`, status: 'SUCCESS' };
   }
+
+  /** 生产环境缺少签名私钥时 fail-fast：没有凭据的请求必然被微信拒绝 */
+  private async ensureSignable(
+    target: RefundTarget,
+    refundNo: string,
+  ): Promise<void> {
+    const privateKeyPem = await this.httpService.loadPrivateKeyPem(target.mode);
+    if (privateKeyPem || !this.httpService.isProduction()) {
+      return;
+    }
+    this.logger.error(
+      `退款签名私钥未配置，退款单 ${refundNo} 未真实发起（mode=${target.mode}）`,
+    );
+    throw new InternalServerErrorException(
+      '微信支付签名凭据未配置，退款未发起，请联系平台管理员',
+    );
+  }
+}
+
+/** 微信退款状态归一化：未识别值一律按未确认处理，禁止默认成 SUCCESS */
+function normalizeRefundStatus(value: string | undefined): WechatRefundStatus {
+  if (
+    value === 'SUCCESS' ||
+    value === 'PROCESSING' ||
+    value === 'ABNORMAL' ||
+    value === 'CLOSED'
+  ) {
+    return value;
+  }
+  return 'UNKNOWN';
 }
 
 /**

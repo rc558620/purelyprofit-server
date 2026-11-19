@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomInt } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PrintAgentRegistryService } from './print-agent-registry.service';
 import type { PrintAgentRegisterResult } from './dto/scan-ordering-print-agent.dto';
 
 /**
@@ -13,16 +14,28 @@ import type { PrintAgentRegisterResult } from './dto/scan-ordering-print-agent.d
 export class PrintAgentBindingService {
   private readonly logger = new Logger('PrintAgentBinding');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registry: PrintAgentRegistryService,
+  ) {}
 
-  /** 商家端生成/重置门店绑定码。 */
+  /**
+   * 商家端生成/重置门店绑定码。
+   * 语义是「重置绑定」：旧绑定码、已登记设备与旧令牌必须一并作废，
+   * 否则旧代理仍能凭已保存的 token 重连，前端提示的「重新生成会重置绑定」就不成立。
+   */
   async generateBindCode(storeId: number): Promise<string> {
     const bindCode = this.randomBindCode();
-    await this.prisma.store.update({
-      where: { id: storeId },
-      data: { printAgentBindCode: bindCode },
-    });
-    this.logger.log(`生成打印代理绑定码: storeId=${storeId}`);
+    await this.prisma.$transaction([
+      this.prisma.printAgent.deleteMany({ where: { storeId } }),
+      this.prisma.store.update({
+        where: { id: storeId },
+        data: { printAgentBindCode: bindCode, printAgentToken: null },
+      }),
+    ]);
+    // 已建立的在线连接也要断开，避免撤销后仍继续接收打印任务
+    await this.registry.dropConnection(storeId);
+    this.logger.log(`生成打印代理绑定码并撤销旧设备: storeId=${storeId}`);
     return bindCode;
   }
 

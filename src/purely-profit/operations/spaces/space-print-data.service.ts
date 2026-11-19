@@ -6,6 +6,12 @@ import { sumNetPayableCents } from '../../commerce/commerce.utils';
 const SYS_RENEW_DEDUCTION_ID = 'SYS_RENEW_DEDUCTION';
 const SYS_PREPAID_DEDUCTION_ID = 'SYS_PREPAID_DEDUCTION';
 const SYS_SELF_ORDER_DEDUCTION_ID = 'SYS_SELF_ORDER_DEDUCTION';
+/**
+ * 会员卡抵扣行：结账时同样以正数落库（buildSettlementSessionItemRows 对抵扣项取绝对值），
+ * 但净额函数只按 productName 白名单识别预付/续费/自助下单，不认识「会员卡抵扣」，
+ * 必须在这里单独扣除，否则小票合计会把卡抵扣当成商品金额加回去。
+ */
+const SYS_CARD_DEDUCTION_ID = 'SYS_CARD_DEDUCTION';
 /** 台位费行：不占商品明细，改由「商品合计」下方单列汇总行呈现。 */
 const SYS_TIME_BILLING_ID = 'SYS_TIME_BILLING';
 /**
@@ -23,6 +29,7 @@ const DEDUCTION_PRODUCT_IDS = new Set<string>([
   SYS_RENEW_DEDUCTION_ID,
   SYS_PREPAID_DEDUCTION_ID,
   SYS_SELF_ORDER_DEDUCTION_ID,
+  SYS_CARD_DEDUCTION_ID,
 ]);
 
 /** 小票商品明细区需剔除的系统行（抵扣行 + 台位费行 + 券面消费行）。 */
@@ -100,6 +107,8 @@ export interface SpacePrintOrder {
   prepaidDeduction: number;
   /** 自助下单已支付商品抵扣合计（元）。 */
   selfOrderDeduction: number;
+  /** 会员卡权益抵扣金额（元）：属于付款方式变更，不是折价，单独成行展示。 */
+  cardDeduction: number;
   /**
    * 开台团购券券面金额（元）：纯消费模式下券面记为本次消费（计入营业额），
    * 同时等额冲抵应付，故不进商品明细区，只在汇总区单列。非券单为 0。
@@ -192,12 +201,15 @@ export class SpacePrintDataService {
           totals.prepaid += cents;
         } else if (item.productId === SYS_SELF_ORDER_DEDUCTION_ID) {
           totals.selfOrder += cents;
+        } else if (item.productId === SYS_CARD_DEDUCTION_ID) {
+          // 落库符号由结账逻辑决定（正数），历史手工单可能是负数，统一按绝对额统计
+          totals.card += Math.abs(cents);
         } else if (item.productId === SYS_GROUPON_VOUCHER_ID) {
           totals.voucher += cents;
         }
         return totals;
       },
-      { renew: 0, prepaid: 0, selfOrder: 0, voucher: 0 },
+      { renew: 0, prepaid: 0, selfOrder: 0, card: 0, voucher: 0 },
     );
 
     const endTime = session.endTime ?? saleOrder.createdAt;
@@ -244,12 +256,21 @@ export class SpacePrintDataService {
       renewDeduction: toYuan(deductionTotals.renew),
       prepaidDeduction: toYuan(deductionTotals.prepaid),
       selfOrderDeduction: toYuan(deductionTotals.selfOrder),
+      cardDeduction: toYuan(deductionTotals.card),
       voucherConsumption: toYuan(deductionTotals.voucher),
       // 客人本次实付 = 消费 − 已付抵扣（净额）。
       // ⚠️ 不能直接用 saleOrder.totalRevenue：该列是营业额口径，纯消费券单已
       // 把券面计入（券面是门店营收但客人已在 purelyClub 付过），用它当合计会让
       // 小票明细加总（88）与合计（276.70）对不上。
-      totalAmount: toYuan(sumNetPayableCents(session.sessionItems)),
+      // ⚠️ 卡抵扣行虽以正数落库，但 sumNetPayableCents 只认 productName 白名单，
+      // 会把它当成普通商品正面相加；因此先剔除卡行、再按绝对额单独扣减。
+      totalAmount: toYuan(
+        sumNetPayableCents(
+          session.sessionItems.filter(
+            (item) => item.productId !== SYS_CARD_DEDUCTION_ID,
+          ),
+        ) - deductionTotals.card,
+      ),
       paymentMethodLabel:
         PAYMENT_METHOD_LABEL[saleOrder.paymentMethod] ??
         saleOrder.paymentMethod,

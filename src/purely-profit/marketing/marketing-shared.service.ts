@@ -43,10 +43,13 @@ export class MarketingSharedService {
   async resolveMembershipManagedStoreId(
     user: AuthenticatedUser,
     storeId?: number,
+    permission: MarketingPermission = 'marketing:view',
   ): Promise<number | null> {
     const resolvedStoreId = await this.accessService.resolveViewStoreId(
       user,
       storeId,
+      undefined,
+      permission,
     );
     if (resolvedStoreId !== null) {
       const callerIsSubAccount =

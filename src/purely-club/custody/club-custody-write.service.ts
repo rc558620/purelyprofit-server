@@ -67,6 +67,19 @@ export class ClubCustodyWriteService {
 
     const now = new Date();
     /*
+     * 到期边界：草稿可能放置很久，超过有效期后再确认会出现
+     * 「确认成功但立刻显示已过期、无法取出」的死单，必须在此拦下。
+     */
+    if (order.expireAt && order.expireAt.getTime() <= now.getTime()) {
+      throw new ConflictException(
+        clubCustodyError(
+          CLUB_CUSTODY_ERROR_CODE.STATUS_PICKUP_NOT_ALLOWED,
+          '存单已超过有效期，无法确认存入，请让商家作废后重新发起',
+        ),
+      );
+    }
+
+    /*
      * 冻结口径下必须在此复核可用库存：draft 不占用冻结额度（未确认不算真的存进来），
      * 真正占用发生在这一刻。校验与状态流转放进同一事务并锁住商品行，
      * 否则多张待确认存单各自通过校验、被会员逐个确认后冻结量会超过物理库存。
@@ -81,6 +94,12 @@ export class ClubCustodyWriteService {
             totalQty: order.remainingQty,
           }
         : null;
+    /*
+     * 历史草稿可能是在「冻结必须关联商品」收紧之前创建的（frozen + 无 productId），
+     * 这类单无法真正占用库存；确认时降级为不占库存口径，避免列表继续显示为冻结。
+     */
+    const downgradeFrozenWithoutProduct =
+      order.stockMode === 'frozen' && order.productId === null;
     await this.prisma.$transaction(async (tx) => {
       const stockContext = frozenScope
         ? await ensureCustodyFrozenStockAvailable(tx, frozenScope)
@@ -93,7 +112,10 @@ export class ClubCustodyWriteService {
           deletedAt: null,
           status: 'draft',
         },
-        data: { status: 'stored' },
+        data: {
+          status: 'stored',
+          ...(downgradeFrozenWithoutProduct ? { stockMode: 'sold' } : {}),
+        },
       });
       if (updated.count === 0) {
         throw new ConflictException(
@@ -114,8 +136,6 @@ export class ClubCustodyWriteService {
           productId: frozenScope.productId,
           productName: order.productName,
           qty: order.remainingQty,
-          beforeRemainingQty: 0,
-          afterRemainingQty: order.remainingQty,
           operatorStaffId: order.createdByStaffId,
           orderNo: order.orderNo,
           // 复用冻结校验已读到的物理库存，台账不再重读同一行
@@ -128,11 +148,20 @@ export class ClubCustodyWriteService {
     /*
      * 会员确认会让「待确认」减少、「在存」增加：
      * 会员汇总缓存与门店缓存都要失效，否则小程序徽标停在旧值。
+     * 事务已提交，缓存失效失败不能反向判为「确认失败」。
      */
-    await this.custodyCodeService.invalidateAfterWrite({
-      storeId: context.store.id,
-      memberId,
-    });
+    try {
+      await this.custodyCodeService.invalidateAfterWrite({
+        storeId: context.store.id,
+        memberId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `[club-custody] 确认后缓存失效失败 storeId=${context.store.id} orderId=${orderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     this.logClubWrite('confirm', context, orderId, {
       orderNo: order.orderNo,
       before: { status: order.status },
@@ -146,10 +175,16 @@ export class ClubCustodyWriteService {
       memberId,
     });
 
-    // 事务只改了 status，其余字段以事务前读到的草稿为准，无需再回库取整行。
+    // 事务只改了 status（历史假冻结草稿会同时降级为 sold），其余字段沿用事务前读到的草稿
     return {
       order: mapClubCustodyOrder(
-        { ...order, status: 'stored' },
+        {
+          ...order,
+          status: 'stored',
+          ...(downgradeFrozenWithoutProduct
+            ? { stockMode: 'sold' as const }
+            : {}),
+        },
         context.store.name,
         now,
       ),

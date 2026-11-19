@@ -6,6 +6,7 @@ import type { Prisma } from '@prisma/client';
 export const VOUCHER_ALREADY_USED_MESSAGE = '该团购券已使用';
 export const VOUCHER_NOT_FOUND_MESSAGE = '团购券不存在';
 export const VOUCHER_REFUNDED_MESSAGE = '该团购券已退款，无法使用';
+export const VOUCHER_REFUNDING_MESSAGE = '该团购券退款处理中，无法使用';
 export const VOUCHER_EXPIRED_MESSAGE = '该团购券已过期';
 export const VOUCHER_STORE_MISMATCH_MESSAGE =
   '该团购券不属于当前门店，无法使用';
@@ -90,6 +91,14 @@ export async function assertVoucherReadable(
   if (order.status === 'expired') {
     throw new BadRequestException(VOUCHER_EXPIRED_MESSAGE);
   }
+  // 有效期兜底：过期翻转依赖列表/定时任务，没被翻转的单也必须在读取与开台时拦住
+  if (order.expiresAt !== null && order.expiresAt <= new Date()) {
+    throw new BadRequestException(VOUCHER_EXPIRED_MESSAGE);
+  }
+  // 退款占位期间禁止读取与开台：该单可能已在微信侧出款
+  if (order.refundNo !== null) {
+    throw new BadRequestException(VOUCHER_REFUNDING_MESSAGE);
+  }
   if (order.status === 'used' && order.usedSessionId !== null) {
     throw new BadRequestException(VOUCHER_ALREADY_USED_MESSAGE);
   }
@@ -146,6 +155,12 @@ export async function bindVoucherOnOpen(
   if (order.status === 'expired') {
     throw new BadRequestException(VOUCHER_EXPIRED_MESSAGE);
   }
+  if (order.expiresAt !== null && order.expiresAt <= new Date()) {
+    throw new BadRequestException(VOUCHER_EXPIRED_MESSAGE);
+  }
+  if (order.refundNo !== null) {
+    throw new BadRequestException(VOUCHER_REFUNDING_MESSAGE);
+  }
   if (order.status !== 'pending' && order.status !== 'used') {
     throw new BadRequestException(VOUCHER_NOT_FOUND_MESSAGE);
   }
@@ -155,6 +170,10 @@ export async function bindVoucherOnOpen(
       id: order.id,
       status: { in: ['pending', 'used'] },
       usedSessionId: null,
+      // 退款占位（refund_no 非空）期间禁止绑定：退款可能已在渠道出款
+      refundNo: null,
+      // 有效期条件必须进原子更新：不能只靠上面的读校验（读与写之间券可能正好过期）
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
     },
     data: {
       status: 'used',
@@ -164,14 +183,34 @@ export async function bindVoucherOnOpen(
     },
   });
   if (bound.count !== 1) {
-    // 并发双开台：另一笔事务已抢先绑定
-    throw new BadRequestException(VOUCHER_ALREADY_USED_MESSAGE);
+    // 并发抢占：按最新行给出准确原因，而不是一律报「已使用」
+    throw await buildBindFailure(tx, order.id);
   }
   return {
     bound: true,
     orderNo: order.orderNo,
     voucherCode: order.voucherCode ?? undefined,
   };
+}
+
+/** 绑定失败时回读最新行，给出与事实一致的原因（并发抢占后才会走到） */
+async function buildBindFailure(
+  tx: VoucherOrderStore,
+  orderId: number,
+): Promise<BadRequestException> {
+  const latest = await tx.clubVoucherOrder.findFirst({
+    where: { id: orderId },
+  });
+  if (latest?.status === 'refunded') {
+    return new BadRequestException(VOUCHER_REFUNDED_MESSAGE);
+  }
+  if (latest?.refundNo !== null && latest?.refundNo !== undefined) {
+    return new BadRequestException(VOUCHER_REFUNDING_MESSAGE);
+  }
+  if (latest?.expiresAt && latest.expiresAt <= new Date()) {
+    return new BadRequestException(VOUCHER_EXPIRED_MESSAGE);
+  }
+  return new BadRequestException(VOUCHER_ALREADY_USED_MESSAGE);
 }
 
 /** 与 PrismaService/事务客户端兼容的最小读写面（结构类型，两方均满足） */

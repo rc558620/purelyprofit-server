@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
@@ -127,11 +128,14 @@ export class SpacePrintController {
     return { bindCode };
   }
 
+  /**
+   * 只读状态接口刻意不返回绑定码：绑定码本身即可换取代理令牌，
+   * 不应由 space:view（查看权限）带出注册能力。需要展示时走下面的 bind-code 接口。
+   */
   @Get('print-agent/status')
   @RequirePermissions('space:view')
   @ApiOperation({ summary: '查询门店打印代理绑定与在线状态' })
   async getPrintAgentStatus(@CurrentUser() user: AuthenticatedUser): Promise<{
-    bindCode: string | null;
     online: boolean;
     lastSeenAt: number | null;
     printers: PrintAgentPrinter[];
@@ -146,8 +150,7 @@ export class SpacePrintController {
       'space:view',
       '无权查看打印代理配置',
     );
-    const [bindCode, agentVersion, status] = await Promise.all([
-      this.printAgentService.getBindCode(storeId),
+    const [agentVersion, status] = await Promise.all([
       this.printAgentService.getLatestRegisteredVersion(storeId),
       this.printAgentService.getAgentStatus(storeId),
     ]);
@@ -156,14 +159,58 @@ export class SpacePrintController {
       ? await this.printAgentService.getPrinters(storeId)
       : [];
     return {
-      bindCode,
       online: status.online,
       lastSeenAt: status.lastSeenAt,
       printers,
       agentVersion,
       latestVersion:
-        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.0',
+        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.1',
     };
+  }
+
+  /**
+   * 读取当前绑定码：与状态查询拆开，只有具备打印配置写权限的成员才能看到。
+   * 已生成过的码原样返回，未生成时返回 null（由前端引导点击生成）。
+   */
+  @Get('print-agent/bind-code')
+  @RequirePermissions('operation-entry:create')
+  @ApiOperation({ summary: '读取门店当前打印代理绑定码（需打印配置写权限）' })
+  async getPrintAgentBindCode(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ bindCode: string | null }> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'operation-entry:create',
+      '无权查看打印代理绑定码',
+    );
+    return { bindCode: await this.printAgentService.getBindCode(storeId) };
+  }
+
+  @Post('print/reprint')
+  @RequirePermissions('operation-entry:create')
+  @ApiOperation({
+    summary: '按销售订单补打空间小票（同一订单短时间重复提交会自动去重）',
+  })
+  async reprintReceipt(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SpacePrintOrderDto,
+  ): Promise<{ orderId: string; status: string }> {
+    return this.printService.reprintForMerchant(user, dto.saleOrderId);
+  }
+
+  @Get('print/task-status')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '查询空间小票最近一次打印任务状态' })
+  async getPrintTaskStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('saleOrderId') saleOrderId: string,
+  ): Promise<{ taskId: string; status: string; error: string | null } | null> {
+    const orderId = Number(saleOrderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      throw new BadRequestException('saleOrderId 无效');
+    }
+    return this.printService.getPrintTaskStatus(user, orderId);
   }
 
   @Get('print-agent/download/:platform')

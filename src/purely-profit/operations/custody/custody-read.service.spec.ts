@@ -87,8 +87,12 @@ describe('CustodyReadService 列表总数缓存', () => {
     const { service, prisma, readTotal, writeTotal } = buildListService();
     readTotal.mockResolvedValue(null);
 
+    /*
+     * 只选不随时间漂移的口径：stored / expired 的条数会随 expireAt 越过当前时刻变化，
+     * 已被排除在总数缓存之外（见下方时间敏感口径用例），不适合用来断言缓存分字段。
+     */
     await service.listOrders({} as never, LIST_PARAMS);
-    await service.listOrders({} as never, { ...LIST_PARAMS, status: 'stored' });
+    await service.listOrders({} as never, { ...LIST_PARAMS, status: 'draft' });
     await service.listOrders({} as never, { ...LIST_PARAMS, keyword: '茅台' });
 
     expect(prisma.custodyOrder.count).toHaveBeenCalledTimes(3);

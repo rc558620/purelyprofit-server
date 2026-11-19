@@ -173,21 +173,29 @@ export function registerPrintAgentNativeWebsocket(
           socket.close(4001, 'unauthorized');
           return;
         }
-        void agentService.attach(storeId, socket).catch((error) => {
-          logger.warn(
-            `打印代理挂载异常: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
+        // 代理链路异常统一在此吞掉并降级为 warn，避免成为 unhandled rejection
+        const quietly = async (
+          label: string,
+          action: () => Promise<unknown>,
+        ): Promise<void> => {
+          try {
+            await action();
+          } catch (error) {
+            logger.warn(
+              `${label}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        };
+
+        void quietly('打印代理挂载异常', () =>
+          agentService.attach(storeId, socket),
+        );
         send(socket, { type: 'welcome', storeId });
         logger.log(`打印代理已连接: storeId=${storeId}`);
 
         // 心跳兜底：service 已内部容错（Redis 不可用降级），此处仅防未知异常成为 unhandled rejection
         const safeTouch = (): void => {
-          void agentService.touch(storeId).catch((error) => {
-            logger.warn(
-              `打印代理心跳异常: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
+          void quietly('打印代理心跳异常', () => agentService.touch(storeId));
         };
 
         const pingTimer = setInterval(() => {
@@ -197,11 +205,9 @@ export function registerPrintAgentNativeWebsocket(
 
         const cleanup = (): void => {
           clearInterval(pingTimer);
-          void agentService.detach(storeId, socket).catch((error) => {
-            logger.warn(
-              `打印代理卸载异常: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
+          void quietly('打印代理卸载异常', () =>
+            agentService.detach(storeId, socket),
+          );
         };
 
         socket.on('message', (raw) => {
@@ -218,7 +224,18 @@ export function registerPrintAgentNativeWebsocket(
           if (message.type === 'print.done') {
             safeTouch();
             logger.log(
-              `打印回执: storeId=${storeId} taskId=${message.taskId ?? '-'} ok=${String(message.ok)}`,
+              `打印回执: storeId=${storeId} taskId=${message.taskId ?? '-'} ok=${String(message.ok)} error=${message.error ?? '-'}`,
+            );
+            if (!message.taskId) return;
+            const { taskId } = message;
+            const receipt = {
+              taskId,
+              ok: message.ok === true,
+              error: message.error ?? null,
+            };
+            // 回执落库：把「已提交」推进到「已打印/失败」，收银端才能发现出纸失败
+            void quietly('打印回执落库异常', () =>
+              agentService.recordReceipt(storeId, receipt),
             );
             return;
           }

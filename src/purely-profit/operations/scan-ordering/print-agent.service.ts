@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { RedisService } from '../../../redis/redis.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { PrintAgentBindingService } from './print-agent-binding.service';
 import { PrintAgentRegistryService } from './print-agent-registry.service';
 import { PRINT_AGENT_CHANNEL, printAgentOnlineKey } from './print-agent.types';
@@ -14,6 +15,7 @@ import type {
   PrintAgentDispatchResult,
   PrintAgentForwardMessage,
   PrintAgentPrinter,
+  PrintAgentReceipt,
   PrintAgentTask,
 } from './print-agent.types';
 import type { PrintAgentRegisterResult } from './dto/scan-ordering-print-agent.dto';
@@ -51,6 +53,7 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     private readonly redisService: RedisService,
     private readonly registry: PrintAgentRegistryService,
     private readonly binding: PrintAgentBindingService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -143,11 +146,123 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   async dispatch(
     storeId: number,
     task: PrintAgentTask,
+    meta?: { saleOrderId?: number | null },
   ): Promise<PrintAgentDispatchResult> {
+    // 先落 submitted 台账：即使后续下发/回执失败，也能从「一直停在 submitted」
+    // 判断是链路没送到，而不是「代理没出纸但无人知晓」。
+    await this.recordSubmitted(storeId, task, meta?.saleOrderId ?? null);
     if (this.registry.trySend(storeId, task)) {
       return { ok: true, taskId: task.taskId };
     }
-    return this.dispatchViaRedis(storeId, task);
+    const result = await this.dispatchViaRedis(storeId, task);
+    if (result.ok) {
+      await this.markForwarded(task.taskId);
+    } else {
+      await this.markFailed(task.taskId, result.message);
+    }
+    return result;
+  }
+
+  /**
+   * 记录代理回执：printed=代理已接收并执行成功，failed=代理执行失败。
+   * 回执缺失/未知 taskId 时静默忽略（例如代理重启后补发旧任务）。
+   */
+  async recordReceipt(
+    storeId: number,
+    receipt: PrintAgentReceipt,
+  ): Promise<void> {
+    try {
+      await this.prisma.printAgentTaskLog.updateMany({
+        where: { storeId, taskId: receipt.taskId },
+        data: {
+          status: receipt.ok ? 'printed' : 'failed',
+          error: receipt.ok ? null : (receipt.error ?? '代理执行打印失败'),
+          finishedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `打印回执落库失败: storeId=${storeId} taskId=${receipt.taskId} ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** 查询某销售订单最近一次仍有效（已提交/已打印）的任务，用于补打去重。 */
+  async findRecentActiveTask(
+    storeId: number,
+    saleOrderId: number,
+    withinMs: number,
+  ): Promise<{ taskId: string; status: string } | null> {
+    const record = await this.prisma.printAgentTaskLog.findFirst({
+      where: {
+        storeId,
+        saleOrderId,
+        status: { in: ['submitted', 'printed'] },
+        createdAt: { gte: new Date(Date.now() - withinMs) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { taskId: true, status: true },
+    });
+    return record ?? null;
+  }
+
+  /** 查询某销售订单最近一次任务状态（供收银端展示「已提交/已打印/失败」）。 */
+  async findLatestTask(
+    storeId: number,
+    saleOrderId: number,
+  ): Promise<{ taskId: string; status: string; error: string | null } | null> {
+    const record = await this.prisma.printAgentTaskLog.findFirst({
+      where: { storeId, saleOrderId },
+      orderBy: { createdAt: 'desc' },
+      select: { taskId: true, status: true, error: true },
+    });
+    return record ?? null;
+  }
+
+  private async recordSubmitted(
+    storeId: number,
+    task: PrintAgentTask,
+    saleOrderId: number | null,
+  ): Promise<void> {
+    try {
+      await this.prisma.printAgentTaskLog.create({
+        data: {
+          storeId,
+          taskId: task.taskId,
+          saleOrderId,
+          target: task.target,
+          deviceId: task.deviceId ?? null,
+          status: 'submitted',
+        },
+      });
+    } catch (error) {
+      // 台账写入失败不阻断出票：打印可用性优先，状态可观测性降级
+      this.logger.warn(
+        `打印任务台账写入失败: storeId=${storeId} taskId=${task.taskId} ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async markForwarded(taskId: string): Promise<void> {
+    try {
+      await this.prisma.printAgentTaskLog.updateMany({
+        where: { taskId },
+        data: { forwarded: true },
+      });
+    } catch {
+      // forwarded 仅用于排障，失败不影响出票
+    }
+  }
+
+  private async markFailed(taskId: string, message: string): Promise<void> {
+    try {
+      await this.prisma.printAgentTaskLog.updateMany({
+        where: { taskId },
+        data: { status: 'failed', error: message, finishedAt: new Date() },
+      });
+    } catch {
+      // 同上：状态标记失败不覆盖原始错误
+    }
   }
 
   /** 生成唯一任务 ID。 */
@@ -172,10 +287,19 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
         };
       }
       const message: PrintAgentForwardMessage = { storeId, task };
-      await this.redisService.publish(
+      const receivers = await this.redisService.publish(
         PRINT_AGENT_CHANNEL,
         JSON.stringify(message),
       );
+      // 本服务启动时会订阅该频道，receivers=0 说明没有任何 worker 在监听
+      // （订阅未建立 / Redis 主从切换后未恢复），此时不能对外宣称"已下发"。
+      if (receivers <= 0) {
+        return {
+          ok: false,
+          reason: 'agent-offline',
+          message: '打印任务未投递到任何代理节点，请稍后重试',
+        };
+      }
       this.logger.log(
         `打印任务跨 worker 转发: storeId=${storeId} taskId=${task.taskId} pid=${process.pid}`,
       );

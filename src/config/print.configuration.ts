@@ -51,7 +51,7 @@ export interface PrintConfig {
 export function resolvePrintAgentConfig(): PrintAgentConfig {
   return {
     /** 最新可下载的代理版本号（与 Go 代理 Version 常量保持一致） */
-    latestVersion: process.env.PRINT_AGENT_LATEST_VERSION ?? '0.1.0',
+    latestVersion: process.env.PRINT_AGENT_LATEST_VERSION ?? '0.1.1',
   };
 }
 

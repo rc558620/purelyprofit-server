@@ -37,7 +37,7 @@ import {
   CustodyOrderActionResponseDto,
   CustodyOrderDetailResponseDto,
   CustodyOrderListResponseDto,
-  CustodySettingsDto,
+  CustodyOrderStatusDto,
   CustodySettingsResponseDto,
   VerifyCustodyMemberResponseDto,
   VerifyPickupCodeResponseDto,
@@ -93,6 +93,21 @@ export class CustodyController {
     @Query() query: VerifyCustodyMemberQueryDto,
   ): Promise<VerifyCustodyMemberResponseDto> {
     return this.custodyService.verifyMember(user, query.phone);
+  }
+
+  @Get(':id/status')
+  @RequirePermissions('custody:view')
+  @ApiOperation({
+    summary: '查询存单终态（轻量轮询）',
+    description:
+      '等待会员确认弹窗在断线 / 漏收实时事件后主动对账：软删（会员拒绝）返回 deleted，作废返回 void。',
+  })
+  @ApiOkResponse({ type: CustodyOrderStatusDto })
+  getOrderStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) orderId: number,
+  ): Promise<CustodyOrderStatusDto> {
+    return this.custodyService.getOrderStatus(user, orderId);
   }
 
   @Get(':id')
@@ -184,13 +199,19 @@ export class CustodySettingsController {
   constructor(private readonly custodyService: CustodyService) {}
 
   @Get()
-  @RequirePermissions('custody:manage')
-  @ApiOperation({ summary: '查询门店客存配置' })
+  // 有建单权限的店员同样需要读取门店配置（库存口径 / 有效期 / 计量单位），
+  // 否则前端只能回落到内置默认值，建单结果会与门店配置不一致；修改仍仅限 manage
+  @RequirePermissions('custody:manage', 'custody:create')
+  @ApiOperation({
+    summary: '查询门店客存配置',
+    description:
+      '拥有 custody:manage 或 custody:create 均可读取；返回 { settings } 包装结构。',
+  })
   @ApiOkResponse({ type: CustodySettingsResponseDto })
-  getSettings(
+  async getSettings(
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<CustodySettingsDto> {
-    return this.custodyService.getSettings(user);
+  ): Promise<CustodySettingsResponseDto> {
+    return { settings: await this.custodyService.getSettings(user) };
   }
 
   @Patch()
@@ -200,10 +221,10 @@ export class CustodySettingsController {
     description: '一期不开放跨店通取，allowCrossStorePickup 始终为 false。',
   })
   @ApiOkResponse({ type: CustodySettingsResponseDto })
-  updateSettings(
+  async updateSettings(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateCustodySettingsDto,
-  ): Promise<CustodySettingsDto> {
-    return this.custodyService.updateSettings(user, dto);
+  ): Promise<CustodySettingsResponseDto> {
+    return { settings: await this.custodyService.updateSettings(user, dto) };
   }
 }

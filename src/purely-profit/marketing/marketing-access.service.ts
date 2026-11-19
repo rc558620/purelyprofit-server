@@ -4,7 +4,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
-export type MarketingPermission = 'marketing:view' | 'marketing:manage';
+/**
+ * 门店级权限点：营销模块自有权限 + 会员卡权限。
+ * 会员卡入口已并入空间管理，列表 / 模板 / 调次分别只认 member-card:*，
+ * 避免「入口认会员卡权限、门店解析却认营销权限」的双门槛。
+ */
+export type MarketingPermission =
+  | 'marketing:view'
+  | 'marketing:manage'
+  | 'member-card:view'
+  | 'member-card:manage';
 
 @Injectable()
 export class MarketingAccessService {
@@ -120,17 +129,15 @@ export class MarketingAccessService {
    * 解析查询视图所属的门店 ID：
    * - 如果调用方传了 storeId（管理员视角），校验是否在权限范围内
    * - 如果未传，使用当前用户所属门店
-   * - 无论如何都要有 marketing:view 权限
+   * - 默认要求 marketing:view；会员卡模块可显式传 member-card:view
    */
   async resolveViewStoreId(
     user: AuthenticatedUser,
     requestedStoreId: number | undefined,
     forbiddenMessage = '无权查看该门店的营销数据',
+    permission: MarketingPermission = 'marketing:view',
   ): Promise<number | null> {
-    const manageableId = await this.getManageableStoreId(
-      user,
-      'marketing:view',
-    );
+    const manageableId = await this.getManageableStoreId(user, permission);
 
     if (requestedStoreId !== undefined) {
       const normalizedRequestedStoreId = Number(requestedStoreId);

@@ -62,19 +62,29 @@ describe('SpacePrintSettingsService', () => {
   it('部分更新：只写入传入字段并回读最新配置', async () => {
     prismaService.store.findUnique.mockResolvedValue({
       spacePrintChannel: 'cloud',
-      spaceCloudPrinterSn: null,
+      spaceCloudPrinterSn: 'SN-CLOUD-1',
       spaceUsbPrinter: null,
     });
     await expect(
-      service.updateForMerchant(user, { spacePrintChannel: 'cloud' }),
+      service.updateForMerchant(user, {
+        spacePrintChannel: 'cloud',
+        spaceCloudPrinterSn: 'SN-CLOUD-1',
+      }),
     ).resolves.toEqual({
       spacePrintChannel: 'cloud',
-      spaceCloudPrinterSn: null,
+      spaceCloudPrinterSn: 'SN-CLOUD-1',
       spaceUsbPrinter: null,
     });
     expect(prismaService.store.update).toHaveBeenCalledWith({
       where: { id: 11 },
-      data: { spacePrintChannel: 'cloud' },
+      data: { spacePrintChannel: 'cloud', spaceCloudPrinterSn: 'SN-CLOUD-1' },
     });
+  });
+
+  it('切云通道但合并后仍无 SN 时抛 400，且不写库', async () => {
+    await expect(
+      service.updateForMerchant(user, { spacePrintChannel: 'cloud' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaService.store.update).not.toHaveBeenCalled();
   });
 });

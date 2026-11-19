@@ -87,10 +87,16 @@ export class CreateCustodyOrderDto {
   @MaxLength(50, { message: '存放位置最长 50 个字符' })
   location?: string;
 
-  /** 到期时间（ISO 瞬时字符串，必须带时区，不传时按门店默认有效期计算） */
+  /**
+   * 到期时间（ISO 瞬时字符串，必须带时区）。
+   *
+   * 传 null 表示长期有效；省略则按门店默认有效期天数计算。
+   */
   @ApiPropertyOptional({
-    description: '到期时间（ISO 瞬时字符串，需带时区），不传表示长期有效',
+    description:
+      '到期时间（ISO 瞬时字符串，需带时区）；传 null 表示长期有效，不传则按门店默认有效期计算',
     example: '2026-10-31T15:59:00.000Z',
+    nullable: true,
   })
   @IsOptional()
   @IsString({ message: '到期时间格式不合法' })
@@ -98,7 +104,7 @@ export class CreateCustodyOrderDto {
     message:
       '到期时间格式不合法（需带时区的 ISO 瞬时，如 2026-10-31T15:59:00.000Z）',
   })
-  expireAt?: string;
+  expireAt?: string | null;
 
   /** 库存口径：不传时按门店配置 */
   @ApiPropertyOptional({

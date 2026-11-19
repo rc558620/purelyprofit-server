@@ -50,6 +50,8 @@ export interface ResolveCheckoutAssetsParams {
     customerId: number | null;
     /** 开台绑定的持卡实例 */
     activeCardId: number | null;
+    /** 开台时间：开台已绑卡时以该时刻复核卡权益（结账晚于到期不卡死） */
+    startTime?: Date | null;
   };
   now?: Date;
 }
@@ -105,6 +107,7 @@ export async function resolveCheckoutAssets(
       findCheckoutSettlementAssetId(settlements, 'member_card'),
     ),
     sessionId: session.id,
+    sessionStartedAt: session.startTime ?? null,
     now: params.now,
   });
 

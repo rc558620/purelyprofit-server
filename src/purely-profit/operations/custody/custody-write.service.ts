@@ -15,6 +15,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
   CUSTODY_DISABLED_MESSAGE,
+  CUSTODY_EXPIRE_AT_INVALID_MESSAGE,
   CUSTODY_ORDER_NOT_FOUND_MESSAGE,
   CUSTODY_RESEND_REQUIRE_DRAFT_MESSAGE,
 } from './custody.constants';
@@ -111,6 +112,14 @@ export class CustodyWriteService {
       now,
     });
 
+    /*
+     * 到期边界校验：expireAt 为空表示长期有效，非空必须晚于当前时间。
+     * 否则会建出一张「创建即过期」的死单，会员确认后立刻不可取出。
+     */
+    if (input.expireAt && input.expireAt.getTime() <= now.getTime()) {
+      throw new BadRequestException(CUSTODY_EXPIRE_AT_INVALID_MESSAGE);
+    }
+
     // 冻结口径：寄存量不得超过可用库存（物理库存 − 在存冻结量）。
     // 校验、落库、台账必须在同一事务内：并发建单否则会各自读到同一份可用库存并双双通过校验，
     // 台账也不能与占用动作分离，否则盘点时对不上。
@@ -133,8 +142,6 @@ export class CustodyWriteService {
           productId: input.productId,
           productName: input.productName,
           qty: input.totalQty,
-          beforeRemainingQty: 0,
-          afterRemainingQty: created.remainingQty,
           operatorStaffId: input.createdByStaffId,
           orderNo: created.orderNo,
           // 用冻结校验已读到的物理库存，台账不再重读同一行
@@ -249,47 +256,41 @@ export class CustodyWriteService {
      * 条件更新与解冻台账必须在同一事务：并发下只有真正把状态改成 void 的那一次
      * 才释放冻结额度，各自判断会出现「状态没改成但台账已释放」。
      */
-    await this.prisma.$transaction(async (tx) => {
-      await voidCustodyOrderInTransaction({
+    const voidResult = await this.prisma.$transaction((tx) =>
+      voidCustodyOrderInTransaction({
         tx,
         orderId,
         storeId,
         staffId,
         reason: dto.reason,
         now,
-        order,
-      });
-    });
+      }),
+    );
+    // 事务内回读的行才是作废时的真实状态与余量（并发取出可能已改小）
+    const voided = voidResult.order;
 
-    /*
-     * 作废结果在本次请求内已完全确定（状态 / 作废人 / 时间 / 原因），
-     * 直接拼出映射入参，不必在事务后再回读同一行。
-     * 并发下真正改状态的那一次才记账，与重读拿到的结果一致。
-     */
-    const voided: CustodyOrderMappingSource = {
-      ...order,
-      status: 'void',
-      voidReason: dto.reason,
-    };
     // 在存单量变化直接影响会员侧汇总，会员缓存与门店缓存一并失效
     await this.custodyCodeService.invalidateAfterWrite({
       storeId,
-      memberId: order.memberId,
+      memberId: voided.memberId,
     });
     this.logWrite('作废', user.id, storeId, {
       orderId,
       orderNo: voided.orderNo,
-      before: { status: order.status, remainingQty: order.remainingQty },
+      before: {
+        status: voidResult.previousStatus,
+        remainingQty: voided.remainingQty,
+      },
       after: { status: 'void', reason: dto.reason },
     });
     // 会员侧需知情：存单被作废后取件码全部失效
-    this.realtimePublisher.publishVoided(storeId, order, dto.reason, now);
+    this.realtimePublisher.publishVoided(storeId, voided, dto.reason, now);
 
     return {
       order: await this.mapWithOperatorRole(
         storeId,
         voided,
-        order.createdByStaffId,
+        voided.createdByStaffId,
         now,
       ),
     };

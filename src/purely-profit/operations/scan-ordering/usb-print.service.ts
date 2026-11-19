@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -98,11 +102,28 @@ export class UsbPrintService {
   }
 
   private async resolveDevice(device?: string): Promise<UsbPrinterInfo> {
-    const id = device?.trim() || this.config.device;
-    if (id) {
-      return id.startsWith('/')
-        ? { id, name: id, type: 'device' }
-        : { id, name: id, type: 'cups' };
+    const requested = device?.trim();
+    if (requested) {
+      // 门店配置里的打印机标识来自前端自由文本，只能作为「从探测列表中选择」使用。
+      // 直接把它当文件路径会让任意可写路径（/etc/xxx 等）被 ESC/POS 字节覆盖。
+      const devices = await this.listDevices();
+      const matched = devices.find((item) => item.id === requested);
+      if (!matched) {
+        throw new BadRequestException(
+          '打印机标识不在服务端探测到的设备列表中，请重新选择打印机',
+        );
+      }
+      return matched;
+    }
+    if (this.config.device) {
+      // 部署环境变量由运维配置，视为可信来源（可能是容器内映射的设备路径）
+      return this.config.device.startsWith('/')
+        ? {
+            id: this.config.device,
+            name: this.config.device,
+            type: 'device',
+          }
+        : { id: this.config.device, name: this.config.device, type: 'cups' };
     }
     const devices = await this.listDevices();
     if (devices.length === 0) {
@@ -138,7 +159,11 @@ export class UsbPrintService {
         `调用系统打印 ${printer} 失败：${this.errorMessage(error)}`,
       );
     } finally {
-      await fs.rm(tmpFile, { force: true }).catch(() => undefined);
+      try {
+        await fs.rm(tmpFile, { force: true });
+      } catch {
+        // 临时文件清理失败不影响出票结果，仅由系统临时目录回收
+      }
     }
   }
 

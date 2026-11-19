@@ -51,6 +51,7 @@ export class MemberCardsService {
       await this.marketingSharedService.resolveMembershipManagedStoreId(
         user,
         query.storeId,
+        'member-card:view',
       );
 
     if (storeId === null) {
@@ -84,7 +85,7 @@ export class MemberCardsService {
     await this.marketingSharedService.ensureMarketingStoreAccess(
       user,
       card.storeId,
-      'marketing:view',
+      'member-card:view',
     );
 
     return this.buildCardDto(card);
@@ -99,7 +100,7 @@ export class MemberCardsService {
     await this.marketingSharedService.ensureMarketingStoreAccess(
       user,
       card.storeId,
-      'marketing:view',
+      'member-card:view',
     );
 
     const { page, skip, take } = resolveMarketingPagination(
@@ -128,7 +129,7 @@ export class MemberCardsService {
 
   /**
    * 读取持卡行，**不做权限校验**。
-   * 供写服务复用：调用方必须先完成 marketing:manage 校验，再调用本方法。
+   * 供写服务复用：调用方必须先完成 member-card:manage 校验，再调用本方法。
    */
   async getCardOrThrow(cardId: number): Promise<MemberCard> {
     const card = await this.prisma.memberCard.findUnique({

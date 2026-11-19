@@ -20,6 +20,7 @@ import type {
   CustodyOrderActionResponseDto,
   CustodyOrderDetailResponseDto,
   CustodyOrderListResponseDto,
+  CustodyOrderStatusDto,
   CustodySettingsDto,
   VerifyCustodyMemberResponseDto,
   VerifyPickupCodeResponseDto,
@@ -50,6 +51,13 @@ export class CustodyService {
     orderId: number,
   ): Promise<CustodyOrderDetailResponseDto> {
     return this.custodyReadService.getOrderDetail(user, orderId);
+  }
+
+  getOrderStatus(
+    user: AuthenticatedUser,
+    orderId: number,
+  ): Promise<CustodyOrderStatusDto> {
+    return this.custodyReadService.getOrderStatus(user, orderId);
   }
 
   createOrder(

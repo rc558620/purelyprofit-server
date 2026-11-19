@@ -41,6 +41,11 @@ export interface ResolveCheckoutMemberCardParams {
   selectedCardId: number | null;
   /** 会话 ID：探测开台预扣是否仍为 pending */
   sessionId: number;
+  /**
+   * 场次开台时间：开台已绑卡时以开台时刻复核权益。
+   * 结账晚于卡到期不应把「已预扣/已承诺的权益」卡死；结账当场选卡仍按当前时刻校验。
+   */
+  sessionStartedAt?: Date | null;
   /** 校验基准时间，默认当前时间 */
   now?: Date;
 }
@@ -125,18 +130,44 @@ export async function resolveCheckoutMemberCard(
   if (card.customerId !== params.customerId) {
     throw new BadRequestException('该会员卡不属于当前会员，请重新识别会员');
   }
-  if (card.status !== 'active') {
+
+  const now = params.now ?? new Date();
+  // 开台已绑定的卡：以开台时刻复核权益；结账当场选卡：以当前时刻复核
+  const boundAtOpen =
+    params.activeCardId !== null && params.activeCardId === card.id;
+  const referenceTime =
+    boundAtOpen && params.sessionStartedAt ? params.sessionStartedAt : now;
+
+  // 先探测是否已有开台预扣：确认既有预扣优先于「卡现在还能不能用」，
+  // 否则卡在开台后到期 / 被巡检置为 expired 时，本场次会永远无法结账。
+  const hasPendingReserve =
+    card.kind === 'times'
+      ? await hasPendingReserveTimes(tx, params.sessionId, card.id)
+      : false;
+
+  // 开台绑定的卡允许「操作中自然到期 / 被巡检置为 expired」后按开台时刻确认；
+  // 冻结、退款仍拒绝：这两类状态需要先释放预扣，不能继续核销。
+  const expiredAfterOpen =
+    boundAtOpen && card.status === 'expired' && card.expiresAt !== null;
+  if (card.status !== 'active' && !expiredAfterOpen) {
+    const statusReason =
+      MEMBER_CARD_STATUS_REASONS[card.status] ?? '该会员卡当前不可用';
     throw new BadRequestException(
-      MEMBER_CARD_STATUS_REASONS[card.status] ?? '该会员卡当前不可用',
+      hasPendingReserve
+        ? `${statusReason}（开台预扣未释放，请先处理卡状态后再结账）`
+        : statusReason,
     );
   }
 
-  const now = params.now ?? new Date();
-  if (card.startsAt > now) {
-    throw new BadRequestException('该会员卡尚未生效');
-  }
-  if (card.expiresAt !== null && card.expiresAt <= now) {
-    throw new BadRequestException(MEMBER_CARD_STATUS_REASONS.expired);
+  // 已有预扣时视为「确认开台时已生效的权益」，不再用当前时刻卡有效期；
+  // 无预扣（结账当场选卡）仍按 referenceTime 严格校验。
+  if (!hasPendingReserve) {
+    if (card.startsAt > referenceTime) {
+      throw new BadRequestException('该会员卡尚未生效');
+    }
+    if (card.expiresAt !== null && card.expiresAt <= referenceTime) {
+      throw new BadRequestException(MEMBER_CARD_STATUS_REASONS.expired);
+    }
   }
 
   if (card.kind !== 'times') {
@@ -150,11 +181,6 @@ export async function resolveCheckoutMemberCard(
   }
 
   const perUseTimes = resolvePerUseTimes(card.plan.perUseTimes);
-  const hasPendingReserve = await hasPendingReserveTimes(
-    tx,
-    params.sessionId,
-    card.id,
-  );
   const remainTimes = card.remainTimes ?? 0;
   // 已有预扣时 remainTimes 已被扣过一次，此处不能再要求「剩余 >= 本次次数」
   if (!hasPendingReserve && remainTimes < perUseTimes) {

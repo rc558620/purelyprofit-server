@@ -15,6 +15,9 @@ import type { SpaceEscPosTicket } from '../scan-ordering/escpos-ticket.builder';
 import type { UsbPrinterInfo } from '../scan-ordering/usb-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
+/** 补打去重窗口：30 秒内同一订单视为重复提交，直接复用已有任务。 */
+const REPRINT_DEDUPE_WINDOW_MS = 30_000;
+
 /**
  * 空间消费小票下发服务（复用扫码点餐的打印通道基础设施）：
  * - cloud：读门店空间小票配置取云打印机 SN，组装飞鹅内容下发
@@ -40,19 +43,55 @@ export class SpacePrintService {
     saleOrderId: number,
   ): Promise<{ orderId: string }> {
     const storeId = await this.resolveMerchantStoreId(user);
+    // 一次读取配置并在整条链路内复用：避免出票期间改配置导致「选通道用旧值、
+    // 取 SN/设备用新值」的混用，也省掉 cloud/usb 分支里的重复查询。
     const settings = await this.printSettingsService.getByStoreId(storeId);
     const channel = settings.spacePrintChannel;
     if (channel === 'cloud') {
-      const orderId = await this.printCloud(storeId, saleOrderId);
+      const orderId = await this.printCloud(storeId, saleOrderId, settings);
       return { orderId };
     }
     if (channel === 'usb') {
-      const orderId = await this.printUsb(user, storeId, saleOrderId);
+      const orderId = await this.printUsb(user, storeId, saleOrderId, settings);
       return { orderId };
     }
     throw new BadRequestException(
       '空间小票打印通道未启用云/USB 打印，请先在打印设置中配置',
     );
+  }
+
+  /**
+   * 补打：按销售订单重新下发小票。
+   * 同一订单在去重窗口内已有「已提交/已打印」任务时直接返回该任务，
+   * 避免收银员连点造成重复出纸（失败任务不拦截，允许立即重试）。
+   */
+  async reprintForMerchant(
+    user: AuthenticatedUser,
+    saleOrderId: number,
+  ): Promise<{ orderId: string; status: string }> {
+    const storeId = await this.resolveMerchantStoreId(user);
+    // 先校验订单属于当前门店：跨店 saleOrderId 在这里直接 404
+    await this.printDataService.loadOrder(storeId, saleOrderId);
+    const recent = await this.agentService.findRecentActiveTask(
+      storeId,
+      saleOrderId,
+      REPRINT_DEDUPE_WINDOW_MS,
+    );
+    if (recent) {
+      return { orderId: saleOrderId.toString(), status: recent.status };
+    }
+    const result = await this.printForMerchant(user, saleOrderId);
+    return { orderId: result.orderId, status: 'submitted' };
+  }
+
+  /** 查询某订单最近一次打印任务状态（收银端确认是否真的出纸）。 */
+  async getPrintTaskStatus(
+    user: AuthenticatedUser,
+    saleOrderId: number,
+  ): Promise<{ taskId: string; status: string; error: string | null } | null> {
+    const storeId = await this.resolveMerchantStoreIdForView(user);
+    await this.printDataService.loadOrder(storeId, saleOrderId);
+    return this.agentService.findLatestTask(storeId, saleOrderId);
   }
 
   /** 商家端测试空间小票打印（按门店配置通道向目标打印机下发测试小票）。 */
@@ -81,9 +120,11 @@ export class SpacePrintService {
       if (await this.agentService.isAgentBound(storeId)) {
         // target 沿用 cashier：Go 代理 resolvePrinter 只区分 kitchen，其余目标（含协议
         // 预留的 space）一律走门店「收银台」打印机，与空间小票落到同一台的预期一致。
+        // deviceId 由代理按上报的设备列表选择具体打印机；旧代理忽略该字段时行为不变。
         const result = await this.agentService.dispatch(storeId, {
           taskId: PrintAgentService.newTaskId(),
           target: 'cashier',
+          deviceId: settings.spaceUsbPrinter ?? undefined,
           dataBase64: data.toString('base64'),
         });
         if (!result.ok) {
@@ -121,8 +162,8 @@ export class SpacePrintService {
   private async printCloud(
     storeId: number,
     saleOrderId: number,
+    settings: Awaited<ReturnType<SpacePrintSettingsService['getByStoreId']>>,
   ): Promise<string> {
-    const settings = await this.printSettingsService.getByStoreId(storeId);
     const sn = settings.spaceCloudPrinterSn;
     if (!sn) {
       throw new BadRequestException(
@@ -176,6 +217,13 @@ export class SpacePrintService {
         `台位费 (${order.timeFeeLabel})：￥${order.timeCost.toFixed(2)}<BR>`,
       );
     }
+    // 券面消费行：券面已在 purelyClub 付过，与下方「预付抵扣」等额冲抵。
+    // 两行必须成对出现，否则票面只剩单向抵扣，明细加总与合计对不上。
+    if (order.voucherConsumption > 0) {
+      lines.push(
+        `券面消费 (团购券)：￥${order.voucherConsumption.toFixed(2)}<BR>`,
+      );
+    }
     if (order.renewDeduction > 0) {
       lines.push(`续费抵扣：-￥${order.renewDeduction.toFixed(2)}<BR>`);
     }
@@ -186,6 +234,10 @@ export class SpacePrintService {
       lines.push(
         `自助下单 (已支付)：-￥${order.selfOrderDeduction.toFixed(2)}<BR>`,
       );
+    }
+    // 卡抵扣是「付款方式从现金换成卡权益」，营业额里台位费仍存在，故单列冲减
+    if (order.cardDeduction > 0) {
+      lines.push(`会员卡抵扣：-￥${order.cardDeduction.toFixed(2)}<BR>`);
     }
     lines.push('--------------------------------<BR>');
     // 合计可能为负数（应退），与 USB 通道一致保持常规字重
@@ -208,8 +260,8 @@ export class SpacePrintService {
     user: AuthenticatedUser,
     storeId: number,
     saleOrderId: number,
+    settings: Awaited<ReturnType<SpacePrintSettingsService['getByStoreId']>>,
   ): Promise<string> {
-    const settings = await this.printSettingsService.getByStoreId(storeId);
     const order = await this.printDataService.loadOrder(storeId, saleOrderId);
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
@@ -233,6 +285,8 @@ export class SpacePrintService {
       renewDeduction: order.renewDeduction,
       prepaidDeduction: order.prepaidDeduction,
       selfOrderDeduction: order.selfOrderDeduction,
+      cardDeduction: order.cardDeduction,
+      voucherConsumption: order.voucherConsumption,
       totalAmount: order.totalAmount,
       paymentMethodLabel: order.paymentMethodLabel,
       note: order.note,
@@ -244,11 +298,17 @@ export class SpacePrintService {
     if (await this.agentService.isAgentBound(storeId)) {
       // target 沿用 cashier：Go 代理 resolvePrinter 只区分 kitchen，其余目标（含协议
       // 预留的 space）一律走门店「收银台」打印机，与空间小票落到同一台的预期一致。
-      const result = await this.agentService.dispatch(storeId, {
-        taskId: PrintAgentService.newTaskId(),
-        target: 'cashier',
-        dataBase64: data.toString('base64'),
-      });
+      // deviceId 让代理按门店选择落到具体打印机；旧代理忽略该字段时行为不变。
+      const result = await this.agentService.dispatch(
+        storeId,
+        {
+          taskId: PrintAgentService.newTaskId(),
+          target: 'cashier',
+          deviceId: settings.spaceUsbPrinter ?? undefined,
+          dataBase64: data.toString('base64'),
+        },
+        { saleOrderId },
+      );
       if (!result.ok) {
         throw new ServiceUnavailableException(result.message);
       }

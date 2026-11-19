@@ -3,7 +3,7 @@
 // 从 ClubVoucherOrderRefundService 抽出的原因：这三步是「把结算时的账反向冲回来」，
 // 与「谁有资格退款 / 什么时候发起微信退款」是两件事；抽成无状态函数后，
 // 两条退款链路必须走同一份回补逻辑，避免一处改了另一处漏改。
-import { Logger } from '@nestjs/common';
+import { InternalServerErrorException, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { applyCustomerMetrics } from '../shared/club-customer-metrics.helper';
 
@@ -49,11 +49,19 @@ export async function restorePointsAndStock(
       },
     });
   }
-  // 库存回补
-  await tx.marketingProduct.update({
+  // 库存回补：商品被物理删除时不能静默跳过（否则退款成功但库存永久少一份），直接回滚整个退款事务
+  const restoredProduct = await tx.marketingProduct.updateMany({
     where: { id: order.productId },
     data: { stock: { increment: order.quantity } },
   });
+  if (restoredProduct.count !== 1) {
+    logger.error(
+      `团购券退款库存回补失败（商品不存在）: orderNo=${order.orderNo}, productId=${order.productId}`,
+    );
+    throw new InternalServerErrorException(
+      '退款失败：团购商品已不存在，库存无法回补，请联系管理员处理',
+    );
+  }
 }
 
 /**
@@ -73,7 +81,17 @@ export async function restoreVoucherBalance(
     where: { id: order.customerId, storeId: order.storeId, deletedAt: null },
     select: { id: true, points: true },
   });
-  if (!customer) return;
+  // 找不到可回补的顾客档案时必须让退款事务回滚：
+  // 静默 return 会产出「订单已退款、储值余额没退回」的资金缺口，顾客无法自助发现。
+  if (!customer) {
+    logger.error(
+      `团购券退款余额回补失败（顾客档案不存在或已删除）: orderNo=${order.orderNo}, ` +
+        `customerId=${order.customerId}, storeId=${order.storeId}, 应退=${order.paidAmountFen}分`,
+    );
+    throw new InternalServerErrorException(
+      '退款失败：顾客档案不存在或已删除，储值余额无法原路退回，请联系管理员处理',
+    );
+  }
 
   // 回收结算时赠送的积分（与 awardPointsForSettlement 对称）。
   // 顾客可能已把赠送的积分花掉，此时按「现有积分」为上限回收，绝不扣成负数，差额留痕跟进。

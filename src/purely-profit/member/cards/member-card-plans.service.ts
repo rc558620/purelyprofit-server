@@ -65,6 +65,7 @@ export class MemberCardPlansService {
       await this.marketingSharedService.resolveMembershipManagedStoreId(
         user,
         query.storeId,
+        'member-card:view',
       );
 
     if (storeId === null) {
@@ -103,7 +104,7 @@ export class MemberCardPlansService {
     await this.marketingSharedService.ensureMarketingStoreAccess(
       user,
       storeId,
-      'marketing:manage',
+      'member-card:manage',
     );
 
     const name = dto.name.trim();
@@ -111,6 +112,10 @@ export class MemberCardPlansService {
     const originalPriceFen = this.resolveOriginalPriceFen(dto.originalPrice);
     assertOriginalPriceNotLessThanPrice(priceFen, originalPriceFen);
     await this.ensureNameAvailable(storeId, name);
+
+    const totalTimes = this.resolveCreatedTotalTimes(dto);
+    const perUseTimes = dto.perUseTimes ?? 1;
+    this.assertPerUseTimesWithinTotal(perUseTimes, totalTimes);
 
     const created = await this.runPlanWrite(() =>
       this.prisma.memberCardPlan.create({
@@ -121,8 +126,8 @@ export class MemberCardPlansService {
           price: priceFen,
           originalPrice: originalPriceFen,
           validDays: dto.validDays,
-          totalTimes: this.resolveCreatedTotalTimes(dto),
-          perUseTimes: dto.perUseTimes ?? 1,
+          totalTimes,
+          perUseTimes,
           usableSpaceTypes: dto.usableSpaceTypes ?? [],
           usableWeekdays: dto.usableWeekdays ?? [],
           maxGuestPerUse: dto.maxGuestPerUse ?? null,
@@ -144,13 +149,15 @@ export class MemberCardPlansService {
     await this.marketingSharedService.ensureMarketingStoreAccess(
       user,
       plan.storeId,
-      'marketing:manage',
+      'member-card:manage',
     );
 
     const name = dto.name?.trim();
     if (name !== undefined && name !== plan.name) {
       await this.ensureNameAvailable(plan.storeId, name, plan.id);
     }
+
+    await this.assertEntitlementsUnchangedWhenSold(plan, dto);
 
     const updated = await this.runPlanWrite(() =>
       this.prisma.memberCardPlan.update({
@@ -171,7 +178,7 @@ export class MemberCardPlansService {
     await this.marketingSharedService.ensureMarketingStoreAccess(
       user,
       plan.storeId,
-      'marketing:manage',
+      'member-card:manage',
     );
 
     const updated = await this.runPlanWrite(() =>
@@ -219,6 +226,13 @@ export class MemberCardPlansService {
     assertOriginalPriceNotLessThanPrice(priceFen, originalPriceFen);
 
     const name = dto.name?.trim();
+    const totalTimes = this.resolveUpdatedTotalTimes(
+      kind,
+      dto.totalTimes,
+      plan.totalTimes,
+    );
+    const perUseTimes = dto.perUseTimes ?? plan.perUseTimes;
+    this.assertPerUseTimesWithinTotal(perUseTimes, totalTimes);
 
     return {
       ...(name !== undefined ? { name } : {}),
@@ -226,14 +240,8 @@ export class MemberCardPlansService {
       price: priceFen,
       originalPrice: originalPriceFen,
       ...(dto.validDays !== undefined ? { validDays: dto.validDays } : {}),
-      totalTimes: this.resolveUpdatedTotalTimes(
-        kind,
-        dto.totalTimes,
-        plan.totalTimes,
-      ),
-      ...(dto.perUseTimes !== undefined
-        ? { perUseTimes: dto.perUseTimes }
-        : {}),
+      totalTimes,
+      perUseTimes,
       ...(dto.usableSpaceTypes !== undefined
         ? { usableSpaceTypes: dto.usableSpaceTypes }
         : {}),
@@ -344,6 +352,83 @@ export class MemberCardPlansService {
     }
 
     return null;
+  }
+
+  /**
+   * 已售卡 / 待支付订单存在时锁定权益配置。
+   *
+   * 发卡读取模板当前的有效天数 / 总次数，开台核销也实时读取模板的单次扣次
+   * 与使用限制：一旦有卡或待支付订单，再改权益会让老卡被新规则限制、
+   * 待支付订单拿到与下单时不同的权益。改名 / 改价 / 上下架不受影响。
+   */
+  private async assertEntitlementsUnchangedWhenSold(
+    plan: MemberCardPlan,
+    dto: UpdateMemberCardPlanDto,
+  ): Promise<void> {
+    if (!this.isEntitlementChanged(plan, dto)) {
+      return;
+    }
+
+    const [cardCount, pendingOrderCount] = await Promise.all([
+      this.prisma.memberCard.count({ where: { planId: plan.id } }),
+      this.prisma.memberCardOrder.count({
+        where: { planId: plan.id, status: { in: ['unpaid', 'pending'] } },
+      }),
+    ]);
+    if (cardCount > 0 || pendingOrderCount > 0) {
+      throw new BadRequestException(
+        '该模板已有售出卡或待支付订单，权益配置不可修改；请新建模板后再下架旧模板',
+      );
+    }
+  }
+
+  /** 本次更新是否触碰「已售卡仍在读取」的权益字段（数组按集合比较） */
+  private isEntitlementChanged(
+    plan: MemberCardPlan,
+    dto: UpdateMemberCardPlanDto,
+  ): boolean {
+    const sameSet = (
+      next: Array<string | number>,
+      prev: Array<string | number>,
+    ) => {
+      if (next.length !== prev.length) {
+        return false;
+      }
+      const left = [...next].sort();
+      const right = [...prev].sort();
+      return left.every((value, index) => value === right[index]);
+    };
+
+    return (
+      (dto.kind !== undefined && dto.kind !== plan.kind) ||
+      (dto.validDays !== undefined && dto.validDays !== plan.validDays) ||
+      (dto.totalTimes !== undefined &&
+        (dto.totalTimes ?? null) !== plan.totalTimes) ||
+      (dto.perUseTimes !== undefined && dto.perUseTimes !== plan.perUseTimes) ||
+      (dto.maxGuestPerUse !== undefined &&
+        (dto.maxGuestPerUse ?? null) !== plan.maxGuestPerUse) ||
+      (dto.usableSpaceTypes !== undefined &&
+        !sameSet(dto.usableSpaceTypes, plan.usableSpaceTypes)) ||
+      (dto.usableWeekdays !== undefined &&
+        !sameSet(dto.usableWeekdays, plan.usableWeekdays))
+    );
+  }
+
+  /**
+   * 次数卡：单次扣减不能超过总次数。
+   * 否则发出的卡第一次开台就会因 remainTimes < perUseTimes 被拒绝，
+   * 等于卖出一张自始不可用的卡。时长卡 totalTimes 为 null，不做关系校验。
+   */
+  private assertPerUseTimesWithinTotal(
+    perUseTimes: number,
+    totalTimes: number | null,
+  ): void {
+    if (totalTimes === null || perUseTimes <= totalTimes) {
+      return;
+    }
+    throw new BadRequestException(
+      `单次扣减次数（${perUseTimes}）不能超过总次数（${totalTimes}）`,
+    );
   }
 
   private resolveOriginalPriceFen(

@@ -53,14 +53,25 @@ export class SpaceManagementVoiceSettingsService {
     updates: Partial<SpaceManagementVoiceSettings>,
   ): Promise<SpaceManagementVoiceSettings> {
     const storeId = await this.resolveMerchantStoreId(user);
-    await this.prisma.store.update({
+    // 直接返回 update 的 select 结果，不再写后回读：
+    // 写后回读一旦失败（连接抖动 / 查询超时）会把「已写入成功」误报成保存失败，
+    // 前端据此回滚后，界面显示与门店实际配置相反（关不掉 / 开不了）。
+    const store = await this.prisma.store.update({
       where: { id: storeId },
-      data: updates,
+      // 显式挑选可写字段，避免 DTO 后续新增非数据库字段时被整体透传给 Prisma
+      data: {
+        ...(updates.spaceManagementVoiceEnabled !== undefined
+          ? { spaceManagementVoiceEnabled: updates.spaceManagementVoiceEnabled }
+          : {}),
+      },
+      select: { spaceManagementVoiceEnabled: true },
     });
     this.logger.log(
       `[space-management-voice] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,
     );
-    return this.getByStoreId(storeId);
+    return {
+      spaceManagementVoiceEnabled: store.spaceManagementVoiceEnabled,
+    };
   }
 
   private async resolveMerchantStoreId(

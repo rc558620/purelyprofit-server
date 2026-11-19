@@ -109,6 +109,29 @@ export class PrintAgentRegistryService {
     this.logger.warn(`打印代理离线: storeId=${storeId} pid=${process.pid}`);
   }
 
+  /**
+   * 主动断开门店在线连接（重置绑定 / 撤销设备时调用）。
+   * 与 detach 的区别：这里不等代理侧关闭事件，直接清理本地状态并通知对端。
+   */
+  async dropConnection(storeId: number): Promise<void> {
+    const connection = this.connections.get(storeId);
+    this.connections.delete(storeId);
+    this.printerCache.delete(storeId);
+    if (connection) {
+      try {
+        connection.close(4001, 'binding reset');
+      } catch {
+        // 连接可能已处于关闭中，忽略
+      }
+    }
+    try {
+      await this.redisService.del(printAgentOnlineKey(storeId));
+      await this.redisService.del(printAgentPrintersKey(storeId));
+    } catch (error) {
+      this.warnDegraded('撤销连接时清理在线标记', storeId, error);
+    }
+  }
+
   /** 记录代理最后在线时间 + 续期 Redis 在线标记（连接保持时周期调用）。 */
   async touch(storeId: number): Promise<void> {
     this.markSeen(storeId);
@@ -154,11 +177,24 @@ export class PrintAgentRegistryService {
    */
   setPrinters(storeId: number, printers: PrintAgentPrinter[]): void {
     this.printerCache.set(storeId, printers);
-    void this.redisService
-      .setJson(printAgentPrintersKey(storeId), printers, PRINTERS_TTL_SECONDS)
-      .catch((error: unknown) => {
-        this.warnDegraded('打印机列表缓存', storeId, error);
-      });
+    // 不等待 Redis 写入：内存态已生效，跨 worker 可见性允许异步补齐
+    void this.cachePrinters(storeId, printers);
+  }
+
+  /** 异步把打印机列表同步到 Redis，失败仅降级为跨 worker 不可见 */
+  private async cachePrinters(
+    storeId: number,
+    printers: PrintAgentPrinter[],
+  ): Promise<void> {
+    try {
+      await this.redisService.setJson(
+        printAgentPrintersKey(storeId),
+        printers,
+        PRINTERS_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.warnDegraded('打印机列表缓存', storeId, error);
+    }
   }
 
   /**

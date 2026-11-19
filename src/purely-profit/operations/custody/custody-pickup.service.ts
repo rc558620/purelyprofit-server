@@ -156,7 +156,12 @@ export class CustodyPickupService {
       };
     }
 
-    const tokenPayload = await this.custodyCodeService.consumeVerifyToken(
+    /*
+     * 先只读令牌、把可纠正的输入校验全部做完，再消费令牌：
+     * 后四位输错 / 数量越界都属于「没取出」，此时烧掉一次性令牌会让店员
+     * 改对了也无法直接重试，只能回去让会员重新出码。
+     */
+    const tokenPayload = await this.custodyCodeService.peekVerifyToken(
       dto.verifyToken,
     );
     if (!tokenPayload || tokenPayload.storeId !== storeId) {
@@ -183,7 +188,27 @@ export class CustodyPickupService {
         user,
         storeId,
       );
-    const remainingQty = order.remainingQty - dto.qty;
+
+    // 校验通过后才原子消费令牌；并发下同一令牌只有一笔能消费成功
+    const consumed = await this.custodyCodeService.consumeVerifyToken(
+      dto.verifyToken,
+    );
+    if (
+      !consumed ||
+      consumed.storeId !== storeId ||
+      consumed.custodyOrderId !== order.id
+    ) {
+      throw new BadRequestException(CUSTODY_VERIFY_TOKEN_INVALID_MESSAGE);
+    }
+
+    /*
+     * 事务内必须回读扣减后的真实状态：
+     * 并发核销时两笔请求都可能带着同一份旧余量进来，条件扣减只保证「不超扣」，
+     * 状态、响应和台账若继续用旧余量计算，会出现「数据库已 0、接口仍报旧值、
+     * 存单一直停在在存」的错误终态。
+     */
+    let actualRemaining = order.remainingQty - dto.qty;
+    let actualStatus = order.status as CustodyStatusValue;
 
     await this.prisma.$transaction(async (tx) => {
       // 条件扣减：并发核销由数据库行数裁决，禁止裸读改写
@@ -195,13 +220,34 @@ export class CustodyPickupService {
           status: 'stored',
           remainingQty: { gte: dto.qty },
         },
-        data: {
-          remainingQty: { decrement: dto.qty },
-          ...(remainingQty === 0 ? { status: 'finished' } : {}),
-        },
+        data: { remainingQty: { decrement: dto.qty } },
       });
       if (result.count === 0) {
         throw new ConflictException('存单已变更或剩余数量不足，请刷新后重试');
+      }
+
+      // 回读本事务提交后的真实余量（含并发的其它核销）
+      const current = await tx.custodyOrder.findUniqueOrThrow({
+        where: { id: order.id },
+        select: { remainingQty: true, status: true },
+      });
+      actualRemaining = current.remainingQty;
+      actualStatus = current.status as CustodyStatusValue;
+
+      if (current.remainingQty === 0) {
+        // 用条件更新收口「已取完」：两笔并发各自扣减也能只有一笔把状态落成 finished
+        const finished = await tx.custodyOrder.updateMany({
+          where: {
+            id: order.id,
+            storeId,
+            status: 'stored',
+            remainingQty: 0,
+          },
+          data: { status: 'finished' },
+        });
+        if (finished.count > 0) {
+          actualStatus = 'finished';
+        }
       }
 
       await tx.custodyPickup.create({
@@ -219,35 +265,42 @@ export class CustodyPickupService {
 
       if (order.stockMode === 'frozen' && order.productId !== null) {
         await this.writeFrozenReleaseLog(tx, order.productId, storeId, {
-          beforeRemainingQty: order.remainingQty,
-          afterRemainingQty: remainingQty,
           operatorStaffId: staffId,
           orderNo: order.orderNo,
           productName: order.productName,
           unit: order.unit,
           qty: dto.qty,
-          now,
         });
       }
     });
 
-    /*
-     * 取出结果在本次请求内已完全确定（取出量、剩余量、是否取完），
-     * 直接拼出映射入参，不必在事务后再回读同一行。
-     */
+    // 用事务内回读的真实余量生成响应 / 审计 / 推送，保证三者与数据库一致
     const latest: CustodyOrderMappingSource = {
       ...order,
-      remainingQty,
-      status: remainingQty === 0 ? 'finished' : 'stored',
+      remainingQty: actualRemaining,
+      status: actualStatus,
     };
-    // 取件码失效 + 门店级缓存 + 会员汇总合并为一次往返
-    await this.custodyCodeService.invalidateAfterWrite({
-      storeId,
-      memberId: order.memberId,
-      pickupCode: tokenPayload.pickupCode,
-    });
+    /*
+     * 事务已提交，核销结果不可回滚：缓存失效 / 实时推送属于提交后的副作用，
+     * 失败只能记录告警，不能把「已经取出成功」包装成接口失败，
+     * 否则店员重试时令牌已消费、幂等键已变化，会被误判成没取出来。
+     */
+    try {
+      // 取件码失效 + 门店级缓存 + 会员汇总合并为一次往返
+      await this.custodyCodeService.invalidateAfterWrite({
+        storeId,
+        memberId: order.memberId,
+        pickupCode: tokenPayload.pickupCode,
+      });
+    } catch (error) {
+      this.logger.error(
+        `[custody] 核销后缓存失效失败 storeId=${storeId} orderId=${order.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     this.logger.log(
-      `[custody] 取出 storeId=${storeId} orderId=${order.id} qty=${dto.qty} 剩余=${remainingQty}`,
+      `[custody] 取出 storeId=${storeId} orderId=${order.id} qty=${dto.qty} 剩余=${actualRemaining}`,
     );
     this.auditLogService.record({
       userId: user.id,
@@ -256,15 +309,33 @@ export class CustodyPickupService {
       resourceId: String(order.id),
       metadata: {
         orderNo: order.orderNo,
-        before: { remainingQty: order.remainingQty, status: order.status },
-        after: { remainingQty, status: latest.status },
+        before: {
+          remainingQty: actualRemaining + dto.qty,
+          status: order.status,
+        },
+        after: { remainingQty: actualRemaining, status: actualStatus },
         qty: dto.qty,
         // 留痕「店员已核对身份」及触发原因，事后可追责
         identityChecked: dto.identityChecked === true,
         phoneVerifyReason,
       },
     });
-    await this.publishPicked(storeId, order, dto.qty, remainingQty, user, now);
+    try {
+      await this.publishPicked(
+        storeId,
+        order,
+        dto.qty,
+        actualRemaining,
+        user,
+        now,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[custody] 核销后实时推送失败 storeId=${storeId} orderId=${order.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     return {
       order: mapCustodyOrder(
@@ -306,21 +377,19 @@ export class CustodyPickupService {
   /**
    * 冻结口径取出日志：物理库存不变，记录可用库存（stock − 在存量）的变化。
    *
-   * 可用库存随取出增加 qty，便于门店对账时追溯"为什么这件商品又能卖了"。
+   * 前后可用库存由台账内部按事务内聚合量回算，调用方不再传单张存单的
+   * 旧余量，否则同商品多张冻结单时台账曲线会对不上。
    */
   private async writeFrozenReleaseLog(
     tx: Prisma.TransactionClient,
     productId: number,
     storeId: number,
     params: {
-      beforeRemainingQty: number;
-      afterRemainingQty: number;
       operatorStaffId: number | null;
       orderNo: string;
       productName: string;
       unit: string;
       qty: number;
-      now: Date;
     },
   ): Promise<void> {
     return writeCustodyPickupReleaseLog(tx, {
@@ -328,8 +397,6 @@ export class CustodyPickupService {
       productId,
       productName: params.productName,
       qty: params.qty,
-      beforeRemainingQty: params.beforeRemainingQty,
-      afterRemainingQty: params.afterRemainingQty,
       operatorStaffId: params.operatorStaffId,
       orderNo: params.orderNo,
       note: `客存取出解冻 ${params.qty}${params.unit}（存单 ${params.orderNo}，物理库存未变动）`,
