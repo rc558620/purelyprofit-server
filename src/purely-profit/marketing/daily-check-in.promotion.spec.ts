@@ -88,6 +88,10 @@ describe('每日签到活动 · 商家端配置闭环', () => {
       create: jest.Mock;
       update: jest.Mock;
     };
+    // 唯一性校验与写入现在同处一个事务，并先取门店 advisory lock
+    $executeRaw: jest.Mock;
+    $executeRawUnsafe: jest.Mock;
+    $transaction: jest.Mock;
   };
   let redisService: { del: jest.Mock; delByPattern: jest.Mock };
   let cacheInvalidatorService: { invalidateProfitDashboardHome: jest.Mock };
@@ -109,7 +113,14 @@ describe('每日签到活动 · 商家端配置闭环', () => {
           .fn()
           .mockImplementation(({ data }) => promotionRow({ ...data })),
       },
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(0),
+      $transaction: jest.fn(),
     };
+    // 事务 mock 直接把同一个 fake prisma 当 tx 传入
+    prismaService.$transaction.mockImplementation(
+      (fn: (tx: typeof prismaService) => unknown) => fn(prismaService),
+    );
     redisService = {
       del: jest.fn().mockResolvedValue(undefined),
       delByPattern: jest.fn().mockResolvedValue(0),

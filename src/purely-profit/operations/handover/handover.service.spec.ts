@@ -269,6 +269,7 @@ describe('HandoverService', () => {
       expect(handoverRecordsService.getHandoverRecord).toHaveBeenCalledWith(
         ownerUser,
         3,
+        undefined,
       );
     });
 
@@ -700,6 +701,7 @@ describe('HandoverService', () => {
       expect(handoverRecordsService.getHandoverRecord).toHaveBeenCalledWith(
         ownerUser,
         1,
+        undefined,
       );
     });
 

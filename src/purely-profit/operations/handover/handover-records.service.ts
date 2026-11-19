@@ -23,6 +23,7 @@ import type {
   HandoverRecordSummaryListResponseDto,
   HandoverRecordSummaryQueryDto,
 } from './dto/handover-records.dto';
+import type { RecordOrderItemsPagingInput } from './handover-records-revenue.query';
 import { HandoverRecordsQueryService } from './handover-records-query.service';
 import {
   buildHandoverAdvisoryLockKeys,
@@ -289,10 +290,12 @@ export class HandoverRecordsService {
   async getHandoverRecord(
     user: AuthenticatedUser,
     recordId: number,
+    orderItemsPaging?: RecordOrderItemsPagingInput,
   ): Promise<HandoverRecordListItemDto> {
     return this.handoverRecordsQueryService.getHandoverRecord(
       ensureMembershipStoreId(user),
       recordId,
+      orderItemsPaging,
     );
   }
 

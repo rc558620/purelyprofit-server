@@ -49,6 +49,9 @@ import {
   validateProductMoney,
 } from './products-command.utils';
 
+/** 商品写事务上限：一次编辑可能包含 5 组 × 20 选项的逐条增量写，留足余量 */
+const PRODUCT_WRITE_TRANSACTION_TIMEOUT_MS = 15_000;
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -186,24 +189,39 @@ export class ProductsService {
       }),
     ]);
 
-    const product = await createProductRecord(
-      this.prisma,
-      buildCreateProductData(
-        dto,
-        storeId,
-        category?.id ?? null,
-        code,
-        profitMoney,
-      ),
+    // 商品与规格同事务：规格写失败时不能留下「商品已建、规格缺失」的半成品
+    const { product, specificationsChanged } = await this.prisma.$transaction(
+      async (tx) => {
+        const created = await createProductRecord(
+          tx,
+          buildCreateProductData(
+            dto,
+            storeId,
+            category?.id ?? null,
+            code,
+            profitMoney,
+          ),
+        );
+        const changed =
+          dto.specGroups !== undefined
+            ? await this.scanOrderingSyncService.syncSpecifications(
+                storeId,
+                created.id,
+                dto.specGroups,
+                tx,
+              )
+            : false;
+        return { product: created, specificationsChanged: changed };
+      },
+      { timeout: PRODUCT_WRITE_TRANSACTION_TIMEOUT_MS },
     );
 
+    // 缓存失效只能在事务提交后做：事务内清缓存会在回滚后留下空窗期
+    if (specificationsChanged) {
+      await this.scanOrderingSyncService.invalidateCache(storeId);
+    }
+
     if (dto.specGroups !== undefined) {
-      const specificationsChanged =
-        await this.scanOrderingSyncService.syncSpecifications(
-          storeId,
-          product.id,
-          dto.specGroups,
-        );
       return this.buildResponseAfterSpecSync(specificationsChanged, product);
     }
 
@@ -271,27 +289,6 @@ export class ProductsService {
         ? { category: nextCategory, categoryId: categoryRecord.id }
         : undefined;
 
-    const updated = await updateProductRecord(
-      this.prisma,
-      product.id,
-      buildUpdateProductData(
-        dto,
-        resolvedCode,
-        resolvedCategoryUpdate,
-        nextProfit,
-      ),
-    );
-
-    let specificationsChanged = false;
-    if (dto.specGroups !== undefined) {
-      specificationsChanged =
-        await this.scanOrderingSyncService.syncSpecifications(
-          product.storeId,
-          product.id,
-          dto.specGroups,
-        );
-    }
-
     // 同步商品信息变更到关联的扫码菜单商品
     const menuCategory = nextCategory
       ? await this.scanOrderingSyncService.resolveCategory(
@@ -299,20 +296,55 @@ export class ProductsService {
           nextCategory,
         )
       : null;
-    await this.scanOrderingSyncService.syncProduct(
-      product.storeId,
-      product.id,
-      {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(menuCategory ? { categoryId: menuCategory.id } : {}),
-        ...(dto.price !== undefined
-          ? { basePrice: Money.fromInputYuan(dto.price).toDbCents() }
-          : {}),
-        ...(dto.image !== undefined
-          ? { imageUrl: toNullableMediaText(dto.image) ?? null }
-          : {}),
+    const menuUpdates = {
+      ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(menuCategory ? { categoryId: menuCategory.id } : {}),
+      ...(dto.price !== undefined
+        ? { basePrice: Money.fromInputYuan(dto.price).toDbCents() }
+        : {}),
+      ...(dto.image !== undefined
+        ? { imageUrl: toNullableMediaText(dto.image) ?? null }
+        : {}),
+    };
+
+    // 商品标量、规格、扫码菜单同事务：任一写失败整体回滚，
+    // 不再出现「商品已改价、顾客侧仍是旧价」或「规格写失败但商品已落库」。
+    const { updated, specificationsChanged } = await this.prisma.$transaction(
+      async (tx) => {
+        const record = await updateProductRecord(
+          tx,
+          product.id,
+          buildUpdateProductData(
+            dto,
+            resolvedCode,
+            resolvedCategoryUpdate,
+            nextProfit,
+          ),
+        );
+        const changed =
+          dto.specGroups !== undefined
+            ? await this.scanOrderingSyncService.syncSpecifications(
+                product.storeId,
+                product.id,
+                dto.specGroups,
+                tx,
+              )
+            : false;
+        await this.scanOrderingSyncService.syncProduct(
+          product.storeId,
+          product.id,
+          menuUpdates,
+          tx,
+        );
+        return { updated: record, specificationsChanged: changed };
       },
+      { timeout: PRODUCT_WRITE_TRANSACTION_TIMEOUT_MS },
     );
+
+    // 缓存失效只能在事务提交后做：事务内清缓存会在回滚后留下空窗期
+    if (specificationsChanged || Object.keys(menuUpdates).length > 0) {
+      await this.scanOrderingSyncService.invalidateCache(product.storeId);
+    }
 
     return this.buildResponseAfterSpecSync(specificationsChanged, updated);
   }

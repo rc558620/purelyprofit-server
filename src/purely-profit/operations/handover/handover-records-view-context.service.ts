@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EmployeeShiftType } from '@prisma/client';
+import { EmployeeShiftType, HandoverStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   SHIFT_TIME_FALLBACKS,
@@ -48,9 +48,19 @@ export class HandoverRecordsViewContextService {
     }
 
     const preloaded = await this.batchPreloader.preload(storeId, records);
-
-    return records.map((record) =>
+    const contexts = records.map((record) =>
       this.resolveRecordViewContextFromPreloaded(storeId, record, preloaded),
+    );
+
+    // 上一班延迟交班时，其记录已覆盖到实际交班时刻；历史记录若不收窄起点，
+    // 同一时段会同时计入两班（实时页已按此口径收窄，历史页必须对齐）。
+    const handoverInstants = await this.loadPreviousHandoverInstants(
+      storeId,
+      contexts,
+    );
+
+    return contexts.map((context) =>
+      this.narrowShiftRangeStart(context, handoverInstants),
     );
   }
 
@@ -163,15 +173,25 @@ export class HandoverRecordsViewContextService {
     const referenceDate = record.handoverAt ?? record.createdAt;
     const shiftRecord = await this.resolveRecordShiftRecord(storeId, record);
     const shiftBaseDate = shiftRecord?.date ?? referenceDate;
+    const shiftRange = this.buildRecordShiftRange(
+      shiftBaseDate,
+      shiftRecord,
+      referenceDate,
+    );
+    const previousHandoverAt = await this.loadPreviousHandoverAt(
+      storeId,
+      shiftRange.startAt,
+      referenceDate,
+    );
 
     return {
       referenceDate,
       shiftRecord,
-      shiftRange: this.buildRecordShiftRange(
-        shiftBaseDate,
-        shiftRecord,
-        referenceDate,
-      ),
+      shiftRange: previousHandoverAt
+        ? { ...shiftRange, startAt: previousHandoverAt }
+        : shiftRange,
+      // 展示锚点固定为班次原始开始时间，不受统计区间收窄影响
+      shiftStartAt: shiftRange.startAt,
     };
   }
 
@@ -200,6 +220,99 @@ export class HandoverRecordsViewContextService {
       ),
       extendToReference ?? baseDate,
     );
+  }
+
+  /**
+   * 批量预加载「统计区间内已完成的交班时刻」，供各记录把起点收窄到上一班实际交班时间。
+   * 与实时页 findShiftInitializedStartAt 的口径保持一致（全店时间线）。
+   */
+  private async loadPreviousHandoverInstants(
+    storeId: number,
+    contexts: readonly RecordViewContext[],
+  ): Promise<Date[]> {
+    if (contexts.length === 0) {
+      return [];
+    }
+
+    const lower = Math.min(
+      ...contexts.map((item) => item.shiftRange.startAt.getTime()),
+    );
+    const upper = Math.max(
+      ...contexts.map((item) => item.referenceDate.getTime()),
+    );
+    if (lower >= upper) {
+      return [];
+    }
+
+    const rows = await this.prisma.storeHandoverRecord.findMany({
+      where: {
+        storeId,
+        status: HandoverStatus.completed,
+        handoverAt: { gt: new Date(lower), lt: new Date(upper) },
+      },
+      select: { handoverAt: true },
+      orderBy: [{ handoverAt: 'desc' }, { id: 'desc' }],
+    });
+
+    return rows
+      .map((row) => row.handoverAt)
+      .filter((value): value is Date => value !== null);
+  }
+
+  private async loadPreviousHandoverAt(
+    storeId: number,
+    startAt: Date,
+    referenceDate: Date,
+  ): Promise<Date | null> {
+    if (startAt.getTime() >= referenceDate.getTime()) {
+      return null;
+    }
+
+    const row = await this.prisma.storeHandoverRecord.findFirst({
+      where: {
+        storeId,
+        status: HandoverStatus.completed,
+        handoverAt: { gt: startAt, lt: referenceDate },
+      },
+      select: { handoverAt: true },
+      orderBy: [{ handoverAt: 'desc' }, { id: 'desc' }],
+    });
+
+    const previous = row?.handoverAt ?? null;
+    if (!previous) {
+      return null;
+    }
+    // 二次校验：只有严格落在[班次开始, 本次交班) 区间内的交班时刻才能作为统计起点，
+    // 否则会把统计区间收成空区间（startAt >= referenceDate）导致营收全部丢失。
+    const previousAt = previous.getTime();
+    return previousAt > startAt.getTime() &&
+      previousAt < referenceDate.getTime()
+      ? previous
+      : null;
+  }
+
+  private narrowShiftRangeStart(
+    context: RecordViewContext,
+    handoverInstants: readonly Date[],
+  ): RecordViewContext {
+    const startAt = context.shiftRange.startAt.getTime();
+    const referenceAt = context.referenceDate.getTime();
+    if (startAt >= referenceAt) {
+      return context;
+    }
+
+    const previous = handoverInstants.find((instant) => {
+      const time = instant.getTime();
+      return time > startAt && time < referenceAt;
+    });
+    if (!previous) {
+      return context;
+    }
+
+    return {
+      ...context,
+      shiftRange: { ...context.shiftRange, startAt: previous },
+    };
   }
 
   private async resolveRecordShiftRecord(

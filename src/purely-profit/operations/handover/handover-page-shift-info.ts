@@ -18,6 +18,7 @@ export const buildShiftInfo = (params: {
   operatorName: string;
   shiftDate?: Date;
   operatorAvatar?: string;
+  shiftRecordId?: number;
 }): HandoverShiftInfoDto => {
   const shiftReferenceTime = buildShiftDateRange(
     params.startTime,
@@ -37,6 +38,9 @@ export const buildShiftInfo = (params: {
           operatorAvatar: params.operatorAvatar,
           avatar: params.operatorAvatar,
         }
+      : {}),
+    ...(params.shiftRecordId !== undefined
+      ? { shiftRecordId: params.shiftRecordId }
       : {}),
     shiftReferenceAt: shiftReferenceTime.getTime(),
   };
@@ -69,5 +73,6 @@ export const buildPageShiftInfo = (params: {
     operatorName,
     shiftDate: shiftRecord?.date,
     operatorAvatar: displayOperatorInfo.avatar,
+    shiftRecordId: shiftRecord?.id,
   });
 };

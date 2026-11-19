@@ -32,6 +32,8 @@ describe('ProductsService - 扫码点餐状态', () => {
   let service: ProductsService;
 
   const prismaService = {
+    // 商品写操作已收进事务：桩把回调直接放在同一个 prisma 桩上执行
+    $transaction: jest.fn(),
     product: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -131,6 +133,10 @@ describe('ProductsService - 扫码点餐状态', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prismaService.$transaction.mockImplementation(
+      (callback: (client: unknown) => Promise<unknown>) =>
+        callback(prismaService),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProductsService,

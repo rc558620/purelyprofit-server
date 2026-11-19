@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EmployeeShiftType } from '@prisma/client';
+import { EmployeeShiftType, HandoverStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { endOfDay, startOfDay, type ShiftRecordRow } from './handover.shared';
+import {
+  buildShiftDateRange,
+  endOfDay,
+  startOfDay,
+  type ShiftRecordRow,
+} from './handover.shared';
 import { addShanghaiDays } from '../../../shared/shanghai-time.utils';
 import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import {
@@ -20,6 +25,8 @@ type ShiftLookupOptions = {
   forwardDays?: number;
   /** 明确的下界日期，仅用于查找某班次之后的班次等前向查询 */
   lowerBoundDate?: Date;
+  /** 需要排除的班次 id（已通过快照精确交班），交给 DB 侧过滤 */
+  excludedShiftIds?: number[];
 };
 
 type ShiftLookupRange = {
@@ -100,17 +107,33 @@ export class HandoverPageShiftRecordService {
     return shift?.employeeId ?? null;
   }
 
+  /**
+   * 当前班次：把「已有精确快照的已交班班次」下推成 DB 侧 NOT IN 过滤。
+   *
+   * 业务要求「不点交班则班次一直存在」，所以日期下界必须不设；但绝大多数历史
+   * 班次都已通过 employeeShiftIdSnapshot 精确关联交班记录。把这部分判定交给
+   * 数据库后，带回内存的只剩「未交班 + 无快照的历史脏数据」，老店从数千行
+   * 降到常数级，兜底匹配的窗口也从「开业至今」收敛到这批候选的区间。
+   */
   async findCurrentShiftRecord(
     storeId: number,
     employeeId: number | null,
     referenceDate = new Date(),
   ): Promise<ShiftRecordRow | null> {
-    const allShifts = await this.loadShifts(storeId, employeeId, referenceDate);
-    const shiftsWithCompletion =
-      await this.handoverStatus.attachCompletionStatus(storeId, allShifts);
-    if (shiftsWithCompletion.length === 0) {
+    const candidateShifts = await this.loadUnhandedCandidateShifts(
+      storeId,
+      employeeId,
+      referenceDate,
+    );
+    if (candidateShifts.length === 0) {
       return null;
     }
+
+    const shiftsWithCompletion =
+      await this.handoverStatus.attachCompletionStatus(
+        storeId,
+        candidateShifts,
+      );
 
     return pickCurrentShift(shiftsWithCompletion, referenceDate);
   }
@@ -119,14 +142,54 @@ export class HandoverPageShiftRecordService {
     storeId: number,
     referenceDate = new Date(),
   ): Promise<ShiftRecordRow | null> {
-    const allShifts = await this.loadShifts(storeId, null, referenceDate);
-    const shiftsWithCompletion =
-      await this.handoverStatus.attachCompletionStatus(storeId, allShifts);
-    if (shiftsWithCompletion.length === 0) {
+    const candidateShifts = await this.loadUnhandedCandidateShifts(
+      storeId,
+      null,
+      referenceDate,
+    );
+    if (candidateShifts.length === 0) {
       return null;
     }
 
+    const shiftsWithCompletion =
+      await this.handoverStatus.attachCompletionStatus(
+        storeId,
+        candidateShifts,
+      );
+
     return pickStartedUnhandedShift(shiftsWithCompletion, referenceDate);
+  }
+
+  /**
+   * 候选班次 = 该范围内「没有被 employeeShiftIdSnapshot 精确关联到已完成交班记录」的班次。
+   *
+   * 只做精确快照排除，不做时间窗口兜底匹配：兜底（历史无快照记录）仍由
+   * HandoverShiftHandoverStatusService 负责，保证判定口径只有一处。
+   */
+  private async loadUnhandedCandidateShifts(
+    storeId: number,
+    employeeId: number | null,
+    referenceDate: Date,
+  ): Promise<ShiftRecordRow[]> {
+    const snapshotRecords = await this.prisma.storeHandoverRecord.findMany({
+      where: {
+        storeId,
+        status: HandoverStatus.completed,
+        employeeShiftIdSnapshot: { not: null },
+      },
+      select: { employeeShiftIdSnapshot: true },
+    });
+    const handedOverShiftIds = [
+      ...new Set(
+        snapshotRecords
+          .map((record) => record.employeeShiftIdSnapshot)
+          .filter((id): id is number => id !== null),
+      ),
+    ];
+
+    return this.loadShifts(storeId, employeeId, referenceDate, {
+      excludedShiftIds: handedOverShiftIds,
+    });
   }
 
   async findNextShiftRecord(
@@ -185,7 +248,25 @@ export class HandoverPageShiftRecordService {
       return null;
     }
 
-    return allShifts[currentShiftIndex + 1] ?? null;
+    // 与确认交班（resolveReceiverCandidate）共用同一接班人选择规则：
+    // 只有开始时间不早于当前班次结束时间的班次才算接班人，排班重叠时跳过，
+    // 避免页面预览的接班人与实际保存的结果不一致。
+    const currentRange = buildShiftDateRange(
+      currentShiftRecord.startTime,
+      currentShiftRecord.endTime,
+      currentShiftRecord.date,
+    );
+
+    return (
+      allShifts.slice(currentShiftIndex + 1).find((shift) => {
+        const range = buildShiftDateRange(
+          shift.startTime,
+          shift.endTime,
+          shift.date,
+        );
+        return range.startAt.getTime() >= currentRange.endAt.getTime();
+      }) ?? null
+    );
   }
 
   /** memo key：同一门店内 (基准班次, 员工范围) 唯一确定一次后续班次查询 */
@@ -232,11 +313,17 @@ export class HandoverPageShiftRecordService {
     referenceDate: Date,
     options: ShiftLookupOptions = {},
   ): Promise<ShiftRecordRow[]> {
+    const excludedShiftIds = options.excludedShiftIds ?? [];
+
     return this.prisma.employeeShift.findMany({
       where: {
         storeId,
         ...(employeeId ? { employeeId } : {}),
         date: this.buildShiftLookupRange(referenceDate, options),
+        // 已通过快照精确交班的班次直接交给 DB 排除，避免整店历史排班进内存
+        ...(excludedShiftIds.length > 0
+          ? { id: { notIn: excludedShiftIds } }
+          : {}),
       },
       select: this.shiftRecordSelect,
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],

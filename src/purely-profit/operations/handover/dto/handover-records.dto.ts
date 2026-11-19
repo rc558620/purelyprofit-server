@@ -217,15 +217,46 @@ export class HandoverRecordListItemDto {
 
   @ApiPropertyOptional({
     type: [HandoverOrderItemDto],
-    description: '交班详情页订单明细',
+    description: '交班详情页订单明细（按 offset/limit 分页切片）',
   })
   orderItems?: HandoverOrderItemDto[];
+
+  @ApiPropertyOptional({
+    example: 1200,
+    description:
+      '交班详情页订单明细总行数；大于 orderItems.length 时说明还有后续分页',
+  })
+  orderItemsTotal?: number;
 
   @ApiPropertyOptional({
     example: '李四',
     description: '交班详情页展示的接班人姓名',
   })
   receiverName?: string;
+}
+
+/** 交班详情订单明细分页查询参数 */
+export class HandoverRecordOrderItemsQueryDto {
+  @ApiPropertyOptional({
+    description: '订单明细分页大小，默认 999，最大 999',
+    example: 200,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '分页大小必须是整数' })
+  @Min(1, { message: '分页大小不能小于 1' })
+  @Max(999, { message: '分页大小不能超过 999' })
+  limit?: number;
+
+  @ApiPropertyOptional({
+    description: '订单明细分页偏移，默认 0',
+    example: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '分页偏移必须是整数' })
+  @Min(0, { message: '分页偏移不能小于 0' })
+  offset?: number;
 }
 
 export class HandoverCandidateDto {

@@ -109,6 +109,7 @@ export interface MarketingPrismaServiceMock {
   };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
+  $executeRaw: jest.Mock;
   $executeRawUnsafe: jest.Mock;
 }
 
@@ -215,6 +216,8 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
+    // 营销写路径在事务内取 advisory lock / 行锁（测试环境无真实 DB，只断言调用）
+    $executeRaw: jest.fn().mockResolvedValue(0),
     // 会员等级设置写入会在事务内取 advisory lock
     $executeRawUnsafe: jest.fn().mockResolvedValue(0),
   };

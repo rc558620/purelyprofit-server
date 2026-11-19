@@ -371,7 +371,16 @@ export type RecordViewContext = {
 export type RecordShiftContext = {
   referenceDate: Date;
   shiftRecord: RecordShiftSnapshot | null;
+  /**
+   * 统计区间（起点可能已收窄到上一班实际交班时刻）
+   */
   shiftRange: ShiftDateRange;
+  /**
+   * 班次原始开始时间（展示锚点）。
+   * shiftRange.startAt 会被上一班交班时刻收窄，不能用作班次日期锚点，
+   * 否则前端展示的班次开始时间会随上一班交班时间漂移。
+   */
+  shiftStartAt: Date;
 };
 
 export type ReceiverCandidate = {

@@ -10,6 +10,10 @@ import type {
   HandoverRecordSummaryListResponseDto,
   HandoverRecordSummaryQueryDto,
 } from './dto/handover-records.dto';
+import {
+  normalizeRecordOrderItemsPaging,
+  type RecordOrderItemsPagingInput,
+} from './handover-records-revenue.query';
 import { HandoverRecordsDetailService } from './handover-records-detail.service';
 import {
   HANDOVER_RECORD_INCLUDE,
@@ -59,11 +63,13 @@ export class HandoverRecordsQueryService {
   async getHandoverRecord(
     storeId: number,
     recordId: number,
+    orderItemsPaging?: RecordOrderItemsPagingInput,
   ): Promise<HandoverRecordListItemDto> {
     const record = await this.findRecordOrThrow(storeId, recordId);
     const detail = await this.handoverRecordsDetailService.buildRecordDetail(
       storeId,
       record,
+      normalizeRecordOrderItemsPaging(orderItemsPaging),
     );
     return mapRecordToDto(record, detail);
   }

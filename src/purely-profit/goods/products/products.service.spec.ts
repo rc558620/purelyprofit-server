@@ -77,7 +77,11 @@ jest.mock('./products.mapper', () => ({
 describe('ProductsService', () => {
   let service: ProductsService;
 
-  const prismaService = {};
+  const prismaService = {
+    // 事务桩：把回调直接放在同一个 prisma 桩上执行，
+    // 这样「商品 + 规格 + 菜单同事务」的断言仍能命中 prismaService。
+    $transaction: jest.fn(),
+  };
 
   const configService = {
     get: jest.fn(),
@@ -343,6 +347,10 @@ describe('ProductsService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    prismaService.$transaction.mockImplementation(
+      (callback: (client: unknown) => Promise<unknown>) =>
+        callback(prismaService),
+    );
     configService.get.mockImplementation((key: string) => {
       if (key === 'app.defaultPageSize') {
         return 20;
@@ -879,5 +887,40 @@ describe('ProductsService', () => {
 
     expect(mockedFindProductScalarById).toHaveBeenCalledTimes(1);
     expect(mockedFindProductById).not.toHaveBeenCalled();
+  });
+
+  /*
+   * P1-3 回归：扫码菜单同步失败时整个更新必须失败（事务回滚），
+   * 不能再出现「商品已改价、顾客侧仍旧」却返回成功的情况。
+   */
+  it('update 在菜单同步失败时整体失败，不返回成功响应', async () => {
+    setupUpdateMocks();
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    syncServiceMock.syncProduct.mockRejectedValue(
+      new Error('menu sync failed'),
+    );
+
+    await expect(service.update(user, 11, { name: '新名称' })).rejects.toThrow(
+      'menu sync failed',
+    );
+
+    // 事务由调用方开启，缓存失效只能在提交后执行
+    expect(syncServiceMock.invalidateCache).not.toHaveBeenCalled();
+  });
+
+  /*
+   * P1-1 回归：商品编辑不再写 stock（库存只能走带盘点流水的调整入口）。
+   */
+  it('update 不把 stock 写进商品更新数据', async () => {
+    setupUpdateMocks();
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+
+    await service.update(user, 11, { name: '新名称' });
+
+    expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      11,
+      expect.not.objectContaining({ stock: expect.anything() }),
+    );
   });
 });

@@ -6,10 +6,7 @@ import type { AdjustCustomerPointsDto } from './dto/marketing-query.dto';
 import type { MarketingCustomerDto } from './dto/marketing-response.dto';
 import { mapCustomerRow } from './marketing.mapper';
 import type { MarketingCustomerRow } from './marketing.types';
-import {
-  buildMarketingCustomersListPattern,
-  buildMarketingCustomerDetailPattern,
-} from '../../redis/cache-keys';
+import { lockMarketingCustomerRow } from './marketing-write-locks.shared';
 
 @Injectable()
 export class MarketingCustomerPointsService {
@@ -48,26 +45,19 @@ export class MarketingCustomerPointsService {
     try {
       const updated = await this.prisma.$transaction(
         async (tx) => {
-          let marketingUpdated;
-          if (isDeduct) {
-            const result = await tx.marketingCustomer.updateMany({
-              where: { id: customerId, points: { gte: absDelta } },
-              data: { points: { decrement: absDelta } },
-            });
-            if (result.count === 0) {
-              throw new BadRequestException(
-                '积分余额不足，扣除失败；请刷新后重试',
-              );
-            }
-            marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
-              where: { id: customerId },
-            });
-          } else {
-            marketingUpdated = await tx.marketingCustomer.update({
-              where: { id: customerId },
-              data: { points: { increment: dto.delta } },
-            });
+          // 锁行后再判余额：并发扣减必须串行，否则两笔都读到同一份积分并各自通过；
+          // 锁条件含 deleted_at IS NULL，已删除档案不再接受积分写入。
+          const locked = await lockMarketingCustomerRow(tx, customerId);
+          if (isDeduct && absDelta > locked.points) {
+            throw new BadRequestException(
+              `扣除积分不能超过当前余额（${locked.points}）`,
+            );
           }
+
+          const marketingUpdated = await tx.marketingCustomer.update({
+            where: { id: customerId },
+            data: { points: { increment: dto.delta } },
+          });
 
           // 创建营销积分流水记录
           await tx.marketingPointsRecord.create({
@@ -124,15 +114,10 @@ export class MarketingCustomerPointsService {
   }
 
   private async invalidateCache(storeId: number): Promise<void> {
+    // 列表 / 详情 / club 快照统一由 derived 失效器一次遍历清掉；
+    // 会员中心与首页看板另算，仍需单独清理。
     await Promise.all([
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
-      this.redisService.delByPattern(
-        buildMarketingCustomersListPattern(storeId),
-      ),
-      this.redisService.delByPattern(
-        buildMarketingCustomerDetailPattern(storeId),
-      ),
-      // C 端会员快照也缓存了积分，写入后必须一并失效
       this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 会员中心的可用积分事实源是 marketing_customers.points，改完必须连带失效，
       // 否则会员列表/详情的积分读数会陈旧到 TTL 到期（最长 90s）

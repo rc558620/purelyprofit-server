@@ -2,12 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { Money } from '../../shared/money.utils';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
-import {
-  buildMarketingCustomersListPattern,
-  buildMarketingCustomerDetailPattern,
-} from '../../redis/cache-keys';
 import { queryCustomerTierThresholds } from './marketing.query';
 import {
   calcCustomerTier,
@@ -60,7 +55,6 @@ const SPACE_TO_MARKETING_PAY_TYPE: Record<string, MarketingPayTypeValue> = {
 export class MarketingConsumptionLinkService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
@@ -156,14 +150,10 @@ export class MarketingConsumptionLinkService {
    * 应在事务提交成功后、事务外调用。
    */
   async invalidateMarketingDerived(storeId: number): Promise<void> {
+    // 顾客列表 / 详情 / 概览 / club 快照由统一失效器一次遍历清掉，
+    // 避免同两个模式被重复 SCAN。
     await Promise.all([
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
-      this.redisService.delByPattern(
-        buildMarketingCustomersListPattern(storeId),
-      ),
-      this.redisService.delByPattern(
-        buildMarketingCustomerDetailPattern(storeId),
-      ),
       // 该联动会写 totalSpent / visitCount / lastVisitAt / tier，C 端会员快照
       // 与会员中心列表同以这些字段为事实源，漏删会导致等级与活跃读数陈旧
       this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),

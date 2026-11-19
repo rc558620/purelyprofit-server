@@ -37,6 +37,7 @@ import {
 } from './handover.cache-keys';
 import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
+import type { RecordOrderItemsPagingInput } from './handover-records-revenue.query';
 import { HandoverRecordsService } from './handover-records.service';
 import {
   CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
@@ -197,9 +198,14 @@ export class HandoverService {
   async getHandoverRecord(
     user: AuthenticatedUser,
     recordId: number,
+    orderItemsPaging?: RecordOrderItemsPagingInput,
   ): Promise<HandoverRecordListItemDto> {
     this.triggerAutoCheckoutInBackground(user, 'handover:record-detail');
-    return this.handoverRecordsService.getHandoverRecord(user, recordId);
+    return this.handoverRecordsService.getHandoverRecord(
+      user,
+      recordId,
+      orderItemsPaging,
+    );
   }
 
   async listHandoverRecordSummaries(

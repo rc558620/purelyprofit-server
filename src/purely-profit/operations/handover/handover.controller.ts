@@ -41,6 +41,7 @@ import {
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
   HandoverRecordSummaryListResponseDto,
+  HandoverRecordOrderItemsQueryDto,
   HandoverRecordSummaryQueryDto,
 } from './dto/handover-records.dto';
 
@@ -245,13 +246,14 @@ export class HandoverController {
   @RequirePermissions('handover:view')
   @ApiOperation({ summary: '获取单条 purely-profit 交班记录详情' })
   @ApiOkResponse({
-    description: '返回交班记录详情',
+    description: '返回交班记录详情，订单明细按 limit/offset 分页切片',
     type: HandoverRecordListItemDto,
   })
   getOne(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
+    @Query() query: HandoverRecordOrderItemsQueryDto,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.getHandoverRecord(user, id);
+    return this.handoverService.getHandoverRecord(user, id, query);
   }
 }

@@ -42,6 +42,35 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(result.orderItems).toEqual([]);
     });
 
+    it('订单明细按分页参数在 DB 侧切片，并返回总行数', async () => {
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          employeeId: 10,
+          employeeName: '老板',
+          shiftType: EmployeeShiftType.morning,
+          shiftName: '早班',
+          date: new Date('2026-05-13'),
+          startTime: '09:00',
+          endTime: '17:00',
+        },
+      ]);
+      prismaService.saleOrderItem.count.mockResolvedValue(1200);
+
+      const result = await ctx.service.getHandoverRecord(ownerUser, 1, {
+        limit: 5,
+        offset: 10,
+      });
+
+      // 展示明细走 DB 分页；支付聚合走另一条全量窄字段查询
+      const displayCall = prismaService.saleOrderItem.findMany.mock.calls.find(
+        ([args]) => args?.take !== undefined,
+      )?.[0];
+      expect(displayCall).toMatchObject({ take: 5, skip: 10 });
+      expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledTimes(2);
+      expect(result.orderItemsTotal).toBe(1200);
+    });
+
     it('记录缺少 fromEmployeeId 时也应按交班时刻匹配活动班次信息', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
         ...mockRecord,
@@ -255,6 +284,59 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               lte: overdueHandoverAt,
             },
             // 与实时交班页口径一致：订单数不再排除退款单
+          },
+        }),
+      );
+    });
+
+    it('同班次内已有更早交班时，营收统计区间应从上一次交班时刻开始', async () => {
+      const handoverAt = new Date(2026, 5, 4, 19, 10, 0);
+      const previousHandoverAt = new Date(2026, 5, 4, 18, 0, 0);
+      prismaService.storeHandoverRecord.findFirst
+        .mockResolvedValueOnce({
+          ...mockRecord,
+          id: 5,
+          fromEmployeeId: 10,
+          actorStaffId: 101,
+          status: HandoverStatus.completed,
+          handoverAt,
+          createdAt: handoverAt,
+          additionalValues: [],
+        })
+        .mockResolvedValueOnce({ handoverAt: previousHandoverAt });
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          employeeId: 10,
+          employeeName: '收银员1',
+          shiftType: EmployeeShiftType.morning,
+          shiftName: '早班',
+          date: new Date('2026-06-04'),
+          startTime: '09:00',
+          endTime: '17:00',
+        },
+      ]);
+      prismaService.employee.findUnique.mockResolvedValueOnce(null);
+      prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+      prismaService.saleOrder.findMany.mockResolvedValue([]);
+      prismaService.saleOrder.count.mockResolvedValue(0);
+      prismaService.saleOrder.aggregate.mockResolvedValue({
+        _sum: { totalRevenue: null },
+      });
+
+      const result = await ctx.service.getHandoverRecord(ownerUser, 5);
+
+      // 班次日期锚点保持班次开始时间，不因统计区间收窄而漂移
+      expect(result.shiftInfo?.shiftReferenceAt).toBe(
+        new Date(2026, 5, 4, 9, 0, 0).getTime(),
+      );
+      expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            storeId: 100,
+            date: {
+              gte: previousHandoverAt,
+              lte: handoverAt,
+            },
           },
         }),
       );

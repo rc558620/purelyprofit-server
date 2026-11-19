@@ -2,11 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { HandoverOrderItemDto } from './dto/handover-shared.dto';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
-import {
-  ORDER_ITEMS_LIMIT,
-  dbCentsToOutputYuan,
-  type ShiftDateRange,
-} from './handover.shared';
+import { dbCentsToOutputYuan, type ShiftDateRange } from './handover.shared';
 import { buildNonSpaceSessionOrderWhere } from './handover-page-query.builders';
 import { mergeDisplayedOrderItems } from './handover-page-order-items';
 import {
@@ -23,11 +19,13 @@ import {
   sumShiftRevenueYuan,
 } from './handover-page-payment';
 import {
+  DEFAULT_RECORD_ORDER_ITEMS_PAGING,
   loadAdditionalRevenueSum,
   loadRecordRevenueDetailSource,
   loadScanOrderingRevenueSum,
   loadSpaceRevenueSum,
   sumSettledSpaceRevenueDbCents,
+  type RecordOrderItemsPaging,
   type RecordRevenueDetailSource,
   type SaleOrderItemDetailRow,
 } from './handover-records-revenue.query';
@@ -84,20 +82,23 @@ export class HandoverRecordsRevenueService {
     shiftRange: ShiftDateRange,
     /** 当班操作员：扫码点餐订单（purelyClub 下单）无实际操作员时回退展示 */
     shiftOperatorName: string | null = null,
+    /** 展示明细分页：支付聚合始终用全量，只有展示行按 limit/offset 切片 */
+    paging: RecordOrderItemsPaging = DEFAULT_RECORD_ORDER_ITEMS_PAGING,
   ): Promise<
     Pick<
       HandoverRecordListItemDto,
-      'revenueSummary' | 'paymentItems' | 'orderItems'
+      'revenueSummary' | 'paymentItems' | 'orderItems' | 'orderItemsTotal'
     >
   > {
     const source = await loadRecordRevenueDetailSource(
       this.prisma,
       storeId,
       shiftRange,
+      paging,
     );
 
-    // paymentOrderItems 用全量做支付方式聚合；orderItems 取前 ORDER_ITEMS_LIMIT 条做展示
-    const paymentItems = mapPaymentItems(source.orderItems);
+    // 支付方式聚合走全量的窄字段投影；展示行已在 DB 侧按分页切片
+    const paymentItems = mapPaymentItems(source.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
       sumSettledSpaceRevenueDbCents(source.settledSpaceSessions) +
@@ -120,6 +121,7 @@ export class HandoverRecordsRevenueService {
         source,
         shiftOperatorName,
       ),
+      orderItemsTotal: source.orderItemsTotal,
     };
   }
 
@@ -131,10 +133,8 @@ export class HandoverRecordsRevenueService {
     source: RecordRevenueDetailSource,
     shiftOperatorName: string | null,
   ): Promise<HandoverOrderItemDto[]> {
-    const orderItems: SaleOrderItemDetailRow[] = source.orderItems.slice(
-      0,
-      ORDER_ITEMS_LIMIT,
-    );
+    // 展示行已在 DB 侧按分页取回（take/skip），这里不再内存 slice
+    const orderItems: SaleOrderItemDetailRow[] = source.orderItems;
     // 门店主账号 user.id 已在数据源 Promise.all 中取回，避免详情路径多一次串行往返
     const storeOwnerUserId = source.storeOwnerUserId;
 

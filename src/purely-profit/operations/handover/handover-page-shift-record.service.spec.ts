@@ -27,10 +27,12 @@ describe('HandoverPageShiftRecordService - 未交班班次长期保留', () => {
 
   const findMany = jest.fn();
   const findFirst = jest.fn();
+  const recordFindMany = jest.fn();
   const attachCompletionStatus = jest.fn();
   // 仅替身本用例涉及的 Prisma 与交班状态服务方法，避免启动完整 Nest 容器。
   const prisma = {
     employeeShift: { findMany, findFirst },
+    storeHandoverRecord: { findMany: recordFindMany },
   } as unknown as PrismaService;
   const handoverStatus = {
     attachCompletionStatus,
@@ -41,6 +43,8 @@ describe('HandoverPageShiftRecordService - 未交班班次长期保留', () => {
     jest.clearAllMocks();
     findMany.mockResolvedValue([historicalShift]);
     findFirst.mockResolvedValue(historicalShift);
+    // 已交班班次 id=1（精确快照），应在 DB 侧被 notIn 排除
+    recordFindMany.mockResolvedValue([{ employeeShiftIdSnapshot: 1 }]);
     attachCompletionStatus.mockResolvedValue([
       { shift: historicalShift, handedOver: false },
     ]);
@@ -50,10 +54,12 @@ describe('HandoverPageShiftRecordService - 未交班班次长期保留', () => {
     const result = await service.findCurrentShiftRecord(42, null, referenceAt);
 
     expect(result).toEqual(historicalShift);
+    // 精确快照交班判定下推到 DB：查询条件带 notIn，且日期下界保持「不设」
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 42,
+          id: { notIn: [1] },
           date: expect.not.objectContaining({ gte: expect.anything() }),
         }),
       }),
@@ -95,13 +101,26 @@ describe('HandoverPageShiftRecordService - 未交班班次长期保留', () => {
   });
 
   it('已完成交班的历史班次不会被选为当前班次', async () => {
-    attachCompletionStatus.mockResolvedValue([
-      { shift: historicalShift, handedOver: true },
-    ]);
+    findMany.mockResolvedValue([]);
+    attachCompletionStatus.mockResolvedValue([]);
 
     const result = await service.findCurrentShiftRecord(42, null, referenceAt);
 
     expect(result).toBeNull();
+  });
+
+  it('已开始未交班查询同样走快照排除 + 交班状态复核', async () => {
+    const result = await service.findStartedUnhandedShiftRecord(
+      42,
+      referenceAt,
+    );
+
+    expect(result).toEqual(historicalShift);
+    expect(recordFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: { employeeShiftIdSnapshot: true },
+      }),
+    );
   });
 
   // 交班页「有没有接班人」与「有没有后续班次」落到同一查询参数，

@@ -11,6 +11,7 @@ import {
   queryCustomerGiftBalanceCents,
   queryCustomerRechargeRefundSums,
 } from './marketing.query';
+import { lockMarketingCustomerRow } from './marketing-write-locks.shared';
 import type { CreateRechargeDto } from './dto/marketing-query.dto';
 
 export interface CreateRechargeTransactionParams {
@@ -46,21 +47,20 @@ export const createRechargeInTransaction = async (
     giftMoney,
     totalMoney,
   } = params;
+
+  // 资金写入前先锁定顾客行：
+  // 1) 并发退款必须串行计算可退本金与赠送余额，否则两笔事务会读到同一份快照，
+  //    各自清零同一笔赠送（重复扣减）或突破本金上限；
+  // 2) `deleted_at IS NULL` 写进锁条件，已删除档案拒绝后续充值 / 退款，消除
+  //    删档与资金写入之间的竞态窗口。
+  const lockedCustomer = await lockMarketingCustomerRow(tx, dto.customerId);
   let giftClearedAmountCents = 0;
 
   // 事务内重新校验退款金额，防止并发退款导致超额退款
   let actualBalanceDeltaCents: number;
   let noteForDb: string | null = dto.note?.trim() || null;
   if (rechargeType === 'refund') {
-    const freshCustomer = await tx.marketingCustomer.findUnique({
-      where: { id: dto.customerId },
-      select: { balance: true },
-    });
-    if (!freshCustomer) {
-      throw new BadRequestException('顾客不存在');
-    }
-    // 事务内复核仍必须保留（防止并发超额退款），但只发一次聚合查询，
-    // 缩短余额行锁的持有时间。
+    // 锁已持有，上面的聚合与赠送回放读到的都是前一事务提交后的最新值。
     const { rechargeCents, refundCents } =
       await queryCustomerRechargeRefundSums(tx, dto.customerId);
     const refundableCents = Math.max(0, rechargeCents - refundCents);
@@ -78,9 +78,9 @@ export const createRechargeInTransaction = async (
       ? -(totalMoney.toDbCents() + giftBalanceCents)
       : -totalMoney.toDbCents();
 
-    // B1: 事务内余额兗底校验——实际扣减额不得超过当前余额
+    // B1: 事务内余额兑底校验——实际扣减额不得超过锁定后的当前余额
     if (
-      Money.fromDbCents(freshCustomer.balance).lessThan(
+      Money.fromDbCents(lockedCustomer.balance).lessThan(
         Money.fromDbCents(Math.abs(actualBalanceDeltaCents)),
       )
     ) {
@@ -122,8 +122,8 @@ export const createRechargeInTransaction = async (
     },
   });
 
-  // 并发守卫：上面的 freshCustomer.balance 校验在 Read Committed 下挡不住并发——
-  // 两笔退款可以读到同一个余额并都通过校验。条件更新确保余额不会被扣成负数
+  // 锁后余额已是最新值，这里的 gte 条件退化为「同一事务内的二次自检」：
+  // 任何未来的调用方若绕过 lockMarketingCustomerRow 写入，仍不会被扣成负数
   // （与消费路径 updateMany + balance gte 同口径）。
   const balanceUpdated = await tx.marketingCustomer.updateMany({
     where: {

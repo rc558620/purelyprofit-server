@@ -9,10 +9,6 @@ import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
-import {
-  buildMarketingCustomersListPattern,
-  buildMarketingCustomerDetailPattern,
-} from '../../redis/cache-keys';
 import type { CreateConsumptionDto } from './dto/marketing-query.dto';
 import type {
   MarketingConsumptionDto,
@@ -271,16 +267,9 @@ export class MarketingConsumptionsService {
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
+    // 顾客列表 / 详情 / 概览 / club 快照由统一失效器一次遍历清掉，避免重复扫描
     await Promise.all([
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
-      // BUG-2: 消费后同步失效顾客列表缓存
-      this.redisService.delByPattern(
-        buildMarketingCustomersListPattern(storeId),
-      ),
-      // F8: 失效顾客详情缓存
-      this.redisService.delByPattern(
-        buildMarketingCustomerDetailPattern(storeId),
-      ),
       // C 端会员快照同样缓存了积分与等级，B 端写操作必须一并失效
       this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 消费会改 marketing_customers 的 points / tier / lastVisitAt，

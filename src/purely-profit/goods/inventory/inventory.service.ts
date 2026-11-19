@@ -88,8 +88,12 @@ export class InventoryService {
      * 调整类型与变动方向必须一致：否则会写出「进货入库 -7」「损耗/报废 +95」
      * 这类语义自相矛盾的流水，按 adjustType 聚合的库存报表无法解释。
      * manual（盘点）不做方向限制——盘点结果本就可能净增或净减。
+     *
+     * 这里只按入参 delta 做一次快速拦截（避免为明显非法的方向开启事务）；
+     * set 模式的真实变动量要等行锁之后才能确定，由
+     * inventory-stock.domain 的 assertInventoryManualAdjustDirection 统一兜底。
      */
-    if (mode === 'delta' && dto.delta !== undefined) {
+    if (dto.delta !== undefined) {
       if (dto.adjustType === 'restock' && dto.delta < 0) {
         throw new BadRequestException('进货入库的数量必须为正数');
       }

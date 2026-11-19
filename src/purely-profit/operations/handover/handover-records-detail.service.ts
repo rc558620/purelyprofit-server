@@ -4,6 +4,7 @@ import type {
   HandoverRecordSummaryDto,
 } from './dto/handover-records.dto';
 import { HandoverRecordOperatorProfileService } from './handover-record-operator-profile.service';
+import type { RecordOrderItemsPaging } from './handover-records-revenue.query';
 import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
 import { HandoverRecordsViewContextService } from './handover-records-view-context.service';
 import {
@@ -75,6 +76,8 @@ export class HandoverRecordsDetailService {
   async buildRecordDetail(
     storeId: number,
     record: HandoverRecordRow,
+    /** 订单明细分页：不传则取默认首页（limit=ORDER_ITEMS_LIMIT, offset=0） */
+    orderItemsPaging?: RecordOrderItemsPaging,
   ): Promise<
     Pick<
       HandoverRecordListItemDto,
@@ -83,6 +86,7 @@ export class HandoverRecordsDetailService {
       | 'revenueSummary'
       | 'paymentItems'
       | 'orderItems'
+      | 'orderItemsTotal'
       | 'receiverName'
     >
   > {
@@ -109,6 +113,7 @@ export class HandoverRecordsDetailService {
         shiftContext.shiftRange,
         // 当班操作员：扫码点餐订单无实际操作员时回退展示
         operatorName,
+        orderItemsPaging,
       ),
     ]);
 
@@ -133,12 +138,13 @@ export class HandoverRecordsDetailService {
           shiftContext.shiftRecord?.startTime,
           shiftContext.shiftRecord?.endTime,
         ),
-        shiftReferenceAt: shiftContext.shiftRange.startAt.getTime(),
+        shiftReferenceAt: shiftContext.shiftStartAt.getTime(),
       },
       additionalItems: mapRecordAdditionalItems(record),
       revenueSummary: revenueDetail.revenueSummary,
       paymentItems: revenueDetail.paymentItems,
       orderItems: revenueDetail.orderItems,
+      orderItemsTotal: revenueDetail.orderItemsTotal,
       receiverName: toDisplayName(record.toEmployee?.name) ?? '',
     };
   }

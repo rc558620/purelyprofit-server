@@ -1,10 +1,16 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
+import {
+  HandoverMode,
+  HandoverStatus,
+  Prisma,
+  StaffRole,
+} from '@prisma/client';
 import {
   PrismaService,
   TX_TIMEOUT_MEDIUM,
@@ -19,14 +25,17 @@ import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
 import {
+  CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
   buildShiftDateRange,
   ensureMembershipContext,
+  isCashierMembership,
   mapRecordToDto,
   normalizeOptionalText,
   toDisplayName,
   type HandoverRecordRow,
+  type MembershipContext,
   type ShiftRecordRow,
 } from './handover.shared';
 import {
@@ -73,11 +82,17 @@ export class HandoverConfirmService {
           handoverAt,
           shiftReferenceAt: dto.shiftReferenceAt,
           operatorName: dto.operatorName,
+          employeeShiftId: dto.employeeShiftId,
         },
       );
     if (!sourceShiftRecord) {
       throw new BadRequestException('当前班次不存在，请刷新页面后重试');
     }
+
+    // 归属兜底：页面权限检查只覆盖页面选中的班次，这里必须再次确认实际写入
+    // 的目标班次属于当前操作者（老板/主账号 Manager 除外），避免构造请求把交班
+    // 记录写到其他员工的班次上。
+    this.ensureShiftOwnership(membership, sourceShiftRecord);
 
     // ── BUG-2 / O-1 修复 ──
     // 交班时间必须晚于班次结束时间（规则5：须到达班次结束时间之后才能交班），
@@ -215,6 +230,35 @@ export class HandoverConfirmService {
         await this.redisLockService.releaseLock(lock);
       }
     }
+  }
+
+  /**
+   * 校验写入口径的班次归属：与页面层 resolveHandoverOperationAccess 规则保持一致。
+   * - 老板主账号、Manager 主账号可操作任意班次；
+   * - 其他账号（收银员/员工）只能操作本人排班对应的班次。
+   */
+  private ensureShiftOwnership(
+    membership: MembershipContext,
+    shiftRecord: ShiftRecordRow,
+  ): void {
+    if (
+      membership.subjectType === 'owner' ||
+      membership.role === StaffRole.manager
+    ) {
+      return;
+    }
+
+    if (
+      membership.linkedEmployeeId !== null &&
+      shiftRecord.employeeId === membership.linkedEmployeeId
+    ) {
+      return;
+    }
+
+    const message = isCashierMembership(membership)
+      ? CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE
+      : '当前班次不属于该员工，暂不允许操作';
+    throw new ForbiddenException(message);
   }
 
   /**

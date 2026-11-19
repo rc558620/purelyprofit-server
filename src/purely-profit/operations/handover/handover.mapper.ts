@@ -134,6 +134,7 @@ export const mapRecordToDto = (
     | 'revenueSummary'
     | 'paymentItems'
     | 'orderItems'
+    | 'orderItemsTotal'
     | 'receiverName'
   >,
 ): HandoverRecordListItemDto => ({
@@ -155,6 +156,9 @@ export const mapRecordToDto = (
   ...(detail?.revenueSummary ? { revenueSummary: detail.revenueSummary } : {}),
   ...(detail?.paymentItems ? { paymentItems: detail.paymentItems } : {}),
   ...(detail?.orderItems ? { orderItems: detail.orderItems } : {}),
+  ...(detail?.orderItemsTotal !== undefined
+    ? { orderItemsTotal: detail.orderItemsTotal }
+    : {}),
   ...(detail?.receiverName !== undefined
     ? { receiverName: detail.receiverName }
     : {}),

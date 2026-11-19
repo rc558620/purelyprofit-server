@@ -8,8 +8,10 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -23,6 +25,7 @@ import {
   INVENTORY_ADJUST_TYPE_VALUES,
   INVENTORY_MANUAL_ADJUST_TYPE_VALUES,
   INVENTORY_STOCK_ALERT_LEVEL_VALUES,
+  INVENTORY_STOCK_LIMIT,
   INVENTORY_STOCK_SORT_VALUES,
   type InventoryManualAdjustTypeValue,
   type InventoryStockAlertLevelValue,
@@ -185,9 +188,17 @@ export class AdjustInventoryDto {
     example: 5,
     description: '增减模式下的调整数量，可正可负；不传时默认为 0',
   })
-  @IsOptional()
+  /*
+   * 不用 @IsOptional()：它会把 null 一并跳过，导致 null 直接流进业务层。
+   * 这里只跳过「不传」，显式传 null 仍然走整数校验并被拒绝。
+   */
+  @ValidateIf(
+    (dto: AdjustInventoryDto) => dto.delta !== undefined && dto.delta !== null,
+  )
   @Type(() => Number)
   @IsInt({ message: '调整数量必须是整数' })
+  @Min(-INVENTORY_STOCK_LIMIT, { message: '调整数量超出允许范围' })
+  @Max(INVENTORY_STOCK_LIMIT, { message: '调整数量超出允许范围' })
   delta?: number;
 
   @ApiPropertyOptional({
@@ -203,10 +214,14 @@ export class AdjustInventoryDto {
     example: 30,
     description: 'set 模式下的目标库存',
   })
-  @IsOptional()
+  @ValidateIf(
+    (dto: AdjustInventoryDto) =>
+      dto.targetStock !== undefined && dto.targetStock !== null,
+  )
   @Type(() => Number)
   @IsInt({ message: '目标库存必须是整数' })
   @Min(0, { message: '目标库存不能为负数' })
+  @Max(INVENTORY_STOCK_LIMIT, { message: '目标库存超出允许范围' })
   targetStock?: number;
 
   /*

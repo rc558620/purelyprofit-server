@@ -22,6 +22,8 @@ export type ConfirmShiftLookupOptions = {
   handoverAt: Date;
   shiftReferenceAt?: number;
   operatorName?: string;
+  /** 页面返回的排班记录 ID：传入时按门店+ID 精确锁定，不再按姓名/时段兜底匹配 */
+  employeeShiftId?: number;
 };
 
 const CONFIRM_SHIFT_RECORD_SELECT = {
@@ -49,6 +51,12 @@ export class HandoverConfirmShiftService {
     preferredEmployeeId: number | null,
     options: ConfirmShiftLookupOptions,
   ): Promise<ShiftRecordRow | null> {
+    // 页面已明确命中某条排班时，按门店+ID 精确锁定，避免姓名/时段兜底把交班
+    // 记录写到别的员工班次上；找不到时直接返回 null，由调用方报错。
+    if (typeof options.employeeShiftId === 'number') {
+      return this.findShiftRecordById(storeId, options.employeeShiftId);
+    }
+
     const shiftLookupDate = this.resolveShiftLookupDate(options);
     if (preferredEmployeeId) {
       const preferredShifts = await this.loadShiftCandidates(
@@ -222,6 +230,16 @@ export class HandoverConfirmShiftService {
         return shiftStart.getTime() > currentRange.endAt.getTime();
       }) ?? null
     );
+  }
+
+  private async findShiftRecordById(
+    storeId: number,
+    employeeShiftId: number,
+  ): Promise<ShiftRecordRow | null> {
+    return this.prisma.employeeShift.findFirst({
+      where: { id: employeeShiftId, storeId },
+      select: CONFIRM_SHIFT_RECORD_SELECT,
+    });
   }
 
   private resolveShiftLookupDate(options: ConfirmShiftLookupOptions): Date {

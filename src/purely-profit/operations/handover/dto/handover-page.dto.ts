@@ -76,6 +76,16 @@ export class HandoverShiftInfoDto {
     description: '班次归属时间戳(ms)，用于判定班次日期',
   })
   shiftReferenceAt: number;
+
+  @ApiPropertyOptional({
+    example: 1024,
+    description:
+      '页面命中的排班记录 ID，确认交班时回传以锁定同一条班次（无排班记录时不返回）',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '排班记录 ID 必须是整数' })
+  shiftRecordId?: number;
 }
 
 export class HandoverPageResponseDto {
@@ -149,6 +159,16 @@ export class ConfirmHandoverRequestDto {
   @Type(() => Number)
   @IsInt({ message: '班次参考时间必须是整数时间戳' })
   shiftReferenceAt?: number;
+
+  @ApiPropertyOptional({
+    example: 1024,
+    description:
+      '页面返回的排班记录 ID，用于锁定同一条班次并校验归属；不传时回退按班次类型/时间匹配',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '排班记录 ID 必须是整数' })
+  employeeShiftId?: number;
 
   @ApiPropertyOptional({
     example: '张三',

@@ -5,6 +5,7 @@ import {
   buildInventoryStockChangePlan,
   resolveAdjustedStock,
 } from './inventory-stock.domain';
+import { INVENTORY_STOCK_LIMIT } from '../../commerce/commerce.utils';
 import type {
   InventoryManualAdjustmentCommand,
   InventoryMutableProductRecord,
@@ -99,6 +100,84 @@ describe('inventory-stock.domain', () => {
         note: '盘点修正',
       },
     });
+  });
+
+  /* set 模式的真实变动量由「目标库存 − 当前库存」决定，方向校验不能只看入参 delta */
+  it('buildInventoryManualAdjustmentPlan 在 set 模式下拦住方向相反的进货', () => {
+    const command: InventoryManualAdjustmentCommand = {
+      storeId: 18,
+      productId: 101,
+      operatorStaffId: 8,
+      targetStock: 5,
+      mode: 'set',
+      adjustType: 'restock',
+    };
+
+    expect(() =>
+      buildInventoryManualAdjustmentPlan({
+        product,
+        command,
+      }),
+    ).toThrow('进货入库的数量必须为正数');
+  });
+
+  it('buildInventoryManualAdjustmentPlan 在 set 模式下拦住方向相反的报损', () => {
+    const command: InventoryManualAdjustmentCommand = {
+      storeId: 18,
+      productId: 101,
+      operatorStaffId: 8,
+      targetStock: 15,
+      mode: 'set',
+      adjustType: 'damage',
+      note: '破损',
+    };
+
+    expect(() =>
+      buildInventoryManualAdjustmentPlan({
+        product,
+        command,
+      }),
+    ).toThrow('损耗/报废的数量必须为负数');
+  });
+
+  it('buildInventoryManualAdjustmentPlan 在 set 模式下正常生成进货计划', () => {
+    const command: InventoryManualAdjustmentCommand = {
+      storeId: 18,
+      productId: 101,
+      operatorStaffId: 8,
+      targetStock: 15,
+      mode: 'set',
+      adjustType: 'restock',
+    };
+
+    expect(
+      buildInventoryManualAdjustmentPlan({
+        product,
+        command,
+      }).log,
+    ).toEqual(
+      expect.objectContaining({ beforeStock: 10, afterStock: 15, delta: 5 }),
+    );
+  });
+
+  it('resolveAdjustedStock 在 set 模式显式传 null 时抛出异常', () => {
+    expect(() =>
+      resolveAdjustedStock({
+        currentStock: 10,
+        targetStock: null as unknown as undefined,
+        mode: 'set',
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('resolveAdjustedStock 在调整后库存超出上限时抛出异常', () => {
+    expect(() =>
+      resolveAdjustedStock({
+        currentStock: 10,
+        delta: INVENTORY_STOCK_LIMIT,
+        mode: 'delta',
+      }),
+    ).toThrow(BadRequestException);
   });
 
   it('buildInventoryManualAdjustmentPlan 在商品不存在时抛出异常', () => {

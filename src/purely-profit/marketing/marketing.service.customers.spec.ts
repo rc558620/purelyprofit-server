@@ -198,7 +198,9 @@ describe('MarketingService customers', () => {
           totalAmount: 12000,
           type: 'recharge',
         },
-      ]);
+      ])
+      // 5th call: 赠送余额的当前余额上界（截断用），¥200
+      .mockResolvedValueOnce([{ balance: 20000 }]);
     // 充值 / 退款本金一次 groupBy 取回
     context.prismaService.marketingRecharge.groupBy.mockResolvedValueOnce([
       { type: 'recharge', _sum: { amount: 35000 } },

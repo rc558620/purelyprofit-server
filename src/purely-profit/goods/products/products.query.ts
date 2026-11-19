@@ -277,7 +277,7 @@ function rethrowProductWriteError(error: unknown): never {
 }
 
 export async function createProductRecord(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   data: ProductCreateInput,
 ): Promise<ProductRecord> {
   try {
@@ -291,7 +291,7 @@ export async function createProductRecord(
 }
 
 export async function updateProductRecord(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   productId: number,
   data: ProductUpdateInput,
 ): Promise<ProductRecord> {

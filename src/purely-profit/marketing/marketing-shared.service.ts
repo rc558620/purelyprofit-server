@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
@@ -179,7 +180,14 @@ export class MarketingSharedService {
     return normalized;
   }
 
+  /**
+   * 手机号查重。
+   *
+   * 显式接收 Prisma 客户端：建档 / 改号必须在同一个事务（且已持有门店
+   * advisory lock）内做「查重 + 写入」，否则并发请求会同时读到空结果。
+   */
   async ensureUniquePhone(
+    client: PrismaService | Prisma.TransactionClient,
     storeId: number,
     phone: string | null | undefined,
     excludeCustomerId?: number,
@@ -189,7 +197,7 @@ export class MarketingSharedService {
       return;
     }
 
-    const existing = await this.prisma.marketingCustomer.findFirst({
+    const existing = await client.marketingCustomer.findFirst({
       where: {
         storeId,
         phone: normalizedPhone,

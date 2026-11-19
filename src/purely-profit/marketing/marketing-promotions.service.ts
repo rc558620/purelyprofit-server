@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, type MarketingPromotionType } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { RedisService } from '../../redis/redis.service';
@@ -40,6 +40,7 @@ import {
   ensureDailyCheckInUniqueness,
   ensurePromotionTypeUnique,
 } from './marketing-promotion-uniqueness.shared';
+import { lockMarketingPromotionScope } from './marketing-write-locks.shared';
 import { validatePromotionParams } from './schemas/promotion-params.schema';
 
 const MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS = 60;
@@ -205,13 +206,6 @@ export class MarketingPromotionsService {
     );
 
     const willBeEnabled = dto.enabled ?? true;
-    if (dto.type === 'daily_check_in') {
-      // 签到配置按「门店 + 类型」读取，停用态重复会造成 C 端取错积分值，
-      // 因此含停用态也按全量唯一校验（DB 侧另有部分唯一索引兜底）。
-      await ensureDailyCheckInUniqueness(this.prisma, storeId);
-    } else if (willBeEnabled) {
-      await ensurePromotionTypeUnique(this.prisma, storeId, dto.type);
-    }
 
     // 前端入参（元）→ DB 存储（分）
     const writeParams = mapPromotionParamsForWrite(normalizedParams, dto.type);
@@ -223,21 +217,36 @@ export class MarketingPromotionsService {
       buildPromotionDisplayText(dto.type, normalizedParams) || null;
     let created;
     try {
-      created = await this.prisma.marketingPromotion.create({
-        data: {
-          storeId,
-          name: dto.name.trim(),
-          type: dto.type as unknown as MarketingPromotionType,
-          description: dto.description?.trim() ?? '',
-          params: writeParams as Prisma.InputJsonValue,
-          displayText,
-          startAt: new Date(dto.startAt),
-          endAt: new Date(dto.endAt),
-          enabled: dto.enabled ?? true,
+      created = await this.prisma.$transaction(
+        async (tx) => {
+          // 唯一性校验与写入必须同事务同锁：baseline 迁移已移除部分唯一索引，
+          // 锁外先查后写会让两个并发请求同时读到 count=0 并同时入库。
+          await lockMarketingPromotionScope(tx, storeId);
+          if (dto.type === 'daily_check_in') {
+            // 签到配置按「门店 + 类型」读取，停用态重复会造成 C 端取错积分值，
+            // 因此含停用态也按全量唯一校验。
+            await ensureDailyCheckInUniqueness(tx, storeId);
+          } else if (willBeEnabled) {
+            await ensurePromotionTypeUnique(tx, storeId, dto.type);
+          }
+
+          return tx.marketingPromotion.create({
+            data: {
+              storeId,
+              name: dto.name.trim(),
+              type: dto.type as unknown as MarketingPromotionType,
+              description: dto.description?.trim() ?? '',
+              params: writeParams as Prisma.InputJsonValue,
+              displayText,
+              startAt: new Date(dto.startAt),
+              endAt: new Date(dto.endAt),
+              enabled: dto.enabled ?? true,
+            },
+          });
         },
-      });
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
     } catch (err) {
-      // 并发场景下应用层 count=0 通过，但 DB 唯一索引冲突 P2002
       throwOnPromotionTypeConflict(err);
     }
 
@@ -283,20 +292,6 @@ export class MarketingPromotionsService {
 
     // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
     const willBeEnabled = dto.enabled ?? promotion.enabled;
-    if (promotion.type === 'daily_check_in') {
-      await ensureDailyCheckInUniqueness(
-        this.prisma,
-        promotion.storeId,
-        promotionId,
-      );
-    } else if (willBeEnabled) {
-      await ensurePromotionTypeUnique(
-        this.prisma,
-        promotion.storeId,
-        promotion.type as MarketingPromotionTypeValue,
-        promotionId,
-      );
-    }
 
     // B1：与 togglePromotion 保持一致——显式上架已结束的活动时拦截
     if (dto.enabled === true && newEndAt < new Date()) {
@@ -305,33 +300,57 @@ export class MarketingPromotionsService {
 
     let updated;
     try {
-      updated = await this.prisma.marketingPromotion.update({
-        where: { id: promotionId },
-        data: {
-          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-          ...(dto.description !== undefined
-            ? { description: dto.description.trim() }
-            : {}),
-          ...(normalizedParams !== undefined
-            ? {
-                // 前端入参（元）→ DB 存储（分）
-                params: mapPromotionParamsForWrite(
-                  normalizedParams,
-                  promotion.type,
-                ) as Prisma.InputJsonValue,
-                // BUG-1 修复：normalizedParams 已是「元」，直接用于展示文案
-                displayText:
-                  buildPromotionDisplayText(promotion.type, normalizedParams) ||
-                  null,
-              }
-            : {}),
-          ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
-          ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),
-          ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+      updated = await this.prisma.$transaction(
+        async (tx) => {
+          // 启停与「启用同类活动唯一」校验必须同事务同锁，否则并发启用
+          // 两个同类活动时都会通过 count 校验。
+          await lockMarketingPromotionScope(tx, promotion.storeId);
+          if (promotion.type === 'daily_check_in') {
+            await ensureDailyCheckInUniqueness(
+              tx,
+              promotion.storeId,
+              promotionId,
+            );
+          } else if (willBeEnabled) {
+            await ensurePromotionTypeUnique(
+              tx,
+              promotion.storeId,
+              promotion.type as MarketingPromotionTypeValue,
+              promotionId,
+            );
+          }
+
+          return tx.marketingPromotion.update({
+            where: { id: promotionId },
+            data: {
+              ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+              ...(dto.description !== undefined
+                ? { description: dto.description.trim() }
+                : {}),
+              ...(normalizedParams !== undefined
+                ? {
+                    // 前端入参（元）→ DB 存储（分）
+                    params: mapPromotionParamsForWrite(
+                      normalizedParams,
+                      promotion.type,
+                    ) as Prisma.InputJsonValue,
+                    // BUG-1 修复：normalizedParams 已是「元」，直接用于展示文案
+                    displayText:
+                      buildPromotionDisplayText(
+                        promotion.type,
+                        normalizedParams,
+                      ) || null,
+                  }
+                : {}),
+              ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
+              ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),
+              ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+            },
+          });
         },
-      });
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
     } catch (err) {
-      // 并发场景下 update 切换 enabled=true 触发 P2002
       throwOnPromotionTypeConflict(err);
     }
 

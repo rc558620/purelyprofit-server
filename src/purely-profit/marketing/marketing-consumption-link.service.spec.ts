@@ -244,18 +244,14 @@ describe('MarketingConsumptionLinkService', () => {
     );
   });
 
-  it('invalidateMarketingDerived 失效 overview / 列表 / 详情缓存', async () => {
+  it('invalidateMarketingDerived 失效 overview / 派生缓存', async () => {
     await service.invalidateMarketingDerived(18);
 
     expect(
       cacheInvalidatorService.invalidateMarketingOverview,
     ).toHaveBeenCalledWith(18);
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
-      'profit:marketing:customers:list:store:18:*',
-    );
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
-      'profit:marketing:customer:detail:store:18:*',
-    );
+    // 列表 / 详情由统一失效器一次遍历清理，不再逐个 delByPattern
+    expect(redisService.delByPattern).not.toHaveBeenCalled();
     // 联动会写 totalSpent / visitCount / lastVisitAt / tier，会员快照与会员中心
     // 派生缓存必须一并失效，否则等级与最近活跃读数陈旧到 TTL 到期
     expect(

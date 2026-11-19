@@ -28,22 +28,33 @@ export const mapPaymentItems = (
   // 空间会话消费行（台位费 / 追加点单）按实际付款来源分桶，
   // 与交班明细展示（mapOrderItem）共用同一套判定，避免明细与汇总不一致。
   const consumptionPaymentIndex = buildSpaceConsumptionPaymentIndex(items);
+  // 含空间消费行的订单：其预付款/续费抵扣行只是结算明细里的"已收款"标记，
+  // 金额已随覆盖它的消费行整行计入，不能再单独累加一次（否则收款合计 > 营业额）。
+  const allocatedOrderIds = new Set<number>();
+  for (const item of items) {
+    if (consumptionPaymentIndex.has(item.id)) {
+      allocatedOrderIds.add(item.order.id);
+    }
+  }
 
   for (const item of items) {
+    const consumptionPayment = consumptionPaymentIndex.get(item.id);
+    const isDeductionMarker =
+      isPrepaidDeductionItem(item.productName) ||
+      item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME;
+    if (isDeductionMarker && allocatedOrderIds.has(item.order.id)) {
+      continue;
+    }
+
     const rawAmountCents = Money.fromDbCents(item.salePrice)
       .multiply(item.quantity)
       .toDbCents();
     const amountCents =
-      rawAmountCents > 0 ||
-      isPrepaidDeductionItem(item.productName) ||
-      item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME
-        ? Math.abs(rawAmountCents)
-        : 0;
+      rawAmountCents > 0 || isDeductionMarker ? Math.abs(rawAmountCents) : 0;
     if (amountCents <= 0) {
       continue;
     }
 
-    const consumptionPayment = consumptionPaymentIndex.get(item.id);
     // 开台项（预付款 / 台位费）+ 团购顾客支付方式 → 归入团购桶
     // 扫码点餐订单（purelyClub 下单）：无论 paymentMethod 落库值为何，一律归入团购桶
     const bucketKey: PaymentBucketKey =

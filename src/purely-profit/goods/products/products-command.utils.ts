@@ -77,7 +77,7 @@ export const buildUpdateProductData = (
       }
     : {}),
   ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
-  ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
+  // 库存不在商品编辑中写入：库存变更必须走带盘点流水的库存调整接口。
   ...(dto.alertThreshold !== undefined
     ? { alertThreshold: dto.alertThreshold }
     : {}),

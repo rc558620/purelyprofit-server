@@ -29,6 +29,8 @@ export const createHandoverPrismaMock = () => {
     },
     saleOrderItem: {
       findMany: jest.fn(),
+      // 详情订单明细分页的总行数
+      count: jest.fn().mockResolvedValue(0),
     },
     saleOrderRefund: {
       aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
@@ -57,7 +59,8 @@ export const createHandoverPrismaMock = () => {
     storeHandoverRecord: {
       create: jest.fn(),
       findFirst: jest.fn(),
-      findMany: jest.fn(),
+      // 默认「没有已完成交班记录」：当前班次下推查询据此判定 notIn 集合为空
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       count: jest.fn(),

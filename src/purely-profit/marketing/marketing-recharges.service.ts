@@ -9,10 +9,6 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
-import {
-  buildMarketingCustomersListPattern,
-  buildMarketingCustomerDetailPattern,
-} from '../../redis/cache-keys';
 import type {
   CreateRechargeDto,
   ListRechargesQueryDto,
@@ -286,16 +282,10 @@ export class MarketingRechargesService {
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
+    // derived 失效器已覆盖概览 key、顾客列表、顾客详情与 club 派生缓存，
+    // 这里再逐个 delByPattern 只会把同一批模式多扫两遍。
     await Promise.all([
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
-      // BUG-2: 充值/退款后同步失效顾客列表缓存
-      this.redisService.delByPattern(
-        buildMarketingCustomersListPattern(storeId),
-      ),
-      // F8: 失效顾客详情缓存
-      this.redisService.delByPattern(
-        buildMarketingCustomerDetailPattern(storeId),
-      ),
       // 充值/退款改的是 marketing_customers.balance：C 端会员快照与会员中心
       // 列表/详情都以它为事实源，必须一并失效，否则余额读数陈旧到 TTL 到期
       this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),

@@ -375,5 +375,69 @@ describe('handover-page-payment', () => {
       expect(result[0]!.label).toBe('现金');
       expect(result[0]!.amount).toBe(55);
     });
+
+    it('同一订单含台位费与预付款/续费抵扣行时收款汇总只计一次', () => {
+      // 预付 20（团购券）+ 续费抵扣 10 + 结账补收 25 = 55，与台位费一致
+      const spaceSession = {
+        startTime: new Date(),
+        sessionItems: [],
+        prepaidPaymentMethod: SalesPaymentMethod.alipay,
+        prepaidCustomerPaymentMethod: 'groupon_voucher',
+        prepaidGrouponPlatform: null,
+        prepaidGrouponCode: null,
+        prepaidAmount: 2000,
+        sessionRenewRecords: [],
+        space: { name: 'A22' },
+        openOperatorNameSnapshot: null,
+        openOperatorStaff: null,
+      };
+      const order = {
+        id: 9,
+        date: new Date(),
+        paymentMethod: SalesPaymentMethod.cash,
+        manualEntry: false,
+        diningMode: null,
+        sourceChannel: null,
+        grouponCode: null,
+        operatorNameSnapshot: null,
+        operatorStaff: null,
+        scanOrder: null,
+        spaceSession,
+      };
+      const items: OrderItemRow[] = [
+        {
+          id: 91,
+          productName: '台位费（固定）',
+          salePrice: 5500,
+          quantity: 1,
+          product: null,
+          order,
+        },
+        // 抵扣行只是"已收款"标记，金额已随上面的消费行计入
+        {
+          id: 92,
+          productName: '预付款',
+          salePrice: -2000,
+          quantity: 1,
+          product: null,
+          order,
+        },
+        {
+          id: 93,
+          productName: '续费抵扣',
+          salePrice: -1000,
+          quantity: 1,
+          product: null,
+          order,
+        },
+      ];
+
+      const result = mapPaymentItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.method).toBe('cash');
+      expect(result[0]!.amount).toBe(55);
+      expect(sumPaymentAmounts(result)).toBe(55);
+    });
   });
 });

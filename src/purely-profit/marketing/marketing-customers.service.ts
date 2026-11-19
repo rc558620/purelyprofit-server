@@ -4,17 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
-import {
-  buildMarketingCustomersListPattern,
-  buildMarketingCustomerDetailCacheKey,
-  buildMarketingCustomerDetailPattern,
-} from '../../redis/cache-keys';
+import { buildMarketingCustomerDetailCacheKey } from '../../redis/cache-keys';
 import { toNullableMediaText } from '../commerce/commerce.utils';
-import { Money } from '../../shared/money.utils';
 import type {
   AdjustCustomerPointsDto,
   CreateCustomerDto,
@@ -38,6 +33,10 @@ import { MarketingCustomerListService } from './marketing-customer-list.service'
 import { MarketingCustomerPointsService } from './marketing-customer-points.service';
 import { computeCustomerFinance } from './marketing-customer-finance.utils';
 import { computeCustomerConsumptionStats } from './marketing-customer-consumption-stats.util';
+import {
+  lockMarketingCustomerRow,
+  lockMarketingCustomerScope,
+} from './marketing-write-locks.shared';
 
 // F8: 顾客详情缓存 TTL（15 秒，短于列表 60s，避免过度延迟）
 const MARKETING_CUSTOMER_DETAIL_CACHE_TTL_SECONDS = 15;
@@ -163,22 +162,31 @@ export class MarketingCustomersService {
     const normalizedPhone = this.marketingSharedService.validatePhoneOrThrow(
       dto.phone,
     );
-    await this.marketingSharedService.ensureUniquePhone(
-      storeId,
-      normalizedPhone,
-    );
 
     try {
-      const created = await this.prisma.marketingCustomer.create({
-        data: {
-          storeId,
-          name: dto.name.trim(),
-          phone: normalizedPhone,
-          avatar: toNullableMediaText(dto.avatar),
-          remark: dto.remark?.trim() || null,
-          tier: 'regular',
+      // 查重与建档必须处于同一把门店锁内：baseline 迁移已移除手机号部分
+      // 唯一索引，P2002 不再兜底，锁外先查后写会建出重复档案。
+      const created = await this.prisma.$transaction(
+        async (tx) => {
+          await lockMarketingCustomerScope(tx, storeId);
+          await this.marketingSharedService.ensureUniquePhone(
+            tx,
+            storeId,
+            normalizedPhone,
+          );
+          return tx.marketingCustomer.create({
+            data: {
+              storeId,
+              name: dto.name.trim(),
+              phone: normalizedPhone,
+              avatar: toNullableMediaText(dto.avatar),
+              remark: dto.remark?.trim() || null,
+              tier: 'regular',
+            },
+          });
         },
-      });
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
 
       await this.invalidateOverviewCache(storeId);
 
@@ -214,15 +222,12 @@ export class MarketingCustomersService {
         ? this.marketingSharedService.validatePhoneOrThrow(dto.phone)
         : undefined;
 
-    if (nextPhone !== undefined && nextPhone !== null) {
-      if (nextPhone !== normalizePhone(customer.phone)) {
-        await this.marketingSharedService.ensureUniquePhone(
-          customer.storeId,
-          nextPhone,
-          customerId,
-        );
-      }
-    }
+    const previousPhone = normalizePhone(customer.phone);
+    // 查重放到事务内（持锁后）执行，见下方 $transaction 内注释
+    const phoneChanged =
+      nextPhone !== undefined &&
+      nextPhone !== null &&
+      nextPhone !== previousPhone;
 
     // B8: 手机号变更时同步 Member.phone（见下方两个 nextPhone !== null 守卫）。
     // 传空串表示「清除营销档案手机号」，此时**不能**把 Member.phone 一并置空：
@@ -232,6 +237,18 @@ export class MarketingCustomersService {
 
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
+        // 改号与查重必须串行：先拿门店锁，再确认目标手机号未被占用，
+        // 否则两个并发改号请求会同时通过查重并写入同一号码。
+        await lockMarketingCustomerScope(tx, customer.storeId);
+        if (phoneChanged) {
+          await this.marketingSharedService.ensureUniquePhone(
+            tx,
+            customer.storeId,
+            nextPhone,
+            customerId,
+          );
+        }
+
         const result = await tx.marketingCustomer.update({
           where: { id: customerId },
           data: {
@@ -262,7 +279,6 @@ export class MarketingCustomersService {
         // 此时 Member 与顾客之间只剩「门店 + 手机号」这条弱关联。漏同步会让
         // findAccessibleStores 按 members.phone 匹配不到该顾客 —— C 端用户改完
         // 手机号后当场失去这家门店。定位口径与 ClubPhoneRebindService.rebindPhone 一致。
-        const previousPhone = normalizePhone(customer.phone);
         if (
           nextPhone !== undefined &&
           nextPhone !== null &&
@@ -318,19 +334,24 @@ export class MarketingCustomersService {
       'marketing:manage',
     );
 
-    if (
-      Money.fromDbCents(customer.balance).isPositive() ||
-      customer.points > 0
-    ) {
-      throw new BadRequestException(
-        '该顾客仍有余额或积分，无法删除；请先完成退款或清零操作',
-      );
-    }
+    // 校验与软删除必须在同一把行锁内完成：锁外先读余额再写 deletedAt 会留下
+    // 「读到 0 → 并发充值 → 档案已删但余额有钱」的窗口。
+    await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await lockMarketingCustomerRow(tx, customerId);
+        if (locked.balance !== 0 || locked.points !== 0) {
+          throw new BadRequestException(
+            '该顾客仍有余额或积分，无法删除；请先完成退款或清零操作',
+          );
+        }
+        await tx.marketingCustomer.update({
+          where: { id: customerId },
+          data: { deletedAt: new Date() },
+        });
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
-    await this.prisma.marketingCustomer.update({
-      where: { id: customerId },
-      data: { deletedAt: new Date() },
-    });
     await this.invalidateOverviewCache(customer.storeId);
   }
 
@@ -355,17 +376,10 @@ export class MarketingCustomersService {
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
+    // 顾客列表 / 详情 / 概览 / club 快照与派生结论都由统一失效器一次 keyspace
+    // 遍历清掉；再逐个 delByPattern 会把同两个模式多扫两遍。
     await Promise.all([
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
-      this.redisService.delByPattern(
-        buildMarketingCustomersListPattern(storeId),
-      ),
-      // F8: 同步失效顾客详情缓存
-      this.redisService.delByPattern(
-        buildMarketingCustomerDetailPattern(storeId),
-      ),
-      // C 端会员快照（club:member-snapshot:*）同样以 marketing_customers 为事实源，
-      // B 端写操作必须连带失效，否则会员中心要等 TTL 到期才看到余额变化
       this.cacheInvalidatorService.invalidateMarketingCustomerDerived(storeId),
       // 会员中心的余额/积分/等级事实源同为 marketing_customers，建档、改档、
       // 删档都必须连带失效，否则会员列表/详情读数会陈旧到 TTL 自然过期

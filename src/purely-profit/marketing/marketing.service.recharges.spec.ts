@@ -218,8 +218,15 @@ describe('MarketingService recharges', () => {
         },
         marketingCustomer: {
           updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findUnique: jest.fn().mockResolvedValue({
+            id: 9,
+            balance: 0,
+            points: 0,
+            deletedAt: null,
+          }),
         },
         marketingPromotion: { updateMany: jest.fn() },
+        $executeRawUnsafe: jest.fn(),
       };
       return fn(txMock);
     });
@@ -308,6 +315,7 @@ describe('MarketingService recharges', () => {
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },
+        $executeRawUnsafe: jest.fn(),
         // queryRechargeRowById 在事务内用 raw SQL 回读刚写入的流水
         $queryRaw: jest.fn().mockResolvedValue([
           {
@@ -405,6 +413,7 @@ describe('MarketingService recharges', () => {
           findUnique: jest.fn().mockResolvedValue({ balance: 50000 }),
         },
         marketingPromotion: { updateMany: jest.fn() },
+        $executeRawUnsafe: jest.fn(),
         $queryRaw: jest.fn().mockResolvedValue([]),
       };
       return fn(txMock);
@@ -487,8 +496,10 @@ describe('MarketingService recharges', () => {
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },
+        $executeRawUnsafe: jest.fn(),
         // 事务内的赠送余额时间线：该顾客历史充值赠送 3300 分（33 元），
-        // clearRemainingGift=true 时这 33 元要一并清零
+        // clearRemainingGift=true 时这 33 元要一并清零。
+        // 同一个 mock 也会被「余额上界」查询命中，故带上 balance。
         $queryRaw: jest.fn().mockResolvedValue([
           {
             id: 101,
@@ -497,6 +508,7 @@ describe('MarketingService recharges', () => {
             giftAmount: 3300,
             totalAmount: 43300,
             type: 'recharge',
+            balance: 43300,
           },
         ]),
       };

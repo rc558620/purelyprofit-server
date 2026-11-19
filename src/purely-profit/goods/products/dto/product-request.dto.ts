@@ -152,13 +152,6 @@ export class UpdateProductDto {
   @MaxLength(20, { message: '商品单位最长 20 个字符' })
   unit?: string;
 
-  @ApiPropertyOptional({ example: 20, description: '库存' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: '库存必须是整数' })
-  @Min(0, { message: '库存不能为负数' })
-  stock?: number;
-
   @ApiPropertyOptional({ example: 10, description: '库存预警阈值' })
   @IsOptional()
   @Type(() => Number)

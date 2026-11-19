@@ -179,6 +179,31 @@ describe('HandoverConfirmService', () => {
       );
     });
 
+    it('班次不属于当前收银员时应拒绝确认交班', async () => {
+      handoverConfirmShiftService.findSourceShiftRecord.mockResolvedValue({
+        id: 202,
+        employeeId: 99,
+        employeeName: '其他员工',
+        shiftType: EmployeeShiftType.morning,
+        shiftName: '早班',
+        date: new Date(2026, 4, 13),
+        startTime: '09:00',
+        endTime: '17:00',
+        createdAt: new Date(2026, 4, 13, 8, 0, 0),
+      });
+
+      await expect(
+        service.confirmHandover(subAccountUser, {
+          shiftType: 'morning',
+          confirmedAt: new Date(2026, 4, 13, 18, 0, 0).getTime(),
+          additionalItems: [],
+        }),
+      ).rejects.toMatchObject({
+        message: '当前班次不属于该收银员，暂不允许操作',
+      });
+      expect(prismaService.$transaction).not.toHaveBeenCalled();
+    });
+
     it('主账号自交班模式：不指定接收人', async () => {
       handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
         [],

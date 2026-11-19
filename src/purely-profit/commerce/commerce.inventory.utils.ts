@@ -57,6 +57,15 @@ export const INVENTORY_ADJUST_MODE_VALUES = [
   'set',
 ] as const satisfies readonly InventoryAdjustModeValue[];
 
+/**
+ * 人工库存调整允许的数量上限。
+ *
+ * 库存列在数据库里是 32 位 Int，越界入参只会在写库时抛底层校验错误；
+ * DTO 与业务层统一用这个上限拦截「目标库存 / 增减量 / 调整后库存」，
+ * 让非法数量在入参阶段就得到明确的 400。
+ */
+export const INVENTORY_STOCK_LIMIT = 1_000_000_000;
+
 export type ProductSortValue =
   | 'createdAt'
   | 'name'

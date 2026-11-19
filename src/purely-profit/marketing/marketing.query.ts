@@ -78,6 +78,11 @@ const CONSUMPTION_FROM = Prisma.sql`
  *   clearRemainingGift=false 的退款 giftAmount=0，不影响赠送余额；
  *   clearRemainingGift=true 的退款 giftAmount>0，扣减对应赠送。
  *
+ * 消费流水只记 `balance_paid`，不区分本金 / 赠送扣减顺序，因此流水回放出的
+ * 赠送余额必须以**当前总余额**为上界：否则「充 100 送 20、消费 115」会算出
+ * 赠送余额 20 > 总余额 5，详情展示与实际余额矛盾，退款清零也会按 20 校验。
+ * 截断后详情与退款共用同一口径（消费视为优先消耗赠送以外的部分）。
+ *
  * @param prisma  PrismaService 或事务客户端（Prisma.TransactionClient）
  * @param customerId  顾客 ID
  */
@@ -85,15 +90,25 @@ export async function queryCustomerGiftBalanceCents(
   prisma: PrismaQueryRunner,
   customerId: number,
 ): Promise<number> {
-  const rows = await prisma.$queryRaw<
-    { amount: number; giftAmount: number; totalAmount: number; type: string }[]
-  >`
-    SELECT amount, gift_amount AS "giftAmount",
-           total_amount AS "totalAmount", type::text AS "type"
-    FROM marketing_recharges
-    WHERE customer_id = ${customerId}
-    ORDER BY created_at ASC, id ASC
-  `;
+  const [rows, balanceRows] = await Promise.all([
+    prisma.$queryRaw<
+      {
+        amount: number;
+        giftAmount: number;
+        totalAmount: number;
+        type: string;
+      }[]
+    >`
+      SELECT amount, gift_amount AS "giftAmount",
+             total_amount AS "totalAmount", type::text AS "type"
+      FROM marketing_recharges
+      WHERE customer_id = ${customerId}
+      ORDER BY created_at ASC, id ASC
+    `,
+    prisma.$queryRaw<{ balance: number }[]>`
+      SELECT balance FROM marketing_customers WHERE id = ${customerId}
+    `,
+  ]);
 
   let trackedGift = 0;
 
@@ -108,7 +123,8 @@ export async function queryCustomerGiftBalanceCents(
     }
   }
 
-  return trackedGift;
+  const balanceCents = Math.max(0, balanceRows?.[0]?.balance ?? 0);
+  return Math.min(trackedGift, balanceCents);
 }
 
 /** 顾客本金累计（分），一次聚合同时取回充值与退款合计。 */
