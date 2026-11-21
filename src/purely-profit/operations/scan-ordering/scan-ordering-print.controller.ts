@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
@@ -23,19 +24,22 @@ import { RequireBusinessMode } from '../../stores/business-mode.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import type {
-  PrintChannel,
-  ScanOrderingPrintSettings,
-} from './scan-ordering-print-settings.service';
+import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { UpdateScanOrderingPrintSettingsDto } from './dto/scan-ordering-print-settings.dto';
-import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
-import type { CloudPrintTarget } from './scan-ordering-cloud-print.service';
+import {
+  ScanOrderingPrintDispatchService,
+  type ScanOrderingPrintDispatchResult,
+  type ScanOrderingPrintTaskStatusResult,
+} from './scan-ordering-print-dispatch.service';
 import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 import { PrintAgentService } from './print-agent.service';
 import type { PrintAgentPrinter } from './print-agent.service';
-import { ScanOrderingPrintOrderDto } from './dto/scan-ordering-print-action.dto';
-import { ScanOrderingPrintTestDto } from './dto/scan-ordering-print-action.dto';
+import {
+  ScanOrderingPrintOrderDto,
+  ScanOrderingPrintTaskStatusQueryDto,
+  ScanOrderingPrintTestDto,
+} from './dto/scan-ordering-print-action.dto';
 
 /** 扫码点餐打印域：打印配置、云/USB 打印任务与打印代理绑定。 */
 @ApiTags('PurelyProfit Scan Ordering - Print')
@@ -46,7 +50,7 @@ import { ScanOrderingPrintTestDto } from './dto/scan-ordering-print-action.dto';
 export class ScanOrderingPrintController {
   constructor(
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
-    private readonly cloudPrintService: ScanOrderingCloudPrintService,
+    private readonly printDispatchService: ScanOrderingPrintDispatchService,
     private readonly usbPrintService: ScanOrderingUsbPrintService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printAgentService: PrintAgentService,
@@ -83,34 +87,30 @@ export class ScanOrderingPrintController {
   async printOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ScanOrderingPrintOrderDto,
-  ): Promise<{ orderId: string }> {
-    const channel = await this.resolveChannel(user, dto.target);
-    // source=auto 由事件触发，多终端会同时下发：去重在服务端按门店/订单/目标收口
-    const source = dto.source ?? 'manual';
-    if (channel === 'usb') {
-      const orderId = await this.usbPrintService.printForMerchant(
-        user,
-        dto.target,
-        dto.orderId,
-        source,
-      );
-      return { orderId };
-    }
-    if (channel === 'cloud') {
-      const orderId = await this.cloudPrintService.printForMerchant(
-        user,
-        dto.target,
-        dto.orderId,
-        source,
-      );
-      return { orderId };
-    }
-    // browser（浏览器系统打印）/ off（关闭）通道不由后端下发：前者由前端渲染
-    // 小票视图后调用 window.print()，后者应静默跳过。此处显式拒绝，避免
-    // browser/off 意外回落到云打印（用旧 SN 打出小票或报误导性的"未配置 SN"）。
-    throw new BadRequestException(
-      '当前打印通道未启用云/USB 打印，请先在打印设置中选择云打印或 USB 打印',
-    );
+  ): Promise<ScanOrderingPrintDispatchResult> {
+    // source=auto 由事件触发，多终端会同时下发：去重与任务状态在服务端按
+    // 门店/订单/目标收口；返回值明确区分「已下发 / 已打过 / 失败/结果未知」
+    return this.printDispatchService.printOrder(user, {
+      target: dto.target,
+      orderId: dto.orderId,
+      source: dto.source ?? 'manual',
+    });
+  }
+
+  @Get('print/task-status')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({
+    summary: '查询订单打印状态（已下发 / 失败 / 结果未知），用于补打前确认',
+  })
+  getPrintTaskStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ScanOrderingPrintTaskStatusQueryDto,
+  ): Promise<ScanOrderingPrintTaskStatusResult> {
+    return this.printDispatchService.getTaskStatus(user, {
+      orderId: query.orderId,
+      target: query.target,
+      taskId: query.taskId,
+    });
   }
 
   @Post('print/test')
@@ -118,29 +118,11 @@ export class ScanOrderingPrintController {
   @ApiOperation({
     summary: '打印测试（云/USB）：按门店打印通道向目标打印机下发测试小票',
   })
-  async testPrint(
+  testPrint(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ScanOrderingPrintTestDto,
-  ): Promise<{ orderId: string }> {
-    const channel = await this.resolveChannel(user, dto.target);
-    if (channel === 'usb') {
-      const orderId = await this.usbPrintService.testPrintForMerchant(
-        user,
-        dto.target,
-      );
-      return { orderId };
-    }
-    if (channel === 'cloud') {
-      const orderId = await this.cloudPrintService.testPrintForMerchant(
-        user,
-        dto.target,
-      );
-      return { orderId };
-    }
-    // browser / off 通道没有后端下发链路（测试按钮在前端侧已禁用），显式拒绝
-    throw new BadRequestException(
-      '当前打印通道未启用云/USB 打印，请先在打印设置中选择云打印或 USB 打印',
-    );
+  ): Promise<{ taskId: string }> {
+    return this.printDispatchService.testPrint(user, dto.target);
   }
 
   @Get('print/usb-devices')
@@ -199,11 +181,28 @@ export class ScanOrderingPrintController {
     });
   }
 
+  @Get('print-agent/bind-code')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({
+    summary: '读取打印代理绑定码（独立授权：只读状态不返回绑定凭据）',
+  })
+  async getPrintAgentBindCode(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ bindCode: string | null }> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'scan-ordering:order-process',
+      '无权读取打印代理绑定码',
+    );
+    const bindCode = await this.printAgentService.getBindCode(storeId);
+    return { bindCode };
+  }
+
   @Get('print-agent/status')
   @RequirePermissions('scan-ordering:view')
   @ApiOperation({ summary: '查询门店打印代理绑定与在线状态' })
   async getPrintAgentStatus(@CurrentUser() user: AuthenticatedUser): Promise<{
-    bindCode: string | null;
     online: boolean;
     lastSeenAt: number | null;
     printers: PrintAgentPrinter[];
@@ -218,9 +217,8 @@ export class ScanOrderingPrintController {
       'scan-ordering:view',
       '无权查看打印代理配置',
     );
-    // 绑定码与版本查库、在线状态cluster 下需读 Redis 在线标记（getPrinters 为内存读取）
-    const [bindCode, agentVersion, status] = await Promise.all([
-      this.printAgentService.getBindCode(storeId),
+    // 在线状态在 cluster 下需读 Redis 在线标记（getPrinters 为内存读取）
+    const [agentVersion, status] = await Promise.all([
       this.printAgentService.getLatestRegisteredVersion(storeId),
       this.printAgentService.getAgentStatus(storeId),
     ]);
@@ -229,24 +227,12 @@ export class ScanOrderingPrintController {
       ? await this.printAgentService.getPrinters(storeId)
       : [];
     return {
-      bindCode,
       online: status.online,
       lastSeenAt: status.lastSeenAt,
       printers,
       agentVersion,
       latestVersion:
-        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.1',
+        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.5',
     };
-  }
-
-  /** 按打印目标读取门店配置的打印通道。 */
-  private async resolveChannel(
-    user: AuthenticatedUser,
-    target: CloudPrintTarget,
-  ): Promise<PrintChannel> {
-    const settings = await this.printSettingsService.getForMerchant(user);
-    return target === 'kitchen'
-      ? settings.kitchenPrintChannel
-      : settings.cashierPrintChannel;
   }
 }

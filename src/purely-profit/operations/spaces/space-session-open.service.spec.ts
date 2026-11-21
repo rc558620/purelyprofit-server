@@ -48,6 +48,7 @@ describe('SpaceSessionOpenService', () => {
 
   const commerceAccessService = {
     ensureCanAccessStore: jest.fn(),
+    canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
     findOperatorStaffIdForStore: jest.fn(),
   };
 

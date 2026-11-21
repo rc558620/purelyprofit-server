@@ -4,7 +4,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
-import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { FeiePrintService } from './feie-print.service';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -25,16 +24,24 @@ describe('ScanOrderingCloudPrintService', () => {
   const printDataService = {
     loadOrder: jest.fn(),
   };
-  const printDedupeService = {
-    tryAcquireAutoDispatch: jest.fn(),
-  };
   const feiePrintService = {
+    enabled: true,
     printMessage: jest.fn(),
   };
   const user = { id: 1, name: '张三' } as AuthenticatedUser;
 
+  const settings = {
+    cashierPrintChannel: 'browser' as const,
+    kitchenPrintChannel: 'cloud' as const,
+    cashierCloudPrinterSn: null,
+    kitchenCloudPrinterSn: 'KITCHEN-SN',
+    cashierUsbPrinter: null,
+    kitchenUsbPrinter: null,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    feiePrintService.enabled = true;
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanOrderingCloudPrintService,
@@ -45,10 +52,6 @@ describe('ScanOrderingCloudPrintService', () => {
           useValue: printSettingsService,
         },
         { provide: ScanOrderingPrintDataService, useValue: printDataService },
-        {
-          provide: ScanOrderingPrintDedupeService,
-          useValue: printDedupeService,
-        },
         { provide: FeiePrintService, useValue: feiePrintService },
       ],
     }).compile();
@@ -85,28 +88,43 @@ describe('ScanOrderingCloudPrintService', () => {
     });
   });
 
-  it('后厨通道未配置云 SN 时抛 400', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'browser',
-      kitchenPrintChannel: 'cloud',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
-    });
-    await expect(service.printForMerchant(user, 'kitchen', 1)).rejects.toThrow(
-      BadRequestException,
-    );
+  it('后厨通道未配置云 SN 时抛 400（明确未送达，可重试）', async () => {
+    await expect(
+      service.printSnapshot({
+        storeId: 11,
+        settings: { ...settings, kitchenCloudPrinterSn: null },
+        target: 'kitchen',
+        orderId: 1,
+        operatorName: '张三',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(feiePrintService.printMessage).not.toHaveBeenCalled();
+  });
+
+  it('飞鹅账号未配置时抛 400，且不占用自动打印名额', async () => {
+    feiePrintService.enabled = false;
+
+    await expect(
+      service.printSnapshot({
+        storeId: 11,
+        settings,
+        target: 'kitchen',
+        orderId: 1,
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(feiePrintService.printMessage).not.toHaveBeenCalled();
   });
 
   it('后厨云打印：组装制作单内容并下发飞鹅', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'browser',
-      kitchenPrintChannel: 'cloud',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: 'KITCHEN-SN',
-    });
     feiePrintService.printMessage.mockResolvedValue('order-x');
 
-    const result = await service.printForMerchant(user, 'kitchen', 1);
+    const result = await service.printSnapshot({
+      storeId: 11,
+      settings,
+      target: 'kitchen',
+      orderId: 1,
+      operatorName: '张三',
+    });
 
     expect(result).toBe('order-x');
     expect(feiePrintService.printMessage).toHaveBeenCalledWith(
@@ -124,26 +142,25 @@ describe('ScanOrderingCloudPrintService', () => {
   });
 
   it('订单不存在时抛 404', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'browser',
-      kitchenPrintChannel: 'cloud',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: 'KITCHEN-SN',
-    });
     printDataService.loadOrder.mockRejectedValue(
       new NotFoundException('扫码点餐订单不存在'),
     );
     await expect(
-      service.printForMerchant(user, 'kitchen', 999),
+      service.printSnapshot({
+        storeId: 11,
+        settings,
+        target: 'kitchen',
+        orderId: 999,
+      }),
     ).rejects.toThrow(NotFoundException);
   });
 
   it('测试云打印：下发测试小票到目标打印机', async () => {
     printSettingsService.getByStoreId.mockResolvedValue({
+      ...settings,
       cashierPrintChannel: 'cloud',
       kitchenPrintChannel: 'off',
       cashierCloudPrinterSn: 'CASHIER-SN',
-      kitchenCloudPrinterSn: null,
     });
     feiePrintService.printMessage.mockResolvedValue('order-test');
 
@@ -154,41 +171,5 @@ describe('ScanOrderingCloudPrintService', () => {
       'CASHIER-SN',
       expect.stringContaining('测试打印'),
     );
-  });
-
-  // 回归：两个终端同时收到接单事件时，服务端只允许自动下发一次
-  it('source=auto 且已被其他终端下发过时不再重复打印', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'cloud',
-      kitchenPrintChannel: 'cloud',
-      cashierCloudPrinterSn: 'CASHIER-SN',
-      kitchenCloudPrinterSn: 'KITCHEN-SN',
-    });
-    printDedupeService.tryAcquireAutoDispatch.mockResolvedValue(false);
-
-    const result = await service.printForMerchant(user, 'kitchen', 66, 'auto');
-
-    expect(printDedupeService.tryAcquireAutoDispatch).toHaveBeenCalledWith({
-      storeId: 11,
-      orderId: 66,
-      target: 'kitchen',
-    });
-    expect(result).toBe('66');
-    expect(feiePrintService.printMessage).not.toHaveBeenCalled();
-  });
-
-  it('人工补打（缺省 source=manual）不参与去重', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'cloud',
-      kitchenPrintChannel: 'cloud',
-      cashierCloudPrinterSn: 'CASHIER-SN',
-      kitchenCloudPrinterSn: 'KITCHEN-SN',
-    });
-    feiePrintService.printMessage.mockResolvedValue('order-manual');
-
-    const result = await service.printForMerchant(user, 'kitchen', 66);
-
-    expect(printDedupeService.tryAcquireAutoDispatch).not.toHaveBeenCalled();
-    expect(result).toBe('order-manual');
   });
 });

@@ -4,7 +4,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
-import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
 import { PrintAgentService } from './print-agent.service';
@@ -18,7 +17,6 @@ describe('ScanOrderingUsbPrintService', () => {
   const commerceAccessService = { resolveSingleStoreId: jest.fn() };
   const printSettingsService = { getByStoreId: jest.fn() };
   const printDataService = { loadOrder: jest.fn() };
-  const printDedupeService = { tryAcquireAutoDispatch: jest.fn() };
   const usbPrintService = { printRaw: jest.fn(), listDevices: jest.fn() };
   const agentService = {
     isAgentBound: jest.fn(),
@@ -26,6 +24,15 @@ describe('ScanOrderingUsbPrintService', () => {
     getPrinters: jest.fn(),
   };
   const user = { id: 1, name: '张三' } as AuthenticatedUser;
+
+  const kitchenSettings = {
+    cashierPrintChannel: 'browser' as const,
+    kitchenPrintChannel: 'usb' as const,
+    cashierCloudPrinterSn: null,
+    kitchenCloudPrinterSn: null,
+    cashierUsbPrinter: null,
+    kitchenUsbPrinter: 'Kitchen80',
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -39,10 +46,6 @@ describe('ScanOrderingUsbPrintService', () => {
           useValue: printSettingsService,
         },
         { provide: ScanOrderingPrintDataService, useValue: printDataService },
-        {
-          provide: ScanOrderingPrintDedupeService,
-          useValue: printDedupeService,
-        },
         { provide: UsbPrintService, useValue: usbPrintService },
         {
           provide: EscPosTicketBuilder,
@@ -86,17 +89,15 @@ describe('ScanOrderingUsbPrintService', () => {
   });
 
   it('后厨 USB 打印：使用后厨打印机并下发制作单字节流', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'browser',
-      kitchenPrintChannel: 'usb',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
-      cashierUsbPrinter: null,
-      kitchenUsbPrinter: 'Kitchen80',
-    });
     usbPrintService.printRaw.mockResolvedValue('Kitchen80');
 
-    const result = await service.printForMerchant(user, 'kitchen', 1);
+    const result = await service.printSnapshot({
+      storeId: 11,
+      settings: kitchenSettings,
+      target: 'kitchen',
+      orderId: 1,
+      operatorName: '张三',
+    });
 
     expect(result).toBe('Kitchen80');
     expect(usbPrintService.printRaw).toHaveBeenCalledTimes(1);
@@ -111,17 +112,20 @@ describe('ScanOrderingUsbPrintService', () => {
   });
 
   it('收银台 USB 打印：未配置打印机时由硬件层自动探测，含应付金额', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'usb',
-      kitchenPrintChannel: 'off',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
-      cashierUsbPrinter: null,
-      kitchenUsbPrinter: null,
-    });
     usbPrintService.printRaw.mockResolvedValue('/dev/usb/lp0');
 
-    const result = await service.printForMerchant(user, 'cashier', 1);
+    const result = await service.printSnapshot({
+      storeId: 11,
+      settings: {
+        ...kitchenSettings,
+        cashierPrintChannel: 'usb',
+        kitchenPrintChannel: 'off',
+        kitchenUsbPrinter: null,
+      },
+      target: 'cashier',
+      orderId: 1,
+      operatorName: '张三',
+    });
 
     expect(result).toBe('/dev/usb/lp0');
     const [data, device] = usbPrintService.printRaw.mock.calls[0];
@@ -135,10 +139,9 @@ describe('ScanOrderingUsbPrintService', () => {
 
   it('测试 USB 打印：下发测试小票到目标打印机', async () => {
     printSettingsService.getByStoreId.mockResolvedValue({
+      ...kitchenSettings,
       cashierPrintChannel: 'usb',
       kitchenPrintChannel: 'off',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
       cashierUsbPrinter: 'CASHIER-USB',
       kitchenUsbPrinter: null,
     });
@@ -163,44 +166,64 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalled();
   });
 
-  it('门店绑定代理后打印走代理推送（返回任务 ID，不调本机打印）', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'usb',
-      kitchenPrintChannel: 'off',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
-      cashierUsbPrinter: null,
-      kitchenUsbPrinter: null,
-    });
+  it('门店绑定代理后打印走代理推送（返回任务 ID、透传打印机与订单关联）', async () => {
     agentService.isAgentBound.mockResolvedValue(true);
     agentService.dispatch.mockResolvedValue({
       ok: true,
       taskId: 'task-123',
     });
 
-    const result = await service.printForMerchant(user, 'cashier', 1);
+    const result = await service.printSnapshot({
+      storeId: 11,
+      settings: {
+        ...kitchenSettings,
+        cashierPrintChannel: 'usb',
+        kitchenPrintChannel: 'off',
+        cashierUsbPrinter: 'CASHIER-USB',
+        kitchenUsbPrinter: null,
+      },
+      target: 'cashier',
+      orderId: 66,
+      operatorName: '张三',
+    });
 
     expect(result).toBe('task-123');
     expect(usbPrintService.printRaw).not.toHaveBeenCalled();
-    const [storeId, task] = agentService.dispatch.mock.calls[0];
+    const [storeId, task, meta] = agentService.dispatch.mock.calls[0];
     expect(storeId).toBe(11);
     expect(task.target).toBe('cashier');
+    // 门店选中的打印机必须透传：否则代理只能按本机配置猜，可能打到别的机器
+    expect(task.deviceId).toBe('CASHIER-USB');
     expect(typeof task.dataBase64).toBe('string');
+    // 扫码订单关联 + 业务域，代理回执台账才能按「业务域 + 订单 + 票种」查到打印结果
+    expect(meta).toEqual({ domain: 'scan', saleOrderId: 66 });
     // 字节流 Base64 解码后包含小票关键内容
     expect(Buffer.from(task.dataBase64, 'base64').toString('utf8')).toContain(
       '实付：￥37.00',
     );
   });
 
-  it('门店绑定代理但代理离线时打印抛 503', async () => {
-    printSettingsService.getByStoreId.mockResolvedValue({
-      cashierPrintChannel: 'usb',
-      kitchenPrintChannel: 'off',
-      cashierCloudPrinterSn: null,
-      kitchenCloudPrinterSn: null,
-      cashierUsbPrinter: null,
-      kitchenUsbPrinter: null,
+  it('门店未配置打印机时代理任务不携带 deviceId（保持自动选择语义）', async () => {
+    agentService.isAgentBound.mockResolvedValue(true);
+    agentService.dispatch.mockResolvedValue({ ok: true, taskId: 'task-456' });
+
+    await service.printSnapshot({
+      storeId: 11,
+      settings: {
+        ...kitchenSettings,
+        cashierPrintChannel: 'usb',
+        kitchenPrintChannel: 'off',
+        kitchenUsbPrinter: null,
+      },
+      target: 'cashier',
+      orderId: 1,
     });
+
+    const [, task] = agentService.dispatch.mock.calls[0];
+    expect(task.deviceId).toBeUndefined();
+  });
+
+  it('门店绑定代理但代理离线时打印抛 503（明确未送达，可重试）', async () => {
     agentService.isAgentBound.mockResolvedValue(true);
     agentService.dispatch.mockResolvedValue({
       ok: false,
@@ -208,9 +231,19 @@ describe('ScanOrderingUsbPrintService', () => {
       message: '门店打印代理未在线',
     });
 
-    await expect(service.printForMerchant(user, 'cashier', 1)).rejects.toThrow(
-      ServiceUnavailableException,
-    );
+    await expect(
+      service.printSnapshot({
+        storeId: 11,
+        settings: {
+          ...kitchenSettings,
+          cashierPrintChannel: 'usb',
+          kitchenPrintChannel: 'off',
+          kitchenUsbPrinter: null,
+        },
+        target: 'cashier',
+        orderId: 1,
+      }),
+    ).rejects.toThrow(ServiceUnavailableException);
   });
 
   it('门店绑定代理时 listUsbDevices 返回代理上报打印机列表', async () => {

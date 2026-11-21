@@ -162,7 +162,8 @@ export class EscPosTicketBuilder {
       this.line(out, `顾客：${ticket.guestName}`);
     }
     if (ticket.guestCount != null) {
-      this.line(out, `人数：${ticket.guestCount} 人`);
+      // 数字与汉字之间不留半角空格：热敏机中文模式下空格按全角宽度出纸，会拉出一个字的缝
+      this.line(out, `人数：${ticket.guestCount}人`);
     }
     this.line(out, `开台：${ticket.startTimeLabel}`);
     this.line(out, `结账：${ticket.endTimeLabel}`);

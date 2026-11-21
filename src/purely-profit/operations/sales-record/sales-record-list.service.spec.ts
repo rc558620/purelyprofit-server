@@ -240,6 +240,7 @@ describe('SalesRecordListService', () => {
           date: saleDate.getTime(),
           createdAt: createdAt.getTime(),
           refundedAt: null,
+          isSpaceCheckoutOrder: false,
         },
       ],
       meta: {
@@ -1656,6 +1657,7 @@ describe('SalesRecordListService', () => {
           date: saleDate.getTime(),
           createdAt: createdAt.getTime(),
           refundedAt: null,
+          isSpaceCheckoutOrder: false,
         },
       ],
       meta: {

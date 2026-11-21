@@ -128,6 +128,7 @@ describe('SpaceSessionWriteService 规格落库', () => {
     );
     const deps = {
       ensureCanAccessStore: jest.fn().mockResolvedValue(undefined),
+      canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
       findOperatorStaffIdForStore: jest.fn().mockResolvedValue(8),
     };
 

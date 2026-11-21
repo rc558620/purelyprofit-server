@@ -67,6 +67,20 @@ export class CommerceAccessService {
     return storeId;
   }
 
+  /**
+   * 判断当前身份在目标门店上是否持有指定权限。
+   * 用于按权限裁剪响应字段（如会话里的提成金额），避免只在前端隐藏而接口仍然下发。
+   */
+  async canAccessStoreWithPermission(
+    user: AuthenticatedUser,
+    storeId: number,
+    requiredPermission: PermissionCode,
+  ): Promise<boolean> {
+    return (
+      (await this.getManageableStoreId(user, requiredPermission)) === storeId
+    );
+  }
+
   async ensureCanAccessStore(
     user: AuthenticatedUser,
     storeId: number,

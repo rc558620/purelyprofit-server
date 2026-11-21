@@ -141,8 +141,12 @@ export class SpaceSessionCommissionAssignmentResponseDto {
   @ApiProperty({ example: ['足疗', 'SPA'], description: '服务名称列表' })
   serviceNames: string[];
 
-  @ApiProperty({ example: 120, description: '提成金额（元）' })
-  commission: number;
+  // 收银员只有 space:view，没有 commission:view，服务端会裁掉该字段。
+  @ApiPropertyOptional({
+    example: 120,
+    description: '提成金额（元）；调用方无 commission:view 时不返回',
+  })
+  commission?: number;
 }
 
 export class SpaceSessionResponseDto {

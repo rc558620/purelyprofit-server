@@ -17,7 +17,10 @@ import {
   isSelfOrderDeductionRow,
   listVisibleSaleOrderItems,
 } from './sales-record-item-aggregation';
-import { resolveReportProductName } from './sales-record-display-name.utils';
+import {
+  resolveOperatorDisplayName,
+  resolveReportProductName,
+} from './sales-record-display-name.utils';
 import { resolveSalesRecordAmountsFromOrder } from './sales-record.domain';
 import type { SalesCsvOrder } from './sales-record-export.query';
 import type { SalesReportOrder } from './sales-record-report.query';
@@ -94,7 +97,8 @@ export function buildCsvRowFromOrder(
     })
     .join('；');
 
-  const operatorName = toOptionalText(order.operatorNameSnapshot) ?? '-';
+  // 与列表 / 打印同口径：自动结账兜底「空间自动结账」，真无档案时留短横线
+  const operatorName = resolveOperatorDisplayName(order) ?? '-';
 
   const note = toOptionalText(order.note) ?? '-';
 

@@ -3,6 +3,7 @@
  *
  * 覆盖：
  *  - 按 space:view 解析门店（不依赖 commission:view，否则收银员会连带获得提成明细与导出）
+ *  - 服务项在数据库层只取启用且未软删的记录，且只取 id/name
  *  - 只返回启用服务项与在职服务人员，响应不含提成金额与员工档案字段
  */
 import { Test, TestingModule } from '@nestjs/testing';
@@ -22,6 +23,9 @@ describe('CommissionServicesService – 开台选项', () => {
       findUnique: jest.fn(),
     },
     employee: {
+      findMany: jest.fn(),
+    },
+    commissionService: {
       findMany: jest.fn(),
     },
   };
@@ -46,23 +50,8 @@ describe('CommissionServicesService – 开台选项', () => {
       { id: 6, name: '李四', position: '美容师', isTechnician: false },
       { id: 7, name: '张三', position: '收银员', isTechnician: false },
     ]);
-    coreService.listConfigRecords.mockResolvedValue([
-      {
-        id: 1,
-        name: '全身按摩',
-        defaultCommission: 3000,
-        enabled: true,
-        sortOrder: 1,
-        overrides: [{ technicianId: 5, commission: 5000 }],
-      },
-      {
-        id: 2,
-        name: '停用服务',
-        defaultCommission: 1000,
-        enabled: false,
-        sortOrder: 2,
-        overrides: [],
-      },
+    prismaService.commissionService.findMany.mockResolvedValue([
+      { id: 1, name: '全身按摩' },
     ]);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -86,6 +75,18 @@ describe('CommissionServicesService – 开台选项', () => {
       'space:view',
       '无权访问该门店的开台选项',
     );
+  });
+
+  it('数据库层只取启用且未删除的服务，且只取 id/name', async () => {
+    await service.listOpenOptions(user);
+
+    expect(prismaService.commissionService.findMany).toHaveBeenCalledWith({
+      where: { storeId: 18, enabled: true, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+    });
+    // 不再整表读取配置（含提成金额与覆盖表 JSON）
+    expect(coreService.listConfigRecords).not.toHaveBeenCalled();
   });
 
   it('只返回启用服务项与在职服务人员，不含提成金额与档案字段', async () => {

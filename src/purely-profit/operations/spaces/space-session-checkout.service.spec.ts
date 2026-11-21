@@ -14,6 +14,8 @@ import { SpaceReservationsStateService } from './space-reservations-state.servic
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { SpacePrintDataService } from './space-print-data.service';
+import { SpacePrintSettingsService } from './space-print-settings.service';
 import {
   createSalesOrderResponse,
   createSpaceCheckoutAt,
@@ -37,6 +39,7 @@ describe('SpaceSessionCheckoutService', () => {
   };
   const commerceAccessService = {
     ensureCanAccessStore: jest.fn(),
+    canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
   };
   const checkoutLockService = {
     createLock: jest.fn(),
@@ -72,9 +75,21 @@ describe('SpaceSessionCheckoutService', () => {
     linkSpaceSettlementConsumption: jest.fn().mockResolvedValue(undefined),
     invalidateMarketingDerived: jest.fn().mockResolvedValue(undefined),
   };
+  const printDataService = {
+    loadOrder: jest.fn().mockResolvedValue(null),
+  };
+  const printSettingsService = {
+    getByStoreId: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认浏览器通道：只有该通道会消费结账小票快照
+    printSettingsService.getByStoreId.mockResolvedValue({
+      spacePrintChannel: 'browser',
+      spaceCloudPrinterSn: null,
+      spaceUsbPrinter: null,
+    });
     cacheInvalidatorService.invalidateSalesDerived.mockResolvedValue(undefined);
     cacheInvalidatorService.invalidateSpacesReadCaches.mockResolvedValue(
       undefined,
@@ -140,6 +155,16 @@ describe('SpaceSessionCheckoutService', () => {
           // 结账完成实时广播：本文件只验证结账编排，广播由实时服务与结算服务各自覆盖
           provide: ScanOrderingRealtimeService,
           useValue: { publishSpaceSessionSettled: jest.fn() },
+        },
+        {
+          // 结账响应追加的权威小票快照：默认读取失败，验证结账不受影响
+          provide: SpacePrintDataService,
+          useValue: printDataService,
+        },
+        {
+          // 按门店通道决定是否构建快照：只有 browser 会消费
+          provide: SpacePrintSettingsService,
+          useValue: printSettingsService,
         },
       ],
     }).compile();
@@ -269,6 +294,11 @@ describe('SpaceSessionCheckoutService', () => {
       sessionUpdatedAt: session.updatedAt.getTime(),
     });
     salesRecordService.create.mockResolvedValue(createdOrder);
+    // 结账响应追加权威小票快照（浏览器打印直接用它，不再拼页面预览）
+    printDataService.loadOrder.mockResolvedValue({
+      orderNo: 'SO-12',
+      storeName: '测试门店',
+    });
     transactionClient.$queryRaw.mockResolvedValue(undefined);
     transactionClient.spaceSession.findUnique.mockResolvedValue({
       status: 'active',
@@ -336,6 +366,10 @@ describe('SpaceSessionCheckoutService', () => {
       18,
     );
     expect(checkoutLockService.deleteLock).toHaveBeenCalledWith('lock_1');
+    expect(printDataService.loadOrder).toHaveBeenCalledWith(
+      18,
+      Number(createdOrder.id),
+    );
     expect(result).toMatchObject({
       session: {
         id: '9',
@@ -344,7 +378,63 @@ describe('SpaceSessionCheckoutService', () => {
       },
       spaceStatus: 'idle',
       salesOrder: createdOrder,
+      // 结账打印与销售记录补打共用同一份快照
+      receiptSnapshot: { orderNo: 'SO-12', storeName: '测试门店' },
     });
+  });
+
+  it('云打印通道结账不构建小票快照，避免关键路径多查整张订单', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = createSpaceCheckoutAt();
+    const session = createSpaceSessionRecord();
+    const createdOrder = createSalesOrderResponse();
+    const updatedSession = createUpdatedSpaceSession();
+    printSettingsService.getByStoreId.mockResolvedValue({
+      spacePrintChannel: 'cloud',
+      spaceCloudPrinterSn: 'sn-1',
+      spaceUsbPrinter: null,
+    });
+
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
+    checkoutLockService.requireValidLock.mockResolvedValue({
+      sessionId: 9,
+      lockId: 'lock_1',
+      lockedAt: checkoutAt,
+      expiresAt: checkoutAt + 5 * 60 * 1000,
+      sessionUpdatedAt: session.updatedAt.getTime(),
+    });
+    salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.$queryRaw.mockResolvedValue(undefined);
+    transactionClient.spaceSession.findUnique.mockResolvedValue({
+      status: 'active',
+      updatedAt: session.updatedAt,
+      reservationId: session.reservationId,
+      guestName: session.guestName,
+      guestPhone: session.guestPhone,
+      startTime: session.startTime,
+      spaceId: session.spaceId,
+    });
+    transactionClient.space.findUnique.mockResolvedValue({
+      id: 7,
+      enableDirtyRoom: true,
+    });
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
+    transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
+    transactionClient.space.update.mockResolvedValue({ id: 7 });
+    transactionClient.spaceReservation.findMany.mockResolvedValue([]);
+    transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+
+    const result = await service.checkoutSpaceSession(user, 9, {
+      paymentMethod: 'cash',
+      lockId: 'lock_1',
+      lockedAt: checkoutAt,
+    });
+
+    expect(printDataService.loadOrder).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('receiptSnapshot');
   });
 
   it('结账后清锁失败不应把已完成的结账打成接口失败', async () => {

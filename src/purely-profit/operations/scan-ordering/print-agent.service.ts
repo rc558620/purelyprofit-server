@@ -17,6 +17,7 @@ import type {
   PrintAgentPrinter,
   PrintAgentReceipt,
   PrintAgentTask,
+  PrintTaskDomain,
 } from './print-agent.types';
 import type { PrintAgentRegisterResult } from './dto/scan-ordering-print-agent.dto';
 
@@ -146,11 +147,16 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   async dispatch(
     storeId: number,
     task: PrintAgentTask,
-    meta?: { saleOrderId?: number | null },
+    meta: { domain: PrintTaskDomain; saleOrderId?: number | null },
   ): Promise<PrintAgentDispatchResult> {
     // 先落 submitted 台账：即使后续下发/回执失败，也能从「一直停在 submitted」
     // 判断是链路没送到，而不是「代理没出纸但无人知晓」。
-    await this.recordSubmitted(storeId, task, meta?.saleOrderId ?? null);
+    await this.recordSubmitted(
+      storeId,
+      task,
+      meta.domain,
+      meta.saleOrderId ?? null,
+    );
     if (this.registry.trySend(storeId, task)) {
       return { ok: true, taskId: task.taskId };
     }
@@ -172,6 +178,17 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     receipt: PrintAgentReceipt,
   ): Promise<void> {
     try {
+      if (receipt.retrying) {
+        // 代理已落盘等待自动补打：本次失败不是最终结论。
+        // 保持 submitted（仍算「在途」），只记录原因——
+        // 若这里判成 failed，商家会立刻人工补打（新 taskId），
+        // 代理随后补打成功就变成同一张票出两次。
+        await this.prisma.printAgentTaskLog.updateMany({
+          where: { storeId, taskId: receipt.taskId, status: 'submitted' },
+          data: { error: receipt.error ?? '打印失败，代理正在自动补打' },
+        });
+        return;
+      }
       await this.prisma.printAgentTaskLog.updateMany({
         where: { storeId, taskId: receipt.taskId },
         data: {
@@ -187,18 +204,28 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** 查询某销售订单最近一次仍有效（已提交/已打印）的任务，用于补打去重。 */
+  /**
+   * 查询某业务订单某票种最近一次仍有效（已提交/已打印）的任务，用于补打去重。
+   * 必须带业务域与票种：不同业务域的订单 ID 会撞号，同一订单的收银台票与后厨票
+   * 也是两次独立出票。
+   */
   async findRecentActiveTask(
     storeId: number,
-    saleOrderId: number,
-    withinMs: number,
+    input: {
+      domain: PrintTaskDomain;
+      saleOrderId: number;
+      target: string;
+      withinMs: number;
+    },
   ): Promise<{ taskId: string; status: string } | null> {
     const record = await this.prisma.printAgentTaskLog.findFirst({
       where: {
         storeId,
-        saleOrderId,
+        domain: input.domain,
+        saleOrderId: input.saleOrderId,
+        target: input.target,
         status: { in: ['submitted', 'printed'] },
-        createdAt: { gte: new Date(Date.now() - withinMs) },
+        createdAt: { gte: new Date(Date.now() - input.withinMs) },
       },
       orderBy: { createdAt: 'desc' },
       select: { taskId: true, status: true },
@@ -206,14 +233,62 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     return record ?? null;
   }
 
-  /** 查询某销售订单最近一次任务状态（供收银端展示「已提交/已打印/失败」）。 */
+  /**
+   * 查询某业务订单某票种最近一次任务状态（供收银端展示「已提交/已打印/失败」）。
+   * createdAt 用于判定「是否还在代理自动补打窗口内」，避免过早人工补打重复出票。
+   */
   async findLatestTask(
     storeId: number,
-    saleOrderId: number,
-  ): Promise<{ taskId: string; status: string; error: string | null } | null> {
+    input: { domain: PrintTaskDomain; saleOrderId: number; target: string },
+  ): Promise<{
+    taskId: string;
+    status: string;
+    error: string | null;
+    createdAt: Date;
+  } | null> {
     const record = await this.prisma.printAgentTaskLog.findFirst({
-      where: { storeId, saleOrderId },
+      where: {
+        storeId,
+        domain: input.domain,
+        saleOrderId: input.saleOrderId,
+        target: input.target,
+      },
       orderBy: { createdAt: 'desc' },
+      select: { taskId: true, status: true, error: true, createdAt: true },
+    });
+    return record ?? null;
+  }
+
+  /**
+   * 按上游 taskId 精确查台账。
+   *
+   * 状态对账必须用本次任务的 taskId：拿「该订单最近一条」去判定当前任务，
+   * 会把另一张票或另一次补打的结果算进来。
+   */
+  async findTaskById(
+    storeId: number,
+    taskId: string,
+    scope?: {
+      domain: PrintTaskDomain;
+      saleOrderId: number;
+      target: string;
+    },
+  ): Promise<{ taskId: string; status: string; error: string | null } | null> {
+    if (!taskId) return null;
+    const record = await this.prisma.printAgentTaskLog.findFirst({
+      // 带 scope 时校验任务归属：只校验门店会把「别的订单/票种/业务域」的回执
+      // 当成这次下发的结果（同门店任何 taskId 都能读到）
+      where: {
+        storeId,
+        taskId,
+        ...(scope
+          ? {
+              domain: scope.domain,
+              saleOrderId: scope.saleOrderId,
+              target: scope.target,
+            }
+          : {}),
+      },
       select: { taskId: true, status: true, error: true },
     });
     return record ?? null;
@@ -222,6 +297,7 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   private async recordSubmitted(
     storeId: number,
     task: PrintAgentTask,
+    domain: PrintTaskDomain,
     saleOrderId: number | null,
   ): Promise<void> {
     try {
@@ -229,6 +305,7 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
         data: {
           storeId,
           taskId: task.taskId,
+          domain,
           saleOrderId,
           target: task.target,
           deviceId: task.deviceId ?? null,

@@ -279,7 +279,14 @@ export class SpaceSessionTransferService {
 
     return {
       ok: true,
-      session: toSpaceSessionResponse(result.updatedSession),
+      session: toSpaceSessionResponse(result.updatedSession, {
+        canViewCommission:
+          await this.commerceAccessService.canAccessStoreWithPermission(
+            user,
+            session.storeId,
+            'commission:view',
+          ),
+      }),
       sourceSpaceStatus: this.toSpaceStatusValue(result.sourceSpaceStatus),
       targetSpaceStatus: this.toSpaceStatusValue('occupied'),
     };

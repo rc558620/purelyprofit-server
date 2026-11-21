@@ -96,9 +96,17 @@ export const mapRenewRecordRows = (
     renewedAt: Number(row.renewedAt),
   }));
 
+/** 会话响应映射选项：按调用方权限决定是否下发提成金额。 */
+export interface SpaceSessionMapOptions {
+  /** 调用方是否持有 commission:view；false 时裁掉 commissionAssignments[].commission。 */
+  canViewCommission?: boolean;
+}
+
 export const toSpaceSessionResponse = (
   session: SpaceSessionRecord,
+  options: SpaceSessionMapOptions = {},
 ): SpaceSessionResponseDto => {
+  const canViewCommission = options.canViewCommission ?? true;
   const items = mapSessionItemRows(session.sessionItems);
   const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
 
@@ -206,6 +214,7 @@ export const toSpaceSessionResponse = (
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),
     // 服务人员提成分配：DB JSON 金额为分，转为元输出
+    // 无 commission:view 的身份只返回分配关系，不下发金额
     ...(session.commissionAssignments
       ? {
           commissionAssignments: parseAssignmentsJson(
@@ -215,7 +224,13 @@ export const toSpaceSessionResponse = (
             technicianName: assignment.technicianName,
             serviceIds: assignment.serviceIds,
             serviceNames: assignment.serviceNames,
-            commission: Money.fromDbCents(assignment.commission).toOutputYuan(),
+            ...(canViewCommission
+              ? {
+                  commission: Money.fromDbCents(
+                    assignment.commission,
+                  ).toOutputYuan(),
+                }
+              : {}),
           })),
         }
       : {}),
@@ -224,5 +239,26 @@ export const toSpaceSessionResponse = (
       ? { orderId: String(session.saleOrderId) }
       : {}),
     createdAt: toTimestampMs(session.createdAt),
+  };
+};
+
+/**
+ * 裁掉会话响应中的提成金额（用于共享缓存命中后的按权限输出）。
+ * 返回新对象，避免改动缓存里的原始数据。
+ */
+export const maskSpaceSessionCommission = (
+  response: SpaceSessionResponseDto,
+): SpaceSessionResponseDto => {
+  if (!response.commissionAssignments) {
+    return response;
+  }
+  return {
+    ...response,
+    commissionAssignments: response.commissionAssignments.map((assignment) => ({
+      technicianId: assignment.technicianId,
+      technicianName: assignment.technicianName,
+      serviceIds: assignment.serviceIds,
+      serviceNames: assignment.serviceNames,
+    })),
   };
 };

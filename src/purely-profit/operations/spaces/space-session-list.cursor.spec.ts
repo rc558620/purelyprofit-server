@@ -138,6 +138,7 @@ function buildService(dataset: FakeSessionRow[]) {
   } as unknown as PrismaService;
   const commerceAccess = {
     ensureCanAccessStore: jest.fn().mockResolvedValue(undefined),
+    canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
   } as unknown as CommerceAccessService;
   const configService = {
     get: jest.fn((key: string) => {

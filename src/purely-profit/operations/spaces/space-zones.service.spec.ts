@@ -1,3 +1,5 @@
+import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -23,6 +25,24 @@ describe('SpaceZonesService 列表缓存', () => {
       delete: jest.fn(),
       findUnique: jest.fn(),
     },
+    space: {
+      findFirst: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  /** 删除走交互式事务：行锁 + 引用复检 + 删除共用同一个 tx */
+  const createTransaction = () => {
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 201 }]),
+      space: { findFirst: jest.fn().mockResolvedValue(null) },
+      spaceZone: { delete: jest.fn().mockResolvedValue({}) },
+    };
+    prismaService.$transaction.mockImplementation(
+      async (callback: (tx: typeof transaction) => Promise<void>) =>
+        callback(transaction),
+    );
+    return transaction;
   };
 
   const commerceAccessService = {
@@ -32,7 +52,7 @@ describe('SpaceZonesService 列表缓存', () => {
   };
 
   const redisService = {
-    delByPattern: jest.fn(),
+    del: jest.fn(),
   };
 
   // 区域改名会改变空间列表/看板里的区域名快照，写路径需要同步失效空间读缓存
@@ -167,18 +187,28 @@ describe('SpaceZonesService 列表缓存', () => {
     expect(prismaService.spaceZone.findMany).not.toHaveBeenCalled();
   });
 
-  it('创建成功后按 pattern 失效门店空间区域缓存', async () => {
+  it('创建成功后精确删除门店空间区域缓存', async () => {
     prismaService.spaceZone.findFirst.mockResolvedValueOnce(null);
     prismaService.spaceZone.create.mockResolvedValueOnce(makeZoneRow());
 
     await service.createSpaceZone(user, { name: '一楼' });
 
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
+    expect(redisService.del).toHaveBeenCalledWith(
       'profit:space-zones:store:18',
     );
   });
 
-  it('更新成功后按 pattern 失效门店空间区域缓存', async () => {
+  it('缓存失效失败不把已落库的创建报成失败', async () => {
+    prismaService.spaceZone.findFirst.mockResolvedValueOnce(null);
+    prismaService.spaceZone.create.mockResolvedValueOnce(makeZoneRow());
+    redisService.del.mockRejectedValueOnce(new Error('redis down'));
+
+    await expect(
+      service.createSpaceZone(user, { name: '一楼' }),
+    ).resolves.toMatchObject({ id: '201', name: '一楼' });
+  });
+
+  it('更新成功后精确失效区域缓存并清理空间读缓存', async () => {
     prismaService.spaceZone.findUnique.mockResolvedValueOnce(makeZoneRow());
     prismaService.spaceZone.update.mockResolvedValueOnce(
       makeZoneRow({ name: '二楼' }),
@@ -186,12 +216,62 @@ describe('SpaceZonesService 列表缓存', () => {
 
     await service.updateSpaceZone(user, 201, { name: '二楼' });
 
-    expect(redisService.delByPattern).toHaveBeenCalledWith(
+    expect(redisService.del).toHaveBeenCalledWith(
       'profit:space-zones:store:18',
     );
     // 空间列表/看板缓存内嵌 zone.name，改名后必须一并失效，否则看板陈旧
     expect(
       cacheInvalidatorService.invalidateSpacesReadCaches,
     ).toHaveBeenCalledWith(18);
+  });
+
+  it('并发改名撞唯一约束时返回 409，而不是透传 500', async () => {
+    prismaService.spaceZone.findUnique.mockResolvedValueOnce(makeZoneRow());
+    prismaService.spaceZone.update.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+
+    await expect(service.updateSpaceZone(user, 201, { name: '二楼' })).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('删除时在事务内锁定区域行并复检引用，再执行删除', async () => {
+    const transaction = createTransaction();
+    prismaService.spaceZone.findUnique.mockResolvedValueOnce({
+      id: 201,
+      storeId: 18,
+    });
+
+    await service.removeSpaceZone(user, 201);
+
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(transaction.space.findFirst).toHaveBeenCalledWith({
+      where: { zoneId: 201 },
+      select: { id: true },
+    });
+    expect(transaction.spaceZone.delete).toHaveBeenCalledWith({
+      where: { id: 201 },
+    });
+    expect(redisService.del).toHaveBeenCalledWith(
+      'profit:space-zones:store:18',
+    );
+  });
+
+  it('锁后复检到引用时返回 409 且不删除', async () => {
+    const transaction = createTransaction();
+    transaction.space.findFirst.mockResolvedValueOnce({ id: 7 });
+    prismaService.spaceZone.findUnique.mockResolvedValueOnce({
+      id: 201,
+      storeId: 18,
+    });
+
+    await expect(service.removeSpaceZone(user, 201)).rejects.toThrow(
+      ConflictException,
+    );
+    expect(transaction.spaceZone.delete).not.toHaveBeenCalled();
   });
 });

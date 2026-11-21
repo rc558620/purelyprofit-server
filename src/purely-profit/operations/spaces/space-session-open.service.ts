@@ -350,7 +350,14 @@ export class SpaceSessionOpenService {
       space.storeId,
     );
 
-    return toSpaceSessionResponse(session);
+    return toSpaceSessionResponse(session, {
+      canViewCommission:
+        await this.commerceAccessService.canAccessStoreWithPermission(
+          user,
+          space.storeId,
+          'commission:view',
+        ),
+    });
   }
 
   /** 将开台提成分配收敛为落库快照（服务人员校验 + 金额解析，金额为分）。 */

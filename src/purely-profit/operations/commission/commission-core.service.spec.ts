@@ -52,6 +52,8 @@ describe('CommissionCoreService', () => {
       defaultCommission: number;
       overrides?: Array<{ technicianId: number; commission: number }>;
       name?: string;
+      enabled?: boolean;
+      deletedAt?: Date | null;
     }>,
   ) => {
     prismaService.commissionService.findMany.mockResolvedValue(
@@ -60,10 +62,10 @@ describe('CommissionCoreService', () => {
         storeId: 18,
         name: item.name ?? '',
         defaultCommission: item.defaultCommission,
-        enabled: true,
+        enabled: item.enabled ?? true,
         sortOrder: 1,
         overrides: item.overrides ?? [],
-        deletedAt: null,
+        deletedAt: item.deletedAt ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })),
@@ -236,6 +238,76 @@ describe('CommissionCoreService', () => {
         },
       ]);
     });
+
+    it('同一服务人员与同一服务跨行重复时拒绝，避免重复计提', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗' },
+      ]);
+      const nameById = new Map([[5, '王强']]);
+
+      expect(() =>
+        service.normalizeAssignments(map as never, nameById, [
+          { technicianId: 5, serviceIds: [1] },
+          { technicianId: 5, serviceIds: [1] },
+        ]),
+      ).toThrow(BadRequestException);
+    });
+
+    it('同一行内重复选择同一服务时拒绝', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗' },
+      ]);
+      const nameById = new Map([[5, '王强']]);
+
+      expect(() =>
+        service.normalizeAssignments(map as never, nameById, [
+          { technicianId: 5, serviceIds: [1, 1] },
+        ]),
+      ).toThrow(BadRequestException);
+    });
+
+    it('停用的服务拒绝新开单，提示刷新后重选', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗', enabled: false },
+      ]);
+      const nameById = new Map([[5, '王强']]);
+
+      expect(() =>
+        service.normalizeAssignments(map as never, nameById, [
+          { technicianId: 5, serviceIds: [1] },
+        ]),
+      ).toThrow('服务「足疗」已停用或已删除，请刷新后重新选择');
+    });
+
+    it('已软删或不属于本店的服务拒绝新开单', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗', deletedAt: new Date() },
+      ]);
+      const nameById = new Map([[5, '王强']]);
+
+      expect(() =>
+        service.normalizeAssignments(map as never, nameById, [
+          { technicianId: 5, serviceIds: [1, 999] },
+        ]),
+      ).toThrow(BadRequestException);
+    });
+
+    it('不同服务人员选择同一服务属于正常分摊，不视为重复', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗' },
+      ]);
+      const nameById = new Map([
+        [5, '王强'],
+        [6, '李梅'],
+      ]);
+
+      const normalized = service.normalizeAssignments(map as never, nameById, [
+        { technicianId: 5, serviceIds: [1] },
+        { technicianId: 6, serviceIds: [1] },
+      ]);
+
+      expect(normalized).toHaveLength(2);
+    });
   });
 
   describe('recomputeAssignments', () => {
@@ -269,6 +341,26 @@ describe('CommissionCoreService', () => {
           0,
         ),
       ).toBe(final[0]?.commission ?? 0);
+    });
+
+    it('配置行已不存在时保留开台快照金额，不回落为 0', async () => {
+      const map = await buildServicesMap([
+        { id: 1, defaultCommission: 6000, name: '足疗' },
+      ]);
+
+      const final = service.recomputeAssignments(map as never, [
+        {
+          technicianId: 5,
+          technicianName: '王强',
+          serviceIds: [1, 77],
+          serviceNames: ['足疗', '历史服务'],
+          serviceCommissions: [3000, 1500],
+          commission: 4500,
+        },
+      ]);
+
+      expect(final[0]?.commission).toBe(4500);
+      expect(final[0]?.serviceCommissions).toEqual([3000, 1500]);
     });
   });
 
@@ -342,8 +434,12 @@ describe('CommissionCoreService', () => {
   });
 
   describe('markSettledRecordsIncluded', () => {
-    it('将员工当月 settled 记录标记为 included 并返回影响行数', async () => {
-      prismaService.commissionRecord.updateMany.mockResolvedValue({ count: 3 });
+    it('不限金额时按结账顺序标记当月全部 settled 记录', async () => {
+      prismaService.commissionRecord.findMany.mockResolvedValue([
+        { id: 1, commission: 4000 },
+        { id: 2, commission: 8000 },
+      ]);
+      prismaService.commissionRecord.updateMany.mockResolvedValue({ count: 2 });
 
       const count = await service.markSettledRecordsIncluded(
         db as never,
@@ -352,16 +448,60 @@ describe('CommissionCoreService', () => {
         '2026-07',
       );
 
-      expect(count).toBe(3);
-      expect(prismaService.commissionRecord.updateMany).toHaveBeenCalledWith({
+      expect(count).toBe(2);
+      expect(prismaService.commissionRecord.findMany).toHaveBeenCalledWith({
         where: {
           storeId: 18,
           technicianId: 5,
           month: '2026-07',
           status: 'settled',
         },
+        orderBy: [{ settledAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, commission: true },
+      });
+      expect(prismaService.commissionRecord.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [1, 2] }, status: 'settled' },
         data: { status: 'included' },
       });
+    });
+
+    it('按工资单提成金额上限只标记被覆盖的记录', async () => {
+      prismaService.commissionRecord.findMany.mockResolvedValue([
+        { id: 11, commission: 10000 },
+        { id: 12, commission: 2000 },
+      ]);
+      prismaService.commissionRecord.updateMany.mockResolvedValue({ count: 1 });
+
+      const count = await service.markSettledRecordsIncluded(
+        db as never,
+        18,
+        5,
+        '2026-07',
+        10000,
+      );
+
+      expect(count).toBe(1);
+      expect(prismaService.commissionRecord.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [11] }, status: 'settled' },
+        data: { status: 'included' },
+      });
+    });
+
+    it('金额上限为 0 时不标记任何有金额的提成，保留 settled 待补差', async () => {
+      prismaService.commissionRecord.findMany.mockResolvedValue([
+        { id: 21, commission: 5000 },
+      ]);
+
+      const count = await service.markSettledRecordsIncluded(
+        db as never,
+        18,
+        5,
+        '2026-07',
+        0,
+      );
+
+      expect(count).toBe(0);
+      expect(prismaService.commissionRecord.updateMany).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import type { PrintChannel } from '../scan-ordering-print-settings.service';
 
 /** 打印通道可选值：浏览器系统打印 / 飞鹅云打印 / 服务器本地 USB 打印 / 关闭。 */
@@ -10,7 +16,9 @@ export class UpdateScanOrderingPrintSettingsDto {
   @ApiPropertyOptional({
     description: '收银台顾客票打印通道（browser/cloud/usb/off）',
   })
-  @IsOptional()
+  // 用 ValidateIf 代替 IsOptional：显式传 null 也进入 IsIn 校验被拒绝，
+  // 避免 null 落到 Prisma 非空字段上变成 500
+  @ValidateIf((_, value) => value !== undefined)
   @IsIn(PRINT_CHANNELS, {
     message: 'cashierPrintChannel 必须是 browser/cloud/usb/off 之一',
   })
@@ -19,7 +27,7 @@ export class UpdateScanOrderingPrintSettingsDto {
   @ApiPropertyOptional({
     description: '后厨制作单打印通道（browser/cloud/usb/off）',
   })
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsIn(PRINT_CHANNELS, {
     message: 'kitchenPrintChannel 必须是 browser/cloud/usb/off 之一',
   })

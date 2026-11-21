@@ -33,6 +33,14 @@ import {
   normalizeCheckoutPreviewPayload,
 } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import {
+  SpacePrintDataService,
+  type SpacePrintOrder,
+} from './space-print-data.service';
+import {
+  SpacePrintSettingsService,
+  type SpacePrintSettings,
+} from './space-print-settings.service';
 import { resolveGrouponVoucherFacts } from './space-care-record-snapshot.shared';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
@@ -48,6 +56,8 @@ export class SpaceSessionCheckoutService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly checkoutLockService: SpaceSessionCheckoutLockService,
     private readonly settlementService: SpaceSessionSettlementService,
+    private readonly printDataService: SpacePrintDataService,
+    private readonly printSettingsService: SpacePrintSettingsService,
   ) {}
 
   async previewSpaceSessionCheckout(
@@ -249,15 +259,63 @@ export class SpaceSessionCheckoutService {
       }
     }
 
+    // 结账主事务已提交。小票快照只有浏览器通道会消费（云/USB 走设备下发，关闭则不打印），
+    // 因此先读门店当前通道，只有 browser 才读取整张订单快照，避免每次结账都多查一次明细。
+    // 配置读取失败按「不打印」处理：前端会退回本地组装，不影响结账结果。
+    let printSettings: SpacePrintSettings | null = null;
+    try {
+      printSettings = await this.printSettingsService.getByStoreId(
+        session.storeId,
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[space-checkout] 读取空间打印配置失败，本次不返回小票快照 sessionId=${session.id} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+      );
+    }
+    const receiptSnapshot =
+      printSettings?.spacePrintChannel === 'browser'
+        ? await this.loadReceiptSnapshot(session.storeId, updated.salesOrder.id)
+        : null;
+
     // BUG-8 修复：空间状态已由 settleSession 在事务内推导，保证与写入数据一致
     return {
-      session: toSpaceSessionResponse(updated.session),
+      session: toSpaceSessionResponse(updated.session, {
+        canViewCommission:
+          await this.commerceAccessService.canAccessStoreWithPermission(
+            user,
+            session.storeId,
+            'commission:view',
+          ),
+      }),
       spaceStatus: this.toSpaceStatusValue(updated.spaceStatus),
       ...(updated.cancelledReservationId !== null
         ? { cancelledReservationId: String(updated.cancelledReservationId) }
         : {}),
       salesOrder: updated.salesOrder,
+      ...(receiptSnapshot ? { receiptSnapshot } : {}),
     };
+  }
+
+  /**
+   * 结账后加载权威小票快照，供浏览器通道打印与销售记录补打共用。
+   *
+   * 不需要操作员具备销售记录访问权（不经过 sales 权限），也不会因为快照读取失败
+   * 把已成功的结账打成失败：失败只降级为不返回快照，前端退回原有本地预览打印。
+   */
+  private async loadReceiptSnapshot(
+    storeId: number,
+    saleOrderId: string,
+  ): Promise<SpacePrintOrder | null> {
+    const id = Number(saleOrderId);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    try {
+      return await this.printDataService.loadOrder(storeId, id);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[space-checkout] 生成结账小票快照失败 storeId=${storeId} saleOrderId=${saleOrderId} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+      );
+      return null;
+    }
   }
 
   private async findSettlementSessionById(sessionId: number): Promise<

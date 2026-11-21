@@ -30,6 +30,8 @@ import type { SalesReportOrder } from './sales-record-report.query';
 export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
   select: {
     id: true;
+    // 与空间会话核对门店一致（空间结账单来源标记）
+    storeId: true;
     orderNo: true;
     note: true;
     paymentMethod: true;
@@ -72,8 +74,32 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     };
     spaceSession: {
       select: {
+        // 订单来源判定：只有真实关联到「已结账」空间会话的销售单才算空间结账单
+        status: true;
+        storeId: true;
         // 券程可抵台位费（分）：券预设的 1 小时台位费 / 固定价
         hourlyRate: true;
+        // 开台预付（分）与实际支付方式：销售记录「开台预付」收款事件的数据源
+        prepaidAmount: true;
+        prepaidPaymentMethod: true;
+        prepaidCustomerPaymentMethod: true;
+        // 开台信息：列表卡片展示「开台时间 + 开台操作员 → 结账时间 + 结账操作员」
+        startTime: true;
+        // 自动结账会话由系统用户落单，结账操作员按此标记兜底为「空间自动结账」
+        autoCheckout: true;
+        openOperatorNameSnapshot: true;
+        openOperatorStaff: {
+          select: {
+            role: true;
+            employeeProfile: {
+              select: {
+                subAccounts: {
+                  select: { role: true };
+                };
+              };
+            };
+          };
+        };
         space: {
           select: {
             name: true;

@@ -15,6 +15,7 @@ describe('SpaceSessionsService', () => {
 
   const commerceAccessService = {
     ensureCanAccessStore: jest.fn(),
+    canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
   };
 
   const readService = {

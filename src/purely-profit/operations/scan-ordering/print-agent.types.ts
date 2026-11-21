@@ -36,7 +36,21 @@ export interface PrintAgentReceipt {
   taskId: string;
   ok: boolean;
   error?: string | null;
+  /**
+   * 代理已把失败任务落盘、稍后会自动补打。
+   * 为 true 时本次失败不是最终结论：台账保持 submitted 等最终回执，
+   * 否则商家会同时发起人工补打（新 taskId），与本机补打一起出两张票。
+   */
+  retrying?: boolean;
 }
+
+/**
+ * 打印任务所属业务域。
+ *
+ * 扫码点餐与空间小票各有独立的订单 ID 空间，同一个数字可能同时是两张票的业务订单，
+ * 台账查询与补打去重必须带业务域，否则会互相串票。
+ */
+export type PrintTaskDomain = 'scan' | 'space';
 
 /** 打印代理下发的 ESC/POS 任务。 */
 export interface PrintAgentTask {

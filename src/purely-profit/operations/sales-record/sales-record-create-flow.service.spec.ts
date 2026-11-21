@@ -177,6 +177,7 @@ describe('SalesRecordCreateFlowService', () => {
       date: orderDate.getTime(),
       createdAt: createdAt.getTime(),
       refundedAt: null,
+      isSpaceCheckoutOrder: false,
     });
 
     expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);

@@ -133,18 +133,27 @@ export function safeStreamCsvExport(
  * 兼容错误处理约定：**先取第一批**再写响应头，若首批加载失败（鉴权、SQL 异常）
  * 仍未被写入任何字节，全局异常过滤器可以正常返回 JSON 错误；
  * 只有进入流式阶段后的异常才只能以断流处理。
+ *
+ * @param prefixRows 可选的表头前说明行（如报表汇总），会在 CSV 表头之前写入；
+ *   由调用方在进入流式阶段前生成，失败时同样不会污染响应。
  */
 export async function safeStreamCsvExportAsync(
   res: ServerResponse,
   filename: string,
   headers: string[],
   rows: AsyncIterable<unknown[]>,
+  prefixRows?: Iterable<unknown[]>,
 ): Promise<void> {
   const iterator = rows[Symbol.asyncIterator]();
   // 预取首批：加载阶段异常发生在写响应头之前，仍可转成 JSON 错误响应
   let current = await iterator.next();
   try {
     setCsvDownloadHeaders(res, filename);
+    if (prefixRows) {
+      for (const row of prefixRows) {
+        await writeCsvChunk(res, toCsvLine(row));
+      }
+    }
     await writeCsvChunk(res, toCsvLine(headers));
     while (!current.done) {
       // 客户端主动断开后停止继续拉库，避免“导出中途取消”仍在后台翻页取数

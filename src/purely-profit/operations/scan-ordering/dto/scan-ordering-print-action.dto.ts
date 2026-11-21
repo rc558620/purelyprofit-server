@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import type { CloudPrintTarget } from '../scan-ordering-cloud-print.service';
 
 /** 云打印目标可选值。 */
@@ -48,4 +56,28 @@ export class ScanOrderingPrintTestDto {
   @IsOptional()
   @IsString({ message: 'sn 必须是字符串' })
   sn?: string;
+}
+
+/** 打印任务状态查询：按订单 + 目标查最近一次下发结果。 */
+export class ScanOrderingPrintTaskStatusQueryDto {
+  @ApiProperty({ description: '订单 ID' })
+  @Type(() => Number)
+  @IsInt({ message: 'orderId 必须是整数' })
+  @Min(1, { message: 'orderId 必须大于 0' })
+  orderId: number;
+
+  @ApiProperty({
+    description: '云打印目标（cashier=收银台顾客票 / kitchen=后厨制作单）',
+  })
+  @IsIn(PRINT_TARGETS, { message: 'target 必须是 cashier/kitchen 之一' })
+  target: CloudPrintTarget;
+
+  @ApiPropertyOptional({
+    description:
+      '本次下发的任务 ID：传入时只核对这一张票的回执，避免读到同订单其它票或历史补打的结果',
+  })
+  @IsOptional()
+  @IsString({ message: 'taskId 必须是字符串' })
+  @MaxLength(64, { message: 'taskId 长度不能超过 64' })
+  taskId?: string;
 }

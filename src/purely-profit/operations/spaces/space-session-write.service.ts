@@ -51,6 +51,11 @@ export class SpaceSessionWriteService {
         permission: string,
         message: string,
       ) => Promise<void>;
+      canAccessStoreWithPermission?: (
+        user: AuthenticatedUser,
+        storeId: number,
+        permission: string,
+      ) => Promise<boolean>;
       findOperatorStaffIdForStore?: (
         user: AuthenticatedUser,
         storeId: number,
@@ -243,7 +248,15 @@ export class SpaceSessionWriteService {
       session.storeId,
     );
 
-    return toSpaceSessionResponse(updated);
+    // 未提供权限探测时按「不可见」处理，避免金额误下发
+    const canViewCommission = deps.canAccessStoreWithPermission
+      ? await deps.canAccessStoreWithPermission(
+          user,
+          session.storeId,
+          'commission:view',
+        )
+      : false;
+    return toSpaceSessionResponse(updated, { canViewCommission });
   }
 
   /**

@@ -13,7 +13,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildCacheRefreshTaskKey,
   buildSpaceTypesCacheKey,
-  buildSpaceTypesPattern,
 } from '../../../redis/cache-keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
@@ -139,10 +138,64 @@ export class SpaceTypesService {
 
   /**
    * 失效门店空间类型列表缓存。
-   * 由 create / update / delete 写路径在提交成功后调用，保证列表读旧值不跨写。
+   *
+   * 每个门店的类型列表只有一个确定的 key，直接 DEL 即可，无需全库 SCAN。
+   * 写库已经成功，缓存清理失败不能改变接口结果：只记告警并依赖 TTL 兜底，
+   * 否则用户会看到「保存失败」但实际上数据已落库。
    */
   private async invalidateSpaceTypesCache(storeId: number): Promise<void> {
-    await this.redisService.delByPattern(buildSpaceTypesPattern(storeId));
+    try {
+      await this.redisService.del(buildSpaceTypesCacheKey(storeId));
+    } catch (err) {
+      this.logger.warn(
+        `空间类型缓存失效失败（storeId=${storeId}），等待 TTL 兜底：${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * 拦截「被会员卡模板引用」的类型改名 / 删除。
+   *
+   * 历史卡模板的 usableSpaceTypes 可能存的是类型名称而非 id；改名或删除后
+   * 该卡会静默失去开台能力，而已售模板的权益字段禁止常规编辑，用户无法自救。
+   *
+   * - 改名：只校验旧名引用（id 引用不受改名影响）；
+   * - 删除：名称引用和 id 引用都会失效，两者都校验。
+   */
+  private async assertSpaceTypeNotReferenced(
+    storeId: number,
+    type: { id: number; name: string },
+    scene: 'rename' | 'delete',
+  ): Promise<void> {
+    const plan = await this.prisma.memberCardPlan.findFirst({
+      where: {
+        storeId,
+        deletedAt: null,
+        ...(scene === 'delete'
+          ? {
+              OR: [
+                { usableSpaceTypes: { has: type.name } },
+                { usableSpaceTypes: { has: String(type.id) } },
+              ],
+            }
+          : { usableSpaceTypes: { has: type.name } }),
+      },
+      select: { id: true, name: true },
+    });
+
+    if (!plan) {
+      return;
+    }
+
+    const reference = scene === 'rename' ? '按名称引用' : '引用';
+    const suffix =
+      scene === 'rename'
+        ? '请先调整该会员卡的可用空间类型后再改名'
+        : '请先调整该会员卡的可用空间类型后再删除';
+
+    throw new ConflictException(
+      `空间类型「${type.name}」已被会员卡「${plan.name}」${reference}，${suffix}`,
+    );
   }
 
   async updateSpaceType(
@@ -181,18 +234,45 @@ export class SpaceTypesService {
       if (duplicate) {
         throw new ConflictException('空间类型名称已存在');
       }
+
+      // 旧名仍被会员卡按名称引用时禁止改名，否则该卡会静默失去开台能力。
+      await this.assertSpaceTypeNotReferenced(item.storeId, item, 'rename');
     }
 
-    const updated = await this.prisma.spaceType.update({
-      where: { id: item.id },
-      data: { name },
-    });
+    let updated;
+    try {
+      updated = await this.prisma.spaceType.update({
+        where: { id: item.id },
+        data: { name },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        // 并发改名到同一名称：预检通过后仍会撞唯一约束，统一归一化为 409。
+        if (err.code === 'P2002') {
+          throw new ConflictException('空间类型名称已存在');
+        }
+        // 并发删除：预检与写入之间记录被删掉，按资源不存在返回 404。
+        if (err.code === 'P2025') {
+          throw new NotFoundException('空间类型不存在');
+        }
+      }
+      throw err;
+    }
 
     await this.invalidateSpaceTypesCache(item.storeId);
 
     // 空间列表 / 看板缓存内嵌 type.name 快照：只清类型自身缓存不够，
     // 类型改名后必须同步失效空间读缓存，否则看板仍展示旧类型名直到列表 TTL 过期。
-    await this.cacheInvalidatorService.invalidateSpacesReadCaches(item.storeId);
+    // 写库已成功，缓存清理失败不应让接口报错。
+    try {
+      await this.cacheInvalidatorService.invalidateSpacesReadCaches(
+        item.storeId,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `空间读缓存失效失败（storeId=${item.storeId}），等待 TTL 兜底：${String(err)}`,
+      );
+    }
 
     return this.toSpaceTypeResponse(updated);
   }
@@ -230,6 +310,7 @@ export class SpaceTypesService {
       where: { id: typeId },
       select: {
         id: true,
+        name: true,
         storeId: true,
         _count: {
           select: { spaces: { where: { deletedAt: null } } },
@@ -251,6 +332,9 @@ export class SpaceTypesService {
     if (item._count.spaces > 0) {
       throw new ConflictException('该空间类型已被空间使用，无法删除');
     }
+
+    // 删除同样会让引用该类型的会员卡失效，需前置拦截。
+    await this.assertSpaceTypeNotReferenced(item.storeId, item, 'delete');
 
     try {
       await this.prisma.spaceType.delete({

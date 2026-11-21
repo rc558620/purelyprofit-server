@@ -171,6 +171,7 @@ export class SalesRecordCreateFlowService {
         },
         select: {
           id: true,
+          storeId: true,
           orderNo: true,
           note: true,
           paymentMethod: true,
@@ -212,7 +213,28 @@ export class SalesRecordCreateFlowService {
           },
           spaceSession: {
             select: {
+              status: true,
+              storeId: true,
               hourlyRate: true,
+              prepaidAmount: true,
+              prepaidPaymentMethod: true,
+              prepaidCustomerPaymentMethod: true,
+              // 开台信息：与列表接口同一 select 形状（新建单通常尚无会话，取 null）
+              startTime: true,
+              autoCheckout: true,
+              openOperatorNameSnapshot: true,
+              openOperatorStaff: {
+                select: {
+                  role: true,
+                  employeeProfile: {
+                    select: {
+                      subAccounts: {
+                        select: { role: true },
+                      },
+                    },
+                  },
+                },
+              },
               space: {
                 select: {
                   name: true,

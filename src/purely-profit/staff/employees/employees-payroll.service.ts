@@ -252,12 +252,14 @@ export class EmployeesPayrollService {
             : undefined,
         note: nextPayroll.note,
       });
-      // 计入工资：将员工当月已结账提成标记为「已计入工资」（幂等）
+      // 计入工资：只标记真正被工资单提成金额覆盖的已结账提成（幂等）。
+      // 传 commission 作为金额上限，避免工资单只计入部分金额却把当月提成全部核销。
       await this.commissionCoreService.markSettledRecordsIncluded(
         transaction,
         nextPayroll.storeId,
         nextPayroll.employeeId,
         formatPayrollMonth(nextPayroll.month),
+        nextPayroll.commission,
       );
       return nextPayroll;
     });

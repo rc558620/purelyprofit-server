@@ -29,8 +29,15 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { SpacePrintSettings } from './space-print-settings.service';
 import { SpacePrintSettingsService } from './space-print-settings.service';
 import { SpacePrintService } from './space-print.service';
+import type {
+  SpacePrintReprintResult,
+  SpacePrintSubmitResult,
+  SpaceRecentSettledOrder,
+  SpaceSalesReceiptResult,
+} from './space-print.service';
 import { UpdateSpacePrintSettingsDto } from './dto/space-print.dto';
 import { SpacePrintOrderDto } from './dto/space-print.dto';
+import { SpaceRecentSettledQueryDto } from './dto/space-print.dto';
 
 /**
  * 空间消费小票打印域：打印配置、云/USB 打印任务与打印代理绑定。
@@ -82,7 +89,7 @@ export class SpacePrintController {
   async printReceipt(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SpacePrintOrderDto,
-  ): Promise<{ orderId: string }> {
+  ): Promise<SpacePrintSubmitResult> {
     return this.printService.printForMerchant(user, dto.saleOrderId);
   }
 
@@ -164,7 +171,7 @@ export class SpacePrintController {
       printers,
       agentVersion,
       latestVersion:
-        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.1',
+        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.5',
     };
   }
 
@@ -187,6 +194,42 @@ export class SpacePrintController {
     return { bindCode: await this.printAgentService.getBindCode(storeId) };
   }
 
+  /**
+   * 补打入口的数据源：与打印通道 / 打印开关无关，只看「结账是否生成了销售订单」。
+   * 自动结账（后端定时任务）与其他终端结的账都能在这里看到。
+   */
+  @Get('print/recent-settled')
+  @RequirePermissions('space:view')
+  @ApiOperation({
+    summary: '门店最近结账的空间订单（补打小票入口数据源）',
+  })
+  listRecentSettledOrders(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: SpaceRecentSettledQueryDto,
+  ): Promise<SpaceRecentSettledOrder[]> {
+    return this.printService.listRecentSettledOrders(user, query.limit);
+  }
+
+  /**
+   * 销售记录补打：一次请求由后端决定通道，前端不回退、不缓存设置。
+   * 三项权限是 AND（守卫只看 OR，服务层逐项校验）。
+   */
+  @Post('print/sales-receipt')
+  @RequirePermissions('sales:view', 'space:view', 'operation-entry:create')
+  @ApiOperation({
+    summary:
+      '从销售记录补打空间小票（browser 回权威快照 / cloud / usb / off 由后端决定；去重窗口内命中已出票任务返回 printed 且不重复下发）',
+  })
+  printSalesReceipt(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SpacePrintOrderDto,
+  ): Promise<SpaceSalesReceiptResult> {
+    return this.printService.printSalesReceiptForMerchant(
+      user,
+      dto.saleOrderId,
+    );
+  }
+
   @Post('print/reprint')
   @RequirePermissions('operation-entry:create')
   @ApiOperation({
@@ -195,22 +238,25 @@ export class SpacePrintController {
   async reprintReceipt(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SpacePrintOrderDto,
-  ): Promise<{ orderId: string; status: string }> {
+  ): Promise<SpacePrintReprintResult> {
     return this.printService.reprintForMerchant(user, dto.saleOrderId);
   }
 
   @Get('print/task-status')
   @RequirePermissions('space:view')
-  @ApiOperation({ summary: '查询空间小票最近一次打印任务状态' })
+  @ApiOperation({
+    summary: '查询空间小票打印任务状态（可传 taskId 只核对本次下发的那一张票）',
+  })
   async getPrintTaskStatus(
     @CurrentUser() user: AuthenticatedUser,
     @Query('saleOrderId') saleOrderId: string,
+    @Query('taskId') taskId?: string,
   ): Promise<{ taskId: string; status: string; error: string | null } | null> {
     const orderId = Number(saleOrderId);
     if (!Number.isInteger(orderId) || orderId <= 0) {
       throw new BadRequestException('saleOrderId 无效');
     }
-    return this.printService.getPrintTaskStatus(user, orderId);
+    return this.printService.getPrintTaskStatus(user, orderId, taskId);
   }
 
   @Get('print-agent/download/:platform')

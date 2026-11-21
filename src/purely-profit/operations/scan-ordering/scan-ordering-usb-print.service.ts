@@ -4,7 +4,6 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
-import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import type { EscPosTicketVariant } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
@@ -12,7 +11,6 @@ import { PrintAgentService } from './print-agent.service';
 import type { PrintAgentPrinter } from './print-agent.service';
 import type { UsbPrinterInfo } from './usb-print.service';
 import type { CloudPrintTarget } from './scan-ordering-cloud-print.service';
-import type { ScanOrderingPrintSource } from './dto/scan-ordering-print-action.dto';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 /**
@@ -27,35 +25,24 @@ export class ScanOrderingUsbPrintService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly printDataService: ScanOrderingPrintDataService,
-    private readonly printDedupeService: ScanOrderingPrintDedupeService,
     private readonly usbPrintService: UsbPrintService,
     private readonly ticketBuilder: EscPosTicketBuilder,
     private readonly agentService: PrintAgentService,
   ) {}
 
   /**
-   * 商家端下发 USB 打印任务（代理推送优先，本机回退）。
+   * 按调用方传入的配置快照下发 USB 打印（代理推送优先，本机回退）。
    *
-   * @param source auto 时按「门店 + 订单 + 目标」服务端去重：多终端只打一张；
-   *   manual（缺省）为人工补打，不去重。
+   * 通道判定、去重与任务状态由 ScanOrderingPrintDispatchService 统一编排。
    */
-  async printForMerchant(
-    user: AuthenticatedUser,
-    target: CloudPrintTarget,
-    orderId: number,
-    source: ScanOrderingPrintSource = 'manual',
-  ): Promise<string> {
-    const storeId = await this.resolveMerchantStoreId(user);
-    if (source === 'auto') {
-      const acquired = await this.printDedupeService.tryAcquireAutoDispatch({
-        storeId,
-        orderId,
-        target,
-      });
-      // 已下发过：按成功返回同一订单号，前端无需区分「补打」与「已打过」
-      if (!acquired) return String(orderId);
-    }
-    const settings = await this.printSettingsService.getByStoreId(storeId);
+  async printSnapshot(input: {
+    storeId: number;
+    settings: ScanOrderingPrintSettings;
+    target: CloudPrintTarget;
+    orderId: number;
+    operatorName?: string;
+  }): Promise<string> {
+    const { storeId, settings, target, orderId } = input;
     const printer = this.resolvePrinter(settings, target);
     const order = await this.printDataService.loadOrder(storeId, orderId);
     const store = await this.prisma.store.findUnique({
@@ -79,14 +66,14 @@ export class ScanOrderingUsbPrintService {
       discountItems: target === 'kitchen' ? null : order.discountItems,
       pointsDeductAmount:
         target === 'kitchen' ? null : order.pointsDeductAmount,
-      operatorName: user.name ?? null,
+      operatorName: input.operatorName ?? null,
       remark: order.remark,
       footer: target === 'kitchen' ? null : '谢谢惠顾，欢迎再次光临',
     };
     const data = this.ticketBuilder.buildTicket(ticket);
 
     if (await this.agentService.isAgentBound(storeId)) {
-      return this.dispatchToAgent(storeId, target, data);
+      return this.dispatchToAgent(storeId, target, data, printer, orderId);
     }
     return this.usbPrintService.printRaw(data, printer ?? undefined);
   }
@@ -103,7 +90,7 @@ export class ScanOrderingUsbPrintService {
     const data = this.ticketBuilder.buildTest(title);
 
     if (await this.agentService.isAgentBound(storeId)) {
-      return this.dispatchToAgent(storeId, target, data);
+      return this.dispatchToAgent(storeId, target, data, printer, null);
     }
     return this.usbPrintService.printRaw(data, printer ?? undefined);
   }
@@ -123,17 +110,30 @@ export class ScanOrderingUsbPrintService {
     return this.usbPrintService.listDevices();
   }
 
-  /** 向门店在线代理推送打印任务。 */
+  /**
+   * 向门店在线代理推送打印任务。
+   *
+   * target 为任务语义（收银台/后厨），deviceId 为门店实际选中的打印机标识：
+   * 代理端按 deviceId 精确选机，缺省时才回退到按 target 解析本机配置。
+   * saleOrderId 关联扫码订单，代理回执台账才能按订单查到打印结果。
+   */
   private async dispatchToAgent(
     storeId: number,
     target: CloudPrintTarget,
     data: Buffer,
+    deviceId: string | null,
+    saleOrderId: number | null,
   ): Promise<string> {
-    const result = await this.agentService.dispatch(storeId, {
-      taskId: PrintAgentService.newTaskId(),
-      target,
-      dataBase64: data.toString('base64'),
-    });
+    const result = await this.agentService.dispatch(
+      storeId,
+      {
+        taskId: PrintAgentService.newTaskId(),
+        target,
+        deviceId: deviceId ?? undefined,
+        dataBase64: data.toString('base64'),
+      },
+      { domain: 'scan', saleOrderId },
+    );
     if (!result.ok) {
       throw new ServiceUnavailableException(result.message);
     }

@@ -29,7 +29,10 @@ import {
   type PaginatedSpaceSessionsResponseDto,
   type SpaceSessionResponseDto,
 } from './dto/space-session.dto';
-import { toSpaceSessionResponse } from './space-sessions.mapper';
+import {
+  maskSpaceSessionCommission,
+  toSpaceSessionResponse,
+} from './space-sessions.mapper';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import type {
   SpaceSessionListQuery,
@@ -95,7 +98,14 @@ export class SpaceSessionReadService {
       includeActive: true,
     };
 
-    return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
+    const [sessions, canViewCommission] = await Promise.all([
+      this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery),
+      this.canViewSessionCommission(user, storeId),
+    ]);
+    // 缓存里存的是含金额的完整快照，命中后再按权限裁剪，避免污染缓存
+    return canViewCommission
+      ? sessions
+      : sessions.map((session) => maskSpaceSessionCommission(session));
   }
 
   /**
@@ -146,7 +156,11 @@ export class SpaceSessionReadService {
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
 
-    return session ? toSpaceSessionResponse(session) : null;
+    return session
+      ? toSpaceSessionResponse(session, {
+          canViewCommission: await this.canViewSessionCommission(user, storeId),
+        })
+      : null;
   }
 
   async listSpaceSessions(
@@ -215,8 +229,15 @@ export class SpaceSessionReadService {
       : paging.offset + sessions.length < total;
     const lastSession = sessions.at(-1);
 
+    const canViewCommission = await this.canViewSessionCommission(
+      user,
+      space.storeId,
+    );
+
     return {
-      items: sessions.map((session) => toSpaceSessionResponse(session)),
+      items: sessions.map((session) =>
+        toSpaceSessionResponse(session, { canViewCommission }),
+      ),
       meta: buildPaginationMeta(total, paging.page, paging.limit),
       hasMore,
       nextCursor:
@@ -254,7 +275,21 @@ export class SpaceSessionReadService {
       throw new NotFoundException('空间会话不存在');
     }
 
-    return toSpaceSessionResponse(session);
+    return toSpaceSessionResponse(session, {
+      canViewCommission: await this.canViewSessionCommission(user, storeId),
+    });
+  }
+
+  /** 会话里的提成金额与提成配置/明细同一权限口径（commission:view）。 */
+  private async canViewSessionCommission(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): Promise<boolean> {
+    return this.commerceAccessService.canAccessStoreWithPermission(
+      user,
+      storeId,
+      'commission:view',
+    );
   }
 
   private async listStoreSpaceSessionsByQuery(

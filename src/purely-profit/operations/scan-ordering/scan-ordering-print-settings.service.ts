@@ -135,6 +135,16 @@ export class ScanOrderingPrintSettingsService {
     if (Object.keys(updates).length === 0) {
       throw new BadRequestException('没有需要更新的打印配置字段');
     }
+    // 合并保存后校验收银台/后厨「通道 + 设备」一致：避免存下「云通道但无 SN」
+    // 的配置，把错误推迟到出票时才暴露。历史脏数据不阻塞无关字段的更新。
+    const current = await this.getByStoreId(storeId);
+    const defined = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined),
+    ) as ScanOrderingPrintSettingsUpdate;
+    this.assertConsistentAfterMerge(
+      { ...current, ...defined },
+      Object.keys(defined),
+    );
     await this.prisma.store.update({
       where: { id: storeId },
       data: updates,
@@ -143,6 +153,34 @@ export class ScanOrderingPrintSettingsService {
     await this.writeThrough(storeId, settings);
     this.logUpdate(storeId, updates);
     return settings;
+  }
+
+  /**
+   * 合并结果一致性校验：云打印通道必须有对应 SN。
+   *
+   * 只校验本次请求触碰到的通道/SN 字段，避免历史脏数据卡住无关更新。
+   */
+  private assertConsistentAfterMerge(
+    merged: ScanOrderingPrintSettings,
+    touchedFields: string[],
+  ): void {
+    const touched = (field: string): boolean => touchedFields.includes(field);
+    if (
+      (touched('cashierPrintChannel') || touched('cashierCloudPrinterSn')) &&
+      merged.cashierPrintChannel === 'cloud' &&
+      !merged.cashierCloudPrinterSn?.trim()
+    ) {
+      throw new BadRequestException(
+        '收银台选择云打印时必须同时填写云打印机 SN',
+      );
+    }
+    if (
+      (touched('kitchenPrintChannel') || touched('kitchenCloudPrinterSn')) &&
+      merged.kitchenPrintChannel === 'cloud' &&
+      !merged.kitchenCloudPrinterSn?.trim()
+    ) {
+      throw new BadRequestException('后厨选择云打印时必须同时填写云打印机 SN');
+    }
   }
 
   /** 写穿透：配置变更后立即覆盖缓存，不留下失效窗口。 */

@@ -1,9 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -51,6 +53,23 @@ export class UpdateSpacePrintSettingsDto {
   @IsString({ message: 'spaceUsbPrinter 必须是字符串' })
   @MaxLength(128, { message: 'spaceUsbPrinter 不能超过 128 个字符' })
   spaceUsbPrinter?: string | null;
+}
+
+/**
+ * 查询「最近结账的空间订单」入参：补打入口只需要最近几条，
+ * 用 limit 收敛返回量，避免门店历史订单被整表扫出来。
+ */
+export class SpaceRecentSettledQueryDto {
+  @ApiPropertyOptional({
+    description: '返回条数（1-20，默认 10）',
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 必须大于 0' })
+  @Max(20, { message: 'limit 不能超过 20' })
+  limit?: number;
 }
 
 /** 下发空间消费小票打印任务入参：按结账生成的销售订单 ID 打印。 */

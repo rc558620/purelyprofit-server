@@ -50,11 +50,12 @@ export class SalesRecordResponseDto {
   @ApiPropertyOptional({
     type: Array,
     description:
-      '实付金额的收款/退款事件明细：团购券单 = 券抵台位费 + 超时台位费 + 点单；其余订单 = 开台券 + 续费（按支付方式合并）+ 结账补差 或 退款；Σ收款 − Σ退款 = payableAmount',
+      '实付金额的收款/退款事件明细：团购券单 = 券抵台位费 + 超时台位费 + 点单；其余订单 = 开台券 或 开台预付（prepaid）+ 续费（按支付方式合并）+ 结账补差 或 退款；Σ收款 − Σ退款 = payableAmount',
   })
   paymentEvents?: Array<{
     kind:
       | 'open_voucher'
+      | 'prepaid'
       | 'renew'
       | 'checkout_due'
       | 'checkout_refund'
@@ -140,7 +141,8 @@ export class SalesRecordResponseDto {
 
   @ApiPropertyOptional({
     example: '张三',
-    description: '操作员姓名快照；主账号或无员工档案时为 null',
+    description:
+      '结账操作员姓名快照；自动结账会话兜底为「空间自动结账」，主账号或无员工档案时为 null',
   })
   operatorName?: string | null;
 
@@ -152,6 +154,28 @@ export class SalesRecordResponseDto {
     nullable: true,
   })
   operatorRole?: StaffRole | null;
+
+  @ApiPropertyOptional({
+    example: 1715684520000,
+    description:
+      '开台时间戳（毫秒）；仅关联空间会话的结账订单返回，普通/扫码/补录订单缺省',
+  })
+  openTime?: number;
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '开台操作员姓名快照；无开台信息时为 null',
+    nullable: true,
+  })
+  openOperatorName?: string | null;
+
+  @ApiPropertyOptional({
+    enum: StaffRole,
+    example: 'staff',
+    description: '开台操作员角色（owner=老板/manager=店长/staff=收银员）；无开台信息时为 null',
+    nullable: true,
+  })
+  openOperatorRole?: StaffRole | null;
 
   @ApiProperty({ example: 1715695200000, description: '销售时间戳（毫秒）' })
   date: number;
@@ -165,6 +189,13 @@ export class SalesRecordResponseDto {
     nullable: true,
   })
   refundedAt?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否由已结账的空间会话生成（同门店、会话已结账、订单未退款）；仅用于判断销售记录是否展示空间小票补打入口',
+  })
+  isSpaceCheckoutOrder?: boolean;
 
   // ─── 团购 / 券 / 平台结算元数据（可选）───────────────────────────────────
 

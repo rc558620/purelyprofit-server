@@ -62,6 +62,7 @@ import {
   writeJson,
   writeString,
 } from './redis-string.util';
+import { runScript } from './redis-script.util';
 
 /**
  * 供 ThrottlerModule 等基础设施装配创建独立 Redis 客户端。
@@ -171,6 +172,20 @@ export class RedisService
   /** 原子获取并删除（GETDEL），用于 refresh token 轮换等场景 */
   async getJsonAndDelete<T>(key: string): Promise<T | null> {
     return readJsonAndDelete<T>(this.ops, key);
+  }
+
+  /**
+   * 执行 Lua 脚本（EVAL）。
+   *
+   * 需要「读 → 判断 → 写」原子完成时使用（并发抢占、条件更新），
+   * 避免 get 后 set 的竞态窗口被并发请求同时穿过。
+   */
+  async evalScript(
+    script: string,
+    keys: string[],
+    args: string[],
+  ): Promise<unknown> {
+    return runScript(this.ops, script, keys, args);
   }
 
   // ── Hash ─────────────────────────────────────────────────

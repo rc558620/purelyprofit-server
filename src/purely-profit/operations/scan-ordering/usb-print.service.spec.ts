@@ -54,6 +54,9 @@ describe('UsbPrintService', () => {
   });
 
   it('printRaw 指定设备路径时直接写入文件', async () => {
+    jest.spyOn(service, 'listDevices').mockResolvedValueOnce([
+      { id: '/dev/usb/lp0', name: 'lp0', type: 'device' },
+    ]);
     const data = Buffer.from([0x1b, 0x40]);
     const result = await service.printRaw(data, '/dev/usb/lp0');
 
@@ -62,6 +65,9 @@ describe('UsbPrintService', () => {
   });
 
   it('printRaw 指定 CUPS 打印机名时调用 lp -o raw', async () => {
+    jest
+      .spyOn(service, 'listDevices')
+      .mockResolvedValueOnce([{ id: 'RP58', name: 'RP58', type: 'cups' }]);
     const data = Buffer.from([0x1b, 0x40]);
     mockExecFile(() => '');
     const result = await service.printRaw(data, 'RP58');
@@ -109,6 +115,9 @@ describe('UsbPrintService', () => {
   });
 
   it('写入设备文件失败时抛 503', async () => {
+    jest.spyOn(service, 'listDevices').mockResolvedValueOnce([
+      { id: '/dev/usb/lp0', name: 'lp0', type: 'device' },
+    ]);
     (fs.writeFile as jest.Mock).mockRejectedValueOnce(new Error('EACCES'));
     await expect(
       service.printRaw(Buffer.from([0x1b]), '/dev/usb/lp0'),

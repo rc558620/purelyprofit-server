@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -12,7 +13,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildCacheRefreshTaskKey,
   buildSpaceZonesCacheKey,
-  buildSpaceZonesPattern,
 } from '../../../redis/cache-keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
@@ -45,6 +45,8 @@ const SPACE_ZONES_CACHE_REFRESH_AFTER_MS = 20_000;
 
 @Injectable()
 export class SpaceZonesService {
+  private readonly logger = new Logger(SpaceZonesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -92,9 +94,59 @@ export class SpaceZonesService {
   /**
    * 失效门店空间区域列表缓存。
    * 由 create / update / delete 写路径在提交成功后调用。
+   *
+   * 区域列表只有一个确定 key，直接精确删除；delByPattern 即使模式不含通配符
+   * 也会走 SCAN 遍历键空间。
    */
   private async invalidateSpaceZonesCache(storeId: number): Promise<void> {
-    await this.redisService.delByPattern(buildSpaceZonesPattern(storeId));
+    await this.redisService.del(buildSpaceZonesCacheKey(storeId));
+  }
+
+  /**
+   * 写路径已落库后的缓存失效：失败只记录告警，不能把已提交的写操作报成失败。
+   * 残余旧值由 TTL 与提前刷新窗口兜底，用户重试也不会再撞「已存在 / 不存在」。
+   */
+  private async invalidateSpaceZonesCacheQuietly(
+    storeId: number,
+  ): Promise<void> {
+    try {
+      await this.invalidateSpaceZonesCache(storeId);
+    } catch (error) {
+      this.logger.warn(
+        `空间区域缓存失效失败 storeId=${storeId}: ${this.describeError(error)}`,
+      );
+    }
+  }
+
+  /** 空间列表 / 看板缓存内嵌 zone.name 快照，改名后必须同步失效；失败不阻断写入。 */
+  private async invalidateSpacesReadCachesQuietly(
+    storeId: number,
+  ): Promise<void> {
+    try {
+      await this.cacheInvalidatorService.invalidateSpacesReadCaches(storeId);
+    } catch (error) {
+      this.logger.warn(
+        `空间读缓存失效失败 storeId=${storeId}: ${this.describeError(error)}`,
+      );
+    }
+  }
+
+  private describeError(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误';
+  }
+
+  /**
+   * 唯一约束冲突统一归一化为 409。
+   * 新增与改名共用，避免只修一处导致并发时另一处透传 500。
+   */
+  private throwIfZoneNameConflict(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException('空间区域名称已存在');
+    }
+    throw error;
   }
 
   async createSpaceZone(
@@ -128,16 +180,10 @@ export class SpaceZonesService {
     } catch (err) {
       // BUG-01 fix: 并发创建同名区域触发 @@unique([storeId, name]) 约束，
       // 将 Prisma P2002 归一化为业务友好的 409 ConflictException
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new ConflictException('空间区域名称已存在');
-      }
-      throw err;
+      this.throwIfZoneNameConflict(err);
     }
 
-    await this.invalidateSpaceZonesCache(storeId);
+    await this.invalidateSpaceZonesCacheQuietly(storeId);
 
     return this.toSpaceZoneResponse(item);
   }
@@ -180,16 +226,23 @@ export class SpaceZonesService {
       }
     }
 
-    const updated = await this.prisma.spaceZone.update({
-      where: { id: item.id },
-      data: { name },
-    });
+    let updated;
+    try {
+      updated = await this.prisma.spaceZone.update({
+        where: { id: item.id },
+        data: { name },
+      });
+    } catch (err) {
+      // 写入前查重挡不住并发改名：另一个请求抢先提交同名后，
+      // 这里的 update 会撞 @@unique([storeId, name])，必须与新增一样归一化为 409。
+      this.throwIfZoneNameConflict(err);
+    }
 
-    await this.invalidateSpaceZonesCache(item.storeId);
+    await this.invalidateSpaceZonesCacheQuietly(item.storeId);
 
     // 空间列表 / 看板缓存内嵌 zone.name 快照：只清区域自身缓存不够，
     // 区域改名后必须同步失效空间读缓存，否则看板仍展示旧区域名直到列表 TTL 过期。
-    await this.cacheInvalidatorService.invalidateSpacesReadCaches(item.storeId);
+    await this.invalidateSpacesReadCachesQuietly(item.storeId);
 
     return this.toSpaceZoneResponse(updated);
   }
@@ -229,15 +282,7 @@ export class SpaceZonesService {
     ensurePrimaryAccountOnly(user, '空间区域');
     const item = await this.prisma.spaceZone.findUnique({
       where: { id: zoneId },
-      select: {
-        id: true,
-        storeId: true,
-        _count: {
-          // B-5 fix: 统计所有空间引用（含软删除），
-          // 避免物理删除区域时 SetNull 清空软删除空间的 zoneId 导致审计数据丢失
-          select: { spaces: true },
-        },
-      },
+      select: { id: true, storeId: true },
     });
 
     if (!item) {
@@ -251,15 +296,36 @@ export class SpaceZonesService {
       '无权删除该门店空间区域',
     );
 
-    if (item._count.spaces > 0) {
-      throw new ConflictException('该空间区域仍被空间引用，无法删除');
-    }
+    /*
+     * 引用检查与删除必须在同一事务内，并先对区域行加排他锁。
+     * 否则「查引用数 → 另一请求把空间绑到该区域 → 删除」时，
+     * ON DELETE SET NULL 会把刚绑定的 zoneId 静默清空。
+     * 空间绑定需要父行 KEY SHARE 锁，会被这里的 FOR UPDATE 挡在删除之后，
+     * 竞态最终表现为一次明确的外键失败，而不是无声解绑。
+     * 引用统计包含软删除空间（B-5），与旧行为保持一致。
+     */
+    await this.prisma.$transaction(async (transaction) => {
+      const locked = await transaction.$queryRaw<Array<{ id: number }>>`
+        SELECT id FROM space_zones WHERE id = ${item.id} FOR UPDATE
+      `;
 
-    await this.prisma.spaceZone.delete({
-      where: { id: item.id },
+      if (locked.length === 0) {
+        throw new NotFoundException('空间区域不存在');
+      }
+
+      const referencing = await transaction.space.findFirst({
+        where: { zoneId: item.id },
+        select: { id: true },
+      });
+
+      if (referencing) {
+        throw new ConflictException('该空间区域仍被空间引用，无法删除');
+      }
+
+      await transaction.spaceZone.delete({ where: { id: item.id } });
     });
 
-    await this.invalidateSpaceZonesCache(item.storeId);
+    await this.invalidateSpaceZonesCacheQuietly(item.storeId);
   }
 
   toSpaceZoneResponse(item: SpaceZoneRecord): SpaceZoneResponseDto {

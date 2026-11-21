@@ -22,6 +22,13 @@ const SALES_CSV_ORDER_SELECT = {
   grouponPlatform: true,
   voucherPlatform: true,
   voucherCode: true,
+  // 自动结账兜底展示「空间自动结账」所需：只多读会话表一个布尔列，不新增 join
+  spaceSession: {
+    select: {
+      ...SALES_REPORT_ORDER_SELECT.spaceSession.select,
+      autoCheckout: true,
+    },
+  },
 } satisfies Prisma.SaleOrderSelect;
 
 /** CSV 导出使用的订单查询形态（报表字段集 + 展示列的结构超集） */

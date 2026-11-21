@@ -33,6 +33,8 @@ interface AgentMessage {
   taskId?: string;
   ok?: boolean;
   error?: string | null;
+  /** 代理已落盘待自动补打：本次失败不是最终结论，台账保持「已提交」。 */
+  retrying?: boolean;
   printers?: Array<{ id: string; name: string; type: string }>;
 }
 
@@ -224,7 +226,7 @@ export function registerPrintAgentNativeWebsocket(
           if (message.type === 'print.done') {
             safeTouch();
             logger.log(
-              `打印回执: storeId=${storeId} taskId=${message.taskId ?? '-'} ok=${String(message.ok)} error=${message.error ?? '-'}`,
+              `打印回执: storeId=${storeId} taskId=${message.taskId ?? '-'} ok=${String(message.ok)} retrying=${String(message.retrying)} error=${message.error ?? '-'}`,
             );
             if (!message.taskId) return;
             const { taskId } = message;
@@ -232,6 +234,7 @@ export function registerPrintAgentNativeWebsocket(
               taskId,
               ok: message.ok === true,
               error: message.error ?? null,
+              retrying: message.retrying === true,
             };
             // 回执落库：把「已提交」推进到「已打印/失败」，收银端才能发现出纸失败
             void quietly('打印回执落库异常', () =>

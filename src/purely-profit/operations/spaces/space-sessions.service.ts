@@ -108,6 +108,10 @@ export class SpaceSessionsService {
         this.commerceAccessService.ensureCanAccessStore.bind(
           this.commerceAccessService,
         ),
+      canAccessStoreWithPermission:
+        this.commerceAccessService.canAccessStoreWithPermission.bind(
+          this.commerceAccessService,
+        ),
       findOperatorStaffIdForStore:
         this.commerceAccessService.findOperatorStaffIdForStore.bind(
           this.commerceAccessService,

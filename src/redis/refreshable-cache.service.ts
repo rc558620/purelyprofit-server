@@ -7,6 +7,23 @@ import type {
 } from './refreshable-cache.types';
 import { RedisService } from './redis.service';
 
+/**
+ * 条件回写：缓存已存在比本次刷新开始时间更新的载荷时放弃写入。
+ * 比较与写入必须在同一脚本内完成，否则仍会留下覆盖窗口。
+ */
+const WRITE_IF_NOT_NEWER_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if raw then
+  local ok, payload = pcall(cjson.decode, raw)
+  if ok and type(payload) == 'table' and type(payload['generatedAt']) == 'number'
+     and payload['generatedAt'] > tonumber(ARGV[2]) then
+    return 0
+  end
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+return 1
+`;
+
 @Injectable()
 export class RefreshableCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(RefreshableCacheService.name);
@@ -74,14 +91,18 @@ export class RefreshableCacheService implements OnModuleDestroy {
           options.taskKey,
           normalizedCached.payload.refreshAt,
           async () => {
+            // 刷新开始时间用于写入时的版本比较：刷新期间若发生写穿（例如商家刚把
+            // 打印通道改成 off），旧值不能在结束后无条件写回并存活一个 TTL。
+            const refreshStartedAt = Date.now();
             const refreshedValue = await (
               options.refreshValue ?? options.loadValue
             )();
-            await this.writeRefreshableJson(
+            await this.writeRefreshableJsonIfNotNewer(
               options.cacheKey,
               refreshedValue,
               options.ttlSeconds,
               options.refreshAfterMs,
+              refreshStartedAt,
             );
           },
         );
@@ -105,12 +126,17 @@ export class RefreshableCacheService implements OnModuleDestroy {
   private async loadAndWrite<T>(
     options: RefreshableCacheLoadOptions<T>,
   ): Promise<T> {
+    const loadStartedAt = Date.now();
     const loadedValue = await options.loadValue();
-    await this.writeRefreshableJson(
+    // 读-改-写竞态保护：与后台刷新共用同一套原子条件写。
+    // 「先检查 generatedAt 再 SET」两步之间仍会被写穿插入（刚保存的配置被旧值覆盖），
+    // 因此比较与写入必须在同一个脚本里完成。
+    await this.writeRefreshableJsonIfNotNewer(
       options.cacheKey,
       loadedValue,
       options.ttlSeconds,
       options.refreshAfterMs,
+      loadStartedAt,
     );
     return loadedValue;
   }
@@ -121,18 +147,59 @@ export class RefreshableCacheService implements OnModuleDestroy {
     ttlSeconds: number,
     refreshAfterMs: number,
   ): Promise<RefreshableCachePayload<T>> {
-    const now = Date.now();
-    const payload: RefreshableCachePayload<T> = {
-      generatedAt: now,
-      refreshAt: now + Math.max(0, refreshAfterMs),
-      data,
-    };
+    const payload = this.buildPayload(data, refreshAfterMs);
     await this.redisService.setJson(
       cacheKey,
       payload,
       this.applyTtlJitter(ttlSeconds),
     );
     return payload;
+  }
+
+  /**
+   * 仅当缓存里没有比 `startedAt` 更新的载荷时才写入。
+   *
+   * 写入时 `generatedAt` 会取当前时间，所以「写入前先比较」无效：必须把比较和写入
+   * 放进同一个原子脚本。否则后台刷新会把刷新期间刚保存的新配置覆盖成旧值。
+   */
+  private async writeRefreshableJsonIfNotNewer<T>(
+    cacheKey: string,
+    data: T,
+    ttlSeconds: number,
+    refreshAfterMs: number,
+    startedAt: number,
+  ): Promise<boolean> {
+    const payload = this.buildPayload(data, refreshAfterMs);
+    try {
+      const result = await this.redisService.evalScript(
+        WRITE_IF_NOT_NEWER_SCRIPT,
+        [cacheKey],
+        [
+          JSON.stringify(payload),
+          String(startedAt),
+          String(this.applyTtlJitter(ttlSeconds)),
+        ],
+      );
+      return result === 1;
+    } catch (error: unknown) {
+      // 比较失败时放弃回写：宁可让缓存多陈旧一个周期，也不能覆盖更新的配置
+      this.logger.warn(
+        `[cache-refresh] 放弃条件回写 ${cacheKey}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private buildPayload<T>(
+    data: T,
+    refreshAfterMs: number,
+  ): RefreshableCachePayload<T> {
+    const now = Date.now();
+    return {
+      generatedAt: now,
+      refreshAt: now + Math.max(0, refreshAfterMs),
+      data,
+    };
   }
 
   /**

@@ -11,10 +11,17 @@ describe('PrintAgentService', () => {
   let service: PrintAgentService;
 
   const prismaService = {
+    $transaction: jest.fn((ops: Array<Promise<unknown>>) => Promise.all(ops)),
     store: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     printAgent: {
       upsert: jest.fn(),
       findFirst: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    printAgentTaskLog: {
+      create: jest.fn().mockResolvedValue({ id: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
   };
   const redisService = {
@@ -57,7 +64,8 @@ describe('PrintAgentService', () => {
     expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
     expect(prismaService.store.update).toHaveBeenCalledWith({
       where: { id: 11 },
-      data: { printAgentBindCode: code },
+      // 重置绑定码同时撤销旧令牌与旧设备，避免旧代理继续接收小票
+      data: { printAgentBindCode: code, printAgentToken: null },
     });
   });
 
@@ -135,11 +143,15 @@ describe('PrintAgentService', () => {
     };
     await service.attach(11, socket);
 
-    const result = await service.dispatch(11, {
-      taskId: 't1',
-      target: 'kitchen',
-      dataBase64: 'AA==',
-    });
+    const result = await service.dispatch(
+      11,
+      {
+        taskId: 't1',
+        target: 'kitchen',
+        dataBase64: 'AA==',
+      },
+      { domain: 'scan' },
+    );
     expect(result.ok).toBe(true);
     expect(socket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"print"'),
@@ -186,11 +198,15 @@ describe('PrintAgentService', () => {
 
   it('dispatch：本 worker 无连接但 Redis 在线标记存在时跨 worker 转发', async () => {
     redisService.exists.mockResolvedValue(true);
-    const result = await service.dispatch(11, {
-      taskId: 't2',
-      target: 'cashier',
-      dataBase64: 'AA==',
-    });
+    const result = await service.dispatch(
+      11,
+      {
+        taskId: 't2',
+        target: 'cashier',
+        dataBase64: 'AA==',
+      },
+      { domain: 'scan' },
+    );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.forwarded).toBe(true);
     expect(redisService.publish).toHaveBeenCalledWith(
@@ -201,11 +217,15 @@ describe('PrintAgentService', () => {
 
   it('dispatch：无连接且无在线标记时返回 agent-offline', async () => {
     redisService.exists.mockResolvedValue(false);
-    const result = await service.dispatch(11, {
-      taskId: 't3',
-      target: 'cashier',
-      dataBase64: 'AA==',
-    });
+    const result = await service.dispatch(
+      11,
+      {
+        taskId: 't3',
+        target: 'cashier',
+        dataBase64: 'AA==',
+      },
+      { domain: 'scan' },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('agent-offline');
   });
@@ -264,5 +284,38 @@ describe('PrintAgentService', () => {
     expect(redisService.del).toHaveBeenCalledWith(
       expect.stringContaining('print-agent:printers:11'),
     );
+  });
+
+  describe('recordReceipt', () => {
+    it('代理重试中：保持 submitted，不判最终失败', async () => {
+      await service.recordReceipt(11, {
+        taskId: 'task-1',
+        ok: false,
+        error: '缺纸',
+        retrying: true,
+      });
+
+      expect(prismaService.printAgentTaskLog.updateMany).toHaveBeenCalledWith({
+        where: { storeId: 11, taskId: 'task-1', status: 'submitted' },
+        data: { error: '缺纸' },
+      });
+    });
+
+    it('最终失败：推进为 failed 并记录完成时间', async () => {
+      await service.recordReceipt(11, {
+        taskId: 'task-2',
+        ok: false,
+        error: '纸尽',
+      });
+
+      expect(prismaService.printAgentTaskLog.updateMany).toHaveBeenCalledWith({
+        where: { storeId: 11, taskId: 'task-2' },
+        data: {
+          status: 'failed',
+          error: '纸尽',
+          finishedAt: expect.any(Date),
+        },
+      });
+    });
   });
 });

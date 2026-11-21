@@ -19,6 +19,9 @@
 # │              SSH_REMOTE_TMP                                            │
 # │  必需 Variables：无（有默认值），可用 APP_ROOT / APP_SERVICE /           │
 # │              APP_ENV_FILE / APP_HEALTHCHECK_URL 覆盖默认路径             │
+# │  打印代理安装包：不入库。Variables.PRINT_AGENT_ASSET_URL（tar.gz/zip，   │
+# │              含两份安装包与 VERSION）为版本化产物来源；                   │
+# │              Variables.PRINT_AGENT_VERSION 用于与安装包 VERSION 交叉校验 │
 # │  运行时配置：统一由服务器 ${APP_ENV_FILE} 承载，不再从 GitHub 注入，     │
 # │              避免 CI 变量与服务器环境文件两处漂移。                      │
 # │  自动部署总开关：Variables.AUTO_DEPLOY_ENABLED（设为 false 降级为手动）  │
@@ -46,6 +49,11 @@ on:
         type: boolean
       skip_smoke:
         description: 跳过发布后的公网健康检查
+        required: true
+        default: false
+        type: boolean
+      skip_print_agent_assets:
+        description: 跳过打印代理安装包（仅本次不升级代理版本时勾选）
         required: true
         default: false
         type: boolean
@@ -170,15 +178,124 @@ jobs:
           test -f dist/config/cluster.configuration.js || { echo '::error::dist/config/cluster.configuration.js 缺失'; exit 1; }
           echo '构建产物校验通过'
 
+      # 打印代理安装包不入库（.gitignore 忽略 public/print-agent/），CI 工作区默认没有这些二进制。
+      # 依次尝试：复用工作区已有产物 → 按 PRINT_AGENT_ASSET_URL 拉版本化产物 → 都没有则失败，
+      # 不再静默跳过：静默跳过会让发布「成功」，但下载接口给的是旧包或直接 404。
+      # VERSION 必须由产物自带：绝不在这里按期望值补写，
+      # 否则内容没变的旧包会被贴上「新版」标签并通过校验，已装客户永远收不到升级提示。
+      - name: Prepare print-agent assets
+        id: print_agent
+        shell: bash
+        env:
+          ASSET_URL: ${{ vars.PRINT_AGENT_ASSET_URL || secrets.PRINT_AGENT_ASSET_URL }}
+          ASSET_VERSION: ${{ vars.PRINT_AGENT_VERSION }}
+          SKIP_ASSETS: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_print_agent_assets && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          required=(print-agent-win64.exe print-agent-macos-app.zip)
+
+          # 只配了期望版本、没配来源又勾了跳过：直接放行，不碰任何安装包文件
+          if [ "${SKIP_ASSETS}" = 'true' ]; then
+            rm -rf public/print-agent
+            echo '::warning::已手动跳过打印代理安装包，本次发布沿用服务器已有版本（不打包、不校验版本）'
+            echo 'version=' >> "$GITHUB_OUTPUT"
+            echo 'included=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          workspace_complete=true
+          for name in "${required[@]}" VERSION; do
+            if [ ! -s "public/print-agent/${name}" ]; then
+              workspace_complete=false
+            fi
+          done
+
+          work='.print-agent-assets'
+          rm -rf "${work}"
+          source_dir=''
+
+          if [ "${workspace_complete}" = 'true' ]; then
+            source_dir='public/print-agent'
+            echo '复用工作区已有的打印代理产物（含 VERSION）'
+          elif [ -n "${ASSET_URL}" ]; then
+            echo "下载版本化打印代理产物：${ASSET_URL}"
+            mkdir -p "${work}/unpack"
+            case "${ASSET_URL}" in
+              *.zip)
+                curl -fsSL --retry 3 --retry-delay 2 -o "${work}/bundle.zip" "${ASSET_URL}"
+                unzip -qo "${work}/bundle.zip" -d "${work}/unpack"
+                ;;
+              *)
+                curl -fsSL --retry 3 --retry-delay 2 -o "${work}/bundle.tar.gz" "${ASSET_URL}"
+                tar -xzf "${work}/bundle.tar.gz" -C "${work}/unpack"
+                ;;
+            esac
+            # 整套产物必须同源：以 win64 包所在目录为根，
+            # 不再「按文件名递归各取一份」——那会把下载包与工作区残留的旧包拼成半套产物，
+            # 校验能过但两个平台的安装包来自不同构建。
+            hit="$(find "${work}/unpack" -type f -name 'print-agent-win64.exe' -print -quit || true)"
+            if [ -z "${hit}" ]; then
+              echo '::error::下载产物里找不到 print-agent-win64.exe'
+              exit 1
+            fi
+            source_dir="$(dirname "${hit}")"
+            echo "产物根目录：${source_dir}"
+          else
+            echo '::error::缺少打印代理安装包'
+            echo '::error::二选一：① 设置 Variables.PRINT_AGENT_ASSET_URL 指向含两份安装包与 VERSION 的 tar.gz/zip；② 在工作区预置 public/print-agent/（同样必须带 VERSION）。VERSION 必须由构建产出，CI 不会补写。'
+            exit 1
+          fi
+
+          missing=()
+          for name in "${required[@]}" VERSION; do
+            if [ ! -s "${source_dir}/${name}" ]; then
+              missing+=("${name}")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::打印代理产物不完整（${source_dir}）：${missing[*]}"
+            echo '::error::两份安装包与 VERSION 必须来自同一套构建产物；VERSION 由构建产出，CI 不会补写。'
+            exit 1
+          fi
+
+          version="$(tr -d '[:space:]' < "${source_dir}/VERSION")"
+          if ! printf '%s' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::VERSION 内容不是合法的 x.y.z 版本号：'${version}'"
+            exit 1
+          fi
+          if [ -n "${ASSET_VERSION}" ] && [ "${version}" != "${ASSET_VERSION}" ]; then
+            echo "::error::安装包版本 ${version} 与 Variables.PRINT_AGENT_VERSION=${ASSET_VERSION} 不一致"
+            exit 1
+          fi
+
+          # 校验全部通过后再一次性替换：要么整目录是新的完整产物，要么保持原样
+          if [ "${source_dir}" != 'public/print-agent' ]; then
+            rm -rf public/print-agent
+            mkdir -p public/print-agent
+            cp -a "${source_dir}/." public/print-agent/
+            rm -rf "${work}"
+          fi
+
+          echo "print-agent 版本：${version}（来自产物 VERSION 标记）"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo 'included=true' >> "$GITHUB_OUTPUT"
+
       # 产物自带 package.json / pnpm-lock.yaml / prisma，保证服务器侧依赖安装与迁移可复现；
       # 同时带上服务器端发布脚本，只需传输一个文件，避免多文件路径漂移。
+      # public/print-agent 与 VERSION 一并入包，服务器脚本据此覆盖 shared/print-agent 并做版本校验。
       - name: Package release archive
         shell: bash
         run: |
           set -euo pipefail
-          tar -czf "release-${{ steps.target.outputs.sha }}.tar.gz" \
-            dist prisma prisma.config.ts package.json pnpm-lock.yaml deploy/scripts/remote-release.sh
-          ls -lh "release-${{ steps.target.outputs.sha }}.tar.gz"
+          archive="release-${{ steps.target.outputs.sha }}.tar.gz"
+          paths=(dist prisma prisma.config.ts package.json pnpm-lock.yaml deploy/scripts/remote-release.sh)
+          if [ -d public/print-agent ]; then
+            paths+=(public/print-agent)
+            echo '本次产物包含打印代理安装包：'
+            ls -lh public/print-agent
+          fi
+          tar -czf "$archive" "${paths[@]}"
+          ls -lh "$archive"
 
       - name: Verify SSH settings
         shell: bash
@@ -237,7 +354,9 @@ jobs:
             rm -rf "${WORK_DIR}" && mkdir -p "${WORK_DIR}"
             tar -xzf "${ARCHIVE}" -C "${WORK_DIR}" deploy/scripts/remote-release.sh
 
-            bash "${WORK_DIR}/deploy/scripts/remote-release.sh"
+            # ARCHIVE 是本步骤的局部变量，脚本只认 RELEASE_ARCHIVE，必须显式传入：
+            # 漏传会在参数校验阶段直接失败（RELEASE_ARCHIVE 为空），发布根本不会开始。
+            RELEASE_ARCHIVE="${ARCHIVE}" bash "${WORK_DIR}/deploy/scripts/remote-release.sh"
 
       - name: Verify public endpoint
         if: >-
@@ -291,6 +410,7 @@ jobs:
             echo "- Commit: ${{ steps.target.outputs.sha || github.sha }}"
             echo "- Dry run: ${RELEASE_DRY_RUN}"
             echo "- Reuse CI artifact: ${{ steps.build_strategy.outputs.skip || 'unknown' }}"
+            echo "- Print agent: ${{ steps.print_agent.outputs.version || '未标记' }}（随产物打包：${{ steps.print_agent.outputs.included || 'false' }}）"
             echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy || false }}"
             echo "- Skip smoke: ${{ inputs.skip_smoke || false }}"
             echo "- API domain: ${API_DOMAIN}"

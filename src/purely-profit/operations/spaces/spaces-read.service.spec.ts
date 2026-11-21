@@ -264,6 +264,7 @@ describe('SpaceSessionReadService 状态修复', () => {
   const commerceAccessService = {
     resolveViewStoreId: jest.fn(),
     ensureCanAccessStore: jest.fn(),
+    canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
     resolveSingleStoreId: jest.fn(),
   };
 

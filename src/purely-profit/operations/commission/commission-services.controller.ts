@@ -30,7 +30,8 @@ import { CommissionServicesService } from './commission-services.service';
 import {
   CommissionOpenOptionsResponseDto,
   CommissionServiceResponseDto,
-  UpsertCommissionServiceDto,
+  CreateCommissionServiceDto,
+  UpdateCommissionServiceDto,
 } from './dto/commission-service.dto';
 
 @ApiTags('CommissionServices')
@@ -73,19 +74,21 @@ export class CommissionServicesController {
   @ApiCreatedResponse({ type: CommissionServiceResponseDto })
   create(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: UpsertCommissionServiceDto,
+    @Body() dto: CreateCommissionServiceDto,
   ): Promise<CommissionServiceResponseDto> {
     return this.commissionServicesService.create(user, dto);
   }
 
   @Patch(':id')
   @RequirePermissions('commission:manage')
-  @ApiOperation({ summary: '更新提成服务配置（overrides 全量替换）' })
+  @ApiOperation({
+    summary: '更新提成服务配置（只更新传入字段，未传 overrides 不清空）',
+  })
   @ApiOkResponse({ type: CommissionServiceResponseDto })
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) serviceId: number,
-    @Body() dto: UpsertCommissionServiceDto,
+    @Body() dto: UpdateCommissionServiceDto,
   ): Promise<CommissionServiceResponseDto> {
     return this.commissionServicesService.update(user, serviceId, dto);
   }

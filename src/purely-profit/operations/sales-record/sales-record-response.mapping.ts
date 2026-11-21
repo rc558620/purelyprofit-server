@@ -2,7 +2,11 @@
 // 金额口径见 sales-record.domain；收款事件见 sales-record-payment-events.domain；
 // 台位费展示名见 sales-record-display-name.utils。
 import { StaffRole } from '@prisma/client';
-import { toOptionalText, toTimestampMs } from '../../commerce/commerce.utils';
+import {
+  toOptionalText,
+  toOptionalTimestampMs,
+  toTimestampMs,
+} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   buildGrouponLabel,
@@ -14,7 +18,10 @@ import type {
   SalesRecordResponseDto,
 } from './dto/sales-record-response.dto';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
-import { prefixSpaceName } from './sales-record-display-name.utils';
+import {
+  prefixSpaceName,
+  resolveOperatorDisplayName,
+} from './sales-record-display-name.utils';
 import type { ScanOrderingEnrichment } from './sales-record-enrichment';
 import {
   aggregateSalesRecordItems,
@@ -30,6 +37,7 @@ import {
 } from './sales-record.domain';
 import {
   buildSalesRecordPaymentEvents,
+  isVoucherPrepaidOrder,
   type SalesRecordPaymentEvent,
 } from './sales-record-payment-events.domain';
 
@@ -76,7 +84,9 @@ function buildGrouponResponseFields(order: SaleOrderWithItems): Partial<{
   }
   if (order.voucherCode) result.voucherCode = order.voucherCode;
   if (order.voucherPlatform) result.voucherPlatform = order.voucherPlatform;
-  if (order.voucherFaceAmount != null) {
+  // 券面金额只在确属团购券预付时下发：历史脏数据里现金预付的实收金额
+  // 曾被写进该字段，原样透出会让卡片多显示「券面金额」并误导成券结算
+  if (order.voucherFaceAmount != null && isVoucherPrepaidOrder(order)) {
     result.voucherFaceAmount = Money.fromDbCents(
       order.voucherFaceAmount,
     ).toOutputYuan();
@@ -179,6 +189,44 @@ function resolveResponseBasis(
   return { orderAmounts, paymentEvents, aggregatedItems };
 }
 
+/**
+ * 是否为「空间结账单」：真实关联到同门店、已结账的空间会话，且订单未退款。
+ *
+ * 只作为列表来源标记（决定是否展示补打入口），不承载小票内容；
+ * 真正的补打接口会在服务层重新校验一次，不信任该标记。
+ */
+export function resolveIsSpaceCheckoutOrder(
+  order: Pick<SaleOrderWithItems, 'storeId' | 'refund' | 'spaceSession'>,
+): boolean {
+  const session = order.spaceSession;
+  if (!session) return false;
+  if (session.status !== 'settled') return false;
+  if (order.refund) return false;
+  return session.storeId === order.storeId;
+}
+
+/**
+ * 开台信息：仅关联空间会话的订单返回「开台时间 + 开台操作员」。
+ *
+ * 结账侧不重复输出字段——空间结账落单时 `date` 即结账时刻、
+ * `operatorName` 即结账操作员，前端直接用这两个既有字段展示「结账」。
+ * 无会话（扫码点餐 / 手工补录 / 普通录单）时一律缺省，前端保留原单时间展示。
+ */
+function buildSpaceSessionOpenFields(
+  order: SaleOrderWithItems,
+): Partial<SalesRecordResponseDto> {
+  const session = order.spaceSession;
+  if (!session) return {};
+  const openTime = toOptionalTimestampMs(session.startTime);
+  const openOperatorName = toOptionalText(session.openOperatorNameSnapshot);
+  const openOperatorRole = resolveOperatorRole(session.openOperatorStaff);
+  return {
+    ...(openTime === undefined ? {} : { openTime }),
+    ...(openOperatorName ? { openOperatorName } : {}),
+    ...(openOperatorRole ? { openOperatorRole } : {}),
+  };
+}
+
 export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
   enrichment?: ScanOrderingEnrichment | SalesRecordSpecsEnrichment,
@@ -189,7 +237,8 @@ export function mapSalesRecordResponse(
     enrichment,
   );
 
-  const operatorName = toOptionalText(order.operatorNameSnapshot) ?? null;
+  // 结账操作员：自动结账会话由系统用户落单，兜底展示「空间自动结账」
+  const operatorName = resolveOperatorDisplayName(order) ?? null;
   const operatorRole = resolveOperatorRole(order.operatorStaff);
   const { paymentMethod, paymentLabel } = resolvePaymentDisplay(order);
 
@@ -213,10 +262,13 @@ export function mapSalesRecordResponse(
     ...(note ? { note } : {}),
     ...(operatorName ? { operatorName } : {}),
     ...(operatorRole ? { operatorRole } : {}),
+    ...buildSpaceSessionOpenFields(order),
     ...buildManualEntryFields(order),
     date: toTimestampMs(order.date),
     createdAt: toTimestampMs(order.createdAt),
     refundedAt: order.refund ? toTimestampMs(order.refund.refundedAt) : null,
+    // 来源标记：供「空间小票补打」入口判断，前端不得从订单号/商品名/备注反猜
+    isSpaceCheckoutOrder: resolveIsSpaceCheckoutOrder(order),
     // ─── 团购 / 券 / 平台结算元数据（从分转元，可选）────────────────────────
     ...buildGrouponResponseFields(order),
     // 金额汇总仅扫码点餐增强提供；非扫码订单（空间会话）只有规格行，不得输出该字段

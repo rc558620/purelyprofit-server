@@ -900,7 +900,10 @@ model PrintAgentTaskLog {
   id          Int             @id @default(autoincrement())
   storeId     Int             @map("store_id")
   taskId      String          @unique @map("task_id") @db.VarChar(64)
-  /// 关联销售订单（空间/扫码点餐出票时有值），补打按此去重
+  /// 业务域：scan=扫码点餐 / space=空间小票。saleOrderId 是各域自己的订单 ID，
+  /// 两个域的自增 ID 必然撞号，必须带业务域才能避免回执与补打去重串票。
+  domain      String          @default("scan") @map("domain") @db.VarChar(16)
+  /// 关联业务订单 ID（空间/扫码点餐出票时有值），同一业务域内按此去重
   saleOrderId Int?            @map("sale_order_id")
   /// 打印目标：cashier / kitchen / space
   target      String          @map("target") @db.VarChar(16)
@@ -915,7 +918,9 @@ model PrintAgentTaskLog {
   finishedAt  DateTime?       @map("finished_at")
 
   @@index([storeId, createdAt(sort: Desc)])
-  @@index([saleOrderId, createdAt(sort: Desc)])
+  // 显式命名：默认名（表_列..._idx）超过 Postgres 63 字符会被截断，
+  // 手写迁移与 Prisma 生成会对不上，导致 migrate drift 报差异。
+  @@index([storeId, domain, saleOrderId, target, createdAt(sort: Desc)], map: "print_agent_tasks_domain_lookup_idx")
   @@map("print_agent_tasks")
 }
 

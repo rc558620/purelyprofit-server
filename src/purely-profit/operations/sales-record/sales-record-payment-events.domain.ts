@@ -6,6 +6,27 @@ import type {
   SaleOrderWithItems,
 } from './sales-record.domain';
 
+/** 团购券预付判定所需的最小订单形态（列表 / CSV / 响应映射都能直接传入）。 */
+interface VoucherPrepaidSource {
+  customerPaymentMethod?: string | null;
+  voucherCode?: string | null;
+  voucherPlatform?: string | null;
+  spaceSession?: { prepaidCustomerPaymentMethod?: string | null } | null;
+}
+
+/**
+ * 是否真的用了团购券（开台券口径）。
+ *
+ * 不能只看券面金额字段：历史数据里现金 / 微信等预付的实收金额曾被误写进
+ * 券面字段（前端开台入参把实收金额回退给了券面金额），只凭金额会把现金预付
+ * 错标成「开台券 团购」并多出「券面金额」。因此必须有券标识才认定为券预付。
+ */
+export function isVoucherPrepaidOrder(order: VoucherPrepaidSource): boolean {
+  if (String(order.customerPaymentMethod ?? '') === 'groupon_voucher') return true;
+  if (order.voucherCode || order.voucherPlatform) return true;
+  return order.spaceSession?.prepaidCustomerPaymentMethod === 'groupon_voucher';
+}
+
 /**
  * 实付金额的「收款 / 退款事件」明细：每笔钱都带真实支付方式，
  * 少了用结账选择的方式补钱、多了用结账选择的方式退款。
@@ -19,10 +40,12 @@ export interface SalesRecordPaymentEvent {
   /**
    * 事件类型：
    * - 团购券结算单：voucher_table_fee 券抵台位费 + checkout_due 结账（到店补付）
-   * - 其余订单（资金流口径）：open_voucher 开台券 / renew 续费 / checkout_due 结账补差 / checkout_refund 结账退款
+   * - 其余订单（资金流口径）：open_voucher 开台券 / prepaid 开台预付（现金等非券方式）
+   *   / renew 续费 / checkout_due 结账补差 / checkout_refund 结账退款
    */
   kind:
     | 'open_voucher'
+    | 'prepaid'
     | 'renew'
     | 'checkout_due'
     | 'checkout_refund'
@@ -135,7 +158,7 @@ function buildRenewEvents(order: SaleOrderWithItems): {
   return { events, collected };
 }
 
-/** 资金流口径：开台券 + 续费 + 结账补差 / 结账退款 */
+/** 资金流口径：开台预付（券 / 非券）+ 续费 + 结账补差 / 结账退款 */
 function buildFundFlowEvents(
   order: SaleOrderWithItems,
   payableAmount: number,
@@ -143,12 +166,12 @@ function buildFundFlowEvents(
   const events: SalesRecordPaymentEvent[] = [];
   let collected = Money.zero();
 
-  // ① 开台券：券面金额（开台时已收款）
+  // ① 开台预付：团购券按券面记「开台券」，其余方式按实收金额记「开台预付」
   const faceAmount =
     order.voucherFaceAmount == null
       ? Money.zero()
       : Money.fromDbCents(order.voucherFaceAmount);
-  if (faceAmount.isPositive()) {
+  if (faceAmount.isPositive() && isVoucherPrepaidOrder(order)) {
     events.push({
       kind: 'open_voucher',
       method: 'groupon_voucher',
@@ -157,6 +180,20 @@ function buildFundFlowEvents(
       direction: 'in',
     });
     collected = collected.add(faceAmount);
+  } else {
+    // 现金 / 微信 / 支付宝 / 刷卡等预付：开台已收款，必须单独成行，
+    // 否则「结账」金额会等于全部消费，与实际结账只收差额对不上
+    const prepaidFen = order.spaceSession?.prepaidAmount ?? 0;
+    if (prepaidFen > 0) {
+      const prepaidMoney = Money.fromDbCents(prepaidFen);
+      events.push({
+        kind: 'prepaid',
+        method: String(order.spaceSession?.prepaidPaymentMethod ?? 'cash'),
+        amount: prepaidMoney.toOutputYuan(),
+        direction: 'in',
+      });
+      collected = collected.add(prepaidMoney);
+    }
   }
 
   // ② 续费

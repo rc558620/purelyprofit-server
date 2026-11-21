@@ -56,7 +56,8 @@ import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 import { PrintAgentService } from './print-agent.service';
 import { PrintAgentRegistryService } from './print-agent-registry.service';
 import { PrintAgentBindingService } from './print-agent-binding.service';
-import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
+import { ScanOrderingPrintTaskService } from './scan-ordering-print-task.service';
+import { ScanOrderingPrintDispatchService } from './scan-ordering-print-dispatch.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -113,8 +114,9 @@ import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.ser
     ScanOrderingPrintSettingsService,
     ScanOrderingTableQrPosterService,
     ScanOrderingPrintDataService,
-    // 自动打印服务端去重：多终端同时收到同一事件时只下发一张
-    ScanOrderingPrintDedupeService,
+    // 自动打印任务状态：去重 + 「已下发/失败/结果未知」查询
+    ScanOrderingPrintTaskService,
+    ScanOrderingPrintDispatchService,
     FeiePrintService,
     ScanOrderingCloudPrintService,
     UsbPrintService,

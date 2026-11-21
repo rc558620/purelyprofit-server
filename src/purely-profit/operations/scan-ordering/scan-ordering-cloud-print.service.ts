@@ -1,12 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
-import { ScanOrderingPrintDedupeService } from './scan-ordering-print-dedupe.service';
 import { FeiePrintService } from './feie-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import type { ScanOrderingPrintSource } from './dto/scan-ordering-print-action.dto';
 
 /** 云打印目标：收银台顾客票 / 后厨制作单。 */
 export type CloudPrintTarget = 'cashier' | 'kitchen';
@@ -24,33 +23,29 @@ export class ScanOrderingCloudPrintService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly printDataService: ScanOrderingPrintDataService,
-    private readonly printDedupeService: ScanOrderingPrintDedupeService,
     private readonly feiePrintService: FeiePrintService,
   ) {}
 
   /**
-   * 商家端下发云打印任务（按目标取对应打印机 SN）。
+   * 按调用方传入的配置快照下发云打印。
    *
-   * @param source auto 时按「门店 + 订单 + 目标」服务端去重：多终端同时收到同一
-   *   接单事件只会打一张；manual（缺省）为人工补打，不去重。
+   * 通道判定、去重与任务状态由 ScanOrderingPrintDispatchService 统一编排；
+   * 这里只做「用这份快照取 SN 并下发」，避免同一次打印读到两份配置。
    */
-  async printForMerchant(
-    user: AuthenticatedUser,
-    target: CloudPrintTarget,
-    orderId: number,
-    source: ScanOrderingPrintSource = 'manual',
-  ): Promise<string> {
-    const storeId = await this.resolveMerchantStoreId(user);
-    if (source === 'auto') {
-      const acquired = await this.printDedupeService.tryAcquireAutoDispatch({
-        storeId,
-        orderId,
-        target,
-      });
-      // 已下发过：按成功返回同一订单号，前端无需区分「补打」与「已打过」
-      if (!acquired) return String(orderId);
+  async printSnapshot(input: {
+    storeId: number;
+    settings: ScanOrderingPrintSettings;
+    target: CloudPrintTarget;
+    orderId: number;
+    operatorName?: string;
+  }): Promise<string> {
+    const { storeId, settings, target, orderId } = input;
+    if (!this.feiePrintService.enabled) {
+      // 未配置账号属于「明确未送达」：不占用自动打印名额，配置后可重试
+      throw new BadRequestException(
+        '飞鹅云打印未配置账号，请先在打印设置中完成云打印配置',
+      );
     }
-    const settings = await this.printSettingsService.getByStoreId(storeId);
     const sn =
       target === 'kitchen'
         ? settings.kitchenCloudPrinterSn
@@ -62,7 +57,7 @@ export class ScanOrderingCloudPrintService {
           : '收银台打印未配置云打印机 SN，请先在打印设置中配置',
       );
     }
-    const operatorName = user.name ?? undefined;
+    const operatorName = input.operatorName;
     const content =
       target === 'kitchen'
         ? await this.buildKitchenTicketContent(storeId, orderId, operatorName)

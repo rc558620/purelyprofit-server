@@ -13,6 +13,7 @@ import {
   type SpaceTimeFeeModeValue,
 } from './space-session.constants';
 import { SpaceSessionResponseDto } from './space-session-shared.response.dto';
+import type { SpacePrintOrder } from '../space-print-data.service';
 
 export class CheckoutSpaceSessionPreviewSummaryDto {
   @ApiProperty({ example: 95, description: '本次计费总分钟数' })
@@ -117,4 +118,10 @@ export class CheckoutSpaceSessionResponseDto {
   @ValidateNested()
   @Type(() => SalesRecordResponseDto)
   salesOrder: SalesRecordResponseDto;
+
+  @ApiPropertyOptional({
+    description:
+      '本次结账的权威空间小票快照（浏览器通道直接渲染，与销售记录补打同源）；读取失败时省略',
+  })
+  receiptSnapshot?: SpacePrintOrder;
 }

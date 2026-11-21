@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseIntValue } from './env.utils';
 
 /**
@@ -47,11 +49,39 @@ export interface PrintConfig {
   usbPrint: UsbPrintConfig;
 }
 
+/**
+ * 读取下载目录内的 VERSION 标记（由构建产物提供，与可下载的二进制同源）。
+ *
+ * 返回 null 表示文件缺失或内容为空，调用方回退到环境变量/默认值。
+ */
+function readPrintAgentVersionMarker(): string | null {
+  try {
+    const raw = readFileSync(
+      join(process.cwd(), 'public', 'print-agent', 'VERSION'),
+      'utf8',
+    );
+    const version = raw.trim();
+    return version.length > 0 ? version : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 解析 `printAgent` 配置块。 */
 export function resolvePrintAgentConfig(): PrintAgentConfig {
   return {
-    /** 最新可下载的代理版本号（与 Go 代理 Version 常量保持一致） */
-    latestVersion: process.env.PRINT_AGENT_LATEST_VERSION ?? '0.1.1',
+    /**
+     * 最新可下载的代理版本号。
+     *
+     * 优先读发布目录内的 VERSION 标记：它是随安装包一起产出的，
+     * 与真正能被下载到的二进制同源；若先读环境变量，
+     * 一旦环境变量与安装包不一致就会「提示最新 0.1.2、下载到的还是 0.1.1」，
+     * 已装客户永远收不到升级提示。发布脚本也用同一份标记做校验。
+     */
+    latestVersion:
+      readPrintAgentVersionMarker() ??
+      process.env.PRINT_AGENT_LATEST_VERSION ??
+      '0.1.5',
   };
 }
 

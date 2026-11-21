@@ -3,11 +3,13 @@
  * 同名校验、服务人员存在性校验、软删除均在此收敛。
  */
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  PreconditionFailedException,
 } from '@nestjs/common';
-import { EmployeeStatus, type Prisma } from '@prisma/client';
+import { EmployeeStatus, Prisma } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -18,7 +20,8 @@ import { toCommissionServiceResponse } from './commission.mapper';
 import type {
   CommissionOpenOptionsResponseDto,
   CommissionServiceResponseDto,
-  UpsertCommissionServiceDto,
+  CreateCommissionServiceDto,
+  UpdateCommissionServiceDto,
 } from './dto/commission-service.dto';
 import type { CommissionOverrideRecord } from './commission.types';
 
@@ -65,8 +68,12 @@ export class CommissionServicesService {
       '无权访问该门店的开台选项',
     );
 
-    const [records, store, employees] = await Promise.all([
-      this.coreService.listConfigRecords(this.prisma, storeId),
+    const [services, store, employees] = await Promise.all([
+      this.prisma.commissionService.findMany({
+        where: { storeId, enabled: true, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      }),
       this.prisma.store.findUnique({
         where: { id: storeId },
         select: { technicianLabel: true },
@@ -83,9 +90,10 @@ export class CommissionServicesService {
     const technicianLabel = normalizeTechnicianLabel(store?.technicianLabel);
 
     return {
-      services: records
-        .filter((record) => record.enabled)
-        .map((record) => ({ id: record.id, name: record.name })),
+      services: services.map((service) => ({
+        id: service.id,
+        name: service.name,
+      })),
       technicians: employees
         .filter(
           (employee) =>
@@ -103,7 +111,7 @@ export class CommissionServicesService {
   /** 新增服务配置：同名（未软删）返回 409，服务人员覆盖表须全部存在。 */
   async create(
     user: AuthenticatedUser,
-    dto: UpsertCommissionServiceDto,
+    dto: CreateCommissionServiceDto,
   ): Promise<CommissionServiceResponseDto> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -113,36 +121,45 @@ export class CommissionServicesService {
     );
 
     const overrides = this.toOverrideRecords(dto.overrides ?? []);
-    await this.assertNameAvailable(storeId, dto.name.trim(), undefined);
+    await this.assertNameAvailable(storeId, dto.name, undefined);
     await this.coreService.resolveTechnicianNames(
       this.prisma,
       storeId,
       overrides.map((override) => override.technicianId),
     );
 
-    const created = await this.prisma.commissionService.create({
-      data: {
-        storeId,
-        name: dto.name.trim(),
-        defaultCommission: Money.fromInputYuan(
-          dto.defaultCommission,
-        ).toDbCents(),
-        enabled: dto.enabled,
-        sortOrder: dto.sortOrder,
-        overrides: this.toPrismaOverrides(overrides),
-      },
-    });
+    try {
+      const created = await this.prisma.commissionService.create({
+        data: {
+          storeId,
+          name: dto.name,
+          defaultCommission: Money.fromInputYuan(
+            dto.defaultCommission,
+          ).toDbCents(),
+          enabled: dto.enabled ?? true,
+          sortOrder: dto.sortOrder ?? 1,
+          overrides: this.toPrismaOverrides(overrides),
+        },
+      });
 
-    return toCommissionServiceResponse(
-      this.coreService.toConfigRecord(created),
-    );
+      return toCommissionServiceResponse(
+        this.coreService.toConfigRecord(created),
+      );
+    } catch (error) {
+      // 并发创建同名服务时由唯一索引兜底，仍需转成 409 而不是 500。
+      throw this.toNameConflictIfNeeded(error);
+    }
   }
 
-  /** 更新服务配置：overrides 全量替换，仍需校验服务人员存在与同名校验。 */
+  /**
+   * 更新服务配置：只更新显式传入的字段。
+   * - 未传 `overrides` 时保持原覆盖表，避免「只切启停」把别人刚改的金额覆盖回去；
+   * - 传入 `expectedUpdatedAt` 时做版本校验，旧页面提交返回 412。
+   */
   async update(
     user: AuthenticatedUser,
     serviceId: number,
-    dto: UpsertCommissionServiceDto,
+    dto: UpdateCommissionServiceDto,
   ): Promise<CommissionServiceResponseDto> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -158,25 +175,62 @@ export class CommissionServicesService {
       throw new NotFoundException('提成服务配置不存在');
     }
 
-    const overrides = this.toOverrideRecords(dto.overrides ?? []);
-    await this.assertNameAvailable(storeId, dto.name.trim(), serviceId);
-    await this.coreService.resolveTechnicianNames(
-      this.prisma,
-      storeId,
-      overrides.map((override) => override.technicianId),
-    );
+    if (
+      dto.expectedUpdatedAt !== undefined &&
+      existing.updatedAt.getTime() !== dto.expectedUpdatedAt
+    ) {
+      throw new PreconditionFailedException(
+        '提成配置已被其他成员修改，请刷新后重试',
+      );
+    }
 
-    const updated = await this.prisma.commissionService.update({
-      where: { id: existing.id },
-      data: {
-        name: dto.name.trim(),
-        defaultCommission: Money.fromInputYuan(
-          dto.defaultCommission,
-        ).toDbCents(),
-        enabled: dto.enabled,
-        sortOrder: dto.sortOrder,
-        overrides: this.toPrismaOverrides(overrides),
-      },
+    const data: Prisma.CommissionServiceUpdateManyMutationInput = {};
+    if (dto.name !== undefined) {
+      if (dto.name !== existing.name) {
+        await this.assertNameAvailable(storeId, dto.name, serviceId);
+      }
+      data.name = dto.name;
+    }
+    if (dto.defaultCommission !== undefined) {
+      data.defaultCommission = Money.fromInputYuan(
+        dto.defaultCommission,
+      ).toDbCents();
+    }
+    if (dto.enabled !== undefined) {
+      data.enabled = dto.enabled;
+    }
+    if (dto.sortOrder !== undefined) {
+      data.sortOrder = dto.sortOrder;
+    }
+    if (dto.overrides !== undefined) {
+      const overrides = this.toOverrideRecords(dto.overrides);
+      await this.coreService.resolveTechnicianNames(
+        this.prisma,
+        storeId,
+        overrides.map((override) => override.technicianId),
+      );
+      data.overrides = this.toPrismaOverrides(overrides);
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('至少需要提交一个待更新字段');
+    }
+
+    try {
+      // 用 updateMany 限定未软删记录，避免「读取后被执行删除」的窗口里更新脏数据。
+      const result = await this.prisma.commissionService.updateMany({
+        where: { id: serviceId, storeId, deletedAt: null },
+        data,
+      });
+      if (result.count !== 1) {
+        throw new NotFoundException('提成服务配置不存在');
+      }
+    } catch (error) {
+      throw this.toNameConflictIfNeeded(error);
+    }
+
+    const updated = await this.prisma.commissionService.findFirstOrThrow({
+      where: { id: serviceId, storeId },
     });
 
     return toCommissionServiceResponse(
@@ -193,20 +247,27 @@ export class CommissionServicesService {
       '无权配置该门店的提成',
     );
 
-    const existing = await this.prisma.commissionService.findFirst({
+    const result = await this.prisma.commissionService.updateMany({
       where: { id: serviceId, storeId, deletedAt: null },
-    });
-    if (!existing) {
-      throw new NotFoundException('提成服务配置不存在');
-    }
-
-    await this.prisma.commissionService.update({
-      where: { id: existing.id },
       data: {
         deletedAt: new Date(),
         enabled: false,
       },
     });
+    if (result.count !== 1) {
+      throw new NotFoundException('提成服务配置不存在');
+    }
+  }
+
+  /** 唯一索引冲突（并发同名）转成 409，其他错误原样抛出。 */
+  private toNameConflictIfNeeded(error: unknown): Error {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return new ConflictException('服务名称已存在');
+    }
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   /** 校验服务名在门店内唯一（忽略已软删记录），冲突时返回 409。 */

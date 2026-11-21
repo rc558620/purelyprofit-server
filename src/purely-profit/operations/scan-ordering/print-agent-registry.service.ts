@@ -79,6 +79,19 @@ export class PrintAgentRegistryService {
     storeId: number,
     connection: PrintAgentConnection,
   ): Promise<void> {
+    const previous = this.connections.get(storeId);
+    if (previous && previous !== connection) {
+      // 同一门店新连接接管：主动关闭旧连接。否则旧连接会一直占用心跳与在线标记，
+      // 且它先于新连接断开时，detach 的守卫会让门店被误判离线（无人再可路由任务）。
+      try {
+        previous.close(4002, 'replaced by new connection');
+      } catch {
+        // 旧连接可能已在关闭中，忽略
+      }
+      this.logger.warn(
+        `打印代理连接被新连接替换: storeId=${storeId} pid=${process.pid}`,
+      );
+    }
     this.connections.set(storeId, connection);
     this.markSeen(storeId);
     try {

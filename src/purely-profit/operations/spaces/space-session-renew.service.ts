@@ -261,7 +261,14 @@ export class SpaceSessionRenewService {
 
       return {
         renewRecord: { ...result.renewRecord },
-        session: toSpaceSessionResponse(result.updated),
+        session: toSpaceSessionResponse(result.updated, {
+          canViewCommission:
+            await this.commerceAccessService.canAccessStoreWithPermission(
+              user,
+              session.storeId,
+              'commission:view',
+            ),
+        }),
       };
     } finally {
       // 与 settlement.service 口径一致：释放失败只告警，不掩盖业务结果/原始异常

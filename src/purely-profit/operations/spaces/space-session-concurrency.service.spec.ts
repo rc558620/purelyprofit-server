@@ -46,6 +46,7 @@ describe('SpaceSession concurrency fixes', () => {
 
     const commerceAccessService = {
       ensureCanAccessStore: jest.fn(),
+      canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
     };
 
     const redisLockService = {
@@ -304,6 +305,7 @@ describe('SpaceSession concurrency fixes', () => {
 
     const deps = {
       ensureCanAccessStore: jest.fn(),
+      canAccessStoreWithPermission: jest.fn().mockResolvedValue(true),
       findOperatorStaffIdForStore: jest.fn(),
     };
 

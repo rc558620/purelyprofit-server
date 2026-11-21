@@ -7,7 +7,7 @@ import type { Prisma, CommissionRecordStatus } from '@prisma/client';
 import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiDateTime } from '../../../shared/shanghai-time.utils';
-import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
+import { safeStreamCsvExportAsync } from '../../../shared/stream-export.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -32,6 +32,9 @@ import {
   DEFAULT_TECHNICIAN_LABEL,
   normalizeTechnicianLabel,
 } from '../../stores/dto/store-response.dto';
+
+/** CSV 导出分批大小：单批取数，内存占用只与批大小相关。 */
+const COMMISSION_EXPORT_BATCH_SIZE = 500;
 
 /** 汇总聚合行（Prisma groupBy 结果）。 */
 interface CommissionStatusAggregate {
@@ -93,14 +96,13 @@ export class CommissionRecordsService {
     const pageSize = query.pageSize ?? COMMISSION_RECORDS_DEFAULT_PAGE_SIZE;
     const where = this.buildWhere(storeId, query);
 
-    const [rows, total, aggregates] = await Promise.all([
+    const [rows, aggregates] = await Promise.all([
       this.prisma.commissionRecord.findMany({
         where,
         orderBy: [{ settledAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.commissionRecord.count({ where }),
       this.prisma.commissionRecord.groupBy({
         by: ['status'],
         where,
@@ -109,13 +111,17 @@ export class CommissionRecordsService {
       }),
     ]);
 
+    // 汇总的四种状态笔数之和等于 count(where)，无需再单独发一次 count 查询
+    const summary = this.buildSummary(
+      aggregates as unknown as CommissionStatusAggregate[],
+    );
+    const total = summary.totalCount;
+
     return {
       items: rows.map((row) =>
         toCommissionRecordResponse(this.toRecordRow(row)),
       ),
-      summary: this.buildSummary(
-        aggregates as unknown as CommissionStatusAggregate[],
-      ),
+      summary,
       total,
       hasMore: page * pageSize < total,
     };
@@ -159,7 +165,7 @@ export class CommissionRecordsService {
   }
 
   /**
-   * 流式导出提成明细 CSV，O(1) 内存占用。
+   * 流式导出提成明细 CSV，内存占用只与单批大小相关。
    * 导出当前筛选条件下全量记录（不随分页截断），列结构对齐打印报表；
    * 文件内容由后端生成，前端仅触发下载。
    */
@@ -177,12 +183,9 @@ export class CommissionRecordsService {
 
     const where = this.buildWhere(storeId, query);
 
-    // 先完成数据加载再写 CSV 头，保证加载阶段异常可被 NestJS 以 JSON 响应拦截
-    const [rows, aggregates] = await Promise.all([
-      this.prisma.commissionRecord.findMany({
-        where,
-        orderBy: [{ settledAt: 'desc' }, { id: 'desc' }],
-      }),
+    // 汇总与表头先查：这些阶段抛错时尚未写响应字节，仍可由 NestJS 返回 JSON 错误
+    const [technicianLabel, aggregates] = await Promise.all([
+      this.resolveStoreTechnicianLabel(storeId),
       this.prisma.commissionRecord.groupBy({
         by: ['status'],
         where,
@@ -190,24 +193,65 @@ export class CommissionRecordsService {
         _count: { _all: true },
       }),
     ]);
-
     const summary = this.buildSummary(
       aggregates as unknown as CommissionStatusAggregate[],
     );
     const prefixRows = this.buildExportPrefixRows(summary, query.month);
-    const dataRows = rows.map((row) =>
-      this.buildExportCsvRow(this.toRecordRow(row)),
-    );
 
-    const technicianLabel = await this.resolveStoreTechnicianLabel(storeId);
-
-    safeStreamCsvExport(
+    // 数据行按 (settledAt, id) 游标分批拉取，边取边写，避免全量明细进内存
+    await safeStreamCsvExportAsync(
       reply,
       `提成明细-${query.month ?? '全部'}.csv`,
       buildCommissionExportHeaders(technicianLabel),
-      dataRows,
+      this.iterateExportRows(where),
       prefixRows,
     );
+  }
+
+  /**
+   * 按 (settledAt DESC, id DESC) 游标分批产出 CSV 数据行。
+   * offset 分页在导出期间新增记录时会重复/漏读，游标分页与列表排序保持同一口径。
+   */
+  private async *iterateExportRows(
+    where: Prisma.CommissionRecordWhereInput,
+  ): AsyncGenerator<unknown[]> {
+    let cursor: { settledAt: Date; id: number } | null = null;
+
+    for (;;) {
+      const pageWhere: Prisma.CommissionRecordWhereInput =
+        cursor === null
+          ? where
+          : {
+              AND: [
+                where,
+                {
+                  OR: [
+                    { settledAt: { lt: cursor.settledAt } },
+                    { settledAt: cursor.settledAt, id: { lt: cursor.id } },
+                  ],
+                },
+              ],
+            };
+
+      const rows = await this.prisma.commissionRecord.findMany({
+        where: pageWhere,
+        orderBy: [{ settledAt: 'desc' }, { id: 'desc' }],
+        take: COMMISSION_EXPORT_BATCH_SIZE,
+      });
+      if (rows.length === 0) {
+        return;
+      }
+
+      for (const row of rows) {
+        yield this.buildExportCsvRow(this.toRecordRow(row));
+      }
+
+      const last: (typeof rows)[number] | undefined = rows[rows.length - 1];
+      if (!last || rows.length < COMMISSION_EXPORT_BATCH_SIZE) {
+        return;
+      }
+      cursor = { settledAt: last.settledAt, id: last.id };
+    }
   }
 
   /**
